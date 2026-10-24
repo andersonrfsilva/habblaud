@@ -4,7 +4,7 @@
 //
 // Cobertura (o que o Claude Code costuma escrever): blocos ``` com linguagem, `código`, **negrito**, *itálico*,
 // títulos #, listas com marcador e numeradas (com aninhamento), citação >, linha horizontal, tabelas
-// (preservadas como texto pré-formatado) e links (viram texto; o endereço fica na dica).
+// (cabeçalho, alinhamento e markdown inline nas células) e links (viram texto; o endereço fica na dica).
 
 export type MdInline =
   | { type: 'text'; text: string }
@@ -28,8 +28,10 @@ export type MdBlock =
   | { type: 'code'; lang: string; text: string }
   | { type: 'list'; ordered: boolean; items: MdListItem[] }
   | { type: 'quote'; text: string }
-  | { type: 'table'; text: string }
+  | { type: 'table'; align: MdAlign[]; head: string[] | null; rows: string[][] }
   | { type: 'rule' };
+
+export type MdAlign = 'left' | 'center' | 'right' | null;
 
 const MAX_DEPTH = 5;
 
@@ -52,6 +54,57 @@ function isTableStart(lines: readonly string[], i: number): boolean {
   if (i + 1 < lines.length && TABLE_SEP_RE.test(lines[i + 1])) return true;
   // Sem separador: só conta como tabela se houver ao menos duas linhas seguidas começando com "|".
   return line.trimStart().startsWith('|') && i + 1 < lines.length && lines[i + 1].trimStart().startsWith('|');
+}
+
+/**
+ * Células de uma linha de tabela: tira as barras das pontas e divide nas outras, menos nas escapadas (\|) e nas que
+ * ficam dentro de `código`. O texto de cada célula sai aparado, com \| virando |.
+ */
+export function splitTableRow(line: string): string[] {
+  let s = line.trim();
+  if (s.startsWith('|')) s = s.slice(1);
+  if (s.endsWith('|') && !s.endsWith('\\|')) s = s.slice(0, -1);
+  const cells: string[] = [];
+  let cur = '';
+  let tick = 0;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (ch === '\\' && s[i + 1] === '|') {
+      cur += '|';
+      i++;
+    } else if (ch === '`') {
+      let n = 1;
+      while (s[i + n] === '`') n++;
+      // Abre um trecho de código só se ele fechar na mesma linha (senão a crase é literal).
+      if (!tick && s.indexOf('`'.repeat(n), i + n) !== -1) tick = n;
+      else if (tick === n) tick = 0;
+      cur += s.slice(i, i + n);
+      i += n - 1;
+    } else if (ch === '|' && !tick) {
+      cells.push(cur.trim());
+      cur = '';
+    } else cur += ch;
+  }
+  cells.push(cur.trim());
+  return cells;
+}
+
+function alignOf(cell: string): MdAlign {
+  const left = cell.startsWith(':');
+  const right = cell.endsWith(':');
+  return left && right ? 'center' : right ? 'right' : left ? 'left' : null;
+}
+
+/** Linhas da tabela → cabeçalho (se houver separador), alinhamentos e corpo, todas com o número de colunas do cabeçalho. */
+function parseTable(lines: readonly string[]): Extract<MdBlock, { type: 'table' }> {
+  const hasHead = lines.length > 1 && TABLE_SEP_RE.test(lines[1]);
+  const head = hasHead ? splitTableRow(lines[0]) : null;
+  const body = (hasHead ? lines.slice(2) : lines).map(splitTableRow);
+  const cols = head ? head.length : Math.max(...body.map((r) => r.length));
+  const align = hasHead ? splitTableRow(lines[1]).map(alignOf) : [];
+  // Como no GFM: célula a mais some, a menos vira vazia.
+  const fit = (r: string[]) => Array.from({ length: cols }, (_, k) => r[k] ?? '');
+  return { type: 'table', align: Array.from({ length: cols }, (_, k) => align[k] ?? null), head, rows: body.map(fit) };
 }
 
 /** Uma linha que interrompe um parágrafo (começa outro bloco). */
@@ -109,7 +162,7 @@ export function tokenizeBlocks(src: string): MdBlock[] {
     if (isTableStart(lines, i)) {
       const rows: string[] = [];
       while (i < lines.length && !blank(lines[i]) && lines[i].includes('|')) rows.push(lines[i++]);
-      out.push({ type: 'table', text: rows.join('\n') });
+      out.push(parseTable(rows));
       continue;
     }
 
@@ -387,9 +440,29 @@ export function renderMarkdown(src: string): DocumentFragment {
         break;
       }
       case 'table': {
-        const pre = el('pre', 'ui-md__table');
-        pre.textContent = b.text;
-        frag.append(pre);
+        // A tabela rola por dentro da caixa: a resposta nunca ganha rolagem horizontal.
+        const box = el('div', 'ui-md__table');
+        const table = el('table', 'ui-md__tbl');
+        const row = (cells: readonly string[], tag: 'th' | 'td') => {
+          const tr = document.createElement('tr');
+          cells.forEach((cell, k) => {
+            const c = document.createElement(tag);
+            if (b.align[k]) c.style.textAlign = b.align[k];
+            appendInline(c, tokenizeInline(cell));
+            tr.append(c);
+          });
+          return tr;
+        };
+        if (b.head) {
+          const head = el('thead', '');
+          head.append(row(b.head, 'th'));
+          table.append(head);
+        }
+        const body = el('tbody', '');
+        for (const r of b.rows) body.append(row(r, 'td'));
+        table.append(body);
+        box.append(table);
+        frag.append(box);
         break;
       }
       case 'rule':

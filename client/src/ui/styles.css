@@ -5343,6 +5343,33 @@ button.ui-term__think:hover,
   color: #c9d1e2;
 }
 
+.ui-md__tbl {
+  border-collapse: collapse;
+  font: inherit;
+}
+
+.ui-md__tbl th,
+.ui-md__tbl td {
+  padding: 3px 10px;
+  border: 1px solid var(--ui-line);
+  text-align: left;
+  vertical-align: top;
+  /* Célula quebra a linha só nos espaços; a caixa rola na horizontal se não couber. */
+  white-space: pre-wrap;
+  overflow-wrap: normal;
+  min-width: 4ch;
+}
+
+.ui-md__tbl th {
+  font-weight: 700;
+  color: #f3f6fc;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.ui-md__tbl tbody tr:nth-child(even) td {
+  background: rgba(255, 255, 255, 0.02);
+}
+
 .ui-md__list {
   display: flex;
   flex-direction: column;

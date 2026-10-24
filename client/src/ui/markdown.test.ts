@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { tokenizeBlocks, tokenizeInline, type MdBlock } from './markdown';
+import { splitTableRow, tokenizeBlocks, tokenizeInline, type MdBlock } from './markdown';
 
 describe('tokenizeBlocks', () => {
   it('separa parágrafos por linha em branco e preserva as quebras de linha dentro deles', () => {
@@ -83,13 +83,32 @@ describe('tokenizeBlocks', () => {
     ]);
   });
 
-  it('tabelas ficam como texto pré-formatado (linhas originais)', () => {
-    const table = '| Arquivo | Linhas |\n|---|---:|\n| a.ts | 10 |';
+  it('tabela vira cabeçalho, alinhamentos e linhas com o número de colunas do cabeçalho', () => {
+    const table = '| Arquivo | Linhas | Nota |\n|:---|---:|:-:|\n| a.ts | 10 |\n| b.ts | 2 | ok | extra |';
     expect(tokenizeBlocks(`Resumo:\n${table}\n\nfim`)).toEqual<MdBlock[]>([
       { type: 'paragraph', text: 'Resumo:' },
-      { type: 'table', text: table },
+      {
+        type: 'table',
+        align: ['left', 'right', 'center'],
+        head: ['Arquivo', 'Linhas', 'Nota'],
+        rows: [
+          ['a.ts', '10', ''],
+          ['b.ts', '2', 'ok'],
+        ],
+      },
       { type: 'paragraph', text: 'fim' },
     ]);
+  });
+
+  it('tabela sem separador (linhas começando com |) fica sem cabeçalho', () => {
+    expect(tokenizeBlocks('| a | b |\n| c |')).toEqual<MdBlock[]>([
+      { type: 'table', align: [null, null], head: null, rows: [['a', 'b'], ['c', '']] },
+    ]);
+  });
+
+  it('célula: barra escapada e barra dentro de `código` não dividem; crase sem par é literal', () => {
+    expect(splitTableRow('| `a | b` | x \\| y | `solta | z |')).toEqual(['`a | b`', 'x | y', '`solta', 'z']);
+    expect(splitTableRow('sem | pontas')).toEqual(['sem', 'pontas']);
   });
 
   it('barra solta num parágrafo não vira tabela', () => {
