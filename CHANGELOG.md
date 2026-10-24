@@ -41,6 +41,8 @@ do meio (0.**3**.0).
 - Agente que ficava "trabalhando" depois de terminar: duas gravações do registro de sessões no mesmo tique do relógio
   e do mesmo tamanho ("busy" -> "idle") não eram relidas. Acontecia mais no Windows (mtime avança a cada ~16 ms).
 - Testes que passavam do prazo ou dependiam de `/` e de permissões POSIX agora passam no Windows.
+- omp: mensagem ou troca de modelo mandada pela página logo antes de um `/new` ou `/resume` não cai na conversa nova;
+  ela aparece como não entregue (a conversa mudou).
 
 ## [1.0.3] - 2026-10-16
 

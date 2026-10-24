@@ -613,14 +613,18 @@ export function create(pi: OmpApi, deps: Deps): void {
     return !busy;
   }
 
+  /** A conversa trocou entre a busca e a entrega: cada mensagem vale só para a sessão em que foi mandada. */
+  const SESSION_CHANGED = 'a conversa mudou (/new ou /resume) antes da entrega';
+
   /**
    * Entrega cada mensagem, na ordem. Nunca lança. A primeira, com o agente livre, inicia um turno; o que vier depois
-   * (da mesma rodada ou com o agente ocupado) entra como continuação, depois do turno atual.
+   * (da mesma rodada ou com o agente ocupado) entra como continuação, depois do turno atual. Item de uma sessão que
+   * já não é a atual vira falha, sem entrega.
    */
-  async function deliver(messages: readonly InboxMessage[]): Promise<AckResult[]> {
+  async function deliver(session: string, messages: readonly InboxMessage[]): Promise<AckResult[]> {
     let idle = idleNow();
     const results: AckResult[] = [];
-    for (const m of messages) results.push(await deliverOne(m));
+    for (const m of messages) results.push(sessionId === session ? await deliverOne(m) : { id: m.id, ok: false, error: SESSION_CHANGED });
     return results;
 
     async function deliverOne(m: InboxMessage): Promise<AckResult> {
@@ -669,7 +673,7 @@ export function create(pi: OmpApi, deps: Deps): void {
         const messages = ok(res) ? parseInbox(res.text) : undefined;
         if (!messages) next = INBOX_OFFLINE_MS;
         else if (messages.length) {
-          const results = await deliver(messages);
+          const results = await deliver(session, messages);
           await request('POST', '/api/mod/inbox/ack', { session, results });
         }
       }
