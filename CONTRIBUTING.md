@@ -28,7 +28,7 @@ O Habblaud tem interface em português, inglês, espanhol e francês. O portugu�
   template string dentro do `tr()`.
 - A chave da tradução é o próprio texto em português: mudar o texto muda a chave. Atualize as traduções dele em
   `shared/locales/` (`en.ts`, `es.ts`, `fr.ts`) ou deixe sem: um texto sem tradução aparece em português.
-- `npm run i18n:check` lista os textos sem tradução e as traduções que sobraram.
+- `npm run i18n:check` lista os textos sem tradução e as traduções que sobraram. O CI roda `npm run i18n:check -- --strict`, que falha se faltar ou sobrar tradução.
 
 ## Verificar uma mudança
 
