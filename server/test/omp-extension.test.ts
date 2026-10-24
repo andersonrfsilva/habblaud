@@ -245,6 +245,31 @@ describe('omp extension: mensagens', () => {
     expect(acks[0].body).toEqual({ session: 'sess-1', results: [{ id: 'm1', ok: true }, { id: 'm2', ok: true }] });
   });
 
+  it('sessão trocada durante a busca: nada é entregue à nova e o ack da anterior diz que a conversa mudou', async () => {
+    const SESSION_CHANGED = 'a conversa mudou (/new ou /resume) antes da entrega';
+    let t: ReturnType<typeof setup> | undefined;
+    const t0 = setup({
+      home: tmp.dir,
+      answer: (c) => {
+        if (c.path !== '/api/mod/inbox' || c.body?.session !== 'a') return undefined;
+        // /new chega enquanto a resposta da busca da sessão "a" está a caminho.
+        t?.fire('session_switch', makeCtx({ id: 'b' }), { reason: 'new' });
+        return { status: 200, json: { messages: [{ id: 'm1', text: 'oi' }, { id: 'k1', text: '', control: { model: 'x/y' } }] } };
+      },
+    });
+    t = t0;
+    t0.fire('session_start', makeCtx({ id: 'a' }));
+    await vi.waitFor(() => expect(t0.habblaud.of('/api/mod/inbox/ack')).toHaveLength(1));
+    expect(t0.sent).toEqual([]);
+    const ack = t0.habblaud.of('/api/mod/inbox/ack')[0].body;
+    expect(ack?.session).toBe('a');
+    expect(ack?.results).toEqual([
+      { id: 'm1', ok: false, error: SESSION_CHANGED },
+      { id: 'k1', ok: false, error: SESSION_CHANGED },
+    ]);
+    await t0.fire('session_shutdown', makeCtx({ id: 'b' }));
+  });
+
   it('session_start leva a lista de modelos do omp (provedor/id)', async () => {
     const t = setup({ home: tmp.dir });
     const ctx = makeCtx({ models: [{ provider: 'anthropic', id: 'a' }, { provider: 'openai', id: 'b' }] });
