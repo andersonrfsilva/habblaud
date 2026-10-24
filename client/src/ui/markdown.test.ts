@@ -164,13 +164,32 @@ describe('tokenizeInline', () => {
     expect(tokenizeInline('_ênfase_')).toEqual([{ type: 'em', children: [{ type: 'text', text: 'ênfase' }] }]);
   });
 
-  it('links viram texto com o endereço à parte', () => {
+  it('links [texto](url) guardam o endereço à parte', () => {
     expect(tokenizeInline('veja [a doc](https://exemplo.com/x "título") aqui')).toEqual([
       { type: 'text', text: 'veja ' },
       { type: 'link', text: 'a doc', href: 'https://exemplo.com/x' },
       { type: 'text', text: ' aqui' },
     ]);
     expect(tokenizeInline('[sem link] e [x](com espaço)')).toEqual([{ type: 'text', text: '[sem link] e [x](com espaço)' }]);
+  });
+
+  it('endereço http(s) solto e <url> viram link, sem a pontuação da frase nem o ) sem par', () => {
+    expect(tokenizeInline('PR: https://github.com/a/b/pull/184. Veja (https://x.dev/a_(b)) e <https://y.dev/q?a=1>!')).toEqual([
+      { type: 'text', text: 'PR: ' },
+      { type: 'link', text: 'https://github.com/a/b/pull/184', href: 'https://github.com/a/b/pull/184' },
+      { type: 'text', text: '. Veja (' },
+      { type: 'link', text: 'https://x.dev/a_(b)', href: 'https://x.dev/a_(b)' },
+      { type: 'text', text: ') e ' },
+      { type: 'link', text: 'https://y.dev/q?a=1', href: 'https://y.dev/q?a=1' },
+      { type: 'text', text: '!' },
+    ]);
+  });
+
+  it('não vira link: dentro de `código`, colado numa palavra, ou sem nada depois de https://', () => {
+    expect(tokenizeInline('`https://a.dev` xhttps://b.dev https://')).toEqual([
+      { type: 'code', text: 'https://a.dev' },
+      { type: 'text', text: ' xhttps://b.dev https://' },
+    ]);
   });
 
   it('escapes com barra invertida', () => {

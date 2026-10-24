@@ -4,7 +4,8 @@
 //
 // Cobertura (o que o Claude Code costuma escrever): blocos ``` com linguagem, `código`, **negrito**, *itálico*,
 // títulos #, listas com marcador e numeradas (com aninhamento), citação >, linha horizontal, tabelas
-// (cabeçalho, alinhamento e markdown inline nas células) e links (viram texto; o endereço fica na dica).
+// (cabeçalho, alinhamento e markdown inline nas células) e links: [texto](url), <url> e endereços http(s) soltos.
+// Links http(s) e mailto abrem numa aba nova; outros esquemas viram texto com o endereço na dica.
 
 export type MdInline =
   | { type: 'text'; text: string }
@@ -229,6 +230,18 @@ export function tokenizeBlocks(src: string): MdBlock[] {
 const PUNCT = /[!-/:-@[-`{-~]/;
 const WORD = /[\p{L}\p{N}]/u;
 
+/** Endereço http(s) solto no texto (autolink do GFM): até o primeiro espaço ou `<`. */
+const AUTOLINK_RE = /^https?:\/\/[^\s<]+/i;
+const URL_TAIL = /[.,;:!?'"*_~]+$/;
+
+/** Tira do fim do endereço a pontuação da frase e o `)` sem par (como o GFM). */
+function trimUrl(url: string): string {
+  let u = url.replace(URL_TAIL, '');
+  const count = (ch: string) => u.split(ch).length - 1;
+  while (u.endsWith(')') && count('(') < count(')')) u = u.slice(0, -1).replace(URL_TAIL, '');
+  return u;
+}
+
 function pushText(out: MdInline[], text: string): void {
   if (!text) return;
   const last = out[out.length - 1];
@@ -312,6 +325,26 @@ export function tokenizeInline(src: string): MdInline[] {
       }
     }
 
+    if (ch === '<') {
+      const m = /^<(https?:\/\/[^\s<>]+|mailto:[^\s<>]+)>/i.exec(src.slice(i));
+      if (m) {
+        out.push({ type: 'link', text: m[1].replace(/^mailto:/i, ''), href: m[1] });
+        i += m[0].length;
+        continue;
+      }
+    }
+
+    if ((ch === 'h' || ch === 'H') && !WORD.test(src[i - 1] ?? ' ')) {
+      const m = AUTOLINK_RE.exec(src.slice(i));
+      const url = m ? trimUrl(m[0]) : '';
+      // Precisa de algo depois de "https://".
+      if (url && url.length > url.indexOf('//') + 2) {
+        out.push({ type: 'link', text: url, href: url });
+        i += url.length;
+        continue;
+      }
+    }
+
     if ((ch === '*' || ch === '_') && src[i + 1] === ch) {
       const prev = src[i - 1] ?? ' ';
       const opensOk = !/\s/.test(src[i + 2] ?? ' ') && (ch === '*' || !WORD.test(prev));
@@ -369,11 +402,18 @@ function appendInline(parent: HTMLElement, nodes: readonly MdInline[]): void {
         break;
       }
       case 'link': {
-        // Link vira texto (nada clicável vindo do transcript); o endereço fica na dica.
-        const el = document.createElement('span');
+        // Só http(s) e mailto viram link (aba nova, sem acesso de volta a esta página); javascript:, data: e
+        // caminhos relativos ficam como texto, com o endereço na dica.
+        const safe = /^(https?:\/\/|mailto:)/i.test(n.href);
+        const el = document.createElement(safe ? 'a' : 'span');
         el.className = 'ui-md__link';
         el.textContent = n.text || n.href;
         el.title = n.href;
+        if (el instanceof HTMLAnchorElement) {
+          el.href = n.href;
+          el.target = '_blank';
+          el.rel = 'noopener noreferrer';
+        }
         parent.append(el);
         break;
       }
