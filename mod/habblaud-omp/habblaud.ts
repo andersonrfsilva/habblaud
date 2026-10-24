@@ -544,6 +544,9 @@ export function create(pi: OmpApi, deps: Deps): void {
     // track() já anunciou a sessão.
     shadowAsk();
   });
+  // /new, /resume e /fork trocam de sessão no mesmo processo sem session_start: o ctx do session_switch já é o da
+  // sessão nova, e track() fecha a anterior e anuncia a nova (sem isso, a nova só aparecia no próximo prompt).
+  observe('session_switch', () => undefined);
   observe('agent_start', (_e, _c, id) => {
     busy = true;
     void emit('agent_start', id);
