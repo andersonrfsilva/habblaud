@@ -179,7 +179,7 @@ describe('omp extension: eventos', () => {
   it('registra exatamente os nomes de evento do omp (sem tool_call fora do modo de decisão)', () => {
     const { handlers } = setup({ home: tmp.dir });
     expect([...handlers.keys()].sort()).toEqual(
-      ['agent_end', 'agent_start', 'session_shutdown', 'session_start', 'tool_approval_requested', 'tool_approval_resolved', 'tool_execution_end', 'tool_execution_start'].sort(),
+      ['agent_end', 'agent_start', 'session_shutdown', 'session_start', 'session_switch', 'tool_approval_requested', 'tool_approval_resolved', 'tool_execution_end', 'tool_execution_start'].sort(),
     );
     expect([...setup({ home: tmp.dir, env: { HABBLAUD_OMP_PERMISSOES: '1' } }).handlers.keys()]).toContain('tool_call');
   });
@@ -210,6 +210,15 @@ describe('omp extension: eventos', () => {
     t.fire('agent_start', makeCtx({ id: 'b' }));
     await t.fire('session_shutdown', makeCtx({ id: 'b' }));
     expect(t.habblaud.of('/api/omp/events').map((c) => `${c.body?.event}:${c.body?.sessionId}`)).toEqual(['session_start:a', 'session_shutdown:a', 'session_start:b', 'agent_start:b', 'session_shutdown:b']);
+  });
+
+  it('/new (session_switch): anuncia a sessão nova na hora e a caixa de entrada passa a ser a dela', async () => {
+    const t = setup({ home: tmp.dir });
+    t.fire('session_start', makeCtx({ id: 'a' }));
+    t.fire('session_switch', makeCtx({ id: 'b' }), { reason: 'new' });
+    await vi.waitFor(() => expect(t.habblaud.of('/api/mod/inbox').some((c) => c.body?.session === 'b')).toBe(true));
+    await t.fire('session_shutdown', makeCtx({ id: 'b' }));
+    expect(t.habblaud.of('/api/omp/events').map((c) => `${c.body?.event}:${c.body?.sessionId}`)).toEqual(['session_start:a', 'session_shutdown:a', 'session_start:b', 'session_shutdown:b']);
   });
 });
 
