@@ -10,10 +10,10 @@ conditions e atualize sua linha ao terminar.
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
 | 001  | Trocar modelo e reasoning de um agente omp pela gaveta | P2 | M | — | DONE (commit a2d25fd) |
-| 002  | Guard de borda só aceita Origin da mesma origem | P1 | S | — | DONE (aprovado; commit 8bcf29b na branch `fix/origin-guard-estrito`, worktree /tmp/hb-002; aguardando merge) |
-| 003  | Extensão do omp não entrega na sessão nova o que buscou para a anterior | P1 | S | — | DONE (aprovado; commit c0cc204 na branch `fix/omp-inbox-sessao-trocada`, worktree /tmp/hb-003; aguardando merge) |
-| 004  | Revogação remota falha fechada; verificador de versão não derruba o servidor | P3 | S | — | DONE (aprovado; commits 172e21e..5c78fae na branch `fix/revogacao-e-verificador`, worktree /tmp/hb-004; aguardando merge) |
-| 005  | Traduções completas e `i18n:check --strict` no CI | P3 | S | — | DONE (aprovado; commits 9e35faa, b932d8b na branch `chore/i18n-strict-ci`, worktree /tmp/hb-005; aguardando merge) |
+| 002  | Guard de borda só aceita Origin da mesma origem | P1 | S | — | DONE (merge 1cc3e74) |
+| 003  | Extensão do omp não entrega na sessão nova o que buscou para a anterior | P1 | S | — | DONE (merge 5f22b5a) |
+| 004  | Revogação remota falha fechada; verificador de versão não derruba o servidor | P3 | S | — | DONE (merge fba172b) |
+| 005  | Traduções completas e `i18n:check --strict` no CI | P3 | S | — | DONE (merge 69828b3) |
 | 006  | Introdução dos READMEs sem "nenhuma chamada externa" | P3 | S | — | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
