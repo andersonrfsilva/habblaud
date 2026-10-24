@@ -147,7 +147,7 @@ export class MessageComposer {
     }
     this.box.disabled = !ready;
     const name = agent?.name ?? tr('o agente');
-    const placeholder = ready ? (term ? tr('Mensagem para {0} (Enter manda, Shift+Enter quebra a linha)', [name]) : tr('Mensagem para {0}…', [name])) : mode.text;
+    const placeholder = ready ? tr('Mensagem para {0}…', [name]) : mode.text;
     setAttr(this.box, 'placeholder', placeholder);
     setAttr(this.box, 'aria-label', ready ? tr('Mensagem para {0}', [name]) : mode.text);
     setTitle(this.box, ready ? '' : mode.text);

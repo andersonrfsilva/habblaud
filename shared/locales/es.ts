@@ -114,7 +114,6 @@ export const ES: Readonly<Record<string, string>> = {
   "Mandar a mensagem": "Enviar el mensaje",
   "Enviar": "Enviar",
   "o agente": "el agente",
-  "Mensagem para {0} (Enter manda, Shift+Enter quebra a linha)": "Mensaje para {0} (Enter envía, Shift+Enter hace un salto de línea)",
   "Mensagem para {0}…": "Mensaje para {0}…",
   "Mensagem para {0}": "Mensaje para {0}",
 
