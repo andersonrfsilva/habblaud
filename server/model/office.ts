@@ -93,6 +93,8 @@ export interface TranscriptSummary {
   model?: string;
   thinking?: string;
   models?: string[];
+  /** omp: contexto em uso e janela do modelo (extensão). */
+  context?: { tokens: number; window: number };
   gitBranch?: string;
   permissionMode?: string;
   /** Primeiro evento conhecido (subagentes: o início real, depois de ler o começo do arquivo). */
@@ -689,6 +691,7 @@ export class Office {
     set('model', t.model);
     set('thinking', t.thinking);
     if (info.kind === 'main') set('models', t.models);
+    if (info.kind === 'main') set('context', t.context);
     set('gitBranch', t.gitBranch);
     set('permissionMode', t.permissionMode);
     if (info.kind === 'sub' && t.firstAt !== undefined && t.firstAt < info.startedAt) {

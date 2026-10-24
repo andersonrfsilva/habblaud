@@ -10,6 +10,7 @@
 // Sessão do Codex: selo "Codex" no cabeçalho e um spinner neutro no rodapé (o ✻ é do Claude Code).
 import type { AgentInfo, Provider, RecentSession, TerminalEntry, TerminalInit } from '../../../shared/types';
 import { MessageComposer } from './composer';
+import { OmpBar } from './omp-bar';
 import type { UiComponent, UiContext } from './context';
 import { copyText, h, iconButton, prefersReducedMotion, setAttr, setHidden, setText, setTitle, setVariant } from './dom';
 import { calendarDayDiff, formatClock, formatDateTime, formatDuration, formatElapsed, relativeTime } from './format';
@@ -658,6 +659,8 @@ export class TerminalPanel implements UiComponent, TerminalControl {
   private movable: Movable;
   /** Caixa de mensagem do rodapé (só a sessão ao vivo de um agente principal). */
   private composer: MessageComposer;
+  /** omp: barra do contexto e os botões /new e /shake, acima da caixa de mensagem. */
+  private ompBar: OmpBar;
 
   constructor(
     private ctx: UiContext,
@@ -749,6 +752,7 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     this.status = h('p', { class: 'ui-term__status' }, this.glyph, this.statusText, this.statusTime);
     // Esc na caixa devolve o foco à conversa (o próximo fecha o terminal).
     this.composer = new MessageComposer(ctx, 'terminal', { onEscape: () => this.focusLog() });
+    this.ompBar = new OmpBar(ctx);
 
     this.el = h(
       'section',
@@ -757,7 +761,7 @@ export class TerminalPanel implements UiComponent, TerminalControl {
       this.tabs.el,
       tools,
       h('div', { class: 'ui-term__body' }, this.alertEl, this.scroll, this.newBtn),
-      h('div', { class: 'ui-term__foot' }, this.status, this.composer.el),
+      h('div', { class: 'ui-term__foot' }, this.status, this.ompBar.el, this.composer.el),
     );
     this.el.addEventListener('keydown', (e) => this.onKey(e));
     // Arrastar pela barra solta a janela (ui/movable.ts).
@@ -825,7 +829,8 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     this.renderFooter();
     this.renderState();
     // Mensagens só para a sessão ao vivo (no histórico, a caixa diz que a sessão foi encerrada).
-    this.composer.render(this.session ? undefined : this.ctx.agent(this.id), this.id);
+    const kind = this.composer.render(live ?? undefined, this.id);
+    this.ompBar.render(live ?? undefined, kind === 'ready');
   }
 
   /** Abre o painel numa conversa nova (agente ou sessão do histórico); a mesma conversa só recebe o foco. */

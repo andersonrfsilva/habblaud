@@ -21,6 +21,10 @@ export const OMP_HEARTBEAT_MS = 10_000;
 /** Sem batimento por este tempo, a sessão que tinha extensão é dada como encerrada (crash, kill). */
 export const OMP_HEARTBEAT_LOST_MS = 30_000;
 
+/** Comandos do omp que o terminal do Habblaud dispara (POST /api/messages/control {command}): id -> o que é digitado no omp. */
+export const OMP_COMMANDS = { new: '/new', 'shake-elide': '/shake elide', 'shake-thinking': '/shake thinking' } as const;
+export type OmpCommand = keyof typeof OMP_COMMANDS;
+
 export interface OmpEvent {
   event: OmpEventKind;
   /** Id da sessão do omp (uuidv7 do cabeçalho do arquivo). */
@@ -36,6 +40,8 @@ export interface OmpEvent {
   approved?: boolean;
   /** session_start e heartbeat: modelos autenticados do omp (`provedor/id`), para o seletor da gaveta. */
   models?: string[];
+  /** heartbeat e agent_end: contexto em uso (tokens) e janela do modelo, de getContextUsage(). */
+  context?: { tokens: number; window: number };
 }
 
 const ID_MAX = 200;
@@ -70,6 +76,10 @@ export function parseOmpEvent(raw: unknown): OmpEvent | undefined {
   if ((r.event === 'session_start' || r.event === 'heartbeat') && Array.isArray(r.models)) {
     const models = r.models.slice(0, MODELS_MAX).flatMap((m) => str(m, ID_MAX) ?? []);
     if (models.length) out.models = models;
+  }
+  const c = r.context && typeof r.context === 'object' ? (r.context as Rec) : undefined;
+  if (c && Number.isSafeInteger(c.tokens) && Number.isSafeInteger(c.window) && (c.tokens as number) >= 0 && (c.window as number) > 0) {
+    out.context = { tokens: c.tokens as number, window: c.window as number };
   }
   return out;
 }

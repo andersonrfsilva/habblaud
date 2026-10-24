@@ -44,7 +44,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { OMP_HEARTBEAT_MS, type OmpEvent, type OmpEventKind } from '../../shared/omp-events';
+import { OMP_COMMANDS, OMP_HEARTBEAT_MS, type OmpEvent, type OmpEventKind } from '../../shared/omp-events';
 
 export const DEFAULT_PORT = 4747;
 /** Quanto esperar o Habblaud responder (qualquer rota). */
@@ -111,11 +111,17 @@ export interface OmpContext {
   hasUI: boolean;
   cwd?: string;
   agent?: { kind?: string };
+  /** "tui" com a tela do omp no terminal (os comandos do Habblaud só valem nela). */
+  mode?: string;
   /** O agente está livre (não está num turno). */
   isIdle?(): boolean;
+  /** Tokens em uso e janela do modelo (o mesmo número do rodapé do omp). */
+  getContextUsage?(): { tokens?: number; contextWindow?: number } | undefined;
   ui: {
     confirm(title: string, message: string, options?: { signal?: AbortSignal }): Promise<boolean>;
     notify(message: string, type?: 'info' | 'warning' | 'error'): void;
+    setEditorText?(text: string): void;
+    getEditorText?(): string;
   };
   models?: { list(): { provider: string; id: string }[]; resolve?(spec: string): unknown };
   sessionManager: {
@@ -168,6 +174,8 @@ export interface Deps {
   now: () => number;
   /** Compartilhado entre as instâncias da extensão do mesmo processo (o omp refaz a extensão para cada subagente). */
   shared: { mainSessionId?: string };
+  /** Tecla Enter na tela do omp (comandos do Habblaud: /new, /shake). Padrão: um "\r" no stdin do processo. */
+  pressEnter?: () => void;
 }
 
 const SHARED: Deps['shared'] = {};
@@ -205,8 +213,8 @@ export function portOf(env: NodeJS.ProcessEnv, home: string): number {
 export interface InboxMessage {
   id: string;
   text: string;
-  /** Troca de modelo e/ou raciocínio (POST /api/messages/control): sem texto. */
-  control?: { model?: string; thinking?: string };
+  /** Troca de modelo e/ou raciocínio, ou um comando do omp (POST /api/messages/control): sem texto. */
+  control?: { model?: string; thinking?: string; command?: string };
 }
 
 export interface AckResult {
@@ -240,6 +248,7 @@ export function parseInbox(text: string): InboxMessage[] | undefined {
       msg.control = {};
       if (typeof c.model === 'string' && c.model) msg.control.model = c.model;
       if (typeof c.thinking === 'string' && c.thinking) msg.control.thinking = c.thinking;
+      if (typeof c.command === 'string' && c.command) msg.control.command = c.command;
     }
     out.push(msg);
   }
@@ -411,8 +420,13 @@ function sleep(ms: number, signal?: AbortSignal): Promise<boolean> {
   return promise;
 }
 
+/** Enter na tela do omp: o TUI lê as teclas do stdin do processo, então um "\r" ali vale como apertar Enter. */
+function pressEnter(): void {
+  process.stdin.emit('data', Buffer.from('\r'));
+}
+
 function defaultDeps(): Deps {
-  return { env: process.env, home: homedir(), fetch: globalThis.fetch.bind(globalThis), now: Date.now, shared: SHARED };
+  return { env: process.env, home: homedir(), fetch: globalThis.fetch.bind(globalThis), now: Date.now, shared: SHARED, pressEnter };
 }
 
 /** Monta a extensão sobre a API `pi` do omp. Exportada para os testes (o omp usa o `export default`). */
@@ -511,7 +525,7 @@ export function create(pi: OmpApi, deps: Deps): void {
     if (closed) return;
     if (!heartbeat) {
       heartbeat = setInterval(() => {
-        if (sessionId) void emit('heartbeat', sessionId, models?.length ? { models } : {});
+        if (sessionId) void emit('heartbeat', sessionId, { ...(models?.length ? { models } : {}), ...contextNow() });
       }, OMP_HEARTBEAT_MS);
       heartbeat.unref?.();
     }
@@ -550,7 +564,7 @@ export function create(pi: OmpApi, deps: Deps): void {
   });
   observe('agent_end', (_e, _c, id) => {
     busy = false;
-    void emit('agent_end', id);
+    void emit('agent_end', id, contextNow());
   });
   observe('tool_execution_start', (e, _c, id) => {
     void emit('tool_start', id, { toolName: str(e.toolName), toolCallId: str(e.toolCallId) });
@@ -635,9 +649,41 @@ export function create(pi: OmpApi, deps: Deps): void {
     }
   }
 
-  /** Troca o modelo e/ou o raciocínio da sessão. O arquivo da sessão ganha model_change/thinking_level_change, que o Habblaud já lê. */
+  /** Contexto da sessão principal para o evento (`{}` sem leitura: omp antigo ou contexto descartado). */
+  function contextNow(): Pick<OmpEvent, 'context'> {
+    try {
+      const u = mainCtx?.getContextUsage?.();
+      const tokens = u?.tokens;
+      const window = u?.contextWindow;
+      if (typeof tokens === 'number' && typeof window === 'number' && tokens >= 0 && window > 0) return { context: { tokens: Math.round(tokens), window: Math.round(window) } };
+    } catch {
+      // contexto descartado
+    }
+    return {};
+  }
+
+  /**
+   * Roda um comando do omp (/new, /shake) como se fosse digitado: põe o texto no editor e aperta Enter. O omp não dá
+   * às extensões outro jeito de rodar comandos internos. Só com o agente livre, a tela do omp aberta e o editor vazio
+   * (para não apagar um rascunho nem responder um diálogo aberto).
+   */
+  function runCommand(id: string, command: string): AckResult {
+    if (!Object.hasOwn(OMP_COMMANDS, command)) return { id, ok: false, error: 'comando desconhecido' };
+    const text = OMP_COMMANDS[command as keyof typeof OMP_COMMANDS];
+    const ctx = mainCtx;
+    const ui = ctx?.ui;
+    if (!ctx || ctx.mode !== 'tui' || !ui?.setEditorText || !ui.getEditorText || !deps.pressEnter) return { id, ok: false, error: 'só funciona com a tela do omp aberta no terminal' };
+    if (!idleNow()) return { id, ok: false, error: 'o agente está trabalhando: espere o turno acabar' };
+    if (ui.getEditorText().trim()) return { id, ok: false, error: 'há texto no editor do omp: envie ou apague antes' };
+    ui.setEditorText(text);
+    deps.pressEnter();
+    return { id, ok: true };
+  }
+
+  /** Troca o modelo e/ou o raciocínio, ou roda um comando. O arquivo da sessão ganha model_change/thinking_level_change, que o Habblaud já lê. */
   async function applyControl(id: string, control: NonNullable<InboxMessage['control']>): Promise<AckResult> {
     try {
+      if (control.command) return runCommand(id, control.command);
       if (control.model) {
         const target = mainCtx?.models?.resolve?.(control.model);
         if (!target) return { id, ok: false, error: 'modelo desconhecido' };

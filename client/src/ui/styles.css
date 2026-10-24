@@ -5111,6 +5111,75 @@ button.ui-term__think:hover,
   font: 12.5px/1.5 var(--font-mono);
 }
 
+/* omp (ui/omp-bar.ts): contexto em uso à esquerda, comandos /new e /shake à direita; quebra em duas linhas se apertar. */
+.ui-term__omp {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 0 4px 8px;
+}
+
+.ui-term__ctx {
+  --lv: var(--lv-ok);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 180px;
+  min-width: 0;
+  color: var(--term-dim);
+  font-size: 11.5px;
+}
+
+.ui-term__ctx.is-warn {
+  --lv: var(--lv-warn);
+}
+
+.ui-term__ctx.is-crit {
+  --lv: var(--lv-crit);
+}
+
+.ui-term__ctx-bar {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 60px;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.ui-term__ctx-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: calc(var(--pct, 0) * 1%);
+  background: var(--lv);
+}
+
+.ui-term__ctx-text {
+  flex: none;
+  white-space: nowrap;
+}
+
+.ui-term__cmds {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.ui-term__cmd {
+  font-family: var(--font-mono);
+}
+
+.ui-term__cmd-status {
+  color: var(--ui-muted);
+  font-size: 11.5px;
+}
+
+.ui-term__cmd-status.is-error {
+  color: var(--lv-crit);
+}
+
 .ui-term__status {
   display: flex;
   align-items: baseline;

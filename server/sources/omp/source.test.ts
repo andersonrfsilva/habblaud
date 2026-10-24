@@ -284,6 +284,14 @@ describe('fonte do omp: eventos da extensão', () => {
     expect(c.agent()).toMatchObject({ title: 'Olá', status: 'working', activity: { tool: 'Bash' } });
   });
 
+  it('o contexto do batimento vira AgentInfo.context e acompanha as mudanças', () => {
+    const c = setup();
+    c.event({ event: 'session_start', sessionFile: c.path() });
+    c.event({ event: 'heartbeat', context: { tokens: 1_000, window: 200_000 } });
+    expect(c.agent()!.context).toEqual({ tokens: 1_000, window: 200_000 });
+    c.event({ event: 'agent_end', context: { tokens: 400, window: 200_000 } });
+    expect(c.agent()!.context).toEqual({ tokens: 400, window: 200_000 });
+  });
   it('sessão retomada (arquivo termina em session_exit) entra com session_start e fica enquanto bate', () => {
     const c = setup();
     const path = c.path();

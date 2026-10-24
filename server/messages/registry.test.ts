@@ -377,7 +377,7 @@ describe('MessageRegistry: agentes do omp', () => {
     const { office, registry } = setupOmp();
     registry.inbox({ session: SESSION });
     registry.inbox({ session: OMP_SESSION });
-    for (const body of [{ agentId: OMP_A }, { agentId: OMP_A, thinking: 'altíssimo' }, { agentId: OMP_A, model: '  ' }, { agentId: OMP_A, model: 5 }, {}]) {
+    for (const body of [{ agentId: OMP_A }, { agentId: OMP_A, thinking: 'altíssimo' }, { agentId: OMP_A, model: '  ' }, { agentId: OMP_A, model: 5 }, { agentId: OMP_A, command: 'rm' }, { agentId: OMP_A, command: 'toString' }, {}]) {
       expect(() => registry.control(body), JSON.stringify(body)).toThrow();
     }
     expect(registry.control({ agentId: 'nao-existe', thinking: 'low' })).toEqual({ error: 'not-found' });
@@ -387,6 +387,13 @@ describe('MessageRegistry: agentes do omp', () => {
     registry.ack({ session: OMP_SESSION, results: [{ id, ok: true }] });
     expect(registry.get(id)?.status).toBe('delivered');
     expect(snapAgent(office, OMP_A)?.recent ?? []).toEqual([]);
+  });
+
+  it('control com comando (/new, /shake) entra na caixa como control.command', () => {
+    const { registry } = setupOmp();
+    registry.inbox({ session: OMP_SESSION });
+    const id = sent(registry.control({ agentId: OMP_A, command: 'shake-elide' }));
+    expect(registry.inbox({ session: OMP_SESSION })).toEqual([{ id, text: '', control: { command: 'shake-elide' } }]);
   });
 
   it('mensagem do Claude não sai para a sessão do omp (e vice-versa)', () => {

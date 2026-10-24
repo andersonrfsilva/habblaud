@@ -166,6 +166,8 @@ export interface AgentInfo {
   thinking?: string;
   /** Modelos que a sessão omp aceita (`provedor/id`), informados pela extensão; só no agente principal. */
   models?: string[];
+  /** Contexto da sessão omp (getContextUsage da extensão): tokens em uso e o tamanho da janela do modelo. */
+  context?: { tokens: number; window: number };
   gitBranch?: string;
   permissionMode?: string;
   startedAt: number;
@@ -775,6 +777,6 @@ export interface InboxMessage {
   id: string;
   /** O texto como foi digitado: o plugin o manda à sessão como se você o tivesse digitado. Vazio quando há `control`. */
   text: string;
-  /** Troca de modelo e/ou raciocínio da sessão omp (POST /api/messages/control). */
-  control?: { model?: string; thinking?: string };
+  /** Troca de modelo e/ou raciocínio, ou um comando (OMP_COMMANDS), da sessão omp (POST /api/messages/control). */
+  control?: { model?: string; thinking?: string; command?: string };
 }

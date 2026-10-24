@@ -18,3 +18,12 @@ describe('parseOmpEvent: models', () => {
     expect(parseOmpEvent({ ...base, event: 'agent_start', models: ['a/b'] })?.models).toBeUndefined();
   });
 });
+
+describe('parseOmpEvent: context', () => {
+  it('aceita tokens e janela inteiros (janela > 0); fora disso, sem context', () => {
+    expect(parseOmpEvent({ ...base, event: 'heartbeat', context: { tokens: 10, window: 100 } })?.context).toEqual({ tokens: 10, window: 100 });
+    for (const context of [{ tokens: -1, window: 100 }, { tokens: 1, window: 0 }, { tokens: 1.5, window: 100 }, { tokens: '1', window: 100 }, null]) {
+      expect(parseOmpEvent({ ...base, event: 'heartbeat', context })?.context, JSON.stringify(context)).toBeUndefined();
+    }
+  });
+});

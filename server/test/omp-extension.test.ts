@@ -62,9 +62,10 @@ function setup(opts: { pi?: Partial<OmpApi>; env?: NodeJS.ProcessEnv; answer?: P
     ...opts.pi,
   };
   const habblaud = fakeHabblaud(opts.answer ?? (() => undefined));
-  const deps: Deps = { env: opts.env ?? {}, home: opts.home, fetch: habblaud.fetchImpl, now: () => 1_000, shared: {} };
+  let enters = 0;
+  const deps: Deps = { env: opts.env ?? {}, home: opts.home, fetch: habblaud.fetchImpl, now: () => 1_000, shared: {}, pressEnter: () => void enters++ };
   create(pi, deps);
-  return { handlers, sent, habblaud, fire: (name: string, ctx: OmpContext, event: Record<string, unknown> = {}) => handlers.get(name)?.(event, ctx) };
+  return { handlers, sent, habblaud, enters: () => enters, fire: (name: string, ctx: OmpContext, event: Record<string, unknown> = {}) => handlers.get(name)?.(event, ctx) };
 }
 
 interface CtxOpts {
@@ -74,14 +75,21 @@ interface CtxOpts {
   kind?: 'main' | 'sub';
   idle?: boolean;
   confirm?: (signal?: AbortSignal) => Promise<boolean>;
+  /** Tela do omp no terminal ("tui"): com ela, o editor guarda o texto em `editor`. */
+  tui?: boolean;
+  editor?: string;
+  context?: { tokens: number; contextWindow: number };
 }
 
-function makeCtx(o: CtxOpts = {}): OmpContext & { confirms: number; aborted: boolean; notices: string[] } {
+function makeCtx(o: CtxOpts = {}): OmpContext & { confirms: number; aborted: boolean; notices: string[]; editor: string } {
   const ctx = {
     hasUI: o.hasUI ?? false,
     cwd: '/projetos/demo',
     agent: { kind: o.kind ?? 'main' },
     isIdle: () => o.idle ?? true,
+    ...(o.tui ? { mode: 'tui' } : {}),
+    ...(o.context ? { getContextUsage: () => o.context } : {}),
+    editor: o.editor ?? '',
     ...(o.models ? { models: { list: () => o.models!, resolve: (s: string) => o.models!.find((m) => `${m.provider}/${m.id}` === s || m.id === s) } } : {}),
     confirms: 0,
     aborted: false,
@@ -93,6 +101,7 @@ function makeCtx(o: CtxOpts = {}): OmpContext & { confirms: number; aborted: boo
         return o.confirm ? o.confirm(opt?.signal) : Promise.withResolvers<boolean>().promise;
       },
       notify: (m: string) => void ctx.notices.push(m),
+      ...(o.tui ? { setEditorText: (t: string) => void (ctx.editor = t), getEditorText: () => ctx.editor } : {}),
     },
     sessionManager: {
       getSessionId: () => o.id ?? 'sess-1',
@@ -272,6 +281,49 @@ describe('omp extension: mensagens', () => {
     await vi.advanceTimersByTimeAsync(10_500);
     expect(t.habblaud.of('/api/omp/events').find((c) => c.body?.event === 'heartbeat')?.body?.models).toEqual(['anthropic/a']);
     await t.fire('session_shutdown', ctx);
+  });
+
+  it('o batimento e o agent_end levam o contexto (tokens e janela) de getContextUsage', async () => {
+    vi.useFakeTimers();
+    const t = setup({ home: tmp.dir });
+    const ctx = makeCtx({ context: { tokens: 16_881.4, contextWindow: 1_000_000 } });
+    t.fire('session_start', ctx);
+    t.fire('agent_end', ctx);
+    await vi.advanceTimersByTimeAsync(10_500);
+    const events = t.habblaud.of('/api/omp/events').map((c) => c.body);
+    expect(events.find((b) => b?.event === 'agent_end')?.context).toEqual({ tokens: 16_881, window: 1_000_000 });
+    expect(events.find((b) => b?.event === 'heartbeat')?.context).toEqual({ tokens: 16_881, window: 1_000_000 });
+    await t.fire('session_shutdown', ctx);
+  });
+
+  it('comando: digita no editor e aperta Enter só com a tela do omp, o agente livre e o editor vazio', async () => {
+    const cases: Array<[CtxOpts, { ok: boolean; error?: string }, number]> = [
+      [{ tui: true }, { ok: true }, 1],
+      [{ tui: true, idle: false }, { ok: false, error: 'o agente está trabalhando: espere o turno acabar' }, 0],
+      [{ tui: true, editor: 'rascunho' }, { ok: false, error: 'há texto no editor do omp: envie ou apague antes' }, 0],
+      [{}, { ok: false, error: 'só funciona com a tela do omp aberta no terminal' }, 0],
+    ];
+    for (const [opts, result, enters] of cases) {
+      const t = setup({ home: tmp.dir, answer: inbox([{ id: 'k1', text: '', control: { command: 'shake-thinking' } }]) });
+      const ctx = makeCtx(opts);
+      t.fire('session_start', ctx);
+      await vi.waitFor(() => expect(t.habblaud.of('/api/mod/inbox/ack')).toHaveLength(1));
+      await t.fire('session_shutdown', ctx);
+      expect(t.habblaud.of('/api/mod/inbox/ack')[0].body?.results, JSON.stringify(opts)).toEqual([{ id: 'k1', ...result }]);
+      expect(t.enters()).toBe(enters);
+      expect(ctx.editor).toBe(result.ok ? '/shake thinking' : (opts.editor ?? ''));
+      expect(t.sent).toEqual([]);
+    }
+  });
+
+  it('comando desconhecido (fora de OMP_COMMANDS) não toca no editor', async () => {
+    const t = setup({ home: tmp.dir, answer: inbox([{ id: 'k1', text: '', control: { command: 'toString' } }]) });
+    const ctx = makeCtx({ tui: true });
+    t.fire('session_start', ctx);
+    await vi.waitFor(() => expect(t.habblaud.of('/api/mod/inbox/ack')).toHaveLength(1));
+    await t.fire('session_shutdown', ctx);
+    expect(t.habblaud.of('/api/mod/inbox/ack')[0].body?.results).toEqual([{ id: 'k1', ok: false, error: 'comando desconhecido' }]);
+    expect(t.enters()).toBe(0);
   });
 
   it('agente ocupado: tudo como continuação, sem interromper', async () => {

@@ -20,6 +20,7 @@
 import { randomBytes } from 'node:crypto';
 import { truncate } from '../../shared/activity';
 import { describeMessage, MESSAGE_MAX, OMP_THINKING_LEVELS } from '../../shared/messages';
+import { OMP_COMMANDS } from '../../shared/omp-events';
 import type { Activity, AgentInfo, InboxMessage, OutboxMessage } from '../../shared/types';
 import { errMsg, log } from '../log';
 import type { CodexQueueResult, CodexQueueRunner } from './codex';
@@ -115,8 +116,8 @@ interface Entry {
   text: string;
   /** Atividade do feed quando a entrega se confirma (o começo do texto, mascarado e cortado). */
   activity?: ReturnType<typeof describeMessage>;
-  /** Troca de modelo/raciocínio do omp: sem texto e sem atividade no feed. */
-  control?: { model?: string; thinking?: string };
+  /** Troca de modelo/raciocínio ou comando (/new, /shake) do omp: sem texto e sem atividade no feed. */
+  control?: { model?: string; thinking?: string; command?: string };
   /** Sessão do agente quando a mensagem foi mandada: só ela recebe (troca de conversa = falha). */
   target: string;
   /** Sessão que buscou a mensagem (sent): só ela confirma a entrega. */
@@ -172,12 +173,12 @@ export function parseSend(raw: unknown): { agentId: string; text: string } {
   return { agentId, text: r.text };
 }
 
-/** Corpo de POST /api/messages/control: `{agentId, model?, thinking?}`, com ao menos um dos dois. */
-export function parseControl(raw: unknown): { agentId: string; model?: string; thinking?: string } {
+/** Corpo de POST /api/messages/control: `{agentId, model?, thinking?, command?}`, com ao menos um deles. */
+export function parseControl(raw: unknown): { agentId: string; model?: string; thinking?: string; command?: string } {
   const r = rec(raw);
   const agentId = shortStr(r?.agentId, ID_MAX);
-  if (!r || !agentId) throw new InvalidRequest('esperado {agentId, model?, thinking?}');
-  const out: { agentId: string; model?: string; thinking?: string } = { agentId };
+  if (!r || !agentId) throw new InvalidRequest('esperado {agentId, model?, thinking?, command?}');
+  const out: { agentId: string; model?: string; thinking?: string; command?: string } = { agentId };
   if (r.model !== undefined) {
     const model = shortStr(r.model, 200);
     if (!model) throw new InvalidRequest(tr('modelo inválido'));
@@ -187,7 +188,11 @@ export function parseControl(raw: unknown): { agentId: string; model?: string; t
     if (typeof r.thinking !== 'string' || !(OMP_THINKING_LEVELS as readonly string[]).includes(r.thinking)) throw new InvalidRequest(tr('raciocínio inválido'));
     out.thinking = r.thinking;
   }
-  if (!out.model && !out.thinking) throw new InvalidRequest(tr('informe o modelo ou o raciocínio'));
+  if (r.command !== undefined) {
+    if (typeof r.command !== 'string' || !Object.hasOwn(OMP_COMMANDS, r.command)) throw new InvalidRequest(tr('comando inválido'));
+    out.command = r.command;
+  }
+  if (!out.model && !out.thinking && !out.command) throw new InvalidRequest(tr('informe o modelo, o raciocínio ou o comando'));
   return out;
 }
 
@@ -301,11 +306,11 @@ export class MessageRegistry {
   }
 
   /**
-   * Troca de modelo e/ou raciocínio da sessão omp pela gaveta: entra na mesma fila das mensagens (a extensão aplica
-   * e confirma), só para agentes do omp. Mesmos resultados de `send`.
+   * Troca de modelo e/ou raciocínio, ou um comando (/new, /shake), da sessão omp pela gaveta ou pelo terminal: entra
+   * na mesma fila das mensagens (a extensão aplica e confirma), só para agentes do omp. Mesmos resultados de `send`.
    */
   control(raw: unknown): SendResult {
-    const { agentId, model, thinking } = parseControl(raw);
+    const { agentId, ...change } = parseControl(raw);
     const real = this.opts.office.get(agentId);
     const demo = real ? undefined : this.opts.demoAgent?.(agentId);
     const agent = real ?? demo;
@@ -314,7 +319,7 @@ export class MessageRegistry {
     const reason = unavailableReason(agent, real ? this.canMessage(agentId) : false);
     if (reason) return { error: 'unavailable', reason };
     if (this.openCount(agentId) >= MAX_OPEN) return { error: 'too-many' };
-    const entry = this.entry(agentId, agent.sessionId, { text: '', control: { ...(model ? { model } : {}), ...(thinking ? { thinking } : {}) } });
+    const entry = this.entry(agentId, agent.sessionId, { text: '', control: change });
     this.messages.set(entry.msg.id, entry);
     return { message: { ...entry.msg } };
   }
