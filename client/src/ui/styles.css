@@ -4772,7 +4772,7 @@
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  /* A compensação ao descartar linhas antigas é feita no JS: sem a ancoragem automática do navegador. */
+  /* Sem ancoragem do navegador (Safari): a compensação ao descartar linhas antigas é feita no JS (ui/terminal.ts). */
   overflow-anchor: none;
   padding: 14px 16px 18px;
   font: 12.5px/1.55 var(--font-mono);
@@ -4796,6 +4796,21 @@
   grid-template-columns: 2ch minmax(0, 1fr);
   column-gap: 1ch;
   align-items: start;
+}
+
+/*
+ * Até 1500 linhas: as que estão fora da tela não entram no layout nem na pintura (o celular travava com histórico
+ * grande). Só com a ancoragem do navegador: ela segura o texto na tela quando uma linha ganha a altura de verdade.
+ */
+@supports (overflow-anchor: auto) {
+  .ui-term__scroll {
+    overflow-anchor: auto;
+  }
+
+  .ui-term__row {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 48px;
+  }
 }
 
 .ui-term__mark {

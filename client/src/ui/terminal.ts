@@ -59,6 +59,8 @@ const dayFmt = new Intl.DateTimeFormat(intlLocale(), { day: '2-digit', month: 's
 
 /** Distância do fim (px) que ainda conta como "no fim" para seguir as mensagens novas. */
 const STICK_PX = 32;
+/** O navegador ancora a rolagem (styles.css liga `overflow-anchor` junto com o content-visibility das linhas). */
+const NATIVE_ANCHOR = typeof CSS !== 'undefined' && !!CSS.supports?.('overflow-anchor', 'auto');
 /** EventSource.CLOSED (constante literal, como no store). */
 const ES_CLOSED = 2;
 /** Quadros do spinner do Claude Code (vai e volta). */
@@ -767,8 +769,13 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     // Arrastar pela barra solta a janela (ui/movable.ts).
     this.movable = new Movable(this.el, bar, { key: 'habblaud.move.term', enabled: () => !ctx.isNarrow() });
     this.renderFilter();
-    // Janela redimensionada: quem está no fim continua vendo o fim.
-    if (typeof ResizeObserver === 'function') new ResizeObserver(() => this.follow && this.scrollToEnd()).observe(this.scroll);
+    // Janela redimensionada, ou linhas que entram na tela com a altura de verdade (content-visibility no CSS):
+    // quem está no fim continua vendo o fim.
+    if (typeof ResizeObserver === 'function') {
+      const ro = new ResizeObserver(() => this.follow && this.scrollToEnd());
+      ro.observe(this.scroll);
+      ro.observe(this.list);
+    }
   }
 
   get agentId(): string | null {
@@ -997,7 +1004,8 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     const batch = this.log.push(entries);
     const evicted = this.log.trim(TERMINAL_DOM_LIMIT);
     if (evicted.length) {
-      const before = this.follow ? 0 : this.scroll.scrollHeight;
+      const compensate = !this.follow && !NATIVE_ANCHOR;
+      const before = compensate ? this.scroll.scrollHeight : 0;
       for (const key of evicted) {
         this.rows.get(key)?.remove();
         this.rows.delete(key);
@@ -1005,8 +1013,8 @@ export class TerminalPanel implements UiComponent, TerminalControl {
         this.hits.delete(key);
         if (this.current?.key === key) this.current = null;
       }
-      // Lendo lá em cima: compensa a altura que saiu do topo para o texto não pular.
-      if (!this.follow) this.scroll.scrollTop -= before - this.scroll.scrollHeight;
+      // Lendo lá em cima, sem ancoragem do navegador: compensa a altura que saiu do topo para o texto não pular.
+      if (compensate) this.scroll.scrollTop -= before - this.scroll.scrollHeight;
     }
     const touched: string[] = [];
     for (const { toolKey: key, result } of batch.attached) {

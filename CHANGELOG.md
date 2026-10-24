@@ -40,7 +40,9 @@ do meio (0.**3**.0).
 
 - **Terminal no celular:** o escritório continuava sendo desenhado atrás do terminal em tela cheia e ocupava o
   aparelho inteiro, então a digitação chegava com atraso. Com o terminal aberto numa tela de até 600 px, o desenho do
-  escritório para e volta quando o terminal fecha.
+  escritório para e volta quando o terminal fecha. Com o histórico grande (até 1500 linhas), as linhas fora da tela
+  não entram mais no layout nem na pintura, e abrir, digitar e receber mensagens novas ficam bem mais leves (no
+  Safari, sem ancoragem de rolagem, continua como antes).
 - **Segurança:** pedidos que mudam o escritório (mensagens, novo agente, permissões) só são aceitos da própria
   página do Habblaud; uma página aberta em outra porta do computador não passa mais.
 - No Windows, os arquivos entregues pelos agentes (`C:\...`, em links ou soltos no texto) eram rejeitados como
