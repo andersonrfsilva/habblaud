@@ -686,6 +686,10 @@ límites (5 h, semana, por modelo o grupo; los agotados resaltan).
   la tarjeta **Pregunta para ti** de la oficina (desde el celular, con `permissions` en `HABBLAUD_REMOTE_ALLOW`). Vale la
   primera respuesta: responder en la oficina cierra el diálogo de la terminal y el modelo recibe el mismo texto que el
   `ask` de omp; responder en la terminal retira la tarjeta. Con Habblaud caído, solo la terminal.
+- **Pie de la terminal:** con la extensión, la terminal del agente muestra la barra del contexto de la sesión (tokens en
+  uso / ventana del modelo, el mismo número del pie de omp, con los colores de las barras de uso) y los botones `/new`,
+  `/shake elide` y `/shake thinking`. La extensión escribe el comando en la pantalla de omp, así que solo se ejecuta con
+  el agente inactivo, omp en pantalla y su editor vacío; si no, el motivo aparece abajo. `/new` pide confirmación.
 - **Aprobaciones**, de dos maneras:
   - **Predeterminada:** cuando omp pide aprobación en la terminal, el personaje levanta la mano y la oficina muestra qué
     herramienta espera; la decisión sigue en la terminal.

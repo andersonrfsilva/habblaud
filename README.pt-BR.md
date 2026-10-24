@@ -652,6 +652,10 @@ destaque).
   **Pergunta para você** do escritório (pelo celular, com `permissions` em `HABBLAUD_REMOTE_ALLOW`). Vale a primeira
   resposta: responder no escritório fecha o diálogo do terminal e o modelo recebe o mesmo texto do `ask` do omp;
   responder no terminal retira o cartão. Com o Habblaud fora do ar, só o terminal.
+- **Rodapé do terminal:** com a extensão, o terminal do agente mostra a barra do contexto da sessão (tokens em uso /
+  janela do modelo, o mesmo número do rodapé do omp, com as cores das barras de uso) e os botões `/new`,
+  `/shake elide` e `/shake thinking`. A extensão digita o comando na tela do omp, então ele só roda com o agente à toa,
+  o omp na tela e o editor dele vazio; senão, o motivo aparece embaixo. `/new` pede confirmação.
 - **Aprovações**, de dois jeitos:
   - **Padrão:** quando o omp pede aprovação no terminal, o personagem levanta a mão e o escritório mostra qual
     ferramenta espera; a decisão continua no terminal.
