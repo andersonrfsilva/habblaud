@@ -248,6 +248,11 @@ const titleWords = (s: string) =>
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(' ');
 
+/** Nome legível de um provedor do omp: `openai-codex` -> "OpenAI Codex"; desconhecido -> palavras com maiúscula. */
+export function providerLabel(provider: string): string {
+  return PROVIDER_LABELS[provider] ?? titleWords(provider);
+}
+
 export interface ModelGroup {
   label: string;
   options: { value: string; label: string }[];
@@ -276,7 +281,7 @@ export function modelGroups(models: readonly string[], keep?: string): ModelGrou
   return [...groups]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([provider, list]) => ({
-      label: PROVIDER_LABELS[provider] ?? titleWords(provider),
+      label: providerLabel(provider),
       options: list
         .sort((a, b) => a.family.localeCompare(b.family) || b.label.localeCompare(a.label, undefined, { numeric: true }))
         .map(({ value, label }) => ({ value, label })),

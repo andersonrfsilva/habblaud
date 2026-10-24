@@ -279,6 +279,31 @@ export interface UsageWindow {
   resetsAt?: number;
 }
 
+/** Um limite de um provedor do omp, como o `omp usage --json` informa (rótulos em inglês, do omp). */
+export interface OmpUsageLimit {
+  /** Ex.: "Claude 5 Hour", "Gemini", "Claude & GPT (shared)". */
+  label: string;
+  /** Duração da janela (ms), quando o omp informa. */
+  windowMs?: number;
+  /** Percentual usado, 0–100 (sem número quando o provedor não informa). */
+  utilization?: number;
+  resetsAt?: number;
+  /** O omp marcou o limite como esgotado (status diferente de ok com 100%). */
+  exhausted?: boolean;
+}
+
+/** Uso de um provedor (uma credencial) do omp: todos os limites, para a lista de provedores no cartão de uso. */
+export interface OmpProviderUsage {
+  /** Id do provedor no omp (`anthropic`, `openai-codex`, `google-antigravity`…). */
+  provider: string;
+  /** Plano, quando o omp informa (ex.: "plus"). */
+  plan?: string;
+  limits: OmpUsageLimit[];
+  /** Explicação do omp quando não há limites (como veio, em inglês). */
+  note?: string;
+  fetchedAt: number;
+}
+
 export interface AccountUsage {
   /** Sessão de 5 horas. */
   fiveHour?: UsageWindow;
@@ -300,6 +325,8 @@ export interface AccountUsage {
   via?: 'mod' | 'tap';
   /** Só 'omp': provedor do omp de onde vieram as janelas (`anthropic`, `openai-codex`, `google-antigravity`…). */
   ompProvider?: string;
+  /** Só 'omp': todos os provedores do omp desta conta, com todos os limites (lista no cartão de uso). */
+  ompProviders?: OmpProviderUsage[];
   /** Só 'omp': explicação do próprio omp quando o provedor não tem janelas de 5 h/7 d (ex.: Ollama), como veio (inglês). */
   note?: string;
   /**

@@ -3381,4 +3381,12 @@ export const ES: Readonly<Record<string, string>> = {
   "Sala do omp por projeto ligada.": "Sala de omp por proyecto activada.",
   "Sala do omp por projeto desligada.": "Sala de omp por proyecto desactivada.",
   "Não foi possível mudar a sala do omp.": "No se pudo cambiar la sala de omp.",
+  "Provedores do omp": "Proveedores de omp",
+  "Provedores do omp · {0}": "Proveedores de omp · {0}",
+  "em uso": "en uso",
+  "Provedor do modelo em uso: o das barras do cartão": "Proveedor del modelo en uso: el de las barras de la tarjeta",
+  "O omp não informa limites deste provedor.": "omp no informa límites de este proveedor.",
+  "Lido do \"omp usage\" {0}; atualiza a cada 5 min com uma sessão do omp aberta.": "Leído de \"omp usage\" {0}; se actualiza cada 5 min con una sesión de omp abierta.",
+  "Ver todos os provedores do omp ({0}) e os limites de cada um": "Ver todos los proveedores de omp ({0}) y los límites de cada uno",
+  "Provedores do omp: {0}": "Proveedores de omp: {0}",
 };

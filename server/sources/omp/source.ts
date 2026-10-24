@@ -43,7 +43,7 @@ import type { OmpLive } from './live';
 import { createOmpTerminalParser } from './terminal';
 import { createOmpState, describeOmpTool, parseOmpLine, projectDir, type OmpLineResult, type OmpState } from './parser';
 import { ompBinFrom, runOmpUsage, type RunOmpUsage } from './bin';
-import { ompProviderOf, parseOmpUsage } from './usage';
+import { ompProviderOf, parseOmpProviders, parseOmpUsage } from './usage';
 import type { OmpHead } from './parser';
 
 /** Varredura completa das pastas de sessões (o resto do polling só re-confere os arquivos conhecidos). */
@@ -328,6 +328,8 @@ export class OmpSource implements AgentSource, OmpLive {
             return;
           }
           acc.usageFailed = false;
+          const all = parseOmpProviders(raw, this.now());
+          if (all?.length) u.ompProviders = all;
           this.opts.accounts.setUsage(acc.id, u);
         })
         .catch((err) => {
