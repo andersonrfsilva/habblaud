@@ -29,6 +29,8 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Segurança:** pedidos que mudam o escritório (mensagens, novo agente, permissões) só são aceitos da própria
+  página do Habblaud; uma página aberta em outra porta do computador não passa mais.
 - No Windows, os arquivos entregues pelos agentes (`C:\...`, em links ou soltos no texto) eram rejeitados como
   "caminho inválido", e as pastas temporárias e scratch do Claude apareciam na lista do Novo agente.
 - No Windows, `~` e `/projects/` com `\` no `CLAUDE_CONFIG_DIR` e no `transcript_path` do statusline.
