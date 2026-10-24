@@ -1,6 +1,7 @@
 // Confere as traduções: lista os textos passados a tr() sem tradução e as traduções que sobraram
-// (o texto em PT mudou ou saiu do código). Uso: npm run i18n:check [-- en|es|fr]
+// (o texto em PT mudou ou saiu do código). Uso: npm run i18n:check [-- en|es|fr] [--strict]
 // Não falha o build: um texto sem tradução simplesmente aparece em PT.
+// `--strict` (CI) sai com 1 se faltar ou sobrar tradução.
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { EN } from '../shared/locales/en';
@@ -46,7 +47,10 @@ function unescapeJs(s: string): string {
 }
 
 if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith('i18n-check.ts')) {
-  const only = process.argv[2];
+  const args = process.argv.slice(2);
+  const strict = args.includes('--strict');
+  const only = args.find((a) => !a.startsWith('--'));
+  let problems = 0;
   const keys = collectKeys();
   for (const [lang, dict] of Object.entries(DICTS)) {
     if (only && only !== lang) continue;
@@ -55,5 +59,7 @@ if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith
     console.log(`${lang}: ${keys.size - missing.length}/${keys.size} textos traduzidos`);
     for (const k of missing) console.log(`  sem tradução: ${JSON.stringify(k)}  (${keys.get(k)![0]})`);
     for (const k of stale) console.log(`  sobrando:     ${JSON.stringify(k)}`);
+    problems += missing.length + stale.length;
   }
+  if (strict && problems) process.exitCode = 1;
 }
