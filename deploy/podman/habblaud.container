@@ -1,0 +1,50 @@
+# Quadlet do Habblaud de produção (podman rootless, systemd do usuário).
+#
+# Instalar:
+#   install -Dm644 deploy/podman/habblaud.container ~/.config/containers/systemd/habblaud.container
+#   systemctl --user daemon-reload && systemctl --user start habblaud
+# (precisa de `loginctl enable-linger` para subir no boot sem login.)
+#
+# Rede do host: a extensão do omp fala com 127.0.0.1:4747 e o acesso pelo celular escuta no IP da Tailscale
+# (HABBLAUD_REMOTE_HOST no remote.env), como numa instalação direta; por isso HABBLAUD_IN_DOCKER=0. O resto do host
+# fica de fora: só as pastas abaixo entram, com os mesmos caminhos do host (os cwd das sessões batem).
+
+[Unit]
+Description=Habblaud (produção, podman)
+After=network-online.target
+
+[Container]
+Image=localhost/habblaud:producao
+Pull=never
+ContainerName=habblaud
+Network=host
+# O mesmo uid do host dentro do container: ~/.habblaud e ~/.omp continuam do usuário.
+UserNS=keep-id
+Environment=HOME=%h
+Environment=HABBLAUD_IN_DOCKER=0
+Environment=HABBLAUD_HOST=127.0.0.1
+Environment=HABBLAUD_PORT=4747
+Environment=HABBLAUD_OMP_BIN=%h/.local/bin/omp
+EnvironmentFile=%h/.habblaud/remote.env
+# Estado do Habblaud (nomes, salas, timelapse, segredo do acesso remoto).
+Volume=%h/.habblaud:%h/.habblaud:rw
+# Sessões do omp (leitura) e credenciais do `omp usage` (ele renova tokens no agent.db).
+Volume=%h/.omp:%h/.omp:rw
+Volume=%h/.local/bin/omp:%h/.local/bin/omp:ro
+# Só para a sala por projeto conferir se o cwd é repositório git.
+# shortcut: sessões fora de ~/Desenvolvimento contam como sem git; montar a outra pasta (ro) se precisar.
+Volume=%h/Desenvolvimento:%h/Desenvolvimento:ro
+ReadOnly=true
+Tmpfs=/tmp:size=64m
+DropCapability=ALL
+NoNewPrivileges=true
+HealthCmd=node -e "fetch('http://127.0.0.1:4747/api/health',{signal:AbortSignal.timeout(4000)}).then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
+HealthInterval=30s
+HealthStartPeriod=15s
+
+[Service]
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
