@@ -38,6 +38,9 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Terminal no celular:** o escritório continuava sendo desenhado atrás do terminal em tela cheia e ocupava o
+  aparelho inteiro, então a digitação chegava com atraso. Com o terminal aberto numa tela de até 600 px, o desenho do
+  escritório para e volta quando o terminal fecha.
 - **Segurança:** pedidos que mudam o escritório (mensagens, novo agente, permissões) só são aceitos da própria
   página do Habblaud; uma página aberta em outra porta do computador não passa mais.
 - No Windows, os arquivos entregues pelos agentes (`C:\...`, em links ou soltos no texto) eram rejeitados como
