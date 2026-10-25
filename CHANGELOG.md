@@ -42,7 +42,8 @@ do meio (0.**3**.0).
   aparelho inteiro, então a digitação chegava com atraso. Com o terminal aberto numa tela de até 600 px, o desenho do
   escritório para e volta quando o terminal fecha. A rolagem do histórico ficou fluida: o terminal não usa mais
   `backdrop-filter` (com o fundo quase opaco o desfoque não aparecia e refazia a tela a cada quadro) e, no celular,
-  fica opaco e sem sombra. Medições em [`docs/terminal-celular-desempenho.md`](docs/terminal-celular-desempenho.md).
+  fica opaco e sem sombra. Fora do celular, com o terminal aberto, o escritório é desenhado a 30 quadros por segundo
+  (cerca de metade da CPU). Medições em [`docs/terminal-celular-desempenho.md`](docs/terminal-celular-desempenho.md).
 - **Segurança:** pedidos que mudam o escritório (mensagens, novo agente, permissões) só são aceitos da própria
   página do Habblaud; uma página aberta em outra porta do computador não passa mais.
 - No Windows, os arquivos entregues pelos agentes (`C:\...`, em links ou soltos no texto) eram rejeitados como

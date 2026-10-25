@@ -24,6 +24,7 @@ tempo para abrir o terminal (~650 ms com 1500 linhas, igual em todas as versões
 | `4fdf1ec` | Com o terminal aberto numa tela de até 600 px, `world.setSuspended` pausa o desenho do escritório (o mesmo mecanismo que a cidade já usa). Volta ao fechar o terminal; ao girar o celular a regra é reavaliada. Entre 601 e 900 px (tablet) o escritório continua rodando, porque aparece nas bordas do terminal |
 | `88bfdc9` → `6831087` | Primeiro `content-visibility: auto` nas linhas; desfeito porque o celular passava a montar e medir cada linha que chegava perto da tela durante a rolagem (layout de 16 ms para 258 ms na mesma rolagem). Ficou `contain: content` em `.ui-term__row` |
 | `ba2a1ca` | `.ui-term` sem `backdrop-filter`. No celular (até 600 px), fundo opaco `#0a0c12` e sem sombra |
+| `46126b7` | Fora do celular, com o terminal aberto, `world.setFrameCap(30)` limita o desenho do escritório a 30 quadros por segundo; ao fechar o terminal volta ao ritmo do monitor. A interface e o terminal seguem no ritmo do monitor |
 
 ## Medições
 
@@ -40,6 +41,25 @@ versão rodou 3 vezes, em ordem alternada; os valores são a faixa entre as roda
 O navegador do teste desenha sem placa de vídeo: os números servem para comparar as versões entre si, não como tempo
 real no aparelho.
 
+### Escritório a 30 qps com o terminal em janela
+
+Antes de implementar, um canário limitou só o laço do escritório (terminal aberto em janela, Habblaud de produção, 5 s
+por passo). CPU total da página; 100% = um núcleo:
+
+| Escritório a | Computador 1440×900 | Tablet 820×1180 (CPU 4× mais lenta) |
+| --- | --- | --- |
+| 60 qps | 180% | 98% |
+| 30 qps | 94% | 64% |
+| 20 qps | 78% | 60% |
+| 15 qps | 74% | 52% |
+| 10 qps | 67% | 45% |
+| pausado | 31% | 6% |
+
+De 60 para 30 vem a maior parte do ganho; abaixo de 20, cada quadro passa a custar mais (~15 ms a 60 qps, ~30 ms a
+10 qps; causa não investigada) e o ganho fica pequeno. Implementado, no computador (2 rodadas): com o terminal
+aberto, 173–175% sem limite contra 91–100% com limite, a interface em 58–60 qps; com o terminal fechado, sem mudança
+(172–175%, escritório a 55–60 qps).
+
 ## Pontos em aberto
 
 - **`contain: content`:** nenhuma diferença na rolagem e na digitação; nas mensagens novas, o pior caso caiu de
@@ -50,6 +70,9 @@ real no aparelho.
 - **Aparelho de verdade:** nada foi medido num celular. O próximo passo, se voltar a travar, é medir no próprio
   aparelho pelo DevTools remoto (`chrome://inspect` com o celular ligado por USB).
 - **iPhone/Safari:** não testado.
+- **Animação a 30 qps:** não avaliada a olho num monitor de verdade.
+- **Aviso do Habblaud World:** o desfoque de fundo do aviso da primeira visita derruba a página inteira para ~28 qps
+  no navegador de teste (mesma causa do terminal); não corrigido.
 
 ## Como medir de novo
 
