@@ -195,8 +195,13 @@ diferença menor que 8 pontos é ruído.
 
 ## Git workflow
 
-- `git fetch fork && git switch -c spike/013-lote fork/main`. Commits só nesse branch, assunto em português,
-  minúsculo, prefixo `spike:`.
+- **Atualizado em 2026-10-25:** os planos 010/011 já entraram em `fork/main`, e com eles o escritório parado
+  desenha a 10 qps. Por isso o spike parte de `31368cb`, que ainda desenha a 30 qps:
+  `git switch -c spike/013-lote 31368cb`. Commits só nesse branch, assunto em português, minúsculo, prefixo
+  `spike:`. No relatório, estime também o ganho a 10 qps, o ritmo atual da produção.
+- **Lição do plano 012 (rejeitado):** remover um desenho por completo dava −15%, mas o cache que o substituiu deu
+  −2%, dentro do ruído. Na mesma sessão, a linha de base variou de 56% a 84%. Só aceite um ganho se as 5 medianas
+  alternadas separarem as variantes por pelo menos 8 pontos. Reporte também os 10 valores brutos.
 - O relatório `plans/013-resultado.md` e a linha do índice vão para o branch em que estiverem os `plans/` (o
   operador decide). Não misture com o código do protótipo.
 - Do NOT push or open a PR unless the operator instructed it.

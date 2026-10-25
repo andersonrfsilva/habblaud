@@ -6,8 +6,14 @@ Gerado pela skill improve. 001: 2026-10-24 (variante `plan`). 002–006: 2026-10
 escritório animado, no commit `7af1def` (medição no Chromium sem GPU contra o Habblaud de produção; números em cada
 plano). 010–013: 2026-10-25, auditoria `deep` da CPU da interface web com a economia de energia ligada (M1 a
 20–30%), no commit `31368cb` (`fork/main`), **medida com GPU de verdade** (Chromium com
-`--ozone-platform=headless --use-gl=angle --use-angle=gl-egl`, Intel UHD 630, 1440×900 em densidade 2). Cada
-executor: leia o plano inteiro antes de começar, respeite as STOP conditions e atualize sua linha ao terminar.
+`--ozone-platform=headless --use-gl=angle --use-angle=gl-egl`, Intel UHD 630, 1440×900 em densidade 2). 014:
+2026-10-25 (variante `plan`), no commit `dfbdde3` (baseline: `npm run typecheck` ok, `npm test` 176 arquivos / 2119
+testes ok).
+
+**Onde executar:** sempre neste clone de desenvolvimento (`~/Desenvolvimento/habblaud`) ou numa worktree dele, nunca
+em `~/apps/habblaud`, que é o Habblaud de produção (o `omp-tenant release` lê os commits de lá). A produção só recebe
+um plano pronto e revisado, pelo operador. Cada executor: leia o plano inteiro antes de começar, respeite as STOP
+conditions e atualize sua linha ao terminar.
 
 ## Execution order & status
 
@@ -22,15 +28,19 @@ executor: leia o plano inteiro antes de começar, respeite as STOP conditions e 
 | 007  | Escritório parado a 30 qps (15 sem foco); 60 só com câmera em movimento ou entrada | P1 | S | — | DONE (merge f0e2e60) |
 | 008  | Opção "Economia de energia": escritório desenhado em 1× (pixelated) | P2 | M | — | DONE (merge 994d2c4) |
 | 009  | Telas, janelas e relógios repintados só quando mudam (cache por item) | P3 | M | — | SUPERSEDED por 012 (medido sem GPU, onde o ganho não aparece; branch apagado) |
-| 010  | "Economia de energia" a 10 qps parado (5 sem foco), laço dormindo num timer | P1 | S | — | DONE (commit 5988af4, branch advisor/010-economia-10-qps, worktree /tmp/hb-010; sem merge) |
-| 011  | 30 qps só quando algo anda na tela; sem movimento, 10 (5 sem foco) | P1 | M | 010 | DONE (commits 3971ae6 + 1d60dda, branch advisor/011-ritmo-pelo-movimento sobre o 010, worktree /tmp/hb-011; sem merge) |
-| 012  | Telas, janelas e relógios em cache (refeito do 009, medido com GPU) | P2 | M | — | TODO |
+| 010  | "Economia de energia" a 10 qps parado (5 sem foco), laço dormindo num timer | P1 | S | — | DONE (merge 9c4d4d0, em produção) |
+| 011  | 30 qps só quando algo anda na tela; sem movimento, 10 (5 sem foco) | P1 | M | 010 | DONE (merge 9c4d4d0, em produção) |
+| 012  | Telas, janelas e relógios em cache (refeito do 009, medido com GPU) | P2 | M | — | REJECTED (2026-10-25: −2% a 30 qps, dentro do ruído; ver "Considered and rejected") |
 | 013  | Spike: móveis e props desenhados em lote (atlas, camadas) | P3 | L | — | TODO |
+| 014  | Bate-papo paralelo com um agente do omp numa janela lateral do terminal, com histórico em disco | P2 | L | — | DONE (8 commits ff168c9..e9c66b6, branch advisor/014-bate-papo-paralelo, worktree /tmp/hb-014; revisado, sem merge; prova real com omp 18.12.6 ok) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 
 ## Dependency notes
 
+- 014 é independente dos outros. Usa `ctx.runEphemeralTurn` do omp 18.12.6, confirmado no binário de
+  `/opt/omp-tenant/omp`. A publicação (levar o commit a `~/apps/habblaud`, `omp-tenant release` + `sync`, reabrir as
+  sessões do omp) é do operador, fora do plano.
 - 002–009: nenhum plano depende de outro; 002 e 003 primeiro (segurança e bug com efeito real).
 - 004 cria 3 textos novos em `tr()`: se 005 já tiver entrado, o CI cobra as traduções deles (o plano 004 já manda
   traduzir).
@@ -48,7 +58,7 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 - 012 é independente e se mede a 30 qps a partir de `fork/main`. Depois de 010/011, o escritório passa a maior parte
   do tempo a 10 qps, e o ganho do 012 cai (as telas repintam quase todo quadro a 10 qps); só janelas e relógios
   ainda ganham.
-- 013 é investigação: o produto é `plans/013-resultado.md`; se recomendar uma variante, vira o plano 014.
+- 013 é investigação: o produto é `plans/013-resultado.md`; se recomendar uma variante, vira o próximo plano livre.
 - Planos 010–013 partem de `fork/main` (o `producao` local está 5 commits atrás).
 
 ## Findings considered and rejected
@@ -82,6 +92,11 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
   do quadro baixa 85% → 59%, e o custo de cobrir a tela (motivo antigo da rejeição) não pesa com GPU.
 - Luz (`drawLighting`), nomes e balões (`overlay.draw`) e luzes de Halloween (`drawSeasonalLights`): tirá-los do
   quadro, medido com GPU, não mudou a CPU (86,7%, 83,0% e 89,7% contra 85,0%).
+- Cache de telas, janelas e relógios (plano 012, executado em 2026-10-25 a partir de `31368cb`, a 30 qps com GPU):
+  o executor mediu 80,6% → 79,0% (medianas de 3); o revisor, em pares alternados, 83,2/74,4/56,1% sem cache contra
+  82,2/78,7/77,2% com cache. Não há ganho fora do ruído. O limite de 72,5% medido antes tirava o desenho por
+  inteiro. Com cache, as telas ainda repintam a cada 66 ms, um quadro sim, outro não, e cada item continua com um
+  `drawImage`. A 10 qps, ritmo atual depois de 010/011, o ganho seria ainda menor. Branch apagado.
 - Desenhar a economia em 1× (plano 008) com GPU: não ajuda, mas também não piora o bastante para remover; ajuda em
   aparelhos que desenham o canvas sem GPU. Fica.
 - `backdrop-filter` dos painéis por cima do canvas: medido sem ele, nenhuma diferença (67–72% contra 71%).

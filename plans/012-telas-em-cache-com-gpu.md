@@ -195,9 +195,14 @@ Chromium com GPU de verdade e sai com código 2 se a GPU não estiver disponíve
 
 ## Git workflow
 
-- Base: `fork/main`. `git fetch fork && git switch -c advisor/012-telas-em-cache fork/main`. Execute a partir de
-  `fork/main`, mesmo que 010/011 já tenham entrado em outro branch: a medição compara 30 quadros/s com 30 quadros/s.
-  O merge com 010/011 é simples, porque mexem em pontos diferentes.
+- **Atualizado em 2026-10-25, depois que 010/011 entraram em `fork/main` (`dfbdde3`).** Com eles, o escritório
+  parado desenha a 10 quadros/s e a medição a 30 deixa de ser possível em `fork/main`. O trabalho tem duas fases:
+  1. **Medição** (passos 1–4): branch `advisor/012-medicao` a partir de `31368cb`, o commit anterior a 010/011, que
+     desenha a 30 quadros/s. Implemente e meça ali. Esse branch é descartável e não vai para merge.
+  2. **Entrega**: branch `advisor/012-telas-em-cache` a partir de `fork/main`. Leve para lá o commit de
+     `renderer.ts` com `git cherry-pick`. O único conflito possível são as linhas `this.motion = true` do plano 011,
+     que devem ficar. Depois rode `npm run typecheck` e `npm test` e faça o commit do passo 5 (changelog). Por fim,
+     meça 3× em `fork/main` e 3× no branch de entrega, como informação, sem critério de aprovação.
 - Commits no estilo do repositório: assunto em português, minúsculo. Exemplo do `git log`:
   `escritório parado a 30 qps (15 sem foco); 60 qps só com câmera em movimento ou entrada`.
 - Do NOT push or open a PR unless the operator instructed it.
@@ -209,7 +214,7 @@ Chromium com GPU de verdade e sai com código 2 se a GPU não estiver disponíve
 `npx vite build --config vite.config.ts`, suba o preview (deixe rodando) e rode 3×:
 `SHOT=/tmp/hb-012-antes.png node /tmp/habblaud-cpu.mjs http://127.0.0.1:4790/ 20`.
 
-**Verify**: `quadros/s` entre 28 e 31 nas 3 rodadas (se não, o branch não é `fork/main` puro: STOP). Anote a
+**Verify**: `quadros/s` entre 28 e 31 nas 3 rodadas (se não, o branch não partiu de `31368cb`: STOP). Anote a
 mediana de `cpu` (esperado ~80–85%).
 
 ### Step 2: Helper de cache no `Renderer`
