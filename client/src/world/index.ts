@@ -96,7 +96,6 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
       canvas.width = pw;
       canvas.height = ph;
     }
-    canvas.style.imageRendering = options.powerSave ? 'pixelated' : '';
     camera.setView(w, h, dpr);
     updateBounds();
   };
