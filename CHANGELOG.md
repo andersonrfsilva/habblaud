@@ -12,6 +12,9 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Histórico de sessões e Entregas com o omp:** as conversas do omp dos últimos 7 dias (abertas ou encerradas) entram
+  no histórico de sessões, com título e projeto, e abrem no terminal; as Entregas passam a mostrar o que os agentes
+  do omp terminaram. Antes os dois painéis ficavam vazios com o omp.
 - **STOP e /shake único no omp:** o botão **STOP** no rodapé do terminal de um agente do omp interrompe o turno em
   andamento, como o Esc na tela do omp; só fica ativo com o agente trabalhando, e a extensão confirma ou diz por que
   não parou. Os botões `/shake elide` e `/shake thinking` viraram um só, `/shake`, que roda os dois em seguida.
