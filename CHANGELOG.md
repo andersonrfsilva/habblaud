@@ -10,6 +10,11 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Alterado
+
+- **Escritório mais leve:** parado, o escritório é desenhado a 30 quadros por segundo (15 com a janela sem foco),
+  cerca de metade da CPU; arrastar, dar zoom e a câmera seguindo alguém continuam no ritmo do monitor.
+
 ### Corrigido
 
 - **Terminal mais leve, principalmente no celular.** O escritório continuava sendo desenhado atrás do terminal em tela
