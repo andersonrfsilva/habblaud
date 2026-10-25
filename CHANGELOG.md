@@ -12,6 +12,9 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Histórico de sessões e Entregas com o omp:** as conversas do omp dos últimos 7 dias (abertas ou encerradas) entram
+  no histórico de sessões, com título e projeto, e abrem no terminal; as Entregas passam a mostrar o que os agentes
+  do omp terminaram. Antes os dois painéis ficavam vazios com o omp.
 - **Windows nativo (sem Docker nem WSL):** o Habblaud roda no Windows 10/11 com Node, inclusive o terminal
   interativo, Assumir daqui, os instaladores e o Novo agente. O acesso pelo celular funciona pelo IP (sem o
   anúncio `.local` automático). `npm run demo` passa a usar `--demo` (vale também fora do Windows); o CI roda
