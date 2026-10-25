@@ -14,7 +14,7 @@ import type { Sim } from '../sim/sim';
 import { buildAnim } from './anim';
 import { drawFxBanner } from './github-fx';
 import type { HeadInfo, Renderer } from './renderer';
-import { tr } from '../../../../shared/i18n';
+import { isNeutralBrand, tr } from '../../../../shared/i18n';
 
 // A Pixelify Sans tem o "C" maiúsculo quase fechado (lê-se "Oopa" em vez de "Copa") em qualquer
 // peso/tamanho usado no canvas; os textos do mundo usam a fonte do sistema, sempre legível.
@@ -106,10 +106,10 @@ type Item = Bubble | Label;
 /** Luminância relativa de uma cor hex (0..1). */
 /** Fundo do chip vazado das contas do Codex (o mesmo dos painéis). */
 const CODEX_CHIP_BG = '#161b26';
-/** Selo "CODEX" das etiquetas: discreto (vidro claro), sem a cor de ninguém. */
-const CODEX_BADGE = 'CODEX';
+/** Selo "CODEX" das etiquetas: discreto (vidro claro), sem a cor de ninguém. Vazio no modo sem marca (sem selo). */
+const CODEX_BADGE = isNeutralBrand() ? '' : 'CODEX';
 /** Selo do omp nas etiquetas (o mundo só conhece claude|codex: o omp é reconhecido pela conta do snapshot). */
-const OMP_BADGE = 'OMP';
+const OMP_BADGE = isNeutralBrand() ? '' : 'OMP';
 
 /** Octógono "em degrau" (um quadrado de cantos cortados, como um pixel arredondado). */
 function steppedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, s: number): void {

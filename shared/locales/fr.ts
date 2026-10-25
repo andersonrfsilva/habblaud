@@ -86,6 +86,7 @@ export const FR: Readonly<Record<string, string>> = {
 
   // client/src/ui/composer-model.ts
   "Para mandar mensagens ao omp: npm run omp:install (extensão do Habblaud no omp) e reabra a sessão": "Pour envoyer des messages à omp : npm run omp:install (extension Habblaud dans omp) puis rouvrez la session",
+  "Esta sessão ainda não recebe mensagens daqui: reabra a sessão": "Cette session ne reçoit pas encore de messages d'ici : rouvrez la session",
   "Para responder, use o omp": "Pour répondre, utilisez omp",
   "Entra na sessão como continuação: se o omp estiver no meio de um turno, vira o próximo prompt quando ele terminar. Enter manda; Shift+Enter quebra a linha.": "Entre dans la session comme une suite : si omp est au milieu d'un tour, il devient le prochain prompt quand il aura fini. Entrée envoie ; Maj+Entrée saute une ligne.",
   "Na fila: esperando a extensão do omp buscar a mensagem…": "En file d'attente : l'extension d'omp doit venir chercher le message…",
@@ -373,6 +374,7 @@ export const FR: Readonly<Record<string, string>> = {
   "Terminou bem: levanta, comemora com confete e uma estrela.": "Bien terminé : se lève et fête ça avec des confettis et une étoile.",
   "Falhou ou foi interrompido: nuvenzinha de chuva sobre a cabeça e ombros caídos.": "Échoué ou interrompu : petit nuage de pluie au-dessus de la tête et épaules tombantes.",
   "Cada projeto aberto no Claude Code ou no Codex vira uma sala (os dois no mesmo projeto dividem a sala), e cada sessão aberta é um personagem com nome próprio. ": "Chaque projet ouvert dans Claude Code ou Codex devient une salle (les deux sur le même projet partagent la salle), et chaque session ouverte est un personnage avec son propre nom. ",
+  "Cada projeto aberto vira uma sala, e cada sessão aberta é um personagem com nome próprio. ": "Chaque projet ouvert devient une salle, et chaque session ouverte est un personnage avec son propre nom. ",
   "Subagentes chegam como colegas novos, trabalham na mesma sala e vão embora quando terminam. ": "Les sous-agents arrivent comme de nouveaux collègues, travaillent dans la même salle et s'en vont quand ils ont fini. ",
   "Quando a última sessão de uma sala é fechada, quem sai apaga a luz e a sala é desmontada.": "Quand la dernière session d'une salle est fermée, le dernier qui sort éteint la lumière et la salle est démontée.",
   "Buscar agente, projeto ou conta": "Chercher un agent, un projet ou un compte",

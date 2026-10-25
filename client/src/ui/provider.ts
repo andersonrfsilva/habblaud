@@ -6,10 +6,10 @@
 // onde há espaço, um selo de texto ("Codex", "omp") ao lado do nome.
 import type { AccountInfo, OfficeSnapshot, Provider } from '../../../shared/types';
 import { shortcutHint } from './model';
-import { tr } from '../../../shared/i18n';
+import { isNeutralBrand, tr, unbrand } from '../../../shared/i18n';
 
-/** Nome de cada ferramenta como aparece nos textos. */
-export const PROVIDER_NAME: Record<Provider, string> = { claude: 'Claude Code', codex: 'Codex', omp: 'omp' };
+/** Nome de cada ferramenta como aparece nos textos ("Agente" nas três, no modo sem marca). */
+export const PROVIDER_NAME: Record<Provider, string> = { claude: unbrand('Claude Code'), codex: unbrand('Codex'), omp: unbrand('omp') };
 
 /** Ferramenta de um agente, conta, sessão ou pedido (ausente = Claude Code). */
 export function providerOf(x: { provider?: Provider } | null | undefined): Provider {
@@ -59,9 +59,9 @@ export function fallbackShort(id: string, provider: Provider = accountProvider(u
   return provider === 'codex' ? 'X' : provider === 'omp' ? 'O' : '?';
 }
 
-/** O selo de texto ao lado do nome da conta ("Codex", "omp"; não repete quando o nome já o diz). */
+/** O selo de texto ao lado do nome da conta ("Codex", "omp"; não repete quando o nome já o diz; nunca no modo sem marca). */
 export function showsProviderTag(provider: Provider, accountName = ''): boolean {
-  return provider !== 'claude' && !accountName.toLowerCase().includes(PROVIDER_NAME[provider].toLowerCase());
+  return provider !== 'claude' && !isNeutralBrand() && !accountName.toLowerCase().includes(PROVIDER_NAME[provider].toLowerCase());
 }
 
 /** Rótulo do chip da conta (dica e leitores de tela): "Conta C (dev@x.com)", "Codex · plano Team", "omp". */

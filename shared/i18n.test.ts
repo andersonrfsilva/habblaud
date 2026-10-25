@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { getLocale, intlLocale, normalizeLocale, serverLocale, setLocale, tr } from './i18n';
+import { getLocale, intlLocale, normalizeLocale, serverLocale, setLocale, setNeutralBrand, tr, unbrand } from './i18n';
 import { EN } from './locales/en';
 import { ES } from './locales/es';
 import { FR } from './locales/fr';
@@ -71,5 +71,37 @@ describe('i18n', () => {
         if (lang !== 'fr') for (const p of original) expect(placeholders(t).has(p), `${lang}: ${pt} -> ${t}`).toBe(true);
       }
     }
+  });
+});
+
+describe('modo sem marca', () => {
+  afterEach(() => {
+    setNeutralBrand(false);
+    setLocale('pt-BR');
+  });
+
+  it('desligado, nada muda', () => {
+    expect(tr('Comandos do omp')).toBe('Comandos do omp');
+  });
+
+  it('troca a ferramenta por "agente" sem estragar comando, caminho, id nem lacuna', () => {
+    setNeutralBrand(true);
+    expect(tr('Comandos do omp')).toBe('Comandos do agente');
+    expect(unbrand('Agente principal (omp)')).toBe('Agente principal');
+    expect(unbrand('Agente do omp (oh-my-pi)')).toBe('Agente');
+    expect(unbrand('omp: falha no ciclo de leitura: {0}')).toBe('Agente: falha no ciclo de leitura: {0}');
+    expect(unbrand('Só do Claude Code: o Codex não grava custo')).toBe('Só do agente: o agente não grava custo');
+    expect(unbrand('Os agentes do Codex têm o chip vazado')).toBe('Os agentes têm o chip vazado');
+    expect(unbrand('npm run omp:install, ~/.omp/agent, omp.json, claude-opus-5')).toBe('npm run omp:install, ~/.omp/agent, omp.json, claude-opus-5');
+    expect(unbrand('o omp usage')).toBe('o medidor de uso');
+    // A lacuna recebe o texto do usuário como veio: só o modelo do texto passa pelo filtro.
+    expect(tr('{0} enviado ao omp.', ['/model claude'])).toBe('/model claude enviado ao agente.');
+  });
+
+  it('em inglês, "agent"', () => {
+    setNeutralBrand(true);
+    setLocale('en');
+    expect(unbrand('Agent providers in omp')).toBe('Agent providers in agent');
+    expect(unbrand('your Claude Code agents')).toBe('your agents');
   });
 });

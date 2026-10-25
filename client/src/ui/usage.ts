@@ -20,7 +20,7 @@ import { ICONS } from './icons';
 import { isCodex, isOmp, PROVIDER_NAME, providerOf, showsProviderTag } from './provider';
 import { usageRowFits } from './usage-row';
 import { createAccountChip, createProviderTag, updateAccountChip, updateProviderTag } from './widgets';
-import { tr } from '../../../shared/i18n';
+import { isNeutralBrand, tr, unbrand } from '../../../shared/i18n';
 
 export const SOURCE_LABEL: Record<NonNullable<AccountInfo['usage']>['source'], string> = {
   cache: tr('cache do /usage do Claude Code'),
@@ -250,12 +250,12 @@ export function showsUsageAge(a: Pick<AccountInfo, 'usage' | 'usageStatus' | 'pr
   return state === 'stale' || ((isCodex(a) || (isOmp(a) && !a.usage.quota)) && state !== 'empty');
 }
 
-/** Linha embaixo do nome: e-mail; no Codex (sem e-mail), o plano; cota da instalação, "cota de uso"; nas outras, a pasta. */
+/** Linha embaixo do nome: e-mail; no Codex (sem e-mail), o plano; cota da instalação, "cota de uso"; nas outras, a pasta (que, no modo sem marca, não aparece: ex.: ~/.omp/agent). */
 export function usageSubtitle(a: Pick<AccountInfo, 'email' | 'plan' | 'configDir' | 'provider' | 'usage'>): string {
   if (a.usage?.quota) return tr('cota de uso');
   if (a.email) return a.email;
-  if (isCodex(a)) return a.plan ? tr('plano {0}', [a.plan]) : 'Codex';
-  return a.configDir;
+  if (isCodex(a)) return a.plan ? tr('plano {0}', [a.plan]) : unbrand('Codex');
+  return isNeutralBrand() ? '' : a.configDir;
 }
 
 /** Mensagem no lugar das barras (estados sem números): [longa, curta]. */
@@ -559,7 +559,7 @@ export class UsageCards {
       setAttr(r.provs, 'aria-label', tr('Provedores do omp: {0}', [views.length]));
     }
     if (this.openFor === a.id && this.panelOpen) this.renderPanel(a);
-    setAttr(card, 'aria-label', tr('{0}{1}: uso do plano', [a.name, provider === 'claude' ? '' : ` (${PROVIDER_NAME[provider]})`]));
+    setAttr(card, 'aria-label', tr('{0}{1}: uso do plano', [a.name, provider === 'claude' || isNeutralBrand() ? '' : ` (${PROVIDER_NAME[provider]})`]));
 
     const usage = a.usage;
     const state = cardState(a);

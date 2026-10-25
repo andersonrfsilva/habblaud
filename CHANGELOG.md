@@ -12,6 +12,10 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Modo sem marca:** com `HABBLAUD_SEM_MARCA=1` (instalação multiusuário que não quer expor a ferramenta por trás),
+  os textos da interface e do servidor dizem "agente" no lugar de omp, Claude Code e Codex ("Agente principal",
+  "Comandos do agente", conta "Agente"); some o selo OMP/CODEX das etiquetas e da gaveta, a pasta da conta no cartão de
+  uso e, na ajuda, as dicas de instalação e a seção do Codex. Os nomes dos modelos não mudam. Sem a variável, nada muda.
 - **Cartão de cota de uso:** quando o JSON no lugar do `omp usage` traz `"quota": true` (um proxy multiusuário com cota
   própria), o cartão de uso mostra só as barras de 5 h e da semana, com "cota de uso" embaixo do nome, sem pasta,
   idade nem a lista de provedores; a dica fica só com as duas janelas e o aviso de bloqueio em 100%. Cota esgotada
