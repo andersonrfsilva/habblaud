@@ -612,7 +612,7 @@ export const FR: Readonly<Record<string, string>> = {
   "Escritório": "Bureau",
   "Mostrar nomes": "Afficher les noms",
   "Economia de energia": "Économie d'énergie",
-  "Desenha o escritório em resolução menor e deixa a tela ampliar: bem menos CPU em telas nítidas (celular, Retina), com nomes e balões um pouco menos nítidos.": "Dessine le bureau en plus basse résolution et laisse l'écran l'agrandir : beaucoup moins de CPU sur les écrans nets (téléphone, Retina), avec des noms et des bulles un peu moins nets.",
+  "Desenha o cenário em resolução menor e amplia; nomes e balões continuam nítidos. Bem menos CPU em telas nítidas (celular, Retina).": "Dessine le décor en plus basse résolution et l'agrandit ; les noms et les bulles restent nets. Beaucoup moins de CPU sur les écrans nets (téléphone, Retina).",
   "Etiqueta com o nome acima de cada personagem.": "Étiquette avec le nom au-dessus de chaque personnage.",
   "Notificações do navegador": "Notifications du navigateur",
   "Avisa quando alguém precisa de você e a aba está em segundo plano.": "Prévient quand quelqu'un a besoin de vous et que l'onglet est en arrière-plan.",
