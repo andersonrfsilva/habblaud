@@ -31,9 +31,9 @@ conditions e atualize sua linha ao terminar.
 | 010  | "Economia de energia" a 10 qps parado (5 sem foco), laço dormindo num timer | P1 | S | — | DONE (merge 9c4d4d0, em produção) |
 | 011  | 30 qps só quando algo anda na tela; sem movimento, 10 (5 sem foco) | P1 | M | 010 | DONE (merge 9c4d4d0, em produção) |
 | 012  | Telas, janelas e relógios em cache (refeito do 009, medido com GPU) | P2 | M | — | REJECTED (2026-10-25: −2% a 30 qps, dentro do ruído; ver "Considered and rejected") |
-| 013  | Spike: móveis e props desenhados em lote (atlas, camadas) | P3 | L | — | DONE (2026-10-25; `plans/013-resultado.md`; protótipo no branch local `spike/013-lote`, 08f9673). B+C: −14 pontos a 30 qps, ≈ −4,5 a 10 qps (estimado). Virou o plano 015 |
-| 014  | Bate-papo paralelo com um agente do omp numa janela lateral do terminal, com histórico em disco | P2 | L | — | DONE (8 commits ff168c9..e9c66b6, branch advisor/014-bate-papo-paralelo, worktree /tmp/hb-014; revisado, sem merge; prova real com omp 18.12.6 ok) |
-| 015  | Móveis do prédio numa camada única e props estáticos em duas camadas (B + C do 013) | P3 | L | 013 | DONE (5 commits c9f102b..ae18a1b, branch advisor/015-moveis-em-camadas, worktree /tmp/hb-015; revisado, sem merge) |
+| 013  | Spike: móveis e props desenhados em lote (atlas, camadas) | P3 | L | — | DONE (2026-10-25; `plans/013-resultado.md`). B+C: −14 pontos a 30 qps. Virou o plano 015 (branch do protótipo apagado) |
+| 014  | Bate-papo paralelo com um agente do omp numa janela lateral do terminal, com histórico em disco | P2 | L | — | DONE (merge 47aae29) |
+| 015  | Móveis do prédio numa camada única e props estáticos em duas camadas (B + C do 013) | P3 | L | 013 | DONE (merge fbf77db, em produção; 72,8% → 58,5% a 30 qps, 31,1% → 25,6% a 10 qps) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 
