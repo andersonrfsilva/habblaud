@@ -63,6 +63,10 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Agentes do omp sumindo depois de reiniciar o Habblaud:** uma sessão do omp aberta e ainda sem mensagens (sem
+  arquivo gravado) não voltava ao escritório quando o Habblaud reiniciava, porque o batimento da extensão não dizia o
+  projeto. Agora o batimento leva o projeto e o arquivo da sessão, e ela volta em até 10 s. Reabra as sessões do omp
+  para carregar a extensão nova.
 - **Terminal no celular:** o escritório continuava sendo desenhado atrás do terminal em tela cheia e ocupava o
   aparelho inteiro, então a digitação chegava com atraso. Com o terminal aberto numa tela de até 600 px, o desenho do
   escritório para e volta quando o terminal fecha. A rolagem do histórico ficou fluida: o terminal não usa mais

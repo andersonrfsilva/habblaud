@@ -488,16 +488,23 @@ export function create(pi: OmpApi, deps: Deps): void {
   /** Modelos da sessão atual: lidos no session_start e repetidos no batimento (o Habblaud pode ter reiniciado). */
   let models: string[] | undefined;
 
-  function sessionFields(ctx: OmpContext): Partial<OmpEvent> {
+  /** Arquivo e projeto da sessão: vão no session_start e em todo batimento (um Habblaud reiniciado não conhece a
+   * sessão, e sem arquivo gravado, antes da 1ª mensagem, só o cwd do evento a coloca no escritório). */
+  function location(ctx: OmpContext | undefined): Partial<OmpEvent> {
     const out: Partial<OmpEvent> = {};
     try {
-      const file = ctx.sessionManager.getSessionFile?.();
+      const file = ctx?.sessionManager.getSessionFile?.();
       if (file) out.sessionFile = file;
-      const cwd = ctx.sessionManager.getCwd?.() ?? ctx.cwd;
+      const cwd = ctx?.sessionManager.getCwd?.() ?? ctx?.cwd;
       if (cwd) out.cwd = cwd;
     } catch {
       // contexto já descartado: só o id
     }
+    return out;
+  }
+
+  function sessionFields(ctx: OmpContext): Partial<OmpEvent> {
+    const out = location(ctx);
     try {
       models = ctx.models?.list().map((m) => `${m.provider}/${m.id}`);
     } catch {
@@ -533,7 +540,7 @@ export function create(pi: OmpApi, deps: Deps): void {
     if (closed) return;
     if (!heartbeat) {
       heartbeat = setInterval(() => {
-        if (sessionId) void emit('heartbeat', sessionId, { ...(models?.length ? { models } : {}), ...contextNow() });
+        if (sessionId) void emit('heartbeat', sessionId, { ...location(mainCtx), ...(models?.length ? { models } : {}), ...contextNow() });
       }, OMP_HEARTBEAT_MS);
       heartbeat.unref?.();
     }

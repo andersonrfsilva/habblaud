@@ -321,6 +321,18 @@ describe('omp extension: mensagens', () => {
     await t.fire('session_shutdown', ctx);
   });
 
+  it('o batimento leva projeto e arquivo: um Habblaud reiniciado acha a sessão ainda sem mensagens', async () => {
+    vi.useFakeTimers();
+    const t = setup({ home: tmp.dir });
+    const ctx = makeCtx();
+    t.fire('session_start', ctx);
+    await vi.advanceTimersByTimeAsync(10_500);
+    const beat = t.habblaud.of('/api/omp/events').find((c) => c.body?.event === 'heartbeat')?.body;
+    expect(beat?.cwd).toBe('/projetos/demo');
+    expect(beat?.sessionFile).toBe('/home/u/.omp/agent/sessions/x/2026_sess-1.jsonl');
+    await t.fire('session_shutdown', ctx);
+  });
+
   it('o batimento e o agent_end levam o contexto (tokens e janela) de getContextUsage', async () => {
     vi.useFakeTimers();
     const t = setup({ home: tmp.dir });
