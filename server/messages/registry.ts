@@ -21,6 +21,7 @@ import { randomBytes } from 'node:crypto';
 import { truncate } from '../../shared/activity';
 import { describeMessage, MESSAGE_MAX, OMP_THINKING_LEVELS } from '../../shared/messages';
 import { OMP_COMMANDS, OMP_SESSION_ID } from '../../shared/omp-events';
+import type { AsideRequest } from '../../shared/asides';
 import type { Activity, AgentInfo, InboxMessage, OmpControl, OutboxMessage } from '../../shared/types';
 import { errMsg, log } from '../log';
 import type { CodexQueueResult, CodexQueueRunner } from './codex';
@@ -92,6 +93,8 @@ export interface MessageRegistryOptions {
   sentTimeoutMs?: number;
   keepMs?: number;
   demoDeliveryMs?: number;
+  /** Toda mensagem resolvida (entregue ou falha), inclusive a confirmação atrasada que corrige uma falha. */
+  onSettled?: (id: string, status: 'delivered' | 'failed', error?: string) => void;
 }
 
 export type SendResult = { message: OutboxMessage } | { error: 'not-found' | 'too-many' } | { error: 'unavailable'; reason: string };
@@ -118,6 +121,8 @@ interface Entry {
   activity?: ReturnType<typeof describeMessage>;
   /** Controle da sessão omp (modelo/raciocínio, /new, /shake, STOP, /resume): sem texto e sem atividade no feed. */
   control?: OmpControl;
+  /** Pergunta do bate-papo paralelo (só para a extensão do omp): sem texto e sem atividade no feed. */
+  aside?: AsideRequest;
   /** Sessão do agente quando a mensagem foi mandada: só ela recebe (troca de conversa = falha). */
   target: string;
   /** Sessão que buscou a mensagem (sent): só ela confirma a entrega. */
@@ -337,6 +342,25 @@ export class MessageRegistry {
     return { message: { ...entry.msg } };
   }
 
+  /**
+   * Pergunta do bate-papo paralelo (AsideStore): entra na mesma fila das mensagens, só para agentes do omp. A extensão
+   * só a inicia e confirma na hora; a resposta chega por outra rota. Mesmos resultados de `send`.
+   */
+  aside(agentId: string, request: AsideRequest): SendResult {
+    const real = this.opts.office.get(agentId);
+    const demo = real ? undefined : this.opts.demoAgent?.(agentId);
+    const agent = real ?? demo;
+    if (!agent) return { error: 'not-found' };
+    if (agent.provider !== 'omp') return { error: 'unavailable', reason: tr('só agentes do omp respondem perguntas paralelas') };
+    const reason = unavailableReason(agent, real ? this.canMessage(agentId) : false);
+    if (reason) return { error: 'unavailable', reason };
+    if (this.openCount(agentId) >= MAX_OPEN) return { error: 'too-many' };
+    const entry = this.entry(agentId, agent.sessionId, { text: '' });
+    entry.aside = request;
+    this.messages.set(entry.msg.id, entry);
+    return { message: { ...entry.msg } };
+  }
+
   private openCount(agentId: string): number {
     let open = 0;
     for (const e of this.messages.values()) if (e.msg.agentId === agentId && !isFinal(e)) open++;
@@ -383,7 +407,7 @@ export class MessageRegistry {
       this.setStatus(e, 'sent', now);
       e.session = session;
       e.sentAt = now;
-      out.push({ id: e.msg.id, text: e.text, ...(e.control ? { control: e.control } : {}) });
+      out.push({ id: e.msg.id, text: e.text, ...(e.control ? { control: e.control } : {}), ...(e.aside ? { aside: e.aside } : {}) });
     }
     return out;
   }
@@ -563,6 +587,12 @@ export class MessageRegistry {
       if (!e.demo && e.activity) this.opts.office.addActivity(e.msg.agentId, { id: `${e.msg.agentId}#msg:${e.msg.id}`, at: now, ...e.activity }, false);
     }
     e.text = '';
+    delete e.aside;
+    try {
+      this.opts.onSettled?.(e.msg.id, status, e.msg.error);
+    } catch (err) {
+      log.warnOnce(`messages-settled:${errMsg(err)}`, tr('Mensagens: falha ao avisar a resolução de uma mensagem ({0}).', [errMsg(err)]));
+    }
   }
 
   private fail(e: Entry, now: number, error: string): void {
