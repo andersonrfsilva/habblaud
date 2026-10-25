@@ -90,6 +90,11 @@ export class Renderer {
   private assetsVersion = 0;
   private builtAssetsVersion = 0;
   cars: Car[] = [];
+  /**
+   * O último quadro desenhou algo andando (personagem andando/correndo, sala em montagem, partículas, pingue-pongue):
+   * o laço fica a 30 qps; sem isso cai para 10 (pacing.ts). Carro não conta: quase sempre há um passando.
+   */
+  motion = false;
   private nextCarAt = 0;
   private ents: Ent[] = [];
   private pool: Ent[] = [];
@@ -327,6 +332,7 @@ export class Renderer {
 
   frame(now: number, dt: number, opts: WorldOptions, sel: { agent: string | null; room: string | null; hover: string | null }): void {
     const { ctx, camera } = this;
+    this.motion = false;
     this.date.setTime(this.clock());
     this.dt = dt;
     this.updateCars(now, dt);
@@ -386,6 +392,7 @@ export class Renderer {
       const p = vis.px;
       if (!visible(p.x, p.y - WALL_MARGIN, p.w, p.h + WALL_MARGIN)) continue;
       const anim = vis.room ? buildAnim(vis.room.phase, vis.room.progress(now)) : NO_ANIM;
+      if (anim.mode !== 'none') this.motion = true;
       this.drawFloor(vis, anim);
     }
     for (const vis of this.areas.values()) {
@@ -500,6 +507,7 @@ export class Renderer {
     this.roomFx.emit(this.particles, this.sim, now, dt, view);
     this.particles.update(dt);
     this.particles.draw(ctx, vx0, vy0, vx1, vy1, now);
+    if (this.particles.count > 0) this.motion = true;
 
     // ---- luz: noite, salas apagadas, brilhos
     this.night = this.lighting.night;
@@ -834,6 +842,7 @@ export class Renderer {
     // faixa lateral de quem anda (dois no mesmo caminho não viram um boneco de duas cabeças)
     const x = Math.round(ch.x + ch.offX);
     const y = Math.round(ch.y + ch.offY);
+    if (ch.pose === 'walk' || ch.pose === 'run') this.motion = true;
     ctx.globalAlpha = ch.alpha;
     // anéis no chão (seleção, hover, alerta)
     if (ch.mode === 'wait') this.drawAlertRing(x, y, now);
@@ -1171,6 +1180,7 @@ export class Renderer {
         else b = this.sim.chars.get(m.id);
       }
       if (!a || !b) continue;
+      this.motion = true;
       const left = a.x < b.x ? a : b;
       const right = a.x < b.x ? b : a;
       const period = 1100;
