@@ -32,12 +32,14 @@ export function overviewFrame(
 }
 
 /**
- * Densidade em que o cenário é desenhado: a da tela (de 1 a 3) ou, na economia de energia, sempre 1 (o mundo é
- * ampliado sem suavizar no canvas da tela; os textos do overlay continuam na densidade da tela).
+ * Densidade em que o cenário é desenhado: a da tela (de 1 a 3) ou, na economia de energia, a menor que ainda dá
+ * ~0,7 pixel por pixel do mundo (1 com zoom ≥ 0,7; 2 na visão geral do celular, senão a pixel art vira borrão), nunca
+ * acima da tela. O mundo é ampliado sem suavizar no canvas da tela; os textos ficam na densidade dela.
  */
-export function renderDpr(deviceDpr: number | undefined, powerSave: boolean): number {
-  if (powerSave) return 1;
-  return Math.max(1, Math.min(3, deviceDpr || 1));
+export function renderDpr(deviceDpr: number | undefined, powerSave: boolean, zoom = 1): number {
+  const dev = Math.max(1, Math.min(3, deviceDpr || 1));
+  if (!powerSave) return dev;
+  return Math.min(dev, Math.max(1, Math.ceil(0.7 / Math.max(zoom, 1e-3) - 1e-6)));
 }
 
 const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);

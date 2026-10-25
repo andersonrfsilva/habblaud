@@ -99,7 +99,7 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
 
   const resize = () => {
     viewDpr = renderDpr(window.devicePixelRatio, false);
-    const dpr = renderDpr(window.devicePixelRatio, !!options.powerSave);
+    const dpr = renderDpr(window.devicePixelRatio, !!options.powerSave, camera.zoom);
     const w = canvas.clientWidth || window.innerWidth;
     const h = canvas.clientHeight || window.innerHeight;
     const pw = Math.floor(w * viewDpr);
@@ -108,7 +108,8 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
       canvas.width = pw;
       canvas.height = ph;
     }
-    if (options.powerSave) {
+    // economia: cenário num canvas à parte só quando a densidade dele fica abaixo da tela (senão desenha direto)
+    if (dpr < viewDpr) {
       scene ??= document.createElement('canvas');
       const sw = Math.floor(w * dpr);
       const sh = Math.floor(h * dpr);
@@ -319,9 +320,9 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
     if (playback) worldNow += dt * 1000;
     const now = playback ? worldNow : real;
     try {
-      const dpr = renderDpr(window.devicePixelRatio, !!options.powerSave);
+      const dpr = renderDpr(window.devicePixelRatio, !!options.powerSave, camera.zoom);
       const devDpr = renderDpr(window.devicePixelRatio, false);
-      if (canvas.clientWidth !== camera.viewW || canvas.clientHeight !== camera.viewH || dpr !== camera.dpr || devDpr !== viewDpr || !!scene !== !!options.powerSave) resize();
+      if (canvas.clientWidth !== camera.viewW || canvas.clientHeight !== camera.viewH || dpr !== camera.dpr || devDpr !== viewDpr) resize();
       sim.update(dt, now);
       // partidas e apostas resolvidas: para o feed (as do timelapse são encenação do passado: ficam fora)
       const events = sim.social.events;
