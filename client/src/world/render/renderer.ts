@@ -16,6 +16,7 @@ import { cobwebScale, hourglassIcon, HOURGLASS_FLIP_MS, STORM_LIFT } from '../si
 import type { Sim } from '../sim/sim';
 import { buildAnim, furnitureScale, NO_ANIM, sweepDelay, type BuildAnim } from './anim';
 import { daylightModeOf, parseHourParam } from './daylight';
+import { isStaticProp } from './furn-layer';
 import { RoomFxRenderer } from './github-fx';
 import { Lighting } from './lighting';
 import { Particles } from './particles';
@@ -83,6 +84,9 @@ export class Renderer {
   shells: SlotShell[] = [];
   shellWindows: WallVis[] = [];
   private base: HTMLCanvasElement | null = null;
+  /** Props estáticos do lado de fora pintados uma vez: atrás do prédio (norte/laterais) e diante dele (fachada sul e além). */
+  private propsBack: HTMLCanvasElement | null = null;
+  private propsFront: HTMLCanvasElement | null = null;
   private baseX = 0;
   private baseY = 0;
   private baseCols = -1;
@@ -248,6 +252,40 @@ export class Renderer {
     }
     this.finishBase(ctx, cols);
     this.base = c;
+    this.buildPropLayers();
+  }
+
+  /** Props estáticos em duas camadas: antes do prédio (norte/laterais) e depois dele (fachada sul e além). Cada uma vira um `drawImage` recortado. */
+  private buildPropLayers(): void {
+    const b = this.exterior.bounds;
+    const split = (BUILDING_H + 1) * TILE;
+    const mk = (front: boolean): HTMLCanvasElement => {
+      const c = document.createElement('canvas');
+      c.width = b.w * TILE;
+      c.height = b.h * TILE;
+      const ctx = c.getContext('2d')!;
+      ctx.imageSmoothingEnabled = false;
+      ctx.translate(-this.baseX, -this.baseY);
+      // a ordenação é estável, como a da lista de entidades
+      const list = this.exterior.props.filter((p) => isStaticProp(p) && p.y >= split === front);
+      list.sort((a, z) => a.y - z.y);
+      for (const p of list) {
+        const sp = propSprite(p);
+        ctx.drawImage(sp.canvas, Math.round(p.x - sp.ax), Math.round(p.y - sp.ay));
+      }
+      return c;
+    };
+    this.propsBack = mk(false);
+    this.propsFront = mk(true);
+  }
+
+  private blitLayer(layer: HTMLCanvasElement | null, vx0: number, vy0: number, vx1: number, vy1: number): void {
+    if (!layer) return;
+    const sx = Math.max(0, Math.floor(vx0 - this.baseX) - 1);
+    const sy = Math.max(0, Math.floor(vy0 - this.baseY) - 1);
+    const sw = Math.min(layer.width - sx, Math.ceil(vx1 - vx0) + 3);
+    const sh = Math.min(layer.height - sy, Math.ceil(vy1 - vy0) + 3);
+    if (sw > 0 && sh > 0) this.ctx.drawImage(layer, sx, sy, sw, sh, this.baseX + sx, this.baseY + sy, sw, sh);
   }
 
   /** Grama ~15% menos saturada: o gramado não compete com o escritório. */
@@ -357,6 +395,7 @@ export class Renderer {
       const sh = Math.min(this.base.height - sy, Math.ceil(vy1 - vy0) + 3);
       if (sw > 0 && sh > 0) ctx.drawImage(this.base, sx, sy, sw, sh, this.baseX + sx, this.baseY + sy, sw, sh);
     }
+    this.blitLayer(this.propsBack, vx0, vy0, vx1, vy1);
     // hora do ciclo dia/noite (preferência ou hora forçada; o relógio de parede acompanha a forçada)
     if (this.hourOverride !== null) {
       const min = Math.round(this.hourOverride * 60);
@@ -435,6 +474,7 @@ export class Renderer {
       push(K.Char, ch.depth(), ch, null, 1);
     }
     for (const prop of this.exterior.props) {
+      if (isStaticProp(prop)) continue;
       if (!visible(prop.x - 24, prop.y - 56, 48, 60)) continue;
       let alpha = 1;
       if (prop.whenRoom !== undefined) {
@@ -486,6 +526,7 @@ export class Renderer {
           break;
       }
     }
+    this.blitLayer(this.propsFront, vx0, vy0, vx1, vy1);
     this.drawPingPong(now);
     // ---- espera de shell: teias de aranha, confete/pipoca/chuva (por cima das entidades)
     this.drawCobwebs(now);
