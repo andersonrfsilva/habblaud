@@ -12,6 +12,10 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Bate-papo paralelo no omp:** no terminal de um agente do omp, o botão de balão na barra de cima abre uma janela
+  lateral de bate-papo. Ali dá para perguntar sobre a conversa sem interromper o agente e sem entrar no contexto dele
+  (a mesma maquinaria do `/btw` do omp). As conversas ficam guardadas por sessão em `<dataDir>/asides/`. Reinstale a
+  extensão (`npm run omp:install`) e reabra as sessões do omp.
 - **Histórico de sessões e Entregas com o omp:** as conversas do omp dos últimos 7 dias (abertas ou encerradas) entram
   no histórico de sessões, com título e projeto, e abrem no terminal; as Entregas passam a mostrar o que os agentes
   do omp terminaram. Antes os dois painéis ficavam vazios com o omp.
