@@ -772,14 +772,23 @@ export interface PtyInfo {
   exitCode?: number;
 }
 
+/**
+ * Pedido de controle da sessão omp (POST /api/messages/control): troca de modelo e/ou raciocínio, um comando
+ * (OMP_COMMANDS), `stop` (interrompe o turno em andamento) ou `resume` (id da sessão que o agente passa a rodar,
+ * como o `/resume <id>` do omp). `stop` e `resume` vão sozinhos.
+ */
+export interface OmpControl {
+  model?: string;
+  thinking?: string;
+  command?: string;
+  stop?: boolean;
+  resume?: string;
+}
+
 /** Mensagem entregue ao plugin habblaud-mensagens (POST /api/mod/inbox). */
 export interface InboxMessage {
   id: string;
   /** O texto como foi digitado: o plugin o manda à sessão como se você o tivesse digitado. Vazio quando há `control`. */
   text: string;
-  /**
-   * Troca de modelo e/ou raciocínio, um comando (OMP_COMMANDS) ou `stop` (interrompe o turno em andamento) da sessão
-   * omp (POST /api/messages/control).
-   */
-  control?: { model?: string; thinking?: string; command?: string; stop?: boolean };
+  control?: OmpControl;
 }

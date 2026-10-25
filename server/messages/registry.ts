@@ -20,8 +20,8 @@
 import { randomBytes } from 'node:crypto';
 import { truncate } from '../../shared/activity';
 import { describeMessage, MESSAGE_MAX, OMP_THINKING_LEVELS } from '../../shared/messages';
-import { OMP_COMMANDS } from '../../shared/omp-events';
-import type { Activity, AgentInfo, InboxMessage, OutboxMessage } from '../../shared/types';
+import { OMP_COMMANDS, OMP_SESSION_ID } from '../../shared/omp-events';
+import type { Activity, AgentInfo, InboxMessage, OmpControl, OutboxMessage } from '../../shared/types';
 import { errMsg, log } from '../log';
 import type { CodexQueueResult, CodexQueueRunner } from './codex';
 import { tr } from '../../shared/i18n';
@@ -116,8 +116,8 @@ interface Entry {
   text: string;
   /** Atividade do feed quando a entrega se confirma (o começo do texto, mascarado e cortado). */
   activity?: ReturnType<typeof describeMessage>;
-  /** Troca de modelo/raciocínio, comando (/new, /shake) ou STOP do omp: sem texto e sem atividade no feed. */
-  control?: { model?: string; thinking?: string; command?: string; stop?: boolean };
+  /** Controle da sessão omp (modelo/raciocínio, /new, /shake, STOP, /resume): sem texto e sem atividade no feed. */
+  control?: OmpControl;
   /** Sessão do agente quando a mensagem foi mandada: só ela recebe (troca de conversa = falha). */
   target: string;
   /** Sessão que buscou a mensagem (sent): só ela confirma a entrega. */
@@ -174,18 +174,23 @@ export function parseSend(raw: unknown): { agentId: string; text: string } {
 }
 
 /**
- * Corpo de POST /api/messages/control: `{agentId, model?, thinking?, command?}`, com ao menos um deles, ou
- * `{agentId, stop: true}` sozinho (interrompe o turno em andamento).
+ * Corpo de POST /api/messages/control: `{agentId, model?, thinking?, command?}`, com ao menos um deles, ou sozinhos
+ * `{agentId, stop: true}` (interrompe o turno em andamento) e `{agentId, resume: <id da sessão do omp>}`.
  */
-export function parseControl(raw: unknown): { agentId: string; model?: string; thinking?: string; command?: string; stop?: boolean } {
+export function parseControl(raw: unknown): { agentId: string } & OmpControl {
   const r = rec(raw);
   const agentId = shortStr(r?.agentId, ID_MAX);
-  if (!r || !agentId) throw new InvalidRequest('esperado {agentId, model?, thinking?, command?} ou {agentId, stop: true}');
+  if (!r || !agentId) throw new InvalidRequest('esperado {agentId, model?, thinking?, command?}, {agentId, stop: true} ou {agentId, resume}');
+  const others = (key: 'stop' | 'resume') => ['model', 'thinking', 'command', 'stop', 'resume'].some((k) => k !== key && r[k] !== undefined);
   if (r.stop !== undefined) {
-    if (r.stop !== true || r.model !== undefined || r.thinking !== undefined || r.command !== undefined) throw new InvalidRequest('esperado {agentId, stop: true}, sem outras trocas');
+    if (r.stop !== true || others('stop')) throw new InvalidRequest('esperado {agentId, stop: true}, sem outras trocas');
     return { agentId, stop: true };
   }
-  const out: { agentId: string; model?: string; thinking?: string; command?: string } = { agentId };
+  if (r.resume !== undefined) {
+    if (typeof r.resume !== 'string' || !OMP_SESSION_ID.test(r.resume) || others('resume')) throw new InvalidRequest('esperado {agentId, resume: <id da sessão do omp>}, sem outras trocas');
+    return { agentId, resume: r.resume.toLowerCase() };
+  }
+  const out: { agentId: string } & OmpControl = { agentId };
   if (r.model !== undefined) {
     const model = shortStr(r.model, 200);
     if (!model) throw new InvalidRequest(tr('modelo inválido'));

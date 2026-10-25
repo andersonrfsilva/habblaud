@@ -383,6 +383,23 @@ describe('omp extension: mensagens', () => {
     expect(t.enters()).toBe(0);
   });
 
+  it('/resume: digita /resume <id> como os comandos; id fora do formato não toca no editor', async () => {
+    const sid = '01a16fee-0081-72fb-92bb-4f93eb8f50da';
+    for (const [resume, result] of [
+      [sid, { ok: true }],
+      ['../x; rm', { ok: false, error: 'id de sessão inválido' }],
+    ] as const) {
+      const t = setup({ home: tmp.dir, answer: inbox([{ id: 'k1', text: '', control: { resume } }]) });
+      const ctx = makeCtx({ tui: true });
+      t.fire('session_start', ctx);
+      await vi.waitFor(() => expect(t.habblaud.of('/api/mod/inbox/ack')).toHaveLength(1));
+      await t.fire('session_shutdown', ctx);
+      expect(t.habblaud.of('/api/mod/inbox/ack')[0].body?.results).toEqual([{ id: 'k1', ...result }]);
+      expect(ctx.editor).toBe(result.ok ? `/resume ${sid}` : '');
+      expect(t.enters()).toBe(result.ok ? 1 : 0);
+    }
+  });
+
   it('STOP: interrompe o turno com ctx.abort só com o agente trabalhando', async () => {
     const cases: Array<[{ idle: boolean; abort: boolean }, { ok: boolean; error?: string }, number]> = [
       [{ idle: false, abort: true }, { ok: true }, 1],

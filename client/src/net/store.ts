@@ -5,7 +5,7 @@
 // Também cuida da reconexão: quando o navegador desiste do stream (EventSource fechado após erro HTTP,
 // ex.: servidor reiniciando atrás de um proxy), tenta de novo com espera crescente.
 import type { AppearanceParts } from '../../../shared/appearance';
-import type { Activity, AgentDetail, AgentInfo, FeedItem, Notice, OfficeSnapshot, OutboxMessage, PermissionDecision, PermissionRequestInfo, RoomInfo } from '../../../shared/types';
+import type { Activity, AgentDetail, AgentInfo, FeedItem, Notice, OfficeSnapshot, OmpControl, OutboxMessage, PermissionDecision, PermissionRequestInfo, RoomInfo } from '../../../shared/types';
 import { DemoSimulator } from '../../../shared/demo/simulator';
 import { tr } from '../../../shared/i18n';
 
@@ -341,7 +341,7 @@ export class OfficeStore {
    * /api/messages/control): a mensagem de controle (status `queued`; a extensão aplica e confirma) ou o erro do
    * servidor. Sem conexão: lança. Não existe no ?mock=1.
    */
-  async controlAgent(agentId: string, change: { model?: string; thinking?: string; command?: string; stop?: boolean }): Promise<{ message: OutboxMessage } | { error: string }> {
+  async controlAgent(agentId: string, change: OmpControl): Promise<{ message: OutboxMessage } | { error: string }> {
     if (this.mock) return { error: tr('indisponível no modo de demonstração') };
     const res = await fetch('/api/messages/control', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId, ...change }) });
     let body: unknown;

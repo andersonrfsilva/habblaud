@@ -406,6 +406,17 @@ describe('MessageRegistry: agentes do omp', () => {
     expect(registry.inbox({ session: OMP_SESSION })).toEqual([{ id, text: '', control: { stop: true } }]);
   });
 
+  it('/resume entra na caixa como control.resume (id do omp em minúsculas), sozinho', () => {
+    const { registry } = setupOmp();
+    registry.inbox({ session: OMP_SESSION });
+    const sid = '01A16FEE-0081-72FB-92BB-4F93EB8F50DA';
+    for (const body of [{ agentId: OMP_A, resume: '../etc' }, { agentId: OMP_A, resume: 5 }, { agentId: OMP_A, resume: sid, command: 'new' }, { agentId: OMP_A, resume: sid, stop: true }]) {
+      expect(() => registry.control(body), JSON.stringify(body)).toThrow();
+    }
+    const id = sent(registry.control({ agentId: OMP_A, resume: sid }));
+    expect(registry.inbox({ session: OMP_SESSION })).toEqual([{ id, text: '', control: { resume: sid.toLowerCase() } }]);
+  });
+
   it('mensagem do Claude não sai para a sessão do omp (e vice-versa)', () => {
     const { registry } = setupOmp();
     registry.inbox({ session: SESSION });

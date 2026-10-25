@@ -3402,4 +3402,13 @@ export const EN: Readonly<Record<string, string>> = {
   "O omp ainda não confirmou o comando.": "omp hasn't confirmed the command yet.",
   "o omp não rodou o comando": "omp didn't run the command",
   "Roda /shake elide e /shake thinking: troca resultados de ferramentas e blocos grandes antigos por referências recuperáveis (artifact://) e tira do contexto o raciocínio das respostas antigas": "Runs /shake elide and /shake thinking: replaces old tool results and large blocks with recoverable references (artifact://) and removes the reasoning of old replies from the context",
+  // client/src/ui/history.ts, client/src/ui/omp-bar.ts (retomar sessão do omp)
+  "Escolha a conversa do omp para retomar em {0}. A atual dele continua no histórico.": "Pick the omp conversation to resume in {0}. Its current one stays in history.",
+  "Nenhuma conversa do omp encerrada para retomar.": "No closed omp conversation to resume.",
+  "Retomar em…": "Resume in…",
+  "Retomar esta conversa num agente do omp livre (a conversa atual dele continua no histórico)": "Resume this conversation in an idle omp agent (its current conversation stays in history)",
+  "Retomar em qual agente": "Resume in which agent",
+  "Nenhum agente do omp livre agora.": "No idle omp agent right now.",
+  "Retoma outra conversa do omp neste agente: escolha no histórico (a atual continua lá)": "Resumes another omp conversation in this agent: pick it in history (the current one stays there)",
+  "Retomar “{0}” neste agente? A conversa atual continua no histórico.": "Resume “{0}” in this agent? The current conversation stays in history.",
 };

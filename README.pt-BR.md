@@ -653,11 +653,13 @@ destaque).
   resposta: responder no escritório fecha o diálogo do terminal e o modelo recebe o mesmo texto do `ask` do omp;
   responder no terminal retira o cartão. Com o Habblaud fora do ar, só o terminal.
 - **Rodapé do terminal:** com a extensão, o terminal do agente mostra a barra do contexto da sessão (tokens em uso /
-  janela do modelo, o mesmo número do rodapé do omp, com as cores das barras de uso) e os botões **STOP**, `/new` e
-  `/shake`. O STOP interrompe o turno em andamento (como o Esc no omp) e só fica ativo com o agente trabalhando. O
-  `/shake` roda `/shake elide` e depois `/shake thinking`. A extensão digita os comandos na tela do omp, então eles só
-  rodam com o agente à toa, o omp na tela e o editor dele vazio; senão, o motivo aparece embaixo. `/new` pede
-  confirmação.
+  janela do modelo, o mesmo número do rodapé do omp, com as cores das barras de uso) e os botões **STOP**, `/new`,
+  `/shake` e `/resume`. O STOP interrompe o turno em andamento (como o Esc no omp) e só fica ativo com o agente
+  trabalhando. O `/shake` roda `/shake elide` e depois `/shake thinking`. O `/resume` abre o histórico de sessões para
+  escolher uma conversa encerrada do omp e retomá-la naquele agente; no próprio histórico, a sessão do omp encerrada
+  também tem **Retomar em…**, com a lista dos agentes do omp livres. A extensão digita os comandos na tela do omp,
+  então eles só rodam com o agente à toa, o omp na tela e o editor dele vazio; senão, o motivo aparece embaixo. `/new`
+  e `/resume` pedem confirmação; a conversa atual continua no histórico.
 - **Aprovações**, de dois jeitos:
   - **Padrão:** quando o omp pede aprovação no terminal, o personagem levanta a mão e o escritório mostra qual
     ferramenta espera; a decisão continua no terminal.

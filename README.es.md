@@ -688,10 +688,12 @@ límites (5 h, semana, por modelo o grupo; los agotados resaltan).
   `ask` de omp; responder en la terminal retira la tarjeta. Con Habblaud caído, solo la terminal.
 - **Pie de la terminal:** con la extensión, la terminal del agente muestra la barra del contexto de la sesión (tokens en
   uso / ventana del modelo, el mismo número del pie de omp, con los colores de las barras de uso) y los botones
-  **STOP**, `/new` y `/shake`. STOP interrumpe el turno en curso (como Esc en omp) y solo está activo con el agente
-  trabajando. `/shake` ejecuta `/shake elide` y después `/shake thinking`. La extensión escribe los comandos en la
-  pantalla de omp, así que solo se ejecutan con el agente inactivo, omp en pantalla y su editor vacío; si no, el motivo
-  aparece abajo. `/new` pide confirmación.
+  **STOP**, `/new`, `/shake` y `/resume`. STOP interrumpe el turno en curso (como Esc en omp) y solo está activo con el
+  agente trabajando. `/shake` ejecuta `/shake elide` y después `/shake thinking`. `/resume` abre el historial de
+  sesiones para elegir una conversación cerrada de omp y retomarla en ese agente; en el propio historial, la sesión de
+  omp cerrada también tiene **Retomar en…**, con la lista de los agentes de omp libres. La extensión escribe los
+  comandos en la pantalla de omp, así que solo se ejecutan con el agente inactivo, omp en pantalla y su editor vacío;
+  si no, el motivo aparece abajo. `/new` y `/resume` piden confirmación; la conversación actual sigue en el historial.
 - **Aprobaciones**, de dos maneras:
   - **Predeterminada:** cuando omp pide aprobación en la terminal, el personaje levanta la mano y la oficina muestra qué
     herramienta espera; la decisión sigue en la terminal.

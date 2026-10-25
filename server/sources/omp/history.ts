@@ -5,6 +5,7 @@
 // As entregas (deliveries/) saem daqui também: elas leem os transcripts do histórico.
 import { realpathSync } from 'node:fs';
 import { sep } from 'node:path';
+import { OMP_SESSION_ID } from '../../../shared/omp-events';
 import type { RecentSession } from '../../../shared/types';
 import { HISTORY_LIMIT, HISTORY_MAX_AGE_MS } from '../history';
 import type { HistoryProvider, HistoryResolveResult } from '../source';
@@ -13,8 +14,6 @@ import { OmpIndex, readOmpHead } from './files';
 import type { OmpHead } from './parser';
 import { createOmpTerminalParser } from './terminal';
 import { tr } from '../../../shared/i18n';
-
-const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface OmpHistoryAccount {
   id: string;
@@ -78,7 +77,7 @@ export class OmpHistory implements HistoryProvider {
 
   /** Sessão `sessionId` da conta, validada: conta conhecida, id uuid e o arquivo (links resolvidos) dentro da agent dir. */
   resolve(account: string, sessionId: string): HistoryResolveResult {
-    if (!SESSION_ID.test(sessionId)) return { status: 400, error: tr('id de sessão inválido') };
+    if (!OMP_SESSION_ID.test(sessionId)) return { status: 400, error: tr('id de sessão inválido') };
     const acc = this.opts.accounts().find((a) => a.id === account);
     if (!acc) return { status: 404, error: tr('conta desconhecida') };
     const index = this.index(acc);

@@ -655,11 +655,13 @@ ones stand out).
   answering in the office closes the terminal dialog and the model gets the same text as omp's own `ask`; answering in
   the terminal removes the card. With Habblaud down, only the terminal.
 - **Terminal footer:** with the extension, the agent's terminal shows the session's context bar (tokens in use / the
-  model's window, the same number as omp's footer, colored like the usage bars) and the **STOP**, `/new` and `/shake`
-  buttons. STOP interrupts the current turn (like Esc in omp) and is only active while the agent is working. `/shake`
-  runs `/shake elide` and then `/shake thinking`. The extension types the commands in omp's screen, so they only run
-  with the agent idle, omp on screen and its editor empty; otherwise the reason shows below. `/new` asks for
-  confirmation.
+  model's window, the same number as omp's footer, colored like the usage bars) and the **STOP**, `/new`, `/shake` and
+  `/resume` buttons. STOP interrupts the current turn (like Esc in omp) and is only active while the agent is working.
+  `/shake` runs `/shake elide` and then `/shake thinking`. `/resume` opens the session history to pick a closed omp
+  conversation to resume in that agent; in the history itself, a closed omp session also has **Resume in…**, which
+  lists the idle omp agents. The extension types the commands in omp's screen, so they only run with the agent idle,
+  omp on screen and its editor empty; otherwise the reason shows below. `/new` and `/resume` ask for confirmation; the
+  current conversation stays in history.
 - **Approvals**, in two ways:
   - **Default:** when omp asks for approval in the terminal, the character raises a hand and the office shows which
     tool is waiting; the decision stays in the terminal.

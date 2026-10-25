@@ -1,9 +1,10 @@
 // Faixa do omp no rodapé do terminal: a barra do contexto (tokens em uso / janela do modelo, como no rodapé do omp) e
-// os botões STOP, /new e /shake (elide e thinking). Vão pela fila de controle (POST /api/messages/control {command}
-// ou {stop: true}); a extensão do omp digita os comandos na tela dele (só com o agente livre e o editor vazio),
-// interrompe o turno no STOP (só com o agente trabalhando) e confirma ou recusa com o motivo.
+// os botões STOP, /new, /shake (elide e thinking) e /resume (escolhe a conversa no histórico). Vão pela fila de
+// controle (POST /api/messages/control {command}, {stop: true} ou {resume}); a extensão do omp digita os comandos na
+// tela dele (só com o agente livre e o editor vazio), interrompe o turno no STOP (só com o agente trabalhando) e
+// confirma ou recusa com o motivo.
 import type { OmpCommand } from '../../../shared/omp-events';
-import type { AgentInfo } from '../../../shared/types';
+import type { AgentInfo, OmpControl } from '../../../shared/types';
 import { OFFLINE_ERROR } from './composer-model';
 import type { UiContext } from './context';
 import { h, setAttr, setHidden, setStyleVar, setText, setTitle, setVariant } from './dom';
@@ -35,6 +36,8 @@ export class OmpBar {
   private stopBtn: HTMLButtonElement;
   private agentId: string | null = null;
   private busy = false;
+  /** Abre o histórico para escolher a conversa a retomar neste agente (ligado pelo index.ts). */
+  onPickResume?: (agentId: string) => void;
   private timer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(private ctx: UiContext) {
@@ -53,6 +56,13 @@ export class OmpBar {
       { class: 'ui-term__cmds', role: 'group', attrs: { 'aria-label': tr('Comandos do omp') } },
       this.stopBtn,
       ...BUTTONS.map(([cmd, hint]) => h('button', { class: 'ui-btn ui-btn--sm ui-term__cmd', type: 'button', text: `/${cmd}`, title: hint, on: { click: () => void this.run(cmd) } })),
+      h('button', {
+        class: 'ui-btn ui-btn--sm ui-term__cmd',
+        type: 'button',
+        text: '/resume',
+        title: tr('Retoma outra conversa do omp neste agente: escolha no histórico (a atual continua lá)'),
+        on: { click: () => this.agentId && this.onPickResume?.(this.agentId) },
+      }),
     );
     this.statusEl = h('span', { class: 'ui-term__cmd-status', role: 'status', hidden: true });
     this.el = h('div', { class: 'ui-term__omp', hidden: true }, this.meter, this.statusEl, this.buttons);
@@ -90,17 +100,28 @@ export class OmpBar {
     if (text && !error) this.timer = setTimeout(() => setHidden(this.statusEl, true), 5_000);
   }
 
-  /** Manda o comando (ou o STOP) e acompanha até a extensão confirmar (ou recusar, com o motivo). */
-  private async run(command: OmpCommand | 'stop'): Promise<void> {
+  /** Retoma a sessão `sessionId` no agente `agentId` (`/resume <id>` no omp), depois de confirmar. */
+  resume(agentId: string, sessionId: string, title: string): void {
+    if (!window.confirm(tr('Retomar “{0}” neste agente? A conversa atual continua no histórico.', [title]))) return;
+    // O terminal acabou de abrir neste agente: o render seguinte não apaga o andamento.
+    this.agentId = agentId;
+    void this.send({ resume: sessionId }, '/resume');
+  }
+
+  private run(command: OmpCommand | 'stop'): void {
+    if (command === 'new' && !window.confirm(tr('Começar uma conversa nova no omp? A atual continua no histórico (/resume).'))) return;
+    void this.send(command === 'stop' ? { stop: true } : { command }, command === 'stop' ? STOP : `/${command}`);
+  }
+
+  /** Manda o pedido e acompanha até a extensão confirmar (ou recusar, com o motivo). */
+  private async send(change: OmpControl, label: string): Promise<void> {
     const agentId = this.agentId;
     if (!agentId || this.busy) return;
-    if (command === 'new' && !window.confirm(tr('Começar uma conversa nova no omp? A atual continua no histórico (/resume).'))) return;
-    const label = command === 'stop' ? STOP : `/${command}`;
     this.busy = true;
     this.ctx.invalidate();
     this.say(tr('Enviando {0}…', [label]));
     try {
-      const r = await this.ctx.store.controlAgent(agentId, command === 'stop' ? { stop: true } : { command });
+      const r = await this.ctx.store.controlAgent(agentId, change);
       if ('error' in r) return this.say(r.error, true);
       for (let i = 0; i < 20; i++) {
         // O cliente compila para antes do ES2024 (sem Promise.withResolvers).

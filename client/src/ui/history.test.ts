@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { RecentSession } from '../../../shared/types';
-import { dayLabel, filterSessions, formatSize, groupSessionsByDay, parseRecentSessions } from './history';
+import type { AgentInfo, RecentSession } from '../../../shared/types';
+import { canResume, dayLabel, filterSessions, formatSize, groupSessionsByDay, parseRecentSessions, resumeTargets } from './history';
 
 const NOW = new Date(2026, 9, 8, 15, 0, 0).getTime();
 const at = (day: number, hour: number, min = 0) => new Date(2026, 9, day, hour, min).getTime();
@@ -24,6 +24,23 @@ describe('sessões do Codex no histórico', () => {
       ['d', undefined],
     ]);
     expect(filterSessions(list, 'codex').map((s) => s.sessionId)).toEqual(['x']);
+  });
+});
+
+describe('retomar sessão do omp', () => {
+  it('canResume: só sessão do omp encerrada e que não é a atual do agente', () => {
+    const omp = session({ sessionId: 's1', lastAt: 1, provider: 'omp' });
+    expect(canResume(omp)).toBe(true);
+    expect(canResume(omp, 's1')).toBe(false);
+    expect(canResume({ ...omp, open: true })).toBe(false);
+    expect(canResume({ ...omp, provider: 'codex' })).toBe(false);
+    expect(canResume(session({ sessionId: 's2', lastAt: 1 }))).toBe(false);
+  });
+
+  it('resumeTargets: principais do omp com a extensão conectada e livres', () => {
+    const a = (id: string, p: Partial<AgentInfo>) => ({ id, provider: 'omp', kind: 'main', canMessage: true, status: 'idle', ...p }) as AgentInfo;
+    const list = [a('livre', {}), a('shell', { status: 'shell' }), a('ocupado', { status: 'working' }), a('sem-ext', { canMessage: undefined }), a('sub', { kind: 'sub' }), a('claude', { provider: 'claude' })];
+    expect(resumeTargets(list).map((x) => x.id)).toEqual(['livre', 'shell']);
   });
 });
 

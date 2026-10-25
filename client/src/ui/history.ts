@@ -3,9 +3,10 @@
 // conversa no terminal (modo "sessão encerrada"); uma sessão ainda aberta abre o terminal ao vivo
 // do agente. Só existe com o terminal ligado (acesso local). O agrupamento, a busca e a validação da resposta são
 // puros e testados em ui/history.test.ts; a montagem usa só textContent. Sessões do Codex vêm com o selo "Codex" e a
-// busca acha "codex".
+// busca acha "codex". Sessão encerrada do omp tem "Retomar em…" (escolhe um agente omp livre); aberto pelo /resume
+// da faixa do omp (pickFor), o histórico mostra só as sessões que dá para retomar naquele agente.
 import { access } from '../net/access';
-import type { RecentSession } from '../../../shared/types';
+import type { AgentInfo, RecentSession } from '../../../shared/types';
 import type { UiComponent, UiContext } from './context';
 import { h, iconButton, setAttr, setHidden, setText, setTitle } from './dom';
 import { calendarDayDiff, formatClock, formatDateTime, normalizeSearch, plural, shortPath } from './format';
@@ -111,6 +112,16 @@ export function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1).replace('.', ',')} MB`;
 }
 
+/** Dá para retomar a sessão num agente omp: é do omp, está encerrada (aberta já roda em outro) e não é a atual dele. */
+export function canResume(s: RecentSession, currentSessionId?: string): boolean {
+  return s.provider === 'omp' && !s.open && s.sessionId !== currentSessionId;
+}
+
+/** Agentes que recebem o /resume: principais do omp, com a extensão conectada e livres (o omp só roda comandos assim). */
+export function resumeTargets(agents: readonly AgentInfo[]): AgentInfo[] {
+  return agents.filter((a) => a.provider === 'omp' && a.kind === 'main' && a.canMessage === true && (a.status === 'idle' || a.status === 'shell'));
+}
+
 // ---------------------------------------------------------------- popover
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'error';
@@ -131,12 +142,15 @@ export class HistoryPopover implements UiComponent {
   private query = '';
   private request = 0;
   private closedAt = -Infinity;
+  /** Aberto pelo /resume de um agente omp: escolher a sessão a retomar nele (null = histórico normal). */
+  private picking: string | null = null;
+  private hintEl: HTMLElement;
   /** O que está desenhado na lista (evita refazer o DOM a cada quadro). */
   private drawn = '';
 
   constructor(
     private ctx: UiContext,
-    private terminal: Pick<TerminalControl, 'openSession'>,
+    private terminal: Pick<TerminalControl, 'openSession' | 'resumeIn'>,
   ) {
     this.button = iconButton(ICONS.clock, tr('Histórico de sessões'), () => this.toggle(), 'ui-hist-btn');
     setAttr(this.button, 'aria-haspopup', 'dialog');
@@ -178,11 +192,12 @@ export class HistoryPopover implements UiComponent {
     this.footEl = h('p', { class: 'ui-hist__foot' });
 
     const close = iconButton(ICONS.close, tr('Fechar histórico'), () => this.hide(), 'ui-icon-btn--sm');
+    this.hintEl = h('p', { class: 'ui-hist__hint' });
     this.el = h(
       'div',
       { class: 'ui-popover ui-hist', role: 'dialog', tabIndex: -1, attrs: { 'aria-label': tr('Histórico de sessões'), id: 'ui-history', popover: 'auto' } },
       h('div', { class: 'ui-popover__head' }, h('h2', { text: tr('Histórico de sessões') }), close),
-      h('p', { class: 'ui-hist__hint', text: tr('Últimos 7 dias, de todas as contas. Clique para ler a conversa no terminal.') }),
+      this.hintEl,
       h('label', { class: 'ui-search ui-hist__search' }, searchIcon, this.input),
       this.stateEl,
       this.listEl,
@@ -191,7 +206,10 @@ export class HistoryPopover implements UiComponent {
     this.el.addEventListener('toggle', () => {
       setAttr(this.button, 'aria-expanded', String(this.isOpen));
       this.button.classList.toggle('is-on', this.isOpen);
-      if (!this.isOpen) this.closedAt = performance.now();
+      if (!this.isOpen) {
+        this.closedAt = performance.now();
+        this.picking = null;
+      }
       this.ctx.root.classList.toggle('has-popover', this.isOpen);
     });
   }
@@ -239,6 +257,13 @@ export class HistoryPopover implements UiComponent {
     this.ctx.root.classList.remove('has-popover');
   }
 
+  /** /resume da faixa do omp: abre o histórico só com as sessões que dá para retomar no agente `agentId`. */
+  pickFor(agentId: string): void {
+    this.picking = agentId;
+    if (this.isOpen) this.renderList();
+    else this.toggle();
+  }
+
   render(): void {
     const available = this.available;
     // aria-disabled (e não disabled): o botão continua focável e a dica do porquê aparece no hover.
@@ -277,40 +302,73 @@ export class HistoryPopover implements UiComponent {
 
   private renderList(): void {
     const now = this.ctx.now();
-    const shown = filterSessions(this.sessions, this.query, (id) => this.accountLabel(id));
+    const pick = this.picking ? this.ctx.agent(this.picking) : undefined;
+    const pool = pick ? this.sessions.filter((s) => canResume(s, pick.sessionId)) : this.sessions;
+    setText(this.hintEl, pick ? tr('Escolha a conversa do omp para retomar em {0}. A atual dele continua no histórico.', [pick.name]) : tr('Últimos 7 dias, de todas as contas. Clique para ler a conversa no terminal.'));
+    const shown = filterSessions(pool, this.query, (id) => this.accountLabel(id));
     const days = groupSessionsByDay(shown, now);
     const q = this.query.trim();
     const loading = this.state === 'loading' || this.state === 'idle';
     let stateText = '';
     if (this.state === 'error') stateText = this.error || tr('Não foi possível carregar o histórico.');
     else if (loading) stateText = tr('Carregando as sessões…');
-    else if (!this.sessions.length) stateText = tr('Nenhuma sessão nos últimos 7 dias.');
+    else if (!pool.length) stateText = pick ? tr('Nenhuma conversa do omp encerrada para retomar.') : tr('Nenhuma sessão nos últimos 7 dias.');
     else if (!shown.length) stateText = tr('Nenhuma sessão encontrada para “{0}”.', [q]);
     setText(this.stateText, stateText);
     setHidden(this.stateEl, !stateText);
     setHidden(this.retryBtn, this.state !== 'error');
-    setText(
-      this.footEl,
-      this.sessions.length ? (q ? `${shown.length} de ${plural(this.sessions.length, tr('sessão'), tr('sessões'))}` : plural(this.sessions.length, tr('sessão'), tr('sessões'))) : '',
-    );
-    setHidden(this.footEl, !this.sessions.length);
+    setText(this.footEl, pool.length ? (q ? `${shown.length} de ${plural(pool.length, tr('sessão'), tr('sessões'))}` : plural(pool.length, tr('sessão'), tr('sessões'))) : '');
+    setHidden(this.footEl, !pool.length);
 
     // Refaz o DOM só quando o conteúdo muda (a lista é pequena: no máximo ~150 sessões).
-    const sig = JSON.stringify([days.map((d) => [d.key, d.label]), shown.map((s) => [s.account, s.sessionId, s.title, s.lastAt, s.open, s.agentId && !!this.ctx.agent(s.agentId)])]);
+    const sig = JSON.stringify([pick?.id, days.map((d) => [d.key, d.label]), shown.map((s) => [s.account, s.sessionId, s.title, s.lastAt, s.open, s.agentId && !!this.ctx.agent(s.agentId)])]);
     if (sig === this.drawn) return;
     const focusedKey = (document.activeElement as HTMLElement | null)?.dataset?.session;
     this.drawn = sig;
     const frag = document.createDocumentFragment();
     for (const day of days) {
       const group = h('section', { class: 'ui-hist__day', attrs: { 'aria-label': day.label } }, h('h3', { class: 'ui-hist__day-label', text: day.label }));
-      for (const s of day.sessions) group.append(this.item(s, now));
+      for (const s of day.sessions) group.append(this.row(s, now, pick?.id));
       frag.append(group);
     }
     this.listEl.replaceChildren(frag);
     if (focusedKey) this.items().find((b) => b.dataset.session === focusedKey)?.focus();
   }
 
-  private item(s: RecentSession, now: number): HTMLButtonElement {
+  /** A linha da sessão: o item e, em sessão do omp encerrada no histórico normal, o "Retomar em…". */
+  private row(s: RecentSession, now: number, pick: string | undefined): HTMLElement {
+    const btn = this.item(s, now, pick);
+    if (pick || !canResume(s)) return btn;
+    const resume = h('button', { class: 'ui-link-btn ui-hist__resume', type: 'button', text: tr('Retomar em…'), title: tr('Retomar esta conversa num agente do omp livre (a conversa atual dele continua no histórico)') });
+    const row = h('div', { class: 'ui-hist__row' }, btn, resume);
+    resume.addEventListener('click', () => {
+      const open = row.querySelector('.ui-hist__menu');
+      if (open) return open.remove();
+      const targets = resumeTargets(this.ctx.store.snapshot?.agents ?? []);
+      const menu = h(
+        'div',
+        { class: 'ui-hist__menu', role: 'group', attrs: { 'aria-label': tr('Retomar em qual agente') } },
+        ...targets.map((a) =>
+          h('button', {
+            class: 'ui-btn ui-btn--sm',
+            type: 'button',
+            text: a.name,
+            on: {
+              click: () => {
+                this.hide();
+                this.terminal.resumeIn(a.id, s);
+              },
+            },
+          }),
+        ),
+      );
+      if (!targets.length) menu.append(h('span', { class: 'ui-hist__menu-empty', text: tr('Nenhum agente do omp livre agora.') }));
+      row.append(menu);
+    });
+    return row;
+  }
+
+  private item(s: RecentSession, now: number, pick?: string): HTMLButtonElement {
     const account = this.ctx.account(s.account);
     const chip = createAccountChip('sm');
     updateAccountChip(chip, account, s.account, s.provider);
@@ -336,7 +394,8 @@ export class HistoryPopover implements UiComponent {
     setAttr(btn, 'aria-label', `${title}, ${project}, ${account?.name ?? s.account}${tool ? `, ${tool}` : ''}, ${live ? tr('aberta') : tr('última atividade {0} às {1}', [dayLabel(s.lastAt, now).toLowerCase(), formatClock(s.lastAt, false)])}`);
     btn.addEventListener('click', () => {
       this.hide();
-      this.terminal.openSession(s, this.button);
+      if (pick) this.terminal.resumeIn(pick, s);
+      else this.terminal.openSession(s, this.button);
     });
     return btn;
   }

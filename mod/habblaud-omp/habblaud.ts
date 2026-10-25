@@ -44,7 +44,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { OMP_COMMANDS, OMP_HEARTBEAT_MS, type OmpEvent, type OmpEventKind } from '../../shared/omp-events';
+import { OMP_COMMANDS, OMP_HEARTBEAT_MS, OMP_SESSION_ID, type OmpCommand, type OmpEvent, type OmpEventKind } from '../../shared/omp-events';
 
 export const DEFAULT_PORT = 4747;
 /** Quanto esperar o Habblaud responder (qualquer rota). */
@@ -219,8 +219,8 @@ export function portOf(env: NodeJS.ProcessEnv, home: string): number {
 export interface InboxMessage {
   id: string;
   text: string;
-  /** Troca de modelo e/ou raciocínio, um comando do omp ou STOP (POST /api/messages/control): sem texto. */
-  control?: { model?: string; thinking?: string; command?: string; stop?: boolean };
+  /** Troca de modelo e/ou raciocínio, um comando do omp, STOP ou /resume (POST /api/messages/control): sem texto. */
+  control?: { model?: string; thinking?: string; command?: string; stop?: boolean; resume?: string };
 }
 
 export interface AckResult {
@@ -256,6 +256,7 @@ export function parseInbox(text: string): InboxMessage[] | undefined {
       if (typeof c.thinking === 'string' && c.thinking) msg.control.thinking = c.thinking;
       if (typeof c.command === 'string' && c.command) msg.control.command = c.command;
       if (c.stop === true) msg.control.stop = true;
+      if (typeof c.resume === 'string' && c.resume) msg.control.resume = c.resume;
     }
     out.push(msg);
   }
@@ -677,14 +678,12 @@ export function create(pi: OmpApi, deps: Deps): void {
   }
 
   /**
-   * Roda um comando do omp (/new, /shake) como se fosse digitado: põe cada texto no editor e aperta Enter, em ordem. O
-   * omp não dá às extensões outro jeito de rodar comandos internos. Só com o agente livre, a tela do omp aberta e o
-   * editor vazio (para não apagar um rascunho nem responder um diálogo aberto). Entre um passo e outro espera o omp
-   * aceitar o anterior (editor vazio) e mais COMMAND_GAP_MS, para os dois não rodarem juntos.
+   * Roda comandos do omp (/new, /shake, /resume) como se fossem digitados: põe cada texto no editor e aperta Enter, em
+   * ordem. O omp não dá às extensões outro jeito de rodar comandos internos. Só com o agente livre, a tela do omp
+   * aberta e o editor vazio (para não apagar um rascunho nem responder um diálogo aberto). Entre um passo e outro
+   * espera o omp aceitar o anterior (editor vazio) e mais COMMAND_GAP_MS, para os dois não rodarem juntos.
    */
-  async function runCommand(id: string, command: string): Promise<AckResult> {
-    if (!Object.hasOwn(OMP_COMMANDS, command)) return { id, ok: false, error: 'comando desconhecido' };
-    const steps = OMP_COMMANDS[command as keyof typeof OMP_COMMANDS];
+  async function typeCommands(id: string, steps: readonly string[]): Promise<AckResult> {
     const ctx = mainCtx;
     const ui = ctx?.ui;
     const enter = deps.pressEnter;
@@ -713,11 +712,12 @@ export function create(pi: OmpApi, deps: Deps): void {
     return { id, ok: true };
   }
 
-  /** Troca o modelo e/ou o raciocínio, roda um comando ou interrompe o turno. O arquivo da sessão ganha model_change/thinking_level_change, que o Habblaud já lê. */
+  /** Troca o modelo e/ou o raciocínio, roda um comando, retoma outra sessão ou interrompe o turno. O arquivo da sessão ganha model_change/thinking_level_change, que o Habblaud já lê. */
   async function applyControl(id: string, control: NonNullable<InboxMessage['control']>): Promise<AckResult> {
     try {
       if (control.stop) return stopTurn(id);
-      if (control.command) return runCommand(id, control.command);
+      if (control.resume) return OMP_SESSION_ID.test(control.resume) ? typeCommands(id, [`/resume ${control.resume}`]) : { id, ok: false, error: 'id de sessão inválido' };
+      if (control.command) return Object.hasOwn(OMP_COMMANDS, control.command) ? typeCommands(id, OMP_COMMANDS[control.command as OmpCommand]) : { id, ok: false, error: 'comando desconhecido' };
       if (control.model) {
         const target = mainCtx?.models?.resolve?.(control.model);
         if (!target) return { id, ok: false, error: 'modelo desconhecido' };

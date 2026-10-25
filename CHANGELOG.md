@@ -12,6 +12,11 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Retomar conversa do omp pelo escritório:** no histórico de sessões, a conversa encerrada do omp ganha
+  **Retomar em…**, com a lista dos agentes do omp livres; no rodapé do terminal de um agente do omp, o botão
+  `/resume` abre o histórico para escolher a conversa a retomar nele. A extensão digita `/resume <id>` na tela do omp
+  (só com o agente livre e o editor vazio) e a conversa atual continua no histórico. Reinstale a extensão
+  (`npm run omp:install`) e reabra as sessões do omp.
 - **Histórico de sessões e Entregas com o omp:** as conversas do omp dos últimos 7 dias (abertas ou encerradas) entram
   no histórico de sessões, com título e projeto, e abrem no terminal; as Entregas passam a mostrar o que os agentes
   do omp terminaram. Antes os dois painéis ficavam vazios com o omp.

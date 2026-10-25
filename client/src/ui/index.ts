@@ -183,6 +183,8 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
   // Histórico de sessões (terminal): botão no grupo dos painéis da barra superior.
   const history = new HistoryPopover(ctx, terminal);
   topbar.panelGroup.prepend(history.button);
+  // /resume na faixa do omp do terminal: o histórico abre para escolher a conversa a retomar naquele agente.
+  terminal.onPickResume = (agentId) => history.pickFor(agentId);
   // Terminal do agente: o interativo se a sessão roda aqui; senão o de leitura, com "Assumir daqui" para
   // continuar nesta janela (sem o de leitura, o interativo mostra o aviso de "em outro terminal").
   pty.onShow = () => terminal.close();

@@ -582,6 +582,8 @@ export interface TerminalControl {
   open(agentId: string, opener?: HTMLElement | null): void;
   /** Abre uma sessão do histórico: a conversa do transcript ou, se ela ainda estiver aberta, o terminal ao vivo do agente. */
   openSession(session: RecentSession, opener?: HTMLElement | null): void;
+  /** Retoma uma sessão do omp no agente omp `agentId`: abre o terminal dele e manda o /resume (confirma antes). */
+  resumeIn(agentId: string, session: RecentSession): void;
   close(): void;
   toggle(agentId: string, opener?: HTMLElement | null): void;
 }
@@ -787,6 +789,16 @@ export class TerminalPanel implements UiComponent, TerminalControl {
 
   open(agentId: string, opener: HTMLElement | null = activeElement()): void {
     this.start(agentId, null, opener);
+  }
+
+  resumeIn(agentId: string, session: RecentSession): void {
+    this.open(agentId);
+    this.ompBar.resume(agentId, session.sessionId, session.title?.trim() || tr('Sessão sem título'));
+  }
+
+  /** Botão /resume da faixa do omp: quem abre o histórico para escolher (o index.ts liga ao HistoryPopover). */
+  set onPickResume(fn: (agentId: string) => void) {
+    this.ompBar.onPickResume = fn;
   }
 
   openSession(session: RecentSession, opener: HTMLElement | null = activeElement()): void {
