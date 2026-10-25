@@ -53,7 +53,7 @@ function fakeHabblaud(answer: (c: Call) => { status: number; json: unknown } | '
   return { calls, fetchImpl, of: (path: string) => calls.filter((c) => c.path === path) };
 }
 
-function setup(opts: { pi?: Partial<OmpApi>; env?: NodeJS.ProcessEnv; answer?: Parameters<typeof fakeHabblaud>[0]; home: string }) {
+function setup(opts: { pi?: Partial<OmpApi>; env?: NodeJS.ProcessEnv; answer?: Parameters<typeof fakeHabblaud>[0]; home: string; onEnter?: () => void }) {
   const handlers = new Map<string, Handler>();
   const sent: Array<{ text: string; options?: unknown }> = [];
   const pi: OmpApi = {
@@ -63,7 +63,11 @@ function setup(opts: { pi?: Partial<OmpApi>; env?: NodeJS.ProcessEnv; answer?: P
   };
   const habblaud = fakeHabblaud(opts.answer ?? (() => undefined));
   let enters = 0;
-  const deps: Deps = { env: opts.env ?? {}, home: opts.home, fetch: habblaud.fetchImpl, now: () => 1_000, shared: {}, pressEnter: () => void enters++ };
+  const pressEnter = () => {
+    enters++;
+    opts.onEnter?.();
+  };
+  const deps: Deps = { env: opts.env ?? {}, home: opts.home, fetch: habblaud.fetchImpl, now: () => 1_000, shared: {}, pressEnter };
   create(pi, deps);
   return { handlers, sent, habblaud, enters: () => enters, fire: (name: string, ctx: OmpContext, event: Record<string, unknown> = {}) => handlers.get(name)?.(event, ctx) };
 }
@@ -338,17 +342,36 @@ describe('omp extension: mensagens', () => {
       [{}, { ok: false, error: 'só funciona com a tela do omp aberta no terminal' }, 0],
     ];
     for (const [opts, result, enters] of cases) {
-      const t = setup({ home: tmp.dir, answer: inbox([{ id: 'k1', text: '', control: { command: 'shake-thinking' } }]) });
+      const t = setup({ home: tmp.dir, answer: inbox([{ id: 'k1', text: '', control: { command: 'new' } }]) });
       const ctx = makeCtx(opts);
       t.fire('session_start', ctx);
       await vi.waitFor(() => expect(t.habblaud.of('/api/mod/inbox/ack')).toHaveLength(1));
       await t.fire('session_shutdown', ctx);
       expect(t.habblaud.of('/api/mod/inbox/ack')[0].body?.results, JSON.stringify(opts)).toEqual([{ id: 'k1', ...result }]);
       expect(t.enters()).toBe(enters);
-      expect(ctx.editor).toBe(result.ok ? '/shake thinking' : (opts.editor ?? ''));
+      expect(ctx.editor).toBe(result.ok ? '/new' : (opts.editor ?? ''));
       expect(t.sent).toEqual([]);
     }
   });
+
+  it('/shake: digita /shake elide e, depois que o omp o aceita, /shake thinking', async () => {
+    for (const accepts of [true, false]) {
+      const typed: string[] = [];
+      const ctx = makeCtx({ tui: true });
+      // Enter registra o que estava no editor; o omp aceita o comando = tira o texto do editor.
+      const onEnter = () => {
+        typed.push(ctx.editor);
+        if (accepts) ctx.editor = '';
+      };
+      const t = setup({ home: tmp.dir, answer: inbox([{ id: 'k1', text: '', control: { command: 'shake' } }]), onEnter });
+      t.fire('session_start', ctx);
+      await vi.waitFor(() => expect(t.habblaud.of('/api/mod/inbox/ack')).toHaveLength(1), { timeout: 6_000 });
+      await t.fire('session_shutdown', ctx);
+      const result = accepts ? { ok: true } : { ok: false, error: 'o omp não aceitou /shake elide' };
+      expect(t.habblaud.of('/api/mod/inbox/ack')[0].body?.results).toEqual([{ id: 'k1', ...result }]);
+      expect(typed).toEqual(accepts ? ['/shake elide', '/shake thinking'] : ['/shake elide']);
+    }
+  }, 12_000);
 
   it('comando desconhecido (fora de OMP_COMMANDS) não toca no editor', async () => {
     const t = setup({ home: tmp.dir, answer: inbox([{ id: 'k1', text: '', control: { command: 'toString' } }]) });
@@ -358,6 +381,25 @@ describe('omp extension: mensagens', () => {
     await t.fire('session_shutdown', ctx);
     expect(t.habblaud.of('/api/mod/inbox/ack')[0].body?.results).toEqual([{ id: 'k1', ok: false, error: 'comando desconhecido' }]);
     expect(t.enters()).toBe(0);
+  });
+
+  it('STOP: interrompe o turno com ctx.abort só com o agente trabalhando', async () => {
+    const cases: Array<[{ idle: boolean; abort: boolean }, { ok: boolean; error?: string }, number]> = [
+      [{ idle: false, abort: true }, { ok: true }, 1],
+      [{ idle: true, abort: true }, { ok: false, error: 'o agente já está parado' }, 0],
+      [{ idle: false, abort: false }, { ok: false, error: 'este omp não interrompe o turno pela extensão' }, 0],
+    ];
+    for (const [opts, result, aborts] of cases) {
+      let calls = 0;
+      const t = setup({ home: tmp.dir, answer: inbox([{ id: 'k1', text: '', control: { stop: true } }]) });
+      const ctx: OmpContext = { ...makeCtx({ idle: opts.idle }), ...(opts.abort ? { abort: () => void calls++ } : {}) };
+      t.fire('session_start', ctx);
+      await vi.waitFor(() => expect(t.habblaud.of('/api/mod/inbox/ack')).toHaveLength(1));
+      await t.fire('session_shutdown', ctx);
+      expect(t.habblaud.of('/api/mod/inbox/ack')[0].body?.results, JSON.stringify(opts)).toEqual([{ id: 'k1', ...result }]);
+      expect(calls).toBe(aborts);
+      expect(t.sent).toEqual([]);
+    }
   });
 
   it('agente ocupado: tudo como continuação, sem interromper', async () => {

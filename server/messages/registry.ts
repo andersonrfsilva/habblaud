@@ -116,8 +116,8 @@ interface Entry {
   text: string;
   /** Atividade do feed quando a entrega se confirma (o começo do texto, mascarado e cortado). */
   activity?: ReturnType<typeof describeMessage>;
-  /** Troca de modelo/raciocínio ou comando (/new, /shake) do omp: sem texto e sem atividade no feed. */
-  control?: { model?: string; thinking?: string; command?: string };
+  /** Troca de modelo/raciocínio, comando (/new, /shake) ou STOP do omp: sem texto e sem atividade no feed. */
+  control?: { model?: string; thinking?: string; command?: string; stop?: boolean };
   /** Sessão do agente quando a mensagem foi mandada: só ela recebe (troca de conversa = falha). */
   target: string;
   /** Sessão que buscou a mensagem (sent): só ela confirma a entrega. */
@@ -173,11 +173,18 @@ export function parseSend(raw: unknown): { agentId: string; text: string } {
   return { agentId, text: r.text };
 }
 
-/** Corpo de POST /api/messages/control: `{agentId, model?, thinking?, command?}`, com ao menos um deles. */
-export function parseControl(raw: unknown): { agentId: string; model?: string; thinking?: string; command?: string } {
+/**
+ * Corpo de POST /api/messages/control: `{agentId, model?, thinking?, command?}`, com ao menos um deles, ou
+ * `{agentId, stop: true}` sozinho (interrompe o turno em andamento).
+ */
+export function parseControl(raw: unknown): { agentId: string; model?: string; thinking?: string; command?: string; stop?: boolean } {
   const r = rec(raw);
   const agentId = shortStr(r?.agentId, ID_MAX);
-  if (!r || !agentId) throw new InvalidRequest('esperado {agentId, model?, thinking?, command?}');
+  if (!r || !agentId) throw new InvalidRequest('esperado {agentId, model?, thinking?, command?} ou {agentId, stop: true}');
+  if (r.stop !== undefined) {
+    if (r.stop !== true || r.model !== undefined || r.thinking !== undefined || r.command !== undefined) throw new InvalidRequest('esperado {agentId, stop: true}, sem outras trocas');
+    return { agentId, stop: true };
+  }
   const out: { agentId: string; model?: string; thinking?: string; command?: string } = { agentId };
   if (r.model !== undefined) {
     const model = shortStr(r.model, 200);
@@ -306,8 +313,9 @@ export class MessageRegistry {
   }
 
   /**
-   * Troca de modelo e/ou raciocínio, ou um comando (/new, /shake), da sessão omp pela gaveta ou pelo terminal: entra
-   * na mesma fila das mensagens (a extensão aplica e confirma), só para agentes do omp. Mesmos resultados de `send`.
+   * Troca de modelo e/ou raciocínio, um comando (/new, /shake) ou STOP (interrompe o turno) da sessão omp pela gaveta
+   * ou pelo terminal: entra na mesma fila das mensagens (a extensão aplica e confirma), só para agentes do omp. Mesmos
+   * resultados de `send`.
    */
   control(raw: unknown): SendResult {
     const { agentId, ...change } = parseControl(raw);

@@ -3415,8 +3415,8 @@ export const FR: Readonly<Record<string, string>> = {
   "Contexto da sessão: {0} (atualiza a cada 10 s e no fim de cada turno)": "Contexte de la session : {0} (mis à jour toutes les 10 s et à la fin de chaque tour)",
   "Enviando {0}…": "Envoi de {0}…",
   "informe o modelo, o raciocínio ou o comando": "indiquez le modèle, le raisonnement ou la commande",
+  "Interrompe o que o agente está fazendo agora (como o Esc no omp)": "Interrompt ce que l'agent fait en ce moment (comme Échap dans omp)",
   "O omp ainda não confirmou o comando.": "omp n'a pas encore confirmé la commande.",
   "o omp não rodou o comando": "omp n'a pas exécuté la commande",
-  "Tira do contexto o raciocínio (thinking) das respostas antigas": "Retire du contexte le raisonnement (thinking) des anciennes réponses",
-  "Troca resultados de ferramentas e blocos grandes antigos por referências recuperáveis (artifact://)": "Remplace les anciens résultats d'outils et gros blocs par des références récupérables (artifact://)",
+  "Roda /shake elide e /shake thinking: troca resultados de ferramentas e blocos grandes antigos por referências recuperáveis (artifact://) e tira do contexto o raciocínio das respostas antigas": "Exécute /shake elide et /shake thinking : remplace les anciens résultats d'outils et gros blocs par des références récupérables (artifact://) et retire du contexte le raisonnement des anciennes réponses",
 };

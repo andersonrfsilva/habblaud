@@ -1,8 +1,8 @@
 // Faixa do omp no rodapé do terminal: a barra do contexto (tokens em uso / janela do modelo, como no rodapé do omp) e
-// os botões dos comandos /new, /shake elide e /shake thinking. Os comandos vão pela fila de controle
-// (POST /api/messages/control {command}); a extensão do omp os digita na tela dele (só com o agente livre e o editor
-// vazio) e confirma ou recusa com o motivo.
-import { OMP_COMMANDS, type OmpCommand } from '../../../shared/omp-events';
+// os botões STOP, /new e /shake (elide e thinking). Vão pela fila de controle (POST /api/messages/control {command}
+// ou {stop: true}); a extensão do omp digita os comandos na tela dele (só com o agente livre e o editor vazio),
+// interrompe o turno no STOP (só com o agente trabalhando) e confirma ou recusa com o motivo.
+import type { OmpCommand } from '../../../shared/omp-events';
 import type { AgentInfo } from '../../../shared/types';
 import { OFFLINE_ERROR } from './composer-model';
 import type { UiContext } from './context';
@@ -13,9 +13,10 @@ import { tr } from '../../../shared/i18n';
 /** Rótulo e dica de cada botão, na ordem da faixa. */
 const BUTTONS: ReadonlyArray<[OmpCommand, string]> = [
   ['new', tr('Começa uma conversa nova no omp (a atual fica no histórico)')],
-  ['shake-elide', tr('Troca resultados de ferramentas e blocos grandes antigos por referências recuperáveis (artifact://)')],
-  ['shake-thinking', tr('Tira do contexto o raciocínio (thinking) das respostas antigas')],
+  ['shake', tr('Roda /shake elide e /shake thinking: troca resultados de ferramentas e blocos grandes antigos por referências recuperáveis (artifact://) e tira do contexto o raciocínio das respostas antigas')],
 ];
+/** Rótulo do botão que interrompe o turno (não é um comando digitado no omp). */
+const STOP = 'STOP';
 
 /** Barra do contexto: percentual (uma casa), nível de cor e o texto "123 k / 1 M · 12%". undefined = sem leitura. */
 export function contextView(c: AgentInfo['context']): { pct: number; level: ReturnType<typeof usageLevel>; text: string } | undefined {
@@ -31,6 +32,7 @@ export class OmpBar {
   private label: HTMLElement;
   private buttons: HTMLElement;
   private statusEl: HTMLElement;
+  private stopBtn: HTMLButtonElement;
   private agentId: string | null = null;
   private busy = false;
   private timer: ReturnType<typeof setTimeout> | undefined;
@@ -39,10 +41,18 @@ export class OmpBar {
     this.fill = h('span', { class: 'ui-term__ctx-fill' });
     this.label = h('span', { class: 'ui-term__ctx-text' });
     this.meter = h('div', { class: 'ui-term__ctx', role: 'meter', attrs: { 'aria-valuemin': '0', 'aria-valuemax': '100' } }, h('span', { class: 'ui-term__ctx-bar' }, this.fill), this.label);
+    this.stopBtn = h('button', {
+      class: 'ui-btn ui-btn--sm ui-btn--danger ui-term__cmd',
+      type: 'button',
+      text: STOP,
+      title: tr('Interrompe o que o agente está fazendo agora (como o Esc no omp)'),
+      on: { click: () => void this.run('stop') },
+    });
     this.buttons = h(
       'div',
       { class: 'ui-term__cmds', role: 'group', attrs: { 'aria-label': tr('Comandos do omp') } },
-      ...BUTTONS.map(([cmd, hint]) => h('button', { class: 'ui-btn ui-btn--sm ui-term__cmd', type: 'button', text: OMP_COMMANDS[cmd], title: hint, on: { click: () => void this.run(cmd) } })),
+      this.stopBtn,
+      ...BUTTONS.map(([cmd, hint]) => h('button', { class: 'ui-btn ui-btn--sm ui-term__cmd', type: 'button', text: `/${cmd}`, title: hint, on: { click: () => void this.run(cmd) } })),
     );
     this.statusEl = h('span', { class: 'ui-term__cmd-status', role: 'status', hidden: true });
     this.el = h('div', { class: 'ui-term__omp', hidden: true }, this.meter, this.statusEl, this.buttons);
@@ -68,6 +78,8 @@ export class OmpBar {
     }
     setHidden(this.buttons, !commands);
     for (const b of this.buttons.querySelectorAll('button')) b.disabled = this.busy;
+    // Só há o que parar num turno (ou esperando você no meio dele).
+    this.stopBtn.disabled = this.busy || (agent?.status !== 'working' && agent?.status !== 'waiting');
   }
 
   private say(text: string, error = false): void {
@@ -78,22 +90,23 @@ export class OmpBar {
     if (text && !error) this.timer = setTimeout(() => setHidden(this.statusEl, true), 5_000);
   }
 
-  /** Manda o comando e acompanha até a extensão confirmar (ou recusar, com o motivo). */
-  private async run(command: OmpCommand): Promise<void> {
+  /** Manda o comando (ou o STOP) e acompanha até a extensão confirmar (ou recusar, com o motivo). */
+  private async run(command: OmpCommand | 'stop'): Promise<void> {
     const agentId = this.agentId;
     if (!agentId || this.busy) return;
     if (command === 'new' && !window.confirm(tr('Começar uma conversa nova no omp? A atual continua no histórico (/resume).'))) return;
+    const label = command === 'stop' ? STOP : `/${command}`;
     this.busy = true;
     this.ctx.invalidate();
-    this.say(tr('Enviando {0}…', [OMP_COMMANDS[command]]));
+    this.say(tr('Enviando {0}…', [label]));
     try {
-      const r = await this.ctx.store.controlAgent(agentId, { command });
+      const r = await this.ctx.store.controlAgent(agentId, command === 'stop' ? { stop: true } : { command });
       if ('error' in r) return this.say(r.error, true);
       for (let i = 0; i < 20; i++) {
         // O cliente compila para antes do ES2024 (sem Promise.withResolvers).
         await new Promise((ok) => setTimeout(ok, 500));
         const m = await this.ctx.store.messageStatus(r.message.id);
-        if (!m || m.status === 'delivered') return this.say(tr('{0} enviado ao omp.', [OMP_COMMANDS[command]]));
+        if (!m || m.status === 'delivered') return this.say(tr('{0} enviado ao omp.', [label]));
         if (m.status === 'failed') return this.say(m.error ?? tr('o omp não rodou o comando'), true);
       }
       this.say(tr('O omp ainda não confirmou o comando.'), true);

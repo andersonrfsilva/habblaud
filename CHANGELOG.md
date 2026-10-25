@@ -12,6 +12,10 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **STOP e /shake único no omp:** o botão **STOP** no rodapé do terminal de um agente do omp interrompe o turno em
+  andamento, como o Esc na tela do omp; só fica ativo com o agente trabalhando, e a extensão confirma ou diz por que
+  não parou. Os botões `/shake elide` e `/shake thinking` viraram um só, `/shake`, que roda os dois em seguida.
+  Reinstale a extensão (`npm run omp:install`) e reabra as sessões do omp.
 - **Windows nativo (sem Docker nem WSL):** o Habblaud roda no Windows 10/11 com Node, inclusive o terminal
   interativo, Assumir daqui, os instaladores e o Novo agente. O acesso pelo celular funciona pelo IP (sem o
   anúncio `.local` automático). `npm run demo` passa a usar `--demo` (vale também fora do Windows); o CI roda

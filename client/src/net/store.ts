@@ -341,7 +341,7 @@ export class OfficeStore {
    * /api/messages/control): a mensagem de controle (status `queued`; a extensão aplica e confirma) ou o erro do
    * servidor. Sem conexão: lança. Não existe no ?mock=1.
    */
-  async controlAgent(agentId: string, change: { model?: string; thinking?: string; command?: string }): Promise<{ message: OutboxMessage } | { error: string }> {
+  async controlAgent(agentId: string, change: { model?: string; thinking?: string; command?: string; stop?: boolean }): Promise<{ message: OutboxMessage } | { error: string }> {
     if (this.mock) return { error: tr('indisponível no modo de demonstração') };
     const res = await fetch('/api/messages/control', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId, ...change }) });
     let body: unknown;

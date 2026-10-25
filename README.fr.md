@@ -687,9 +687,10 @@ carte les affiche tous, chacun avec toutes ses limites (5 h, semaine, par modèl
   texte que l'`ask` d'omp ; répondre dans le terminal retire la carte. Habblaud arrêté : seul le terminal.
 - **Pied du terminal :** avec l'extension, le terminal de l'agent affiche la barre du contexte de la session (tokens
   utilisés / fenêtre du modèle, le même chiffre que le pied d'omp, aux couleurs des barres d'utilisation) et les boutons
-  `/new`, `/shake elide` et `/shake thinking`. L'extension tape la commande dans l'écran d'omp : elle ne s'exécute
-  qu'avec l'agent inactif, omp à l'écran et son éditeur vide ; sinon, la raison s'affiche dessous. `/new` demande
-  confirmation.
+  **STOP**, `/new` et `/shake`. STOP interrompt le tour en cours (comme Échap dans omp) et n'est actif que pendant que
+  l'agent travaille. `/shake` exécute `/shake elide` puis `/shake thinking`. L'extension tape les commandes dans
+  l'écran d'omp : elles ne s'exécutent qu'avec l'agent inactif, omp à l'écran et son éditeur vide ; sinon, la raison
+  s'affiche dessous. `/new` demande confirmation.
 - **Validations**, de deux façons :
   - **Par défaut :** quand omp demande une validation dans le terminal, le personnage lève la main et le bureau montre
     quel outil attend ; la décision reste dans le terminal.

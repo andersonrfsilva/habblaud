@@ -21,8 +21,11 @@ export const OMP_HEARTBEAT_MS = 10_000;
 /** Sem batimento por este tempo, a sessão que tinha extensão é dada como encerrada (crash, kill). */
 export const OMP_HEARTBEAT_LOST_MS = 30_000;
 
-/** Comandos do omp que o terminal do Habblaud dispara (POST /api/messages/control {command}): id -> o que é digitado no omp. */
-export const OMP_COMMANDS = { new: '/new', 'shake-elide': '/shake elide', 'shake-thinking': '/shake thinking' } as const;
+/**
+ * Comandos do omp que o terminal do Habblaud dispara (POST /api/messages/control {command}): id -> o que é digitado
+ * no omp, em ordem. O botão mostra `/${id}`. O /shake do omp aceita um modo por vez, então o `shake` roda os dois.
+ */
+export const OMP_COMMANDS = { new: ['/new'], shake: ['/shake elide', '/shake thinking'] } as const;
 export type OmpCommand = keyof typeof OMP_COMMANDS;
 
 export interface OmpEvent {

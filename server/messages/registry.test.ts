@@ -392,8 +392,18 @@ describe('MessageRegistry: agentes do omp', () => {
   it('control com comando (/new, /shake) entra na caixa como control.command', () => {
     const { registry } = setupOmp();
     registry.inbox({ session: OMP_SESSION });
-    const id = sent(registry.control({ agentId: OMP_A, command: 'shake-elide' }));
-    expect(registry.inbox({ session: OMP_SESSION })).toEqual([{ id, text: '', control: { command: 'shake-elide' } }]);
+    const id = sent(registry.control({ agentId: OMP_A, command: 'shake' }));
+    expect(registry.inbox({ session: OMP_SESSION })).toEqual([{ id, text: '', control: { command: 'shake' } }]);
+  });
+
+  it('STOP entra na caixa como control.stop, sozinho', () => {
+    const { registry } = setupOmp();
+    registry.inbox({ session: OMP_SESSION });
+    for (const body of [{ agentId: OMP_A, stop: false }, { agentId: OMP_A, stop: 'sim' }, { agentId: OMP_A, stop: true, command: 'new' }, { agentId: OMP_A, stop: true, model: 'anthropic/a' }]) {
+      expect(() => registry.control(body), JSON.stringify(body)).toThrow();
+    }
+    const id = sent(registry.control({ agentId: OMP_A, stop: true }));
+    expect(registry.inbox({ session: OMP_SESSION })).toEqual([{ id, text: '', control: { stop: true } }]);
   });
 
   it('mensagem do Claude não sai para a sessão do omp (e vice-versa)', () => {

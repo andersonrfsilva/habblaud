@@ -52,6 +52,10 @@ export const FETCH_TIMEOUT_MS = 2_000;
 export const INBOX_IDLE_MS = 2_000;
 export const INBOX_BUSY_MS = 5_000;
 export const INBOX_OFFLINE_MS = 30_000;
+/** Comando de vários passos (/shake): espera o omp tirar o passo anterior do editor até este tempo... */
+export const COMMAND_ACCEPT_MS = 3_000;
+/** ...e então esta folga, para o passo anterior terminar antes do próximo (o /shake não avisa quando acaba). */
+export const COMMAND_GAP_MS = 1_000;
 /** Tamanho máximo do motivo de uma falha de entrega. */
 export const MAX_REASON = 500;
 /** Espera do Habblaud pelo pedido de permissão com o diálogo aberto (o padrão do servidor: DEFAULT_TIMEOUT_MS). */
@@ -115,6 +119,8 @@ export interface OmpContext {
   mode?: string;
   /** O agente está livre (não está num turno). */
   isIdle?(): boolean;
+  /** Interrompe o turno em andamento (o Esc da tela do omp). */
+  abort?(): void;
   /** Tokens em uso e janela do modelo (o mesmo número do rodapé do omp). */
   getContextUsage?(): { tokens?: number; contextWindow?: number } | undefined;
   ui: {
@@ -213,8 +219,8 @@ export function portOf(env: NodeJS.ProcessEnv, home: string): number {
 export interface InboxMessage {
   id: string;
   text: string;
-  /** Troca de modelo e/ou raciocínio, ou um comando do omp (POST /api/messages/control): sem texto. */
-  control?: { model?: string; thinking?: string; command?: string };
+  /** Troca de modelo e/ou raciocínio, um comando do omp ou STOP (POST /api/messages/control): sem texto. */
+  control?: { model?: string; thinking?: string; command?: string; stop?: boolean };
 }
 
 export interface AckResult {
@@ -249,6 +255,7 @@ export function parseInbox(text: string): InboxMessage[] | undefined {
       if (typeof c.model === 'string' && c.model) msg.control.model = c.model;
       if (typeof c.thinking === 'string' && c.thinking) msg.control.thinking = c.thinking;
       if (typeof c.command === 'string' && c.command) msg.control.command = c.command;
+      if (c.stop === true) msg.control.stop = true;
     }
     out.push(msg);
   }
@@ -670,26 +677,46 @@ export function create(pi: OmpApi, deps: Deps): void {
   }
 
   /**
-   * Roda um comando do omp (/new, /shake) como se fosse digitado: põe o texto no editor e aperta Enter. O omp não dá
-   * às extensões outro jeito de rodar comandos internos. Só com o agente livre, a tela do omp aberta e o editor vazio
-   * (para não apagar um rascunho nem responder um diálogo aberto).
+   * Roda um comando do omp (/new, /shake) como se fosse digitado: põe cada texto no editor e aperta Enter, em ordem. O
+   * omp não dá às extensões outro jeito de rodar comandos internos. Só com o agente livre, a tela do omp aberta e o
+   * editor vazio (para não apagar um rascunho nem responder um diálogo aberto). Entre um passo e outro espera o omp
+   * aceitar o anterior (editor vazio) e mais COMMAND_GAP_MS, para os dois não rodarem juntos.
    */
-  function runCommand(id: string, command: string): AckResult {
+  async function runCommand(id: string, command: string): Promise<AckResult> {
     if (!Object.hasOwn(OMP_COMMANDS, command)) return { id, ok: false, error: 'comando desconhecido' };
-    const text = OMP_COMMANDS[command as keyof typeof OMP_COMMANDS];
+    const steps = OMP_COMMANDS[command as keyof typeof OMP_COMMANDS];
     const ctx = mainCtx;
     const ui = ctx?.ui;
-    if (!ctx || ctx.mode !== 'tui' || !ui?.setEditorText || !ui.getEditorText || !deps.pressEnter) return { id, ok: false, error: 'só funciona com a tela do omp aberta no terminal' };
+    const enter = deps.pressEnter;
+    if (!ctx || ctx.mode !== 'tui' || !ui?.setEditorText || !ui.getEditorText || !enter) return { id, ok: false, error: 'só funciona com a tela do omp aberta no terminal' };
     if (!idleNow()) return { id, ok: false, error: 'o agente está trabalhando: espere o turno acabar' };
     if (ui.getEditorText().trim()) return { id, ok: false, error: 'há texto no editor do omp: envie ou apague antes' };
-    ui.setEditorText(text);
-    deps.pressEnter();
+    const session = sessionId;
+    for (const [i, text] of steps.entries()) {
+      if (i > 0) {
+        for (let waited = 0; ui.getEditorText().trim() && waited < COMMAND_ACCEPT_MS; waited += 50) await sleep(50);
+        if (ui.getEditorText().trim()) return { id, ok: false, error: `o omp não aceitou ${steps[i - 1]}` };
+        await sleep(COMMAND_GAP_MS);
+        if (sessionId !== session) return { id, ok: false, error: `a conversa mudou depois de ${steps[i - 1]}` };
+      }
+      ui.setEditorText(text);
+      enter();
+    }
     return { id, ok: true };
   }
 
-  /** Troca o modelo e/ou o raciocínio, ou roda um comando. O arquivo da sessão ganha model_change/thinking_level_change, que o Habblaud já lê. */
+  /** Interrompe o turno em andamento, como o Esc na tela do omp. Com o agente livre não há o que parar. */
+  function stopTurn(id: string): AckResult {
+    if (!mainCtx?.abort) return { id, ok: false, error: 'este omp não interrompe o turno pela extensão' };
+    if (idleNow()) return { id, ok: false, error: 'o agente já está parado' };
+    mainCtx.abort();
+    return { id, ok: true };
+  }
+
+  /** Troca o modelo e/ou o raciocínio, roda um comando ou interrompe o turno. O arquivo da sessão ganha model_change/thinking_level_change, que o Habblaud já lê. */
   async function applyControl(id: string, control: NonNullable<InboxMessage['control']>): Promise<AckResult> {
     try {
+      if (control.stop) return stopTurn(id);
       if (control.command) return runCommand(id, control.command);
       if (control.model) {
         const target = mainCtx?.models?.resolve?.(control.model);

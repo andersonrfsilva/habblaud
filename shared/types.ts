@@ -777,6 +777,9 @@ export interface InboxMessage {
   id: string;
   /** O texto como foi digitado: o plugin o manda à sessão como se você o tivesse digitado. Vazio quando há `control`. */
   text: string;
-  /** Troca de modelo e/ou raciocínio, ou um comando (OMP_COMMANDS), da sessão omp (POST /api/messages/control). */
-  control?: { model?: string; thinking?: string; command?: string };
+  /**
+   * Troca de modelo e/ou raciocínio, um comando (OMP_COMMANDS) ou `stop` (interrompe o turno em andamento) da sessão
+   * omp (POST /api/messages/control).
+   */
+  control?: { model?: string; thinking?: string; command?: string; stop?: boolean };
 }

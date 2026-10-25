@@ -3398,8 +3398,8 @@ export const EN: Readonly<Record<string, string>> = {
   "Contexto da sessão: {0} (atualiza a cada 10 s e no fim de cada turno)": "Session context: {0} (updates every 10 s and at the end of each turn)",
   "Enviando {0}…": "Sending {0}…",
   "informe o modelo, o raciocínio ou o comando": "give the model, the reasoning or the command",
+  "Interrompe o que o agente está fazendo agora (como o Esc no omp)": "Stops what the agent is doing right now (like Esc in omp)",
   "O omp ainda não confirmou o comando.": "omp hasn't confirmed the command yet.",
   "o omp não rodou o comando": "omp didn't run the command",
-  "Tira do contexto o raciocínio (thinking) das respostas antigas": "Removes the reasoning (thinking) of old replies from the context",
-  "Troca resultados de ferramentas e blocos grandes antigos por referências recuperáveis (artifact://)": "Replaces old tool results and large blocks with recoverable references (artifact://)",
+  "Roda /shake elide e /shake thinking: troca resultados de ferramentas e blocos grandes antigos por referências recuperáveis (artifact://) e tira do contexto o raciocínio das respostas antigas": "Runs /shake elide and /shake thinking: replaces old tool results and large blocks with recoverable references (artifact://) and removes the reasoning of old replies from the context",
 };
