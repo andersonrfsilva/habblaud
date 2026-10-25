@@ -20,8 +20,8 @@ export interface WorldOptions {
   /** Tema visual: automático (segue o calendário; ver seasonalThemeFor), nenhum, Natal ou Halloween. */
   theme?: OfficeTheme;
   /**
-   * (Opcional, aditivo) Economia de energia: desenha em densidade 1 e o navegador amplia (pixelated). Bem menos CPU em
-   * telas de densidade 2–3; textos menos nítidos.
+   * (Opcional, aditivo) Economia de energia: o cenário é desenhado em densidade 1 e ampliado; nomes e balões continuam
+   * na densidade da tela. Bem menos CPU em telas de densidade 2–3.
    */
   powerSave?: boolean;
 }

@@ -210,7 +210,7 @@ export class SettingsPopover implements UiComponent {
         sw(
           'powerSave',
           tr('Economia de energia'),
-          tr('Desenha o escritório em resolução menor e deixa a tela ampliar: bem menos CPU em telas nítidas (celular, Retina), com nomes e balões um pouco menos nítidos.'),
+          tr('Desenha o cenário em resolução menor e amplia; nomes e balões continuam nítidos. Bem menos CPU em telas nítidas (celular, Retina).'),
           flip('powerSave'),
         ),
         sw(

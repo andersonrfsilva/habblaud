@@ -32,8 +32,8 @@ export function overviewFrame(
 }
 
 /**
- * Densidade em que o escritório é desenhado: a da tela (de 1 a 3) ou, na economia de energia, sempre 1 (o navegador
- * amplia o canvas com image-rendering: pixelated; a pixel art fica igual e os textos, menos nítidos).
+ * Densidade em que o cenário é desenhado: a da tela (de 1 a 3) ou, na economia de energia, sempre 1 (o mundo é
+ * ampliado sem suavizar no canvas da tela; os textos do overlay continuam na densidade da tela).
  */
 export function renderDpr(deviceDpr: number | undefined, powerSave: boolean): number {
   if (powerSave) return 1;
