@@ -18,7 +18,7 @@ import { Renderer } from './render/renderer';
 import { Sim, type VisitLight } from './sim/sim';
 import { NO_INTENT, VISITOR_ID, visitorInfo, type VisitorIntent } from './sim/visitor';
 import { SoundCues } from './sound-cues';
-import { ACTIVE_GRACE_MS, frameCapFor } from './pacing';
+import { ACTIVE_GRACE_MS, frameCapFor, sleepsBetweenFrames } from './pacing';
 
 export * from './api';
 export type { WorldDebug } from './debug';
@@ -79,6 +79,8 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
   let hover: string | null = null;
   let mouse: { x: number; y: number } | null = null;
   let raf = 0;
+  /** Próximo quadro agendado num setTimeout (ritmo abaixo de 30 qps); 0 = nenhum. */
+  let timer: ReturnType<typeof setTimeout> | 0 = 0;
   let lastTs = 0;
   let hiddenAt = 0;
   /** Escritório fora da tela (cidade aberta): sem laço de desenho nem teclado da câmera. */
@@ -261,6 +263,7 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
     interact: () => {
       userMoved = true;
       lastInputAt = performance.now();
+      wake();
       camera.follow = null;
       camera.stop();
     },
@@ -271,7 +274,10 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
   });
 
   // Arrasto, pinça e hover não passam por interact() a cada movimento: o laço fica a 60 qps enquanto houver entrada.
-  const markInput = () => (lastInputAt = performance.now());
+  const markInput = () => {
+    lastInputAt = performance.now();
+    wake();
+  };
   canvas.addEventListener('pointermove', markInput, { signal: abort.signal, passive: true });
   canvas.addEventListener('pointerdown', markInput, { signal: abort.signal, passive: true });
 
@@ -302,17 +308,37 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
 
   // ------------------------------------------------------------------ laço
 
-  const loop = (ts: number) => {
+  /** Agenda o próximo quadro: abaixo de 30 qps dorme num timer e só então pede o rAF (alinhado à tela). */
+  const schedule = (cap: number) => {
+    if (sleepsBetweenFrames(cap)) {
+      timer = setTimeout(() => {
+        timer = 0;
+        raf = requestAnimationFrame(loop);
+      }, Math.max(0, 1000 / cap - 1000 / 60));
+    } else raf = requestAnimationFrame(loop);
+  };
+  /** Entrada do usuário com o laço dormindo no timer: desenha já, sem esperar até 200 ms. */
+  const wake = () => {
+    if (!timer || suspended) return;
+    clearTimeout(timer);
+    timer = 0;
     raf = requestAnimationFrame(loop);
-    // 2 ms de folga: com 30 qps num monitor de 60 Hz, o quadro de 33,3 ms não pode cair para o seguinte.
+  };
+
+  const loop = (ts: number) => {
     const cap = frameCapFor({
       uiCap: frameCap,
       active: cameraMoved || camera.animating || !!playback || performance.now() - lastInputAt < ACTIVE_GRACE_MS,
       focused: document.hasFocus(),
+      powerSave: !!options.powerSave,
+      motion: renderer.motion,
     });
-    if (cap && lastTs && ts - lastTs < 1000 / cap - 2) return;
+    schedule(cap);
+    // 2 ms de folga: com 30 qps num monitor de 60 Hz, o quadro de 33,3 ms não pode cair para o seguinte.
+    if (cap && !sleepsBetweenFrames(cap) && lastTs && ts - lastTs < 1000 / cap - 2) return;
     const real = Date.now();
-    const realDt = lastTs ? Math.min(0.1, Math.max(0, (ts - lastTs) / 1000)) : 1 / 60;
+    // até 0,25 s: a 5 qps (economia sem foco) o quadro dura 0,2 s e a simulação não pode andar mais devagar
+    const realDt = lastTs ? Math.min(0.25, Math.max(0, (ts - lastTs) / 1000)) : 1 / 60;
     lastTs = ts;
     // Timelapse: simulação e desenho no relógio do mundo (acelerado ou parado); a câmera segue no tempo real.
     const k = playback ? Math.max(0, playback.scale()) : 1;
@@ -472,6 +498,7 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
         if (userMoved) camera.zoomAt(camera.snapZoom(camera.zoom), camera.viewW / 2, camera.viewH / 2, Date.now(), true);
         else overview(true);
       }
+      wake();
     },
     setViewInsets: (ins) => {
       const v = (n: number | undefined, cur: number) => (typeof n === 'number' && Number.isFinite(n) ? Math.max(0, n) : cur);
@@ -510,6 +537,8 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
       suspended = on;
       if (on) {
         cancelAnimationFrame(raf);
+        clearTimeout(timer);
+        timer = 0;
         suspendedAt = Date.now();
         setHover(null);
         mouse = null;
@@ -519,13 +548,19 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
       if (suspendedAt && Date.now() - suspendedAt > 5000) sim.fastForward(playback ? worldNow : Date.now());
       suspendedAt = 0;
       hiddenAt = 0;
+      clearTimeout(timer);
+      timer = 0;
       raf = requestAnimationFrame(loop);
     },
     setFrameCap: (fps) => {
-      frameCap = Math.max(0, fps);
+      const next = Math.max(0, fps);
+      if (next === frameCap) return;
+      frameCap = next;
+      wake();
     },
     destroy: () => {
       cancelAnimationFrame(raf);
+      clearTimeout(timer);
       abort.abort();
       offSnapshot();
       detachInput();

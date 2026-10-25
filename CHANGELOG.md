@@ -24,10 +24,11 @@ do meio (0.**3**.0).
   `/resume` abre o histórico para escolher a conversa a retomar nele. A extensão digita `/resume <id>` na tela do omp
   (só com o agente livre e o editor vazio) e a conversa atual continua no histórico. Reinstale a extensão
   (`npm run omp:install`) e reabra as sessões do omp.
-- **Economia de energia** (Configurações › Escritório, desligada por padrão): desenha o cenário em resolução menor e
-  amplia; nomes e balões continuam na resolução da tela, nítidos, e com o zoom bem afastado (visão geral no celular)
-  o cenário ganha resolução para a pixel art não virar borrão. Em telas nítidas o quadro fica bem mais leve
-  (computador Retina: 24 → 10 ms por quadro; tablet: 16 → 10 ms; celular: 12 → 10 ms na visão geral e 7 ms com zoom).
+- **Economia de energia** (Configurações › Escritório, desligada por padrão): desenha o escritório sempre a 10
+  quadros por segundo (5 com a janela sem foco), mesmo com gente andando, e o cenário em resolução menor e ampliado;
+  nomes e balões continuam na resolução da tela, nítidos, e com o zoom bem afastado (visão geral no celular) o cenário
+  ganha resolução para a pixel art não virar borrão. Mexer o mouse, a câmera ou o teclado volta ao ritmo do monitor
+  na hora. Medido com GPU, 1440×900 em densidade 2: 81% → 35% de CPU (15% sem foco).
 - **Histórico de sessões e Entregas com o omp:** as conversas do omp dos últimos 7 dias (abertas ou encerradas) entram
   no histórico de sessões, com título e projeto, e abrem no terminal; as Entregas passam a mostrar o que os agentes
   do omp terminaram. Antes os dois painéis ficavam vazios com o omp.
@@ -65,8 +66,9 @@ do meio (0.**3**.0).
 
 ### Alterado
 
-- **Escritório mais leve:** parado, o escritório é desenhado a 30 quadros por segundo (15 com a janela sem foco),
-  cerca de metade da CPU; arrastar, dar zoom e a câmera seguindo alguém continuam no ritmo do monitor.
+- **Escritório mais leve:** sem ninguém andando na tela, o escritório desenha a 10 quadros por segundo (5 sem foco)
+  em vez de 30; volta a 30 (15 sem foco) assim que alguém anda, uma sala é montada ou cai confete. Arrastar, dar zoom
+  e a câmera seguindo alguém continuam no ritmo do monitor. Medido com GPU: 79% → 35% de CPU.
 
 ### Corrigido
 

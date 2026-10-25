@@ -210,7 +210,7 @@ export class SettingsPopover implements UiComponent {
         sw(
           'powerSave',
           tr('Economia de energia'),
-          tr('Desenha o cenário em resolução menor e amplia; nomes e balões continuam nítidos. Bem menos CPU em telas nítidas (celular, Retina).'),
+          tr('Escritório sempre a 10 quadros por segundo (5 com a janela sem foco), mesmo com gente andando, e cenário em resolução menor. Menos CPU e bateria; quem anda fica um pouco aos saltos.'),
           flip('powerSave'),
         ),
         sw(
