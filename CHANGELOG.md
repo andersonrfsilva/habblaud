@@ -40,10 +40,9 @@ do meio (0.**3**.0).
 
 - **Terminal no celular:** o escritório continuava sendo desenhado atrás do terminal em tela cheia e ocupava o
   aparelho inteiro, então a digitação chegava com atraso. Com o terminal aberto numa tela de até 600 px, o desenho do
-  escritório para e volta quando o terminal fecha. Com o histórico grande (até 1500 linhas), cada linha se desenha
-  sozinha (`contain: content`): uma mensagem nova não repinta mais as outras. A rolagem ficou fluida: o terminal não
-  usa mais `backdrop-filter` (com o fundo quase opaco o desfoque não aparecia e refazia a tela a cada quadro) e, no
-  celular, fica opaco e sem sombra.
+  escritório para e volta quando o terminal fecha. A rolagem do histórico ficou fluida: o terminal não usa mais
+  `backdrop-filter` (com o fundo quase opaco o desfoque não aparecia e refazia a tela a cada quadro) e, no celular,
+  fica opaco e sem sombra. Medições em [`docs/terminal-celular-desempenho.md`](docs/terminal-celular-desempenho.md).
 - **Segurança:** pedidos que mudam o escritório (mensagens, novo agente, permissões) só são aceitos da própria
   página do Habblaud; uma página aberta em outra porta do computador não passa mais.
 - No Windows, os arquivos entregues pelos agentes (`C:\...`, em links ou soltos no texto) eram rejeitados como
