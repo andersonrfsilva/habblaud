@@ -320,6 +320,8 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
     }
     // O laço do mundo desenhando por trás do terminal em tela cheia trava o celular (o teclado chega com atraso).
     world.setSuspended?.(!!city?.open || (terminal.isOpen && !!phoneMq?.matches));
+    // Terminal em janela: o escritório segue à vista, mas a 30 qps (cerca de metade da CPU do desenho).
+    world.setFrameCap?.(terminal.isOpen ? 30 : 0);
   }
 
   function invalidate(): void {
