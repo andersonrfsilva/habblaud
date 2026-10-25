@@ -17,8 +17,8 @@ terminar.
 | 004  | Revogação remota falha fechada; verificador de versão não derruba o servidor | P3 | S | — | DONE (merge fba172b) |
 | 005  | Traduções completas e `i18n:check --strict` no CI | P3 | S | — | DONE (merge 69828b3) |
 | 006  | Introdução dos READMEs sem "nenhuma chamada externa" | P3 | S | — | TODO |
-| 007  | Escritório parado a 30 qps (15 sem foco); 60 só com câmera em movimento ou entrada | P1 | S | — | DONE (branch advisor/007-escritorio-30-qps, 96d322f; revisado, não mergeado) |
-| 008  | Opção "Economia de energia": escritório desenhado em 1× (pixelated) | P2 | M | — | DONE (branch advisor/008-economia-de-energia; revisado, não mergeado) |
+| 007  | Escritório parado a 30 qps (15 sem foco); 60 só com câmera em movimento ou entrada | P1 | S | — | DONE (merge f0e2e60) |
+| 008  | Opção "Economia de energia": escritório desenhado em 1× (pixelated) | P2 | M | — | DONE (merge 994d2c4) |
 | 009  | Telas, janelas e relógios repintados só quando mudam (cache por item) | P3 | M | — | DONE, merge não recomendado (branch advisor/009-telas-em-cache; −41% chamadas de canvas, JS por quadro igual ~2,1 ms; ganho só possível com GPU, não medido) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
