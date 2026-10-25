@@ -3411,4 +3411,6 @@ export const EN: Readonly<Record<string, string>> = {
   "Nenhum agente do omp livre agora.": "No idle omp agent right now.",
   "Retoma outra conversa do omp neste agente: escolha no histórico (a atual continua lá)": "Resumes another omp conversation in this agent: pick it in history (the current one stays there)",
   "Retomar “{0}” neste agente? A conversa atual continua no histórico.": "Resume “{0}” in this agent? The current conversation stays in history.",
+  "Conversa retomada.": "Conversation resumed.",
+  "O omp não retomou a conversa: veja o motivo na tela do omp.": "omp didn't resume the conversation: see the reason on omp's screen.",
 };
