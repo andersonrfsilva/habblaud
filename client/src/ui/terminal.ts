@@ -761,6 +761,8 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     // Esc na caixa devolve o foco à conversa (o próximo fecha o terminal).
     this.composer = new MessageComposer(ctx, 'terminal', { onEscape: () => this.focusLog() });
     this.ompBar = new OmpBar(ctx);
+    // /resume que deu certo: a conversa retomada é outro agente (ids por sessão); o terminal passa para ela.
+    this.ompBar.onResumed = (id) => this.open(id);
 
     this.el = h(
       'section',

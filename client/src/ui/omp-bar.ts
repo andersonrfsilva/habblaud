@@ -18,6 +18,10 @@ const BUTTONS: ReadonlyArray<[OmpCommand, string]> = [
 ];
 /** Rótulo do botão que interrompe o turno (não é um comando digitado no omp). */
 const STOP = 'STOP';
+/** /resume: quantas vezes (a cada 0,5 s) procura a sessão retomada no escritório antes de dar como falha. */
+const RESUME_POLLS = 30;
+/** /resume com a mensagem já falhada: quantas vezes ainda espera a sessão aparecer (a falha pode ser só a saída da anterior). */
+const RESUME_GRACE_POLLS = 6;
 
 /** Barra do contexto: percentual (uma casa), nível de cor e o texto "123 k / 1 M · 12%". undefined = sem leitura. */
 export function contextView(c: AgentInfo['context']): { pct: number; level: ReturnType<typeof usageLevel>; text: string } | undefined {
@@ -38,6 +42,8 @@ export class OmpBar {
   private busy = false;
   /** Abre o histórico para escolher a conversa a retomar neste agente (ligado pelo index.ts). */
   onPickResume?: (agentId: string) => void;
+  /** Abre o terminal na sessão retomada (ligado pelo TerminalPanel). */
+  onResumed?: (agentId: string) => void;
   private timer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(private ctx: UiContext) {
@@ -108,6 +114,11 @@ export class OmpBar {
     void this.send({ resume: sessionId }, '/resume');
   }
 
+  /** Agente da sessão retomada já no escritório (a sessão vira outro agente: os ids são por sessão). */
+  private resumedAgent(sessionId: string): AgentInfo | undefined {
+    return this.ctx.store.snapshot?.agents.find((a) => a.provider === 'omp' && a.kind === 'main' && a.sessionId === sessionId && a.status !== 'offline');
+  }
+
   private run(command: OmpCommand | 'stop'): void {
     if (command === 'new' && !window.confirm(tr('Começar uma conversa nova no omp? A atual continua no histórico (/resume).'))) return;
     void this.send(command === 'stop' ? { stop: true } : { command }, command === 'stop' ? STOP : `/${command}`);
@@ -123,14 +134,30 @@ export class OmpBar {
     try {
       const r = await this.ctx.store.controlAgent(agentId, change);
       if ('error' in r) return this.say(r.error, true);
-      for (let i = 0; i < 20; i++) {
+      // /resume: a extensão só confirma que digitou; deu certo quando a sessão pedida aparece no escritório (o omp mostra
+      // o erro na tela dele e não avisa ninguém). A mensagem pode falhar só porque a conversa anterior saiu do
+      // escritório antes da confirmação: o veredito espera a sessão nova por mais um pouco.
+      const target = change.resume;
+      let failedAt: number | undefined;
+      for (let i = 0; i < (target ? RESUME_POLLS : 20); i++) {
         // O cliente compila para antes do ES2024 (sem Promise.withResolvers).
         await new Promise((ok) => setTimeout(ok, 500));
+        const resumed = target ? this.resumedAgent(target) : undefined;
+        if (resumed) {
+          this.agentId = resumed.id;
+          this.onResumed?.(resumed.id);
+          return this.say(tr('Conversa retomada.'));
+        }
         const m = await this.ctx.store.messageStatus(r.message.id);
+        if (target) {
+          if (m?.status === 'failed') failedAt ??= i;
+          if (failedAt !== undefined && i - failedAt >= RESUME_GRACE_POLLS) return this.say(m?.error ?? tr('o omp não rodou o comando'), true);
+          continue;
+        }
         if (!m || m.status === 'delivered') return this.say(tr('{0} enviado ao omp.', [label]));
         if (m.status === 'failed') return this.say(m.error ?? tr('o omp não rodou o comando'), true);
       }
-      this.say(tr('O omp ainda não confirmou o comando.'), true);
+      this.say(target ? tr('O omp não retomou a conversa: veja o motivo na tela do omp.') : tr('O omp ainda não confirmou o comando.'), true);
     } catch {
       this.say(OFFLINE_ERROR, true);
     } finally {
