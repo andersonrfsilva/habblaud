@@ -13,8 +13,9 @@ do meio (0.**3**.0).
 ### Adicionado
 
 - **Economia de energia** (Configurações › Escritório, desligada por padrão): desenha o cenário em resolução menor e
-  amplia; nomes e balões continuam na resolução da tela, nítidos. Em telas nítidas o quadro custa cerca de metade
-  (computador Retina: 24 → 11 ms por quadro; celular: 12 → 8 ms).
+  amplia; nomes e balões continuam na resolução da tela, nítidos, e com o zoom bem afastado (visão geral no celular)
+  o cenário ganha resolução para a pixel art não virar borrão. Em telas nítidas o quadro fica bem mais leve
+  (computador Retina: 24 → 10 ms por quadro; tablet: 16 → 10 ms; celular: 12 → 10 ms na visão geral e 7 ms com zoom).
 
 ## [1.0.3] - 2026-10-16
 

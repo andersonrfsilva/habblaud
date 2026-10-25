@@ -9,7 +9,13 @@ describe('renderDpr', () => {
     expect(renderDpr(undefined, false)).toBe(1);
     expect(renderDpr(0.5, false)).toBe(1);
   });
-  it('economia de energia desenha sempre em 1', () => {
+  it('economia de energia: 1 com zoom ≥ 0,7; mais densidade só abaixo disso, até a da tela', () => {
     expect(renderDpr(3, true)).toBe(1);
+    expect(renderDpr(3, true, 2)).toBe(1);
+    expect(renderDpr(3, true, 0.77)).toBe(1);
+    expect(renderDpr(3, true, 0.35)).toBe(2);
+    expect(renderDpr(3, true, 0.2)).toBe(3);
+    expect(renderDpr(2, true, 0.2)).toBe(2);
+    expect(renderDpr(1, true, 0.2)).toBe(1);
   });
 });
