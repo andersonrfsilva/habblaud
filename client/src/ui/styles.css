@@ -4630,9 +4630,9 @@
   flex-direction: column;
   overflow: hidden;
   border-radius: var(--radius);
+  /* Sem backdrop-filter: com o fundo quase opaco o desfoque não aparece, e ele refazia a tela inteira a cada quadro da
+   * rolagem (no celular a conversa não rolava fluida). */
   background: rgba(10, 12, 18, 0.96);
-  -webkit-backdrop-filter: blur(14px) saturate(1.25);
-  backdrop-filter: blur(14px) saturate(1.25);
   border: 1px solid var(--ui-line-strong);
   box-shadow:
     0 0 0 1px rgba(0, 0, 0, 0.35),
@@ -4796,6 +4796,11 @@
   grid-template-columns: 2ch minmax(0, 1fr);
   column-gap: 1ch;
   align-items: start;
+  /*
+   * Cada linha se desenha sozinha: uma mensagem nova não repinta as outras (até 1500), o que travava o celular com
+   * histórico grande. Sem content-visibility: a rolagem continua só no compositor, sem layout a cada quadro.
+   */
+  contain: content;
 }
 
 .ui-term__mark {
@@ -5609,6 +5614,9 @@ a.ui-md__link:hover {
     inset: 0 0 var(--kb, 0px);
     border: 0;
     border-radius: 0;
+    /* Tela cheia: opaco e sem sombra, o navegador não desenha o escritório por baixo a cada quadro da rolagem. */
+    background: #0a0c12;
+    box-shadow: none;
   }
 
   .ui-term__kind,
