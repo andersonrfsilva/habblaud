@@ -25,6 +25,7 @@ tempo para abrir o terminal (~650 ms com 1500 linhas, igual em todas as versões
 | `88bfdc9` → `6831087` | Primeiro `content-visibility: auto` nas linhas; desfeito porque o celular passava a montar e medir cada linha que chegava perto da tela durante a rolagem (layout de 16 ms para 258 ms na mesma rolagem). Ficou `contain: content` em `.ui-term__row` |
 | `ba2a1ca` | `.ui-term` sem `backdrop-filter`. No celular (até 600 px), fundo opaco `#0a0c12` e sem sombra |
 | `46126b7` | Fora do celular, com o terminal aberto, `world.setFrameCap(30)` limita o desenho do escritório a 30 quadros por segundo; ao fechar o terminal volta ao ritmo do monitor. A interface e o terminal seguem no ritmo do monitor |
+| `8f45888` | O escritório parado vai a 30 qps (15 sem foco) em qualquer tela; 60 qps só com a câmera em movimento, entrada recente ou timelapse (`client/src/world/pacing.ts`) |
 
 ## Medições
 
@@ -59,6 +60,17 @@ De 60 para 30 vem a maior parte do ganho; abaixo de 20, cada quadro passa a cust
 10 qps; causa não investigada) e o ganho fica pequeno. Implementado, no computador (2 rodadas): com o terminal
 aberto, 173–175% sem limite contra 91–100% com limite, a interface em 58–60 qps; com o terminal fechado, sem mudança
 (172–175%, escritório a 55–60 qps).
+
+### Escritório parado a 30 qps (15 sem foco)
+
+Computador 1440×900, densidade 1×, Chromium sem placa de vídeo, 5 s por medição, 2 rodadas. Quadros por segundo
+contados pelo `fillRect` que limpa o canvas; CPU da página (100% = um núcleo):
+
+| Situação | Antes (`b001c8b`) | Depois (`8f45888`) |
+| --- | --- | --- |
+| Parado, com foco | 59,8–60,2 qps, CPU 54% | 28,8–29,0 qps, CPU 27–28% |
+| Parado, sem foco | 59,4–60,0 qps, CPU 54–57% | 15,0 qps, CPU 25–27% |
+| Com entrada (mouse sobre o escritório) | não medido | 60,0 qps, CPU 56–65% |
 
 ## Pontos em aberto
 
