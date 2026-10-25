@@ -25,10 +25,10 @@ do meio (0.**3**.0).
   (só com o agente livre e o editor vazio) e a conversa atual continua no histórico. Reinstale a extensão
   (`npm run omp:install`) e reabra as sessões do omp.
 - **Economia de energia** (Configurações › Escritório, desligada por padrão): desenha o escritório sempre a 10
-  quadros por segundo (5 com a janela sem foco), mesmo com gente andando, e o cenário em resolução menor e ampliado; nomes e balões continuam
-  na resolução da tela, nítidos, e com o zoom bem afastado (visão geral no celular) o cenário ganha resolução para a
-  pixel art não virar borrão. Mexer o mouse, a câmera ou o teclado volta ao ritmo do monitor na hora. Medido com GPU,
-  1440×900 em densidade 2: 81% → 35% de CPU (15% sem foco).
+  quadros por segundo (5 com a janela sem foco), mesmo com gente andando, e o cenário em resolução menor e ampliado;
+  nomes e balões continuam na resolução da tela, nítidos, e com o zoom bem afastado (visão geral no celular) o cenário
+  ganha resolução para a pixel art não virar borrão. Mexer o mouse, a câmera ou o teclado volta ao ritmo do monitor
+  na hora. Medido com GPU, 1440×900 em densidade 2: 81% → 35% de CPU (15% sem foco).
 - **Histórico de sessões e Entregas com o omp:** as conversas do omp dos últimos 7 dias (abertas ou encerradas) entram
   no histórico de sessões, com título e projeto, e abrem no terminal; as Entregas passam a mostrar o que os agentes
   do omp terminaram. Antes os dois painéis ficavam vazios com o omp.
