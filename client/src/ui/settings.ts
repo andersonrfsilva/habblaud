@@ -208,6 +208,12 @@ export class SettingsPopover implements UiComponent {
         this.liveliness.row,
         this.daylight.row,
         sw(
+          'powerSave',
+          tr('Economia de energia'),
+          tr('Desenha o escritório em resolução menor e deixa a tela ampliar: bem menos CPU em telas nítidas (celular, Retina), com nomes e balões um pouco menos nítidos.'),
+          flip('powerSave'),
+        ),
+        sw(
           'ompRoom',
           tr('Sala do omp segue o projeto'),
           tr('Com o omp numa pasta que junta vários projetos (sem git), o personagem vai para a sala da subpasta em que está trabalhando.'),

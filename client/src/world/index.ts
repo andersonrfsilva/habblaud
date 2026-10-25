@@ -5,7 +5,7 @@ import { TILE, type ArtModule } from '../art/api';
 import type { OfficeStore } from '../net/store';
 import { DEFAULT_WORLD_OPTIONS, seasonalThemeFor, type Selection, type SocialEvent, type SoundCue, type WorldApi, type WorldOptions, type WorldPlayback } from './api';
 import { loadWorldAssets, type WorldAssets } from './assets';
-import { Camera, overviewFrame } from './camera';
+import { Camera, overviewFrame, renderDpr } from './camera';
 import { createDebug, type WorldDebug } from './debug';
 import { BUILDING_H, COL_W } from './constants';
 import { RECEPTION_ID } from './layout/core';
@@ -87,7 +87,7 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
   // ------------------------------------------------------------------ tamanho/DPR
 
   const resize = () => {
-    const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+    const dpr = renderDpr(window.devicePixelRatio, !!options.powerSave);
     const w = canvas.clientWidth || window.innerWidth;
     const h = canvas.clientHeight || window.innerHeight;
     const pw = Math.floor(w * dpr);
@@ -96,6 +96,7 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
       canvas.width = pw;
       canvas.height = ph;
     }
+    canvas.style.imageRendering = options.powerSave ? 'pixelated' : '';
     camera.setView(w, h, dpr);
     updateBounds();
   };
@@ -286,7 +287,7 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
     if (playback) worldNow += dt * 1000;
     const now = playback ? worldNow : real;
     try {
-      const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+      const dpr = renderDpr(window.devicePixelRatio, !!options.powerSave);
       if (canvas.clientWidth !== camera.viewW || canvas.clientHeight !== camera.viewH || dpr !== camera.dpr) resize();
       sim.update(dt, now);
       // partidas e apostas resolvidas: para o feed (as do timelapse são encenação do passado: ficam fora)
@@ -417,8 +418,15 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
     },
     getOptions: () => ({ ...options }),
     setOptions: (o) => {
+      const wasPowerSave = !!options.powerSave;
       options = { ...options, ...o };
       if (o.followSelected !== undefined) camera.follow = o.followSelected && selection?.type === 'agent' ? selection.id : null;
+      // nova densidade: o zoom atual pode não ser mais um nível nítido
+      if (!!options.powerSave !== wasPowerSave && framed) {
+        resize();
+        if (userMoved) camera.zoomAt(camera.snapZoom(camera.zoom), camera.viewW / 2, camera.viewH / 2, Date.now(), true);
+        else overview(true);
+      }
     },
     setViewInsets: (ins) => {
       const v = (n: number | undefined, cur: number) => (typeof n === 'number' && Number.isFinite(n) ? Math.max(0, n) : cur);
