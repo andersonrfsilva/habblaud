@@ -660,7 +660,7 @@ export const EN: Readonly<Record<string, string>> = {
   "Escritório": "Office",
   "Mostrar nomes": "Show names",
   "Economia de energia": "Power saving",
-  "Desenha o cenário em resolução menor e amplia; nomes e balões continuam nítidos. Bem menos CPU em telas nítidas (celular, Retina).": "Draws the scenery at a lower resolution and scales it up; names and bubbles stay sharp. Much less CPU on sharp screens (phones, Retina).",
+  "Escritório parado a 10 quadros por segundo (5 com a janela sem foco) e cenário em resolução menor. Bem menos CPU e bateria; quem anda fica um pouco aos saltos.": "Office at 10 frames per second while still (5 when the window is not focused) and scenery at a lower resolution. Much less CPU and battery; people walking look a little jumpy.",
   "Etiqueta com o nome acima de cada personagem.": "A name tag above each character.",
   "Notificações do navegador": "Browser notifications",
   "Avisa quando alguém precisa de você e a aba está em segundo plano.": "Alerts you when someone needs you and the tab is in the background.",
