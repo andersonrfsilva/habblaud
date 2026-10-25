@@ -4,8 +4,10 @@ Gerado pela skill improve. 001: 2026-10-24 (variante `plan`). 002–006: 2026-10
 `4931abc` (baseline: `npm run typecheck` ok, `npm test` 173 arquivos / 2080 testes ok, `npm run build` ok,
 `npm audit --omit=dev` 0 vulnerabilidades). 007–009: 2026-10-25, auditoria `deep` com foco em desempenho do
 escritório animado, no commit `7af1def` (medição no Chromium sem GPU contra o Habblaud de produção; números em cada
-plano). Cada executor: leia o plano inteiro antes de começar, respeite as STOP conditions e atualize sua linha ao
-terminar.
+plano). 010–013: 2026-10-25, auditoria `deep` da CPU da interface web com a economia de energia ligada (M1 a
+20–30%), no commit `31368cb` (`fork/main`), **medida com GPU de verdade** (Chromium com
+`--ozone-platform=headless --use-gl=angle --use-angle=gl-egl`, Intel UHD 630, 1440×900 em densidade 2). Cada
+executor: leia o plano inteiro antes de começar, respeite as STOP conditions e atualize sua linha ao terminar.
 
 ## Execution order & status
 
@@ -19,22 +21,35 @@ terminar.
 | 006  | Introdução dos READMEs sem "nenhuma chamada externa" | P3 | S | — | TODO |
 | 007  | Escritório parado a 30 qps (15 sem foco); 60 só com câmera em movimento ou entrada | P1 | S | — | DONE (merge f0e2e60) |
 | 008  | Opção "Economia de energia": escritório desenhado em 1× (pixelated) | P2 | M | — | DONE (merge 994d2c4) |
-| 009  | Telas, janelas e relógios repintados só quando mudam (cache por item) | P3 | M | — | DONE, merge não recomendado (branch advisor/009-telas-em-cache; −41% chamadas de canvas, JS por quadro igual ~2,1 ms; ganho só possível com GPU, não medido) |
+| 009  | Telas, janelas e relógios repintados só quando mudam (cache por item) | P3 | M | — | SUPERSEDED por 012 (medido sem GPU, onde o ganho não aparece; branch apagado) |
+| 010  | "Economia de energia" a 10 qps parado (5 sem foco), laço dormindo num timer | P1 | S | — | DONE (commit 5988af4, branch advisor/010-economia-10-qps, worktree /tmp/hb-010; sem merge) |
+| 011  | 30 qps só quando algo anda na tela; sem movimento, 10 (5 sem foco) | P1 | M | 010 | DONE (commits 3971ae6 + 1d60dda, branch advisor/011-ritmo-pelo-movimento sobre o 010, worktree /tmp/hb-011; sem merge) |
+| 012  | Telas, janelas e relógios em cache (refeito do 009, medido com GPU) | P2 | M | — | TODO |
+| 013  | Spike: móveis e props desenhados em lote (atlas, camadas) | P3 | L | — | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 
 ## Dependency notes
 
-- Nenhum plano depende de outro; 002 e 003 primeiro (segurança e bug com efeito real).
+- 002–009: nenhum plano depende de outro; 002 e 003 primeiro (segurança e bug com efeito real).
 - 004 cria 3 textos novos em `tr()`: se 005 já tiver entrado, o CI cobra as traduções deles (o plano 004 já manda
   traduzir).
 - 003: depois do merge, `npm run omp:install` e reabrir as sessões omp para a extensão nova valer.
 - 002 e 003 tiveram a correção provada numa cópia descartável do repositório (teste novo falha antes, passa depois;
   suíte inteira verde).
-- 007, 008 e 009 são independentes e somam: 007 corta pela metade em qualquer tela; 008 corta 55–75% em telas de
-  densidade 2–3 (opção desligada por padrão, decisão do mantenedor); 009 só reduz a parte de JavaScript. 007 e 008
-  mexem em `client/src/world/index.ts` em pontos diferentes (laço/entrada vs. `resize`/`setOptions`); quem entrar
-  depois faz rebase simples.
+- 007, 008 e 009 foram medidos sem GPU. Com GPU, a economia do 008 (cenário em 1×) quase não muda a CPU: 85% → 79%
+  em produção, 82% → 82% em `fork/main`. O custo é por quadro, e não por pixel. Daí os planos 010 e 011 (menos
+  quadros) e a refeitura do 009 como 012.
+- Medições de 2026-10-25 com GPU, a 30 qps: 82–85%. Forçando o limite, 15 qps deram 50%, 10 qps 37–38% (34% com
+  timer) e 1 qps 9,6% (custo só do rAF a 60 Hz). Sem o desenho animado das telas, 72,5%. Sem móveis e props, 59%.
+  Sem nenhum conteúdo (71 chamadas por quadro), 46%. Com o escritório suspenso, 1,5%.
+- 011 depende do 010: usa `STILL_FPS`, `powerSave` em `frameCapFor` e o timer `schedule`/`wake`. 010 e 011 mexem em
+  `settings.ts` e nas traduções (a descrição da economia muda nos dois).
+- 012 é independente e se mede a 30 qps a partir de `fork/main`. Depois de 010/011, o escritório passa a maior parte
+  do tempo a 10 qps, e o ganho do 012 cai (as telas repintam quase todo quadro a 10 qps); só janelas e relógios
+  ainda ganham.
+- 013 é investigação: o produto é `plans/013-resultado.md`; se recomendar uma variante, vira o plano 014.
+- Planos 010–013 partem de `fork/main` (o `producao` local está 5 commits atrás).
 
 ## Findings considered and rejected
 
@@ -59,14 +74,19 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
   `client/src/ui/drawer.ts`): a suíte é forte e o custo/risco da extração não se paga agora.
 - Lint/formatter: o repositório não tem e o estilo está consistente; adicionar é decisão do upstream.
 - CI só em Node 22.12 com imagens em Node 24: a mínima suportada é a que mais quebra; baixo valor.
-- Trocar Canvas2D por WebGL/PixiJS: o Chrome já desenha Canvas2D na GPU e o custo é pixel pintado, não número de
-  chamadas (≈ 1,9 ms de JS em ≈ 12 ms por quadro); reescreveria `renderer.ts`, `overlay.ts` e `art/` por ganho menor
-  que 007+008.
+- Trocar Canvas2D por WebGL/PixiJS: reescreveria `renderer.ts`, `overlay.ts` e `art/` inteiros. Com GPU, ~55% do
+  custo é fixo por quadro (46% de CPU com só 71 chamadas por quadro), e isso uma troca de biblioteca não tira; menos
+  quadros (010/011) tira. (Revisto em 2026-10-25 com GPU; a justificativa antiga, medida sem GPU, não vale mais.)
 - Desenhar num Worker com `OffscreenCanvas`: tira o trabalho da thread principal, mas não reduz energia.
-- Pré-compor pisos, paredes e móveis numa camada estática: o custo continua sendo cobrir a tela inteira (mais o
-  `multiply` da luz, que já usa mapa em cache); muito código por ganho incerto.
+- Pré-compor pisos, paredes e móveis numa camada estática: reaberto como spike (013). Com GPU, tirar móveis e props
+  do quadro baixa 85% → 59%, e o custo de cobrir a tela (motivo antigo da rejeição) não pesa com GPU.
+- Luz (`drawLighting`), nomes e balões (`overlay.draw`) e luzes de Halloween (`drawSeasonalLights`): tirá-los do
+  quadro, medido com GPU, não mudou a CPU (86,7%, 83,0% e 89,7% contra 85,0%).
+- Desenhar a economia em 1× (plano 008) com GPU: não ajuda, mas também não piora o bastante para remover; ajuda em
+  aparelhos que desenham o canvas sem GPU. Fica.
 - `backdrop-filter` dos painéis por cima do canvas: medido sem ele, nenhuma diferença (67–72% contra 71%).
-- Limitar o laço com `setTimeout` + rAF em vez de pular quadros do rAF: medido, mesma CPU (36–39%) a 30 qps.
+- Limitar o laço com `setTimeout` + rAF em vez de pular quadros do rAF **a 30 qps**: medido sem GPU, mesma CPU
+  (36–39%). Abaixo de 30 qps vale: com GPU, 38% → 34% a 10 qps (o plano 010 usa o timer só abaixo de 30).
 - Decorações de Halloween/Natal (~120 chamadas por quadro): pequeno e sazonal.
 
 ## Não auditado
@@ -76,6 +96,10 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 - Testes no Windows (CI cobre).
 - Desempenho da cidade (`client/src/world/city/**`) e da visita: mesmo padrão de laço e densidade do escritório
   (`city/index.ts:218,639`), não medidos.
-- Medição com GPU de verdade e num celular de verdade: tudo foi medido no Chromium sem GPU (os números comparam
-  versões entre si). O aviso do Habblaud World da primeira visita (desfoque de fundo) derruba a página para ~28 qps
-  no navegador de teste; já registrado em `docs/terminal-celular-desempenho.md`, não planejado.
+- Medição num Mac (M1, Safari ou Chrome com Metal) e num celular de verdade: 007–009 foram medidos sem GPU, 010–013
+  com GPU Intel no Linux. A proporção (custo por quadro contra custo por chamada) deve valer no Mac
+  [INFERÊNCIA], mas os números absolutos não. O aviso do Habblaud World da primeira visita (desfoque de fundo)
+  derruba a página para ~28 qps no navegador de teste; já registrado em `docs/terminal-celular-desempenho.md`, não
+  planejado.
+- Interface fora do escritório (DOM, SSE, painéis): com o escritório suspenso, a página inteira fica em 1,5% de CPU;
+  não há o que planejar ali.
