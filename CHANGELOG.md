@@ -17,6 +17,9 @@ do meio (0.**3**.0).
   `/resume` abre o histórico para escolher a conversa a retomar nele. A extensão digita `/resume <id>` na tela do omp
   (só com o agente livre e o editor vazio) e a conversa atual continua no histórico. Reinstale a extensão
   (`npm run omp:install`) e reabra as sessões do omp.
+- **Economia de energia** (Configurações › Escritório, desligada por padrão): desenha o escritório em resolução menor
+  e deixa a tela ampliar. Em telas nítidas o desenho custa menos da metade da CPU (computador Retina: 36 → 9 ms por
+  quadro; celular: 17 → 7 ms); nomes e balões ficam um pouco menos nítidos.
 - **Histórico de sessões e Entregas com o omp:** as conversas do omp dos últimos 7 dias (abertas ou encerradas) entram
   no histórico de sessões, com título e projeto, e abrem no terminal; as Entregas passam a mostrar o que os agentes
   do omp terminaram. Antes os dois painéis ficavam vazios com o omp.
