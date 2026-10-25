@@ -39,6 +39,10 @@ do meio (0.**3**.0).
   todos os limites (5 h, semana, por modelo ou grupo; esgotados em destaque).
 - **omp: sala por projeto** (Configurações, desligada por padrão): com o omp numa pasta que junta vários projetos e não
   é repositório git, o personagem vai para a sala da subpasta em que as ferramentas estão trabalhando.
+- **Terminal mais compacto:** a entrada das ferramentas (comando, diff, código) e a saída sem erro ficam recolhidas;
+  aparecem o título e o "… +N linhas", que abre num clique (a busca abre sozinha o trecho achado). Saída de até 2
+  linhas curtas continua à vista, e a saída com erro mostra as 6 primeiras linhas. A conversa fica cerca de 60% mais
+  curta.
 
 ### Corrigido
 
