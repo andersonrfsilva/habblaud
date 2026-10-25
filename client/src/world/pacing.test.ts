@@ -20,7 +20,7 @@ describe('frameCapFor', () => {
   it('parado com foco e limite 10 vale o menor (10)', () => {
     expect(frameCapFor({ uiCap: 10, active: false, focused: true, powerSave: false, motion: true })).toBe(10);
   });
-  it('economia, parado, com foco desenha a 10', () => {
+  it('economia, parado, com foco e com movimento desenha a 10 (ignora o movimento)', () => {
     expect(frameCapFor({ uiCap: 0, active: false, focused: true, powerSave: true, motion: true })).toBe(10);
   });
   it('economia, parado, sem foco desenha a 5', () => {
@@ -37,9 +37,6 @@ describe('frameCapFor', () => {
   });
   it('sem movimento, sem foco, sem economia desenha a 5', () => {
     expect(frameCapFor({ uiCap: 0, active: false, focused: false, powerSave: false, motion: false })).toBe(5);
-  });
-  it('economia ignora o movimento: com movimento e foco desenha a 10', () => {
-    expect(frameCapFor({ uiCap: 0, active: false, focused: true, powerSave: true, motion: true })).toBe(10);
   });
   it('ativo sem movimento e sem limite da interface segue o monitor', () => {
     expect(frameCapFor({ uiCap: 0, active: true, focused: true, powerSave: false, motion: false })).toBe(0);
