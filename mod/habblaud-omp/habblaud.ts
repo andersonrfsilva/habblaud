@@ -35,6 +35,9 @@
 //    resposta no terminal retira o cartão ({behavior: "terminal"}). "Não responder" no escritório vira erro da
 //    ferramenta com o motivo, e o agente segue. Habblaud fora do ar, ninguém olhando ou pergunta que o cartão não
 //    mostra inteira (mais de 4): só o diálogo, como sem a extensão.
+// 5. Modelos liberados: com HABBLAUD_OMP_MODELS ("provedor/id" ou "provedor/*", separados por vírgula) no ambiente
+//    do omp, a gaveta só lista e só troca para esses (o omp lista o catálogo inteiro do provedor mesmo quando um
+//    gateway só atende parte dele). Sem a variável, tudo que o omp lista.
 //
 // Subagentes (ctx.agent.kind === 'sub'): o omp refaz as extensões para cada um; eles não mandam eventos nem
 // perguntam o inbox (o escritório já vê os subagentes pelo arquivo da sessão), mas as ferramentas deles passam pelo
@@ -214,6 +217,13 @@ export function portOf(env: NodeJS.ProcessEnv, home: string): number {
     // arquivo ilegível: porta padrão
   }
   return DEFAULT_PORT;
+}
+
+/** Modelos que a gaveta pode mostrar e usar: os do omp filtrados por HABBLAUD_OMP_MODELS (ausente = todos). */
+export function allowedModels(models: string[], env: NodeJS.ProcessEnv): string[] {
+  const grants = (env.HABBLAUD_OMP_MODELS ?? '').split(',').map((g) => g.trim()).filter(Boolean);
+  if (!grants.length) return models;
+  return models.filter((m) => grants.some((g) => g === m || (g.endsWith('/*') && m.startsWith(g.slice(0, -1)))));
 }
 
 export interface InboxMessage {
@@ -506,7 +516,8 @@ export function create(pi: OmpApi, deps: Deps): void {
   function sessionFields(ctx: OmpContext): Partial<OmpEvent> {
     const out = location(ctx);
     try {
-      models = ctx.models?.list().map((m) => `${m.provider}/${m.id}`);
+      const all = ctx.models?.list().map((m) => `${m.provider}/${m.id}`);
+      models = all && allowedModels(all, env);
     } catch {
       models = undefined; // sem lista de modelos: o seletor da gaveta usa só o atual
     }
@@ -728,6 +739,8 @@ export function create(pi: OmpApi, deps: Deps): void {
       if (control.model) {
         const target = mainCtx?.models?.resolve?.(control.model);
         if (!target) return { id, ok: false, error: 'modelo desconhecido' };
+        const ref = typeof target === 'object' && 'provider' in target && 'id' in target ? `${String(target.provider)}/${String(target.id)}` : '';
+        if (!allowedModels([ref], env).length) return { id, ok: false, error: 'modelo não liberado' };
         if (!pi.setModel) return { id, ok: false, error: 'este omp não troca de modelo pela extensão' };
         if ((await pi.setModel(target)) === false) return { id, ok: false, error: 'o omp recusou o modelo' };
       }

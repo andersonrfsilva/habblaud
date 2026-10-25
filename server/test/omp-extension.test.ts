@@ -311,6 +311,29 @@ describe('omp extension: mensagens', () => {
     ]);
   });
 
+  it('HABBLAUD_OMP_MODELS: a gaveta só lista e só troca para os modelos liberados (provedor/id ou provedor/*)', async () => {
+    const setModel = vi.fn(async (_m: unknown) => true);
+    const t = setup({
+      home: tmp.dir,
+      env: { HABBLAUD_OMP_MODELS: 'anthropic/a, openai/*' },
+      pi: { setModel },
+      answer: inbox([
+        { id: 'c1', text: '', control: { model: 'google/g' } },
+        { id: 'c2', text: '', control: { model: 'openai/b' } },
+      ]),
+    });
+    const ctx = makeCtx({ models: [{ provider: 'anthropic', id: 'a' }, { provider: 'anthropic', id: 'a2' }, { provider: 'openai', id: 'b' }, { provider: 'google', id: 'g' }] });
+    t.fire('session_start', ctx);
+    await vi.waitFor(() => expect(t.habblaud.of('/api/mod/inbox/ack')).toHaveLength(1));
+    await t.fire('session_shutdown', ctx);
+    expect(t.habblaud.of('/api/omp/events').find((c) => c.body?.event === 'session_start')?.body?.models).toEqual(['anthropic/a', 'openai/b']);
+    expect(setModel.mock.calls.map((c) => (c[0] as { id: string }).id)).toEqual(['b']);
+    expect(t.habblaud.of('/api/mod/inbox/ack')[0].body?.results).toEqual([
+      { id: 'c1', ok: false, error: 'modelo não liberado' },
+      { id: 'c2', ok: true },
+    ]);
+  });
+
   it('o batimento repete a lista de modelos', async () => {
     vi.useFakeTimers();
     const t = setup({ home: tmp.dir });

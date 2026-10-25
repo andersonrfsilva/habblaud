@@ -12,6 +12,9 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Modelos liberados no omp:** com `HABBLAUD_OMP_MODELS` (`provedor/id` ou `provedor/*`, separados por vírgula) no
+  ambiente do omp, a gaveta de modelo do escritório só lista e só troca para esses. Serve para quem usa o omp por um
+  gateway que atende só parte do catálogo do provedor. Sem a variável, nada muda. Reabra as sessões do omp.
 - **Retomar conversa do omp pelo escritório:** no histórico de sessões, a conversa encerrada do omp ganha
   **Retomar em…**, com a lista dos agentes do omp livres; no rodapé do terminal de um agente do omp, o botão
   `/resume` abre o histórico para escolher a conversa a retomar nele. A extensão digita `/resume <id>` na tela do omp
