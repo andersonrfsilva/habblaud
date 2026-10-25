@@ -22,6 +22,7 @@ import {
   type AccountOverride,
   type DetectedAccount,
 } from '../../accounts/detect';
+import { unbrand } from '../../../shared/i18n';
 
 export const OMP_SESSIONS_DIR = 'sessions';
 
@@ -128,7 +129,8 @@ export function detectOmpAccounts(dirs: string[], opts: OmpDetectOptions = {}): 
       provider: 'omp',
       configDir: str(p.ov?.configDir) ?? p.dir,
       short,
-      name: str(p.ov?.name) ?? (dirs.length > 1 ? `omp ${short}` : 'omp'),
+      // unbrand: "Agente" no modo sem marca (HABBLAUD_SEM_MARCA=1).
+      name: str(p.ov?.name) ?? unbrand(dirs.length > 1 ? `omp ${short}` : 'omp'),
       color,
     };
   });

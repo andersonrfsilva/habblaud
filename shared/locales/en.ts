@@ -86,6 +86,7 @@ export const EN: Readonly<Record<string, string>> = {
 
   // client/src/ui/composer-model.ts
   "Para mandar mensagens ao omp: npm run omp:install (extensão do Habblaud no omp) e reabra a sessão": "To send messages to omp: npm run omp:install (Habblaud extension for omp) and reopen the session",
+  "Esta sessão ainda não recebe mensagens daqui: reabra a sessão": "This session can't receive messages from here yet: reopen the session",
   "Para responder, use o omp": "To reply, use omp",
   "Entra na sessão como continuação: se o omp estiver no meio de um turno, vira o próximo prompt quando ele terminar. Enter manda; Shift+Enter quebra a linha.": "Goes into the session as a follow-up: if omp is in the middle of a turn, it becomes the next prompt when it finishes. Enter sends; Shift+Enter breaks the line.",
   "Na fila: esperando a extensão do omp buscar a mensagem…": "Queued: waiting for the omp extension to fetch the message…",
@@ -380,6 +381,7 @@ export const EN: Readonly<Record<string, string>> = {
   "Terminou bem: levanta, comemora com confete e uma estrela.": "Finished well: stands up, celebrates with confetti and a star.",
   "Falhou ou foi interrompido: nuvenzinha de chuva sobre a cabeça e ombros caídos.": "Failed or was interrupted: a little rain cloud overhead and slumped shoulders.",
   "Cada projeto aberto no Claude Code ou no Codex vira uma sala (os dois no mesmo projeto dividem a sala), e cada sessão aberta é um personagem com nome próprio. ": "Each project open in Claude Code or Codex becomes a room (both on the same project share the room), and each open session is a character with its own name. ",
+  "Cada projeto aberto vira uma sala, e cada sessão aberta é um personagem com nome próprio. ": "Each open project becomes a room, and each open session is a character with its own name. ",
   "Subagentes chegam como colegas novos, trabalham na mesma sala e vão embora quando terminam. ": "Subagents arrive as new coworkers, work in the same room and leave when they're done. ",
   "Quando a última sessão de uma sala é fechada, quem sai apaga a luz e a sala é desmontada.": "When a room's last session closes, whoever leaves turns off the light and the room is taken down.",
   "Buscar agente, projeto ou conta": "Search for an agent, project or account",

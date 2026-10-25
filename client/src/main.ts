@@ -1,6 +1,7 @@
-// Ponto de entrada do cliente: primeiro o dicionário do idioma ativo (só ele vai para o navegador), depois o app
-// (client/src/app.ts), porque vários módulos chamam tr() ao carregar. Se o dicionário não carregar, fica em português.
-import { getLocale, registerDictionary, type Locale } from '../../shared/i18n';
+// Ponto de entrada do cliente: primeiro o dicionário do idioma ativo (só ele vai para o navegador) e o modo sem marca
+// (/api/health), depois o app (client/src/app.ts), porque vários módulos chamam tr() ao carregar. Se o dicionário não
+// carregar, fica em português; se o health falhar, com marca.
+import { getLocale, registerDictionary, setNeutralBrand, type Locale } from '../../shared/i18n';
 
 const LOADERS: Partial<Record<Locale, () => Promise<Readonly<Record<string, string>>>>> = {
   en: () => import('../../shared/locales/en').then((m) => m.EN),
@@ -21,4 +22,9 @@ if (vv) {
 const locale = getLocale();
 const load = LOADERS[locale];
 const dictionary = load ? load().then((d) => registerDictionary(locale, d)).catch(() => undefined) : Promise.resolve();
-void dictionary.then(() => import('./app')).then((app) => app.start());
+// Com prazo: servidor fora do ar não pode segurar a interface (ela mostra o "Conectando…").
+const brand = fetch('/api/health', { signal: AbortSignal.timeout(3000) })
+  .then((r) => (r.ok ? r.json() : undefined))
+  .then((h: { semMarca?: boolean } | undefined) => setNeutralBrand(h?.semMarca === true))
+  .catch(() => undefined);
+void Promise.all([dictionary, brand]).then(() => import('./app')).then((app) => app.start());

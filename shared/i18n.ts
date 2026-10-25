@@ -101,12 +101,43 @@ export function setLocale(l: Locale): void {
 }
 
 /**
+ * Modo sem marca (Habblaud dos usuários do omp-tenant): os textos não citam a ferramenta do backend. No servidor vem
+ * de HABBLAUD_SEM_MARCA=1; no navegador, o main.ts pergunta ao servidor (/api/health) antes de carregar o app.
+ */
+let neutral = (globalThis as { window?: unknown }).window === undefined && (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.HABBLAUD_SEM_MARCA === '1';
+
+export function setNeutralBrand(on: boolean): void {
+  neutral = on;
+}
+
+export function isNeutralBrand(): boolean {
+  return neutral;
+}
+
+// Nomes de ferramenta soltos no texto; não pega pedaços de caminho, comando ou id (".omp", "omp:install", "omp.json",
+// "claude-opus").
+const BRAND = /(?<![\w./-])(?:Claude Code|Claude|Codex|oh-my-pi|OpenAI|Anthropic|omp)(?![\w/-]|[:.]\w)/g;
+
+/** Troca o nome da ferramenta por "agente" ("Agente principal (omp)" -> "Agente principal"). Só no modo sem marca. */
+export function unbrand(s: string): string {
+  if (!neutral) return s;
+  const en = current === 'en' || current === 'fr';
+  const word = en ? 'agent' : 'agente';
+  return s
+    .replace(/\s*\((?:Claude Code|Codex|oh-my-pi|OpenAI|Anthropic|omp|npm run [\w:]+)\)/g, '')
+    .replace(/omp usage/g, en ? 'usage meter' : 'medidor de uso')
+    .replace(BRAND, (_m, at: number, all: string) => (at === 0 || /[.!?:(]\s*$/.test(all.slice(0, at)) ? word[0].toUpperCase() + word.slice(1) : word))
+    // "Agente do agente" -> "Agente"; "agentes do agente" -> "agentes"; "agent agents" -> "agents".
+    .replace(/\b(agentes?|agents?) (?:(?:do|de|du|of the|of|ao) )?agen(?:te|t)(s?)\b/gi, (_m, a: string, pl: string) => (pl && !a.endsWith('s') ? a + 's' : a));
+}
+
+/**
  * Traduz um texto escrito em PT. Lacunas numeradas ({0}, {1}...) recebem `args` na ordem; a tradução pode
  * reordená-las. Sem tradução para o idioma ativo, devolve o texto original.
  */
 export function tr(src: string, args?: readonly unknown[]): string {
   const dict = DICTS[current];
-  const s = (dict && dict[src]) || src;
+  const s = unbrand((dict && dict[src]) || src);
   if (!args || args.length === 0) return s;
   return s.replace(/\{(\d+)\}/g, (m, i: string) => (Number(i) < args.length ? String(args[Number(i)]) : m));
 }

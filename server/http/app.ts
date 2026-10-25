@@ -16,7 +16,7 @@ import { handleSessionsRoute } from './sessions';
 import type { Hub } from './sse';
 import { handleStatsRoute } from './stats';
 import type { TerminalStreams } from './terminal';
-import { tr } from '../../shared/i18n';
+import { isNeutralBrand, tr } from '../../shared/i18n';
 import type { SpawnService } from '../spawn/spawn';
 import { ATTACHMENT_BODY_MAX, parseAttachment, type AttachmentStore } from '../spawn/attachments';
 import type { SpawnFolder } from '../spawn/folders';
@@ -394,6 +394,8 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
           messages: !!deps.messages && (!remote || trusted(req, 'messages')),
           codexEvents: !!deps.codexLive,
           ompEvents: !!deps.ompLive,
+          // Modo sem marca (HABBLAUD_SEM_MARCA=1): o main.ts do navegador lê antes de montar a interface.
+          semMarca: isNeutralBrand(),
           updates: updatesSummary(deps.updates?.status()),
           sources: deps.sources(),
           accounts: accounts.allEntries().map((a) =>

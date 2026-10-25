@@ -86,6 +86,7 @@ export const ES: Readonly<Record<string, string>> = {
 
   // client/src/ui/composer-model.ts
   "Para mandar mensagens ao omp: npm run omp:install (extensão do Habblaud no omp) e reabra a sessão": "Para enviar mensajes a omp: npm run omp:install (extensión de Habblaud en omp) y vuelve a abrir la sesión",
+  "Esta sessão ainda não recebe mensagens daqui: reabra a sessão": "Esta sesión todavía no recibe mensajes desde aquí: vuelve a abrir la sesión",
   "Para responder, use o omp": "Para responder, usa omp",
   "Entra na sessão como continuação: se o omp estiver no meio de um turno, vira o próximo prompt quando ele terminar. Enter manda; Shift+Enter quebra a linha.": "Entra en la sesión como continuación: si omp está en medio de un turno, se convierte en el siguiente prompt cuando termine. Enter envía; Shift+Enter inserta un salto de línea.",
   "Na fila: esperando a extensão do omp buscar a mensagem…": "En cola: esperando a que la extensión de omp recoja el mensaje…",
@@ -380,6 +381,7 @@ export const ES: Readonly<Record<string, string>> = {
   "Terminou bem: levanta, comemora com confete e uma estrela.": "Terminó bien: se levanta y celebra con confeti y una estrella.",
   "Falhou ou foi interrompido: nuvenzinha de chuva sobre a cabeça e ombros caídos.": "Falló o fue interrumpido: una nubecita de lluvia sobre la cabeza y los hombros caídos.",
   "Cada projeto aberto no Claude Code ou no Codex vira uma sala (os dois no mesmo projeto dividem a sala), e cada sessão aberta é um personagem com nome próprio. ": "Cada proyecto abierto en Claude Code o en Codex se convierte en una sala (los dos en el mismo proyecto comparten la sala), y cada sesión abierta es un personaje con nombre propio. ",
+  "Cada projeto aberto vira uma sala, e cada sessão aberta é um personagem com nome próprio. ": "Cada proyecto abierto se convierte en una sala, y cada sesión abierta es un personaje con nombre propio. ",
   "Subagentes chegam como colegas novos, trabalham na mesma sala e vão embora quando terminam. ": "Los subagentes llegan como compañeros nuevos, trabajan en la misma sala y se van cuando terminan. ",
   "Quando a última sessão de uma sala é fechada, quem sai apaga a luz e a sala é desmontada.": "Cuando se cierra la última sesión de una sala, quien sale apaga la luz y la sala se desmonta.",
   "Buscar agente, projeto ou conta": "Buscar agente, proyecto o cuenta",

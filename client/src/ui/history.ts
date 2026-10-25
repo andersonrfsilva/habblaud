@@ -14,7 +14,7 @@ import { ICONS } from './icons';
 import { PROVIDER_NAME, providerOf } from './provider';
 import { sessionProjectName, TERMINAL_UNAVAILABLE_HINT, type TerminalControl } from './terminal';
 import { createAccountChip, updateAccountChip } from './widgets';
-import { intlLocale, tr } from '../../../shared/i18n';
+import { intlLocale, isNeutralBrand, tr } from '../../../shared/i18n';
 
 export const HISTORY_URL = '/api/sessions/recent';
 /** Fechou (clique fora) há tão pouco que o mesmo clique no botão não deve reabrir. */
@@ -375,7 +375,7 @@ export class HistoryPopover implements UiComponent {
     const title = s.title?.trim() || tr('Sessão sem título');
     const project = sessionProjectName(s);
     const live = s.open && !!s.agentId && !!this.ctx.agent(s.agentId);
-    const tool = providerOf(s) === 'claude' ? '' : PROVIDER_NAME[providerOf(s)];
+    const tool = providerOf(s) === 'claude' || isNeutralBrand() ? '' : PROVIDER_NAME[providerOf(s)];
     const meta = h(
       'span',
       { class: 'ui-hist__meta' },

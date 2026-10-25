@@ -6,14 +6,16 @@
 // termina o turno antes; a dica de instalação é a do `npm run omp:install`.
 import { MESSAGE_MAX } from '../../../shared/messages';
 import type { AgentInfo, OutboxStatus, Provider } from '../../../shared/types';
-import { tr } from '../../../shared/i18n';
+import { isNeutralBrand, tr } from '../../../shared/i18n';
 
 /** Dica para quem tem o recurso ligado, mas a sessão do agente não está com o plugin conectado. */
 export const PLUGIN_HINT = tr('Para mandar mensagens daqui: npm run mod:install (plugin habblaud-mensagens)');
 /** A mesma dica para um agente do Codex sem entregador (no modo Node o próprio servidor entrega). */
 export const CODEX_BRIDGE_HINT = tr('Para mandar mensagens ao Codex: com o Habblaud no Docker, deixe npm run codex:bridge rodando; no modo Node funciona sozinho');
-/** A mesma dica para um agente do omp cuja sessão não está com a extensão do Habblaud. */
-export const OMP_EXTENSION_HINT = tr('Para mandar mensagens ao omp: npm run omp:install (extensão do Habblaud no omp) e reabra a sessão');
+/** A mesma dica para um agente do omp cuja sessão não está com a extensão do Habblaud (sem marca: sem o comando). */
+export const OMP_EXTENSION_HINT = isNeutralBrand()
+  ? tr('Esta sessão ainda não recebe mensagens daqui: reabra a sessão')
+  : tr('Para mandar mensagens ao omp: npm run omp:install (extensão do Habblaud no omp) e reabra a sessão');
 
 /**
  * - ready: dá para mandar (principal com o plugin conectado, recurso ligado, página local);
