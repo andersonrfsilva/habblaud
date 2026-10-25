@@ -331,6 +331,7 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
       active: cameraMoved || camera.animating || !!playback || performance.now() - lastInputAt < ACTIVE_GRACE_MS,
       focused: document.hasFocus(),
       powerSave: !!options.powerSave,
+      motion: renderer.motion,
     });
     schedule(cap);
     // 2 ms de folga: com 30 qps num monitor de 60 Hz, o quadro de 33,3 ms não pode cair para o seguinte.
