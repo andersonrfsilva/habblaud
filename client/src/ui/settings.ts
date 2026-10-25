@@ -205,6 +205,12 @@ export class SettingsPopover implements UiComponent {
         this.bubbles.row,
         this.liveliness.row,
         this.daylight.row,
+        sw(
+          'powerSave',
+          tr('Economia de energia'),
+          tr('Desenha o escritório em resolução menor e deixa a tela ampliar: bem menos CPU em telas nítidas (celular, Retina), com nomes e balões um pouco menos nítidos.'),
+          flip('powerSave'),
+        ),
       ),
       h(
         'div',

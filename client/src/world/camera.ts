@@ -31,6 +31,15 @@ export function overviewFrame(
   return { zoom: Math.min(freeW / r.w, freeH / r.h), cx: r.x + r.w / 2, cy: r.y + r.h / 2, dy: (m.top - m.bottom) / 2 };
 }
 
+/**
+ * Densidade em que o escritório é desenhado: a da tela (de 1 a 3) ou, na economia de energia, sempre 1 (o navegador
+ * amplia o canvas com image-rendering: pixelated; a pixel art fica igual e os textos, menos nítidos).
+ */
+export function renderDpr(deviceDpr: number | undefined, powerSave: boolean): number {
+  if (powerSave) return 1;
+  return Math.max(1, Math.min(3, deviceDpr || 1));
+}
+
 const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 
 export class Camera {

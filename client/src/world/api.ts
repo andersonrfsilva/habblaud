@@ -19,6 +19,11 @@ export interface WorldOptions {
   daylight?: DaylightMode;
   /** Tema visual: automático (segue o calendário; ver seasonalThemeFor), nenhum, Natal ou Halloween. */
   theme?: OfficeTheme;
+  /**
+   * (Opcional, aditivo) Economia de energia: desenha em densidade 1 e o navegador amplia (pixelated). Bem menos CPU em
+   * telas de densidade 2–3; textos menos nítidos.
+   */
+  powerSave?: boolean;
 }
 
 /** Tema que o renderer desenha: o escritório original ('none') ou um dos sazonais. */
