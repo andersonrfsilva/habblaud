@@ -16,6 +16,7 @@ import {
   KEEP_MS,
   MAX_OPEN,
   MessageRegistry,
+  type MessageRegistryOptions,
   PRESENCE_MS,
   QUEUED_TIMEOUT_MS,
   SENT_TIMEOUT_MS,
@@ -29,7 +30,7 @@ const SESSION = 'sess-1';
 const OTHER = 'acc:2';
 const SUB = `${SESSION}:a1b2c3`;
 
-function setup() {
+function setup(extra: Partial<MessageRegistryOptions> = {}) {
   let now = 1_000_000;
   const clock = { now: () => now, advance: (ms: number) => (now += ms) };
   let registry: MessageRegistry | undefined;
@@ -50,6 +51,7 @@ function setup() {
     demoAgent: (id) => office.demoAgent(id),
     demoDeliver: (id, text) => office.deliverDemoMessage(id, text),
     now: clock.now,
+    ...extra,
   });
   return { office, registry, clock };
 }
@@ -334,8 +336,8 @@ describe('MessageRegistry: agentes do omp', () => {
   const OMP_A = `.omp:${OMP_SESSION}`;
   const OMP_B = '.omp:0199b0c0-5678-7abc-8def-0123456789ab';
 
-  function setupOmp() {
-    const ctx = setup();
+  function setupOmp(extra: Partial<MessageRegistryOptions> = {}) {
+    const ctx = setup(extra);
     ctx.office.addMain({ id: OMP_A, provider: 'omp', account: '.omp', sessionId: OMP_SESSION, cwd: '/p/loja', role: 'Agente principal', startedAt: 0, status: 'idle' });
     ctx.office.addMain({ id: OMP_B, provider: 'omp', account: '.omp', sessionId: '0199b0c0-5678-7abc-8def-0123456789ab', cwd: '/p/loja', role: 'Agente principal', startedAt: 0, status: 'idle' });
     return ctx;
@@ -415,6 +417,63 @@ describe('MessageRegistry: agentes do omp', () => {
     }
     const id = sent(registry.control({ agentId: OMP_A, resume: sid }));
     expect(registry.inbox({ session: OMP_SESSION })).toEqual([{ id, text: '', control: { resume: sid.toLowerCase() } }]);
+  });
+
+  describe('aside e onSettled', () => {
+    const req = { topicId: 't-1', turnId: 'q-1', index: 0, question: 'o que faz agora?', history: [] };
+
+    it('aside a um omp conectado sai em inbox() com aside e text vazio, sem atividade no feed', () => {
+      const { office, registry } = setupOmp();
+      registry.inbox({ session: OMP_SESSION });
+      expect(registry.aside('nao-existe', req)).toEqual({ error: 'not-found' });
+      const id = sent(registry.aside(OMP_A, req));
+      expect(registry.inbox({ session: OMP_SESSION })).toEqual([{ id, text: '', aside: req }]);
+      registry.ack({ session: OMP_SESSION, results: [{ id, ok: true }] });
+      expect(registry.get(id)?.status).toBe('delivered');
+      expect(snapAgent(office, OMP_A)?.recent ?? []).toEqual([]);
+    });
+
+    it('um agente do Claude dá unavailable; omp sem a extensão conectada também', () => {
+      const { registry } = setupOmp();
+      registry.inbox({ session: SESSION });
+      expect(registry.aside(MAIN, req)).toMatchObject({ error: 'unavailable', reason: expect.stringMatching(/omp/) });
+      expect(registry.aside(OMP_A, req)).toMatchObject({ error: 'unavailable', reason: expect.stringMatching(/omp:install/) });
+    });
+
+    it('ack ok chama onSettled(id, delivered, undefined)', () => {
+      const calls: unknown[][] = [];
+      const { registry } = setupOmp({ onSettled: (...a) => calls.push(a) });
+      registry.inbox({ session: OMP_SESSION });
+      const id = sent(registry.aside(OMP_A, req));
+      registry.inbox({ session: OMP_SESSION });
+      registry.ack({ session: OMP_SESSION, results: [{ id, ok: true }] });
+      expect(calls).toEqual([[id, 'delivered', undefined]]);
+    });
+
+    it('o prazo queued vencido chama onSettled(id, failed, ERR_NOT_FETCHED)', () => {
+      const calls: unknown[][] = [];
+      const { registry, clock } = setupOmp({ onSettled: (...a) => calls.push(a) });
+      registry.inbox({ session: OMP_SESSION });
+      const id = sent(registry.aside(OMP_A, req));
+      clock.advance(QUEUED_TIMEOUT_MS);
+      registry.inbox({ session: SESSION });
+      registry.tick();
+      expect(calls).toEqual([[id, 'failed', ERR_NOT_FETCHED]]);
+    });
+
+    it('um onSettled que lança não impede a mensagem de virar failed', () => {
+      const { registry, clock } = setupOmp({
+        onSettled: () => {
+          throw new Error('boom');
+        },
+      });
+      registry.inbox({ session: OMP_SESSION });
+      const id = sent(registry.aside(OMP_A, req));
+      clock.advance(QUEUED_TIMEOUT_MS);
+      registry.inbox({ session: SESSION });
+      expect(() => registry.tick()).not.toThrow();
+      expect(registry.get(id)).toMatchObject({ status: 'failed', error: ERR_NOT_FETCHED });
+    });
   });
 
   it('mensagem do Claude não sai para a sessão do omp (e vice-versa)', () => {

@@ -16,6 +16,10 @@ do meio (0.**3**.0).
   os textos da interface e do servidor dizem "agente" no lugar de omp, Claude Code e Codex ("Agente principal",
   "Comandos do agente", conta "Agente"); some o selo OMP/CODEX das etiquetas e da gaveta, a pasta da conta no cartão de
   uso e, na ajuda, as dicas de instalação e a seção do Codex. Os nomes dos modelos não mudam. Sem a variável, nada muda.
+- **Bate-papo paralelo no omp:** no terminal de um agente do omp, o botão de balão na barra de cima abre uma janela
+  lateral de bate-papo. Ali dá para perguntar sobre a conversa sem interromper o agente e sem entrar no contexto dele
+  (a mesma maquinaria do `/btw` do omp). As conversas ficam guardadas por sessão em `<dataDir>/asides/`. Reinstale a
+  extensão (`npm run omp:install`) e reabra as sessões do omp.
 - **Cartão de cota de uso:** quando o JSON no lugar do `omp usage` traz `"quota": true` (um proxy multiusuário com cota
   própria), o cartão de uso mostra só as barras de 5 h e da semana, com "cota de uso" embaixo do nome, sem pasta,
   idade nem a lista de provedores; a dica fica só com as duas janelas e o aviso de bloqueio em 100%. Cota esgotada
