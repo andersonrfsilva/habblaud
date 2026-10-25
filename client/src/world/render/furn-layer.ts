@@ -43,3 +43,20 @@ export function redrawSet<T extends DepthRect>(items: readonly T[], hit: Rect, d
   }
   return out;
 }
+
+/**
+ * Props que vão para as camadas pré-pintadas: os estáticos que não tocam nenhum prop dinâmico. Um estático que
+ * cruza o poste (ou outro dinâmico) fica na lista de profundidade, senão a camada o pintaria por cima do poste
+ * (ou por baixo) mesmo quando o `y` manda o contrário.
+ */
+export function layerProps<P extends Pick<ExteriorProp, 'kind' | 'whenRoom'>>(props: readonly P[], rectOf: (p: P) => Rect): Set<P> {
+  const dyn: Rect[] = [];
+  for (const p of props) if (!isStaticProp(p)) dyn.push(rectOf(p));
+  const out = new Set<P>();
+  for (const p of props) {
+    if (!isStaticProp(p)) continue;
+    const r = rectOf(p);
+    if (!dyn.some((d) => overlaps(d, r))) out.add(p);
+  }
+  return out;
+}

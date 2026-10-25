@@ -1,6 +1,6 @@
 // Camadas de desenho: partição dos props e escolha dos móveis a redesenhar (sem canvas).
 import { describe, expect, it } from 'vitest';
-import { isStaticProp, redrawSet, type DepthRect } from './furn-layer';
+import { isStaticProp, layerProps, redrawSet, type DepthRect } from './furn-layer';
 
 const item = (id: string, ay: number, x: number, y: number, w = 10, h = 10): DepthRect & { id: string } => ({ id, ay, x, y, w, h });
 const hit = { x: 0, y: 0, w: 10, h: 10 };
@@ -46,5 +46,22 @@ describe('redrawSet', () => {
     const r = redrawSet([item('b', 20, 5, 5)], hit, 10, out);
     expect(r).toBe(out);
     expect(ids(r)).toEqual(['b']);
+  });
+});
+
+describe('layerProps', () => {
+  it('estático que cruza um dinâmico fica fora das camadas', () => {
+    const rects = new Map<object, { x: number; y: number; w: number; h: number }>();
+    const mk = (kind: 'hedge' | 'lamp' | 'tree', x: number) => {
+      const p = { kind };
+      rects.set(p, { x, y: 0, w: 10, h: 10 });
+      return p;
+    };
+    const hedgeNear = mk('hedge', 5);
+    const hedgeFar = mk('hedge', 50);
+    const tree = mk('tree', 100);
+    const lamp = mk('lamp', 0);
+    const set = layerProps([hedgeNear, hedgeFar, tree, lamp], (p) => rects.get(p)!);
+    expect([...set]).toEqual([hedgeFar, tree]);
   });
 });

@@ -16,7 +16,7 @@ import { cobwebScale, hourglassIcon, HOURGLASS_FLIP_MS, STORM_LIFT } from '../si
 import type { Sim } from '../sim/sim';
 import { buildAnim, furnitureScale, NO_ANIM, sweepDelay, type BuildAnim } from './anim';
 import { daylightModeOf, parseHourParam } from './daylight';
-import { isStaticProp, overlaps, redrawSet, type DepthRect, type Rect } from './furn-layer';
+import { layerProps, overlaps, redrawSet, type DepthRect, type Rect } from './furn-layer';
 import { RoomFxRenderer } from './github-fx';
 import { Lighting } from './lighting';
 import { Particles } from './particles';
@@ -111,6 +111,8 @@ export class Renderer {
   /** Props estáticos do lado de fora pintados uma vez: atrás do prédio (norte/laterais) e diante dele (fachada sul e além). */
   private propsBack: HTMLCanvasElement | null = null;
   private propsFront: HTMLCanvasElement | null = null;
+  /** Props que estão nas camadas acima (os demais seguem na lista de profundidade). */
+  private layered = new Set<ExteriorProp>();
   private furnLayer: FurnLayer | null = null;
   private stable: AreaVis[] = [];
   /** Móveis a redesenhar depois de um personagem ou de uma frente de móvel (reaproveitado por quadro). */
@@ -289,6 +291,11 @@ export class Renderer {
   private buildPropLayers(): void {
     const b = this.exterior.bounds;
     const split = (BUILDING_H + 1) * TILE;
+    const layered = (this.layered = layerProps(this.exterior.props, (p) => {
+      if (p.kind === 'paving') return { x: p.x, y: p.y, w: 2 * TILE, h: 2 * TILE };
+      const sp = propSprite(p);
+      return { x: p.x - sp.ax, y: p.y - sp.ay, w: sp.canvas.width, h: sp.canvas.height };
+    }));
     const mk = (front: boolean): HTMLCanvasElement => {
       const c = document.createElement('canvas');
       c.width = b.w * TILE;
@@ -297,7 +304,7 @@ export class Renderer {
       ctx.imageSmoothingEnabled = false;
       ctx.translate(-this.baseX, -this.baseY);
       // a ordenação é estável, como a da lista de entidades
-      const list = this.exterior.props.filter((p) => isStaticProp(p) && p.y >= split === front);
+      const list = this.exterior.props.filter((p) => layered.has(p) && p.y >= split === front);
       list.sort((a, z) => a.y - z.y);
       for (const p of list) {
         const sp = propSprite(p);
@@ -509,7 +516,7 @@ export class Renderer {
       push(K.Char, ch.depth(), ch, null, 1);
     }
     for (const prop of this.exterior.props) {
-      if (isStaticProp(prop)) continue;
+      if (this.layered.has(prop)) continue;
       if (!visible(prop.x - 24, prop.y - 56, 48, 60)) continue;
       let alpha = 1;
       if (prop.whenRoom !== undefined) {
