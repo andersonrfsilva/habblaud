@@ -10,6 +10,8 @@
 // Conta do omp: o uso vem de `omp usage --json` para o provedor do modelo em uso (sem botão "Como ativar": não há o que
 // instalar); provedor sem janelas de 5 h/7 d (Ollama) mostra "sem uso de 5 h e semana" e a nota do omp. O omp é
 // multiprovedor: o botão "▾ N" do cartão abre a lista de todos os provedores dele, com todos os limites de cada um.
+// Cota da instalação (`usage.quota`, proxy multiusuário no lugar do `omp usage`): o cartão e a dica mostram só as duas
+// janelas e quando renovam; provedor, pasta, origem, idade e a lista "▾ N" não dizem nada a quem só usa a cota.
 import type { AccountInfo, AccountUsage, OmpUsageLimit } from '../../../shared/types';
 import type { UiContext } from './context';
 import { h, iconButton, KeyedList, setAttr, setHidden, setStyleVar, setText, setTitle, setVariant } from './dom';
@@ -245,11 +247,12 @@ export function cardState(a: Pick<AccountInfo, 'usage' | 'usageStatus'>): CardSt
 export function showsUsageAge(a: Pick<AccountInfo, 'usage' | 'usageStatus' | 'provider'>): boolean {
   if (!a.usage) return false;
   const state = cardState(a);
-  return state === 'stale' || ((isCodex(a) || isOmp(a)) && state !== 'empty');
+  return state === 'stale' || ((isCodex(a) || (isOmp(a) && !a.usage.quota)) && state !== 'empty');
 }
 
-/** Linha embaixo do nome: e-mail; no Codex (sem e-mail), o plano; nas outras, a pasta. */
-export function usageSubtitle(a: Pick<AccountInfo, 'email' | 'plan' | 'configDir' | 'provider'>): string {
+/** Linha embaixo do nome: e-mail; no Codex (sem e-mail), o plano; cota da instalação, "cota de uso"; nas outras, a pasta. */
+export function usageSubtitle(a: Pick<AccountInfo, 'email' | 'plan' | 'configDir' | 'provider' | 'usage'>): string {
+  if (a.usage?.quota) return tr('cota de uso');
   if (a.email) return a.email;
   if (isCodex(a)) return a.plan ? tr('plano {0}', [a.plan]) : 'Codex';
   return a.configDir;
@@ -547,7 +550,7 @@ export class UsageCards {
     setText(r.email, usageSubtitle(a));
     card.dataset.acc = a.id;
     // omp: "▾ N" com mais de um provedor (ou limites além das duas barras); o painel aberto acompanha o snapshot.
-    const views = omp ? ompProviderViews(a.usage) : [];
+    const views = omp && !a.usage?.quota ? ompProviderViews(a.usage) : [];
     const extra = views.length > 1 || views.some((v) => v.groups.reduce((n, g) => n + g.limits.length, 0) > 2);
     setHidden(r.provs, !extra);
     if (extra) {
@@ -612,6 +615,20 @@ export class UsageCards {
     const provider = providerOf(a);
     const omp = isOmp(a);
     const u = a.usage;
+    if (u?.quota) {
+      // Cota da instalação: só as janelas, quando renovam e o que acontece ao esgotar.
+      setText(r.tipTitle, tr('Cota de uso'));
+      const rows: [string, string][] = [];
+      if (u.fiveHour || u.sevenDay) {
+        rows.push([tr('Sessão de 5 h'), five?.summary ?? '—']);
+        rows.push([tr('Semana'), week?.summary ?? '—']);
+      }
+      syncRows(r.tipRows, rows);
+      setText(r.tipNote, tr('Ao chegar a 100%, novas mensagens ficam bloqueadas até a janela renovar.'));
+      setHidden(r.tipNote, false);
+      setHidden(r.tipSetup, true);
+      return;
+    }
     setText(r.tipTitle, `${a.name}${showsProviderTag(provider, a.name) ? ` · ${PROVIDER_NAME[provider]}` : ''}${a.plan ? tr(' · plano {0}', [a.plan]) : ''}`);
     const rows: [string, string][] = [];
     if (provider !== 'claude') rows.push([tr('Ferramenta'), PROVIDER_NAME[provider]]);

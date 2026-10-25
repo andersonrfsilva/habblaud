@@ -3415,4 +3415,7 @@ export const EN: Readonly<Record<string, string>> = {
   "Retomar “{0}” neste agente? A conversa atual continua no histórico.": "Resume “{0}” in this agent? The current conversation stays in history.",
   "Conversa retomada.": "Conversation resumed.",
   "O omp não retomou a conversa: veja o motivo na tela do omp.": "omp didn't resume the conversation: see the reason on omp's screen.",
+  "cota de uso": "usage quota",
+  "Cota de uso": "Usage quota",
+  "Ao chegar a 100%, novas mensagens ficam bloqueadas até a janela renovar.": "At 100%, new messages are blocked until the window renews.",
 };

@@ -57,6 +57,31 @@ describe('parseOmpUsage (saída real de omp usage --json --redact)', () => {
     expect(parseOmpUsage(raw, 'anthropic', NOW)).toEqual({ source: 'omp', ompProvider: 'anthropic', fetchedAt: NOW - 1000, noQuota: true });
   });
 
+  it('cota da instalação ("quota": true no topo): marca quota e, esgotada, fica em 100% com a renovação', () => {
+    const raw = JSON.stringify({
+      quota: true,
+      reports: [
+        {
+          provider: 'anthropic',
+          fetchedAt: NOW - 1000,
+          limits: [
+            { scope: { shared: true }, window: { durationMs: 18000000, resetsAt: NOW + 3_600_000 }, amount: { usedFraction: 1 }, status: 'exhausted' },
+            { scope: { shared: true }, window: { durationMs: 604800000 }, amount: { usedFraction: 0.5 }, status: 'ok' },
+          ],
+        },
+      ],
+    });
+    expect(parseOmpUsage(raw, 'anthropic', NOW)).toEqual({
+      source: 'omp',
+      ompProvider: 'anthropic',
+      fetchedAt: NOW - 1000,
+      quota: true,
+      fiveHour: { utilization: 100, resetsAt: NOW + 3_600_000 },
+      sevenDay: { utilization: 50 },
+    });
+    expect(parseOmpUsage(RAW, 'anthropic', NOW)?.quota).toBeUndefined();
+  });
+
   it('nada de metadata (e-mails, ids) no resultado', () => {
     expect(JSON.stringify(parseOmpUsage(RAW, 'anthropic', NOW))).not.toMatch(/email|accountId|orgName/);
   });

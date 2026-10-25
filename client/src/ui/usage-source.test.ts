@@ -91,6 +91,17 @@ describe('cartão de uso de uma conta do omp', () => {
     expect(ompUsageNote(codex(), 0)).toBe('');
     expect(codexUsageNote(omp(), 0)).toBe('');
   });
+
+  it('cota da instalação: embaixo do nome "cota de uso" (não a pasta) e sem idade à mostra enquanto é recente', () => {
+    const plain = { source: 'omp' as const, fiveHour: win, fetchedAt: 0 };
+    const quota = { ...plain, quota: true };
+    expect(usageSubtitle(omp({ usage: quota }))).toBe('cota de uso');
+    expect(showsUsageAge(omp({ usage: quota }))).toBe(false);
+    expect(showsUsageAge(omp({ usage: quota, usageStatus: 'stale' }))).toBe(true);
+    // Sem a marca de cota, o omp continua como antes: a pasta e a idade.
+    expect(usageSubtitle(omp({ usage: plain }))).toBe('C:\\Users\\x\\.omp\\agent');
+    expect(showsUsageAge(omp({ usage: plain }))).toBe(true);
+  });
 });
 
 describe('provedores do omp (painel do cartão)', () => {

@@ -1,7 +1,8 @@
 // Uso do plano das contas do omp: leitura da saída de `omp usage --json` (ver bin.ts, que roda o comando). Quem consulta
 // os provedores (Anthropic, OpenAI, Google…) é o próprio omp, com as credenciais e o cache dele; o Habblaud não lê
 // credenciais e só interpreta o JSON. Nunca usa `omp usage invalidate` nem `--force-refresh` (o cache do omp manda).
-// Puro: testado em usage.test.ts com a saída real (fixtures/usage.json, já com --redact).
+// Puro: testado em usage.test.ts com a saída real (fixtures/usage.json, já com --redact). `"quota": true` no topo do JSON
+// não é do omp: é de um proxy de cota que responde no lugar dele (ver AccountUsage.quota).
 import type { AccountUsage, OmpProviderUsage, OmpUsageLimit, UsageWindow } from '../../../shared/types';
 import { toEpochMs } from '../../accounts/usage';
 
@@ -29,10 +30,10 @@ function percent(fraction: unknown): number | undefined {
   return typeof fraction === 'number' && Number.isFinite(fraction) ? Math.min(100, Math.max(0, Math.round(fraction * 1000) / 10)) : undefined;
 }
 
-function reportsOf(raw: string): OmpReport[] | undefined {
+function parse(raw: string): { reports: OmpReport[]; quota: boolean } | undefined {
   try {
-    const reports = (JSON.parse(raw) as { reports?: unknown } | null)?.reports;
-    return Array.isArray(reports) ? reports : undefined;
+    const j = JSON.parse(raw) as { reports?: unknown; quota?: unknown } | null;
+    return j && Array.isArray(j.reports) ? { reports: j.reports as OmpReport[], quota: j.quota === true } : undefined;
   } catch {
     return undefined;
   }
@@ -45,13 +46,14 @@ function reportsOf(raw: string): OmpReport[] | undefined {
  * (e-mails, ids) nunca é copiado.
  */
 export function parseOmpUsage(raw: string, provider: string, now: number): AccountUsage | undefined {
-  const reports = reportsOf(raw);
-  if (!reports) return undefined;
-  const report = reports.find((r: OmpReport | null) => r?.provider === provider);
+  const parsed = parse(raw);
+  if (!parsed) return undefined;
+  const report = parsed.reports.find((r: OmpReport | null) => r?.provider === provider);
   if (!report) return undefined;
 
   const fetchedAt = Math.min(now, toEpochMs(report.fetchedAt) ?? now);
   const usage: AccountUsage = { source: 'omp', ompProvider: provider, fetchedAt };
+  if (parsed.quota) usage.quota = true;
   const limits = Array.isArray(report.limits) ? (report.limits as (OmpLimit | null)[]) : [];
   let noQuota = false;
   for (const l of limits) {
@@ -67,8 +69,8 @@ export function parseOmpUsage(raw: string, provider: string, now: number): Accou
     if (resetsAt !== undefined) w.resetsAt = resetsAt;
     usage[key] = w;
   }
-  if (noQuota) {
-    // Igual ao Codex: "sem cota" não é 0% nem 100%; as janelas ficam de fora.
+  if (noQuota && !parsed.quota) {
+    // Igual ao Codex: "sem cota" não é 0% nem 100%; as janelas ficam de fora. Cota esgotada fica em 100%.
     delete usage.fiveHour;
     delete usage.sevenDay;
     usage.noQuota = true;
@@ -85,7 +87,7 @@ export function parseOmpUsage(raw: string, provider: string, now: number): Accou
  * um por modelo do grupo) entram uma vez. Do `metadata` só o plano; e-mails e ids nunca são copiados.
  */
 export function parseOmpProviders(raw: string, now: number): OmpProviderUsage[] | undefined {
-  const reports = reportsOf(raw);
+  const reports = parse(raw)?.reports;
   if (!reports) return undefined;
   const out: OmpProviderUsage[] = [];
   for (const report of reports) {

@@ -12,6 +12,10 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Cartão de cota de uso:** quando o JSON no lugar do `omp usage` traz `"quota": true` (um proxy multiusuário com cota
+  própria), o cartão de uso mostra só as barras de 5 h e da semana, com "cota de uso" embaixo do nome, sem pasta,
+  idade nem a lista de provedores; a dica fica só com as duas janelas e o aviso de bloqueio em 100%. Cota esgotada
+  aparece em 100% com a hora de renovação, não como "sem cota". Sem a marca, o cartão do omp não muda.
 - **Modelos liberados no omp:** com `HABBLAUD_OMP_MODELS` (`provedor/id` ou `provedor/*`, separados por vírgula) no
   ambiente do omp, a gaveta de modelo do escritório só lista e só troca para esses. Serve para quem usa o omp por um
   gateway que atende só parte do catálogo do provedor. Sem a variável, nada muda. Reabra as sessões do omp.

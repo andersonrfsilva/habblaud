@@ -336,6 +336,12 @@ export interface AccountUsage {
    * esgotados). Não é "0% usado": as janelas ficam ausentes.
    */
   noQuota?: boolean;
+  /**
+   * Só 'omp': os números são a cota de uso da instalação, não o uso do provedor (um proxy multiusuário que responde
+   * no lugar de `omp usage`, com `"quota": true` no JSON). O cartão mostra só as duas janelas, e cota esgotada fica
+   * em 100% com a hora de renovação, sem virar "sem cota".
+   */
+  quota?: boolean;
   /** Quando os números foram obtidos na origem (epoch ms). */
   fetchedAt: number;
 }
