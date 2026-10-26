@@ -34,6 +34,8 @@ export interface AsideStoreOptions {
   office: Pick<OfficeLike, 'get'>;
   /** = MessageRegistry.aside */
   queue: (agentId: string, req: AsideRequest) => SendResult;
+  /** = MessageRegistry.discard: tira da fila a mensagem de uma pergunta cancelada antes de a extensão buscá-la. */
+  discard: (messageId: string) => boolean;
   now?: () => number;
   /** Em andamento sem notícia da extensão por este tempo: falha. Padrão ASIDE_LOST_MS. */
   lostMs?: number;
@@ -207,6 +209,13 @@ export class AsideStore {
     const turn = found.topic.turns.find((q) => !isFinalAside(q.status));
     if (!turn) return { error: 'idle' };
     if (turn.status === 'queued') {
+      // Sem isto a mensagem ficaria na fila e a extensão responderia (com tokens) a uma pergunta cancelada.
+      for (const [messageId, turnId] of this.byMessage) {
+        if (turnId !== turn.id) continue;
+        this.byMessage.delete(messageId);
+        this.opts.discard(messageId);
+        break;
+      }
       this.finishTurn({ sessionId: found.sessionId, topic: found.topic, turn }, 'cancelled', undefined, this.now());
       this.save(found.sessionId);
     } else {

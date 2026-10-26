@@ -298,7 +298,7 @@ const messages = config.messages
   : undefined;
 // Bate-papo paralelo: as conversas ficam em <dataDir>/asides/ (uma por sessão do omp). Só com as mensagens ligadas.
 const asides = messages
-  ? new AsideStore({ dir: join(config.dataDir, 'asides'), office, queue: (id, req) => messages.aside(id, req) })
+  ? new AsideStore({ dir: join(config.dataDir, 'asides'), office, queue: (id, req) => messages.aside(id, req), discard: (id) => messages.discard(id) })
   : undefined;
 late.messages = messages;
 

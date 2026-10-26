@@ -83,6 +83,13 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Pergunta paralela cancelada ainda gastava tokens:** parar uma pergunta do bate-papo paralelo que ainda esperava
+  na fila não a tirava dela, e o omp a respondia assim mesmo (e recusava a pergunta seguinte). Agora ela sai da fila
+  na hora do cancelamento.
+- **Mensagem entregue aparecendo como "não confirmada":** se a confirmação de entrega da extensão do omp se perdia
+  por um instante (rede ou servidor ocupado), a mensagem aparecia como falha e o reenvio chegava duas vezes ao
+  agente. A extensão agora repete a confirmação algumas vezes. Reinstale a extensão (`npm run omp:install`) e reabra
+  as sessões do omp.
 - **Agentes do omp sumindo depois de reiniciar o Habblaud:** uma sessão do omp aberta e ainda sem mensagens (sem
   arquivo gravado) não voltava ao escritório quando o Habblaud reiniciava, porque o batimento da extensão não dizia o
   projeto. Agora o batimento leva o projeto e o arquivo da sessão, e ela volta em até 10 s. Reabra as sessões do omp

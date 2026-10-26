@@ -38,6 +38,7 @@ async function serve(opts: { asides?: boolean; remote?: boolean } = {}) {
     dir: null,
     office,
     queue: (agentId, req) => (queued.push(req.question), { message: { id: `m-${queued.length}`, agentId, status: 'queued', createdAt: 0, updatedAt: 0 } }),
+    discard: () => true,
   });
   const hub = new Hub(office, { throttleMs: 10 });
   const accounts = new AccountsService({ dirs: [], home: tmp.dir, env: {}, onChange: () => {} });

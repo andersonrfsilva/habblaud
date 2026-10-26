@@ -361,6 +361,17 @@ export class MessageRegistry {
     return { message: { ...entry.msg } };
   }
 
+  /**
+   * Retira da fila uma pergunta paralela que a extensão ainda não buscou (o usuário a cancelou): sem isto, a próxima
+   * rodada a entregaria e o omp gastaria tokens com uma pergunta já desistida. Já buscada (`sent`), resolvida ou que
+   * não é pergunta paralela: nada muda (a extensão é parada pelo `progress`, em AsideStore). Devolve true se retirou.
+   */
+  discard(id: string): boolean {
+    const e = this.messages.get(id);
+    if (!e?.aside || e.msg.status !== 'queued') return false;
+    return this.messages.delete(id);
+  }
+
   private openCount(agentId: string): number {
     let open = 0;
     for (const e of this.messages.values()) if (e.msg.agentId === agentId && !isFinal(e)) open++;
