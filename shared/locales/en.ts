@@ -3478,4 +3478,5 @@ export const EN: Readonly<Record<string, string>> = {
   "arquivos desligados (precisam do terminal: acesso local, fora do Docker)": "files are off (they need the terminal: local access, outside Docker)",
   "os arquivos só abrem pelo próprio computador (http://localhost)": "files only open from the computer itself (http://localhost)",
   "tipo de arquivo que não se mostra aqui: baixe": "file type that can't be shown here: download it",
+  "arquivo grande demais para ver aqui: baixe": "file too large to view here: download it",
 };

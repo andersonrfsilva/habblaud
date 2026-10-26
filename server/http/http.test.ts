@@ -1,6 +1,6 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { mkdirSync, realpathSync, truncateSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ModSummary, OfficeSnapshot, PermissionRequestInfo, UpdateStatus } from '../../shared/types';
@@ -8,6 +8,7 @@ import { AccountsService } from '../accounts/service';
 import { setQuiet } from '../log';
 import { NameStore } from '../model/names';
 import { Office, type OfficeDeps } from '../model/office';
+import { DELIVERY_FILE_MAX_BYTES } from '../deliveries/files';
 import { tempDir } from '../test/fixtures';
 import { createApiHandler, type ApiDeps } from './app';
 import { createRequestGuard, hostAllowed, hostnameOf, isLoopbackHost, originAllowed, parseAllowedHosts } from './guard';
@@ -521,6 +522,22 @@ describe('arquivos (/api/files)', () => {
   it('oculto e pasta fora da raiz: 404', async () => {
     expect((await fetch(q('raw', join(proj, '.env'), '&download=1'))).status).toBe(404);
     expect((await fetch(q('list', realpathSync(files.dir)))).status).toBe(404);
+  });
+
+  it('arquivo grande: ver dá 413, baixar dá 200 com o tamanho inteiro', async () => {
+    const big = join(proj, 'grande.txt');
+    writeFileSync(big, '');
+    truncateSync(big, DELIVERY_FILE_MAX_BYTES + 1);
+    expect((await fetch(q('raw', big))).status).toBe(413);
+    const u = new URL(q('raw', big, '&download=1'));
+    const head = await new Promise<{ status: number; length: string | undefined }>((ok, fail) => {
+      const req = http.get(u, (res) => {
+        ok({ status: res.statusCode ?? 0, length: res.headers['content-length'] });
+        res.destroy();
+      });
+      req.on('error', fail);
+    });
+    expect(head).toEqual({ status: 200, length: String(DELIVERY_FILE_MAX_BYTES + 1) });
   });
 
   it('POST /api/files/list: 405', async () => {

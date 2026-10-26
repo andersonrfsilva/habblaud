@@ -8,7 +8,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { basename } from 'node:path';
 import { pipeline } from 'node:stream';
 import { tr } from '../../shared/i18n';
-import { fileType } from '../deliveries/files';
+import { DELIVERY_FILE_MAX_BYTES, fileType } from '../deliveries/files';
 import { listDir, locate, resolveRoots } from '../files/browse';
 import { sendJson, viewHeaders } from './app';
 
@@ -60,6 +60,10 @@ export function handleFilesRoute(req: IncomingMessage, res: ServerResponse, url:
       sendJson(res, 415, { error: tr('tipo de arquivo que não se mostra aqui: baixe') });
       return;
     }
+    if (found.size > DELIVERY_FILE_MAX_BYTES) {
+      sendJson(res, 413, { error: tr('arquivo grande demais para ver aqui: baixe') });
+      return;
+    }
     headers = viewHeaders(type.type, name, found.size);
   }
   res.writeHead(200, headers);
@@ -70,5 +74,6 @@ export function handleFilesRoute(req: IncomingMessage, res: ServerResponse, url:
   const done = (err: NodeJS.ErrnoException | null) => {
     if (err && !res.writableEnded) res.destroy();
   };
-  pipeline(createReadStream(found.path), res, done);
+  // Só até o tamanho visto agora: um arquivo que ainda está sendo escrito não quebra o Content-Length.
+  pipeline(createReadStream(found.path, { start: 0, end: found.size - 1 }), res, done);
 }
