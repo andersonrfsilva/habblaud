@@ -105,6 +105,8 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Cache de sprites sem engasgo ao encher:** quando um cache de sprites (personagens, móveis, pisos, avatares) enche,
+  ele agora descarta só a quarta parte mais antiga, em vez de zerar tudo e regenerar a tela toda de uma vez.
 - **Servidor não cai mais por um erro ao montar o snapshot:** uma falha numa das fontes do escritório (permissões,
   mensagens, terminais, atualizações, mundo) derrubava o processo inteiro e todas as abas. Agora o erro vai para o log
   uma vez, as abas seguem com o último estado bom e o servidor tenta de novo sozinho; o feed e os avisos pendentes não
