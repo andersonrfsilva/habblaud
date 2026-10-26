@@ -57,9 +57,6 @@ export class FileBrowser implements UiComponent {
         this.listEl,
       ),
     ) as HTMLDialogElement;
-    this.el.addEventListener('click', (e) => {
-      if (e.target === this.el) this.el.close();
-    });
 
     this.viewerTitle = h('span', { class: 'ui-deliv-viewer__title' });
     this.viewerDownload = h('a', { class: 'ui-btn ui-deliv-viewer__open', text: tr('Baixar'), attrs: { download: '' } }) as HTMLAnchorElement;
