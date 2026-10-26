@@ -214,6 +214,27 @@ describe('AsideStore: ciclo da resposta', () => {
     topicOf(s.store.ask({ agentId: AGENT, question: 'c', topicId: t.id }));
   });
 
+  it('cancel de pergunta queued retira a mensagem da fila, uma vez, e não deixa settled mexer no turno', () => {
+    const s = setup();
+    const t = topicOf(s.store.ask({ agentId: AGENT, question: 'a' }));
+    s.store.cancel(t.id, { agentId: AGENT });
+    expect(s.discarded).toEqual(['m-1']);
+    s.store.settled('m-1', 'delivered');
+    expect(s.store.list(AGENT)!.topics[0]!.turns[0]!.status).toBe('cancelled');
+    expect(s.store.cancel(t.id, { agentId: AGENT })).toEqual({ error: 'idle' });
+    expect(s.discarded).toEqual(['m-1']);
+  });
+
+  it('cancel de pergunta já entregue (running) não chama discard; o cancelamento sai pelo progress', () => {
+    const s = setup();
+    const t = topicOf(s.store.ask({ agentId: AGENT, question: 'a' }));
+    const turnId = s.calls[0]!.req.turnId;
+    s.store.settled('m-1', 'delivered');
+    expect(s.store.cancel(t.id, { agentId: AGENT })).toEqual({ ok: true });
+    expect(s.discarded).toEqual([]);
+    expect(s.store.progress({ sessionId: SID, turnId, text: '', state: 'running' })).toEqual({ cancel: true });
+  });
+
   it('remove: apaga a conversa; com pergunta em andamento dá busy', () => {
     const s = setup();
     const t = topicOf(s.store.ask({ agentId: AGENT, question: 'a' }));
