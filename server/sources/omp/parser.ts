@@ -59,6 +59,8 @@ export interface OmpHead {
   header?: OmpHeader;
   /** Título do slot da linha 1 (vazio = ainda sem título). */
   title?: string;
+  /** Primeira instrução sua no começo lido, quando o slot está vazio (sessões sem título gerado, ex.: `omp -p`). */
+  prompt?: string;
   /** Bytes das duas primeiras linhas (com as quebras): o `FileTail` começa daí. */
   bytes: number;
 }
@@ -102,7 +104,27 @@ export function parseOmpHead(text: string): OmpHead {
   const out: OmpHead = { bytes: Buffer.byteLength(text.slice(0, nl2 + 1)) };
   if (header) out.header = header;
   if (title) out.title = title;
+  else {
+    const prompt = firstPrompt(text.slice(nl2 + 1));
+    if (prompt) out.prompt = prompt;
+  }
   return out;
+}
+
+function firstPrompt(text: string): string | undefined {
+  // Só linhas completas: a última pode ter sido cortada pelo limite da leitura.
+  for (const raw of text.slice(0, text.lastIndexOf('\n') + 1).split('\n')) {
+    if (!raw.includes('"user"')) continue;
+    try {
+      const m = rec(rec(JSON.parse(raw))?.message);
+      if (m?.role !== 'user' || m.attribution === 'agent') continue;
+      const t = textOf(m.content).trim();
+      if (t) return truncate(maskSecrets(t.slice(0, 1_000)), TITLE_MAX);
+    } catch {
+      // linha ilegível: segue
+    }
+  }
+  return undefined;
 }
 
 function cleanTitle(v: unknown): string | undefined {

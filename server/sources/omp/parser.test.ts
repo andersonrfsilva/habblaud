@@ -47,6 +47,14 @@ describe('cabeçalho', () => {
     expect(parseOmpHead('{"type":"title","title":""}\n{"type":"session"')).toEqual({ bytes: 0 });
     expect(parseOmpHead('{"type":"title","title":""}\n{"type":"session","id":"x"}\n').header).toBeUndefined();
   });
+
+  it('slot vazio: primeira instrução sua (não a injetada pelo agente, nem linha cortada) vira prompt', () => {
+    const base = '{"type":"title","title":""}\n{"type":"session","id":"x","cwd":"/p"}\n';
+    const msg = (text: string, attribution = 'user') => JSON.stringify({ type: 'message', message: { role: 'user', content: [{ type: 'text', text }], attribution } }) + '\n';
+    expect(parseOmpHead(base + msg('lembrete', 'agent') + msg('faça X')).prompt).toBe('faça X');
+    expect(parseOmpHead(base + msg('faça X').slice(0, -1)).prompt).toBeUndefined();
+    expect(parseOmpHead('{"type":"title","title":"T"}\n{"type":"session","id":"x","cwd":"/p"}\n' + msg('faça X')).prompt).toBeUndefined();
+  });
 });
 
 describe('saída limpa (session_exit)', () => {

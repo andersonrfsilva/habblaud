@@ -67,7 +67,8 @@ export class OmpHistory implements HistoryProvider {
       const agentId = this.opts.openAgentOf(c.account, c.sessionId);
       const cwd = head.header.cwd;
       const r: RecentSession = { account: c.account, provider: 'omp', sessionId: c.sessionId, projectDir: encodeCwd(cwd), project: cwd, lastAt: c.mtimeMs, size: c.size, open: !!agentId };
-      if (head.title) r.title = head.title;
+      const title = head.title ?? head.prompt;
+      if (title) r.title = title;
       if (head.header.startedAt !== undefined) r.firstAt = head.header.startedAt;
       if (agentId) r.agentId = agentId;
       out.push(r);
