@@ -120,6 +120,9 @@ do meio (0.**3**.0).
   ainda terminava no encerramento do processo anterior).
 - omp: a conversa aberta por `/new` ou `/resume` só aparecia (e só recebia mensagens) depois do primeiro prompt no
   terminal do omp.
+- **Terminal interativo: teclas no terminal errado:** ao trocar de agente logo depois de digitar, as teclas do terminal
+  novo podiam ser enviadas ao terminal do agente anterior (e o tamanho da tela também). Agora a fila de teclas e o
+  ajuste de tamanho pertencem a cada terminal, e a ordem das teclas dentro de um terminal continua a mesma.
 
 ## [1.0.3] - 2026-10-16
 
