@@ -57,15 +57,6 @@ describe('histórico do omp', () => {
     expect(list[1]).toMatchObject({ title: 'arrume o checkout' });
   });
 
-  it('fora da lista: sessão fechada em pasta temporária ou sem instrução sua; aberta continua', async () => {
-    const { history, open, session } = setup();
-    session(A, { cwd: '/tmp/probe1', prompt: 'teste' });
-    session(B);
-    session(OLD, { cwd: '/tmp/probe2', prompt: 'teste' });
-    open.add(OLD);
-    expect((await history.list()).map((s) => s.sessionId)).toEqual([OLD]);
-  });
-
   it('fora da lista: arquivo sem cabeçalho ainda e cabeçalho de subagente', async () => {
     const { dir, history, session } = setup();
     session(A, { parent: '/x/pai.jsonl' });

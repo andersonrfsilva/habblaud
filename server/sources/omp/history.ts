@@ -4,14 +4,13 @@
 // mtime e o tamanho não mudam. Subagentes (pasta irmã de cada sessão) ficam de fora, como os do Claude Code.
 // As entregas (deliveries/) saem daqui também: elas leem os transcripts do histórico.
 import { realpathSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { sep } from 'node:path';
 import { OMP_SESSION_ID } from '../../../shared/omp-events';
 import type { RecentSession } from '../../../shared/types';
 import { HISTORY_LIMIT, HISTORY_MAX_AGE_MS } from '../history';
 import type { HistoryProvider, HistoryResolveResult } from '../source';
 import { encodeCwd } from '../watcher';
-import { OMP_HEAD_BYTES, OmpIndex, readOmpHead } from './files';
+import { OmpIndex, readOmpHead } from './files';
 import type { OmpHead } from './parser';
 import { createOmpTerminalParser } from './terminal';
 import { tr } from '../../../shared/i18n';
@@ -67,8 +66,6 @@ export class OmpHistory implements HistoryProvider {
       if (!head.header || head.header.parentSession) continue;
       const agentId = this.opts.openAgentOf(c.account, c.sessionId);
       const cwd = head.header.cwd;
-      // Sessões de teste fechadas: rodadas numa pasta temporária ou sem nenhuma instrução sua (o começo lido é o arquivo todo).
-      if (!agentId && (isTempDir(cwd) || (!head.title && !head.prompt && c.size <= OMP_HEAD_BYTES))) continue;
       const r: RecentSession = { account: c.account, provider: 'omp', sessionId: c.sessionId, projectDir: encodeCwd(cwd), project: cwd, lastAt: c.mtimeMs, size: c.size, open: !!agentId };
       const title = head.title ?? head.prompt;
       if (title) r.title = title;
@@ -114,9 +111,4 @@ export class OmpHistory implements HistoryProvider {
     this.heads.set(path, { mtimeMs, size, head });
     return head;
   }
-}
-
-function isTempDir(cwd: string): boolean {
-  const tmp = tmpdir();
-  return cwd === '/tmp' || cwd.startsWith('/tmp/') || cwd === tmp || cwd.startsWith(tmp + sep);
 }
