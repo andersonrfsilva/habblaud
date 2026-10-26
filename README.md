@@ -983,6 +983,17 @@ mod/      o mod do Habblaud e os plugins de permissões e de mensagens (plugins 
 | `/api/messages…` and `/api/mod/inbox…` | Sending messages: the page puts the message in the queue and follows its delivery; the `habblaud-mensagens` plugin fetches it, delivers it to the session and confirms. Local access only. |
 | `POST /api/codex/events` | Events from the Codex hooks (session opened, tool, approval, end of turn). Local access only. |
 | `/api/codex/bridge/poll` and `/ack` | `npm run codex:bridge` fetches the messages for Codex and confirms delivery. Local access only. |
+| `GET /api/access` | What this connection can use (`remote`, `local`, `permissions`, `messages`, `terminal`, `spawn`, `world`); the page uses it to show or hide features. |
+| `GET /api/updates` and `POST /api/updates/check` | New-version check: the version in use and the result; `check` ("Check now") asks GitHub (at most once every 30 s). Off with `HABBLAUD_UPDATE_CHECK=0`. |
+| `/api/world/*` | Habblaud World (account, character and building); on by default, `HABBLAUD_WORLD=0` turns it off. Local access only, never through the phone port. |
+| `POST /api/omp/events` | Events from the Habblaud extension in omp (session, tool, approval, heartbeat). Local access only. |
+| `POST /api/omp/settings` | `{"roomByProject": true \| false}`: Settings › room follows the project, for omp agents. Local access only. |
+| `/api/asides…` and `POST /api/omp/aside` | Side chat with the omp agent: the page asks and follows the answer; the omp extension sends the accumulated text and receives whether to cancel. The extension's route is local access only. |
+| `/api/spawn…` | New agent: availability, suggested folders, attachments, start and follow-up of the request. Local access only (from the phone, with `spawn` in `HABBLAUD_REMOTE_ALLOW`). |
+| `/api/dictation…` | Dictation (microphone) in New agent and in the message box: sends the audio and fetches the text. Local access only (from the phone, with `spawn` or `messages` in `HABBLAUD_REMOTE_ALLOW`). |
+| `/api/deliveries…` | Deliveries: the end of each request an agent worked on, with its attachments. Local access only (from the phone, with `terminal` in `HABBLAUD_REMOTE_ALLOW`). |
+| `/api/pty…`, `POST /api/agents/:id/stop` and `/takeover` | Interactive terminal and ending or taking over a session; only with `HABBLAUD_PTY=1`. Local access only, never through the phone port. |
+| `/api/host/*` | Host helper (`npm run codex:bridge`): fetches and confirms the requests for New agent, dictation and delivery files. Local access only. |
 
 More server details in [`server/README.md`](server/README.md).
 

@@ -1026,6 +1026,17 @@ mod/      o mod do Habblaud e os plugins de permissões e de mensagens (plugins 
 | `/api/messages…` et `/api/mod/inbox…` | Envoyer des messages : la page met le message en file et suit sa remise ; le plugin `habblaud-mensagens` le récupère, le remet à la session et confirme. En accès local uniquement. |
 | `POST /api/codex/events` | Événements des hooks de Codex (session ouverte, outil, validation, fin du tour). En accès local uniquement. |
 | `/api/codex/bridge/poll` et `/ack` | `npm run codex:bridge` récupère les messages pour Codex et confirme leur remise. En accès local uniquement. |
+| `GET /api/access` | Ce que cette connexion peut utiliser (`remote`, `local`, `permissions`, `messages`, `terminal`, `spawn`, `world`) ; la page s'en sert pour afficher ou masquer des fonctions. |
+| `GET /api/updates` et `POST /api/updates/check` | Vérification de nouvelle version : la version utilisée et le résultat ; `check` (« Vérifier maintenant ») interroge GitHub (au plus une fois toutes les 30 s). Désactivée avec `HABBLAUD_UPDATE_CHECK=0`. |
+| `/api/world/*` | Habblaud World (compte, personnage et immeuble) ; activé par défaut, `HABBLAUD_WORLD=0` le désactive. En accès local uniquement, jamais par le port du téléphone. |
+| `POST /api/omp/events` | Événements de l'extension d'Habblaud dans omp (session, outil, validation, battement). En accès local uniquement. |
+| `POST /api/omp/settings` | `{"roomByProject": true \| false}` : Réglages › la salle suit le projet, pour les agents omp. En accès local uniquement. |
+| `/api/asides…` et `POST /api/omp/aside` | Discussion parallèle avec l'agent omp : la page pose la question et suit la réponse ; l'extension d'omp envoie le texte accumulé et reçoit s'il faut annuler. La route de l'extension est en accès local uniquement. |
+| `/api/spawn…` | Nouvel agent : disponibilité, dossiers suggérés, pièces jointes, démarrage et suivi de la demande. En accès local uniquement (depuis le téléphone, avec `spawn` dans `HABBLAUD_REMOTE_ALLOW`). |
+| `/api/dictation…` | Dictée (micro) dans Nouvel agent et dans la boîte de message : envoie l'audio et récupère le texte. En accès local uniquement (depuis le téléphone, avec `spawn` ou `messages` dans `HABBLAUD_REMOTE_ALLOW`). |
+| `/api/deliveries…` | Livrables : la fin de chaque demande sur laquelle un agent a travaillé, avec ses pièces jointes. En accès local uniquement (depuis le téléphone, avec `terminal` dans `HABBLAUD_REMOTE_ALLOW`). |
+| `/api/pty…`, `POST /api/agents/:id/stop` et `/takeover` | Terminal interactif, fin ou reprise d'une session ; seulement avec `HABBLAUD_PTY=1`. En accès local uniquement, jamais par le port du téléphone. |
+| `/api/host/*` | Auxiliaire de l'hôte (`npm run codex:bridge`) : récupère et confirme les demandes de Nouvel agent, de la dictée et des fichiers des livrables. En accès local uniquement. |
 
 Plus de détails sur le serveur dans [`server/README.md`](server/README.md).
 
