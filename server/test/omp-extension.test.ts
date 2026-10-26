@@ -6,7 +6,6 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  ACK_RETRY_MS,
   ASK_TOOL,
   ASK_WAIT_MS,
   askResult,
@@ -394,13 +393,13 @@ describe('omp extension: mensagens', () => {
       await t.fire('session_shutdown', ctx);
     });
 
-    it('ack que nunca chega para depois de ACK_RETRY_MS.length + 1 tentativas e a caixa de entrada segue funcionando', async () => {
+    it('ack que nunca chega para depois de 4 tentativas (1 + ACK_RETRY_MS) e a caixa de entrada segue funcionando', async () => {
       vi.useFakeTimers();
       const t = setup({ home: tmp.dir, answer: once(() => ({ status: 503, json: {} })) });
       const ctx = makeCtx();
       t.fire('session_start', ctx);
       await vi.advanceTimersByTimeAsync(10_000);
-      expect(t.habblaud.of('/api/mod/inbox/ack')).toHaveLength(ACK_RETRY_MS.length + 1);
+      expect(t.habblaud.of('/api/mod/inbox/ack')).toHaveLength(4);
       expect(t.habblaud.of('/api/mod/inbox').length).toBeGreaterThanOrEqual(2);
       await t.fire('session_shutdown', ctx);
     });
