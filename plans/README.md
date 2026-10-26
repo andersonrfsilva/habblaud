@@ -47,6 +47,8 @@ conditions e atualize sua linha ao terminar.
 | 023  | Ver e baixar os arquivos da pasta de trabalho pelo botão "Arquivos" da gaveta (salas + `~/projetos`) | P2 | L | — | DONE (merge 5205df7 + 0c72d86: a janela fecha só pelo X ou Esc, nunca por clique; em produção e nos usuários, release 0c72d866449d + sync em 2026-10-26) |
 | 024  | Estrela para favoritar sessões no Histórico e na gaveta (agente e sala), fixadas no topo do Histórico (só cliente, `localStorage`) | P3 | S | — | DONE (merge 592f170 em `producao`; em produção e nos usuários, release 7eeea6e48ff3 + instalar + sync em 2026-10-26) |
 | 025  | Olho em pixel art na faixa do terminal liga e desliga o advisor do omp (`/advisor on` / `off`; estado = último comando confirmado, só cliente) | P3 | S | — | DONE (branch `advisor/025-olho-do-advisor`, worktree `../habblaud-025`; não mesclado nem publicado) |
+| 026  | Timelapse e janela do Habblaud World baixados só quando abertos (issue upstream #73, seção 4) | P3 | M | — | TODO |
+| 027  | Cache de sprites descarta a quarta parte mais antiga ao encher, em vez de zerar (issue upstream #73, seção 3) | P3 | S | — | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 
@@ -143,6 +145,13 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
   - Caminho do omp no Windows com maiúsculas diferentes, extração do ciclo de vida comum às três fontes, alinhar
     `engines`/alvo do bundle/Node da imagem, prazo para retirar `server/legacy.ts`: valor baixo agora.
   - Medir a cidade e a partida do servidor: sem sintoma relatado.
+
+- Issue upstream #73 (2026-10-26, variante `plan`, commit `450e635`):
+  - Seção 1, timelapse servido por intervalos (keyframe + deltas): os dias reais têm 0,76 MB, 1,2 MB e 1,57 MB
+    (`~/.habblaud/timeline/`), longe do limite de 30 MB (`HARD_LIMIT_BYTES`); pela conta da issue (~110 ms a 30 MB),
+    o parse custa ~6 ms. Rever se um dia passar de ~10 MB.
+  - Seção 2: coberta pelos planos 007, 008, 010, 011 e 015 (upstream: PRs #191, #192, #199 e #204).
+  - Seção 4, editor de personagem sob demanda: ~6 kB minificado, não compensa.
 
 ## Não auditado
 
