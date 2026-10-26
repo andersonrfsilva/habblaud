@@ -8,7 +8,9 @@ plano). 010–013: 2026-10-25, auditoria `deep` da CPU da interface web com a ec
 20–30%), no commit `31368cb` (`fork/main`), **medida com GPU de verdade** (Chromium com
 `--ozone-platform=headless --use-gl=angle --use-angle=gl-egl`, Intel UHD 630, 1440×900 em densidade 2). 014:
 2026-10-25 (variante `plan`), no commit `dfbdde3` (baseline: `npm run typecheck` ok, `npm test` 176 arquivos / 2119
-testes ok).
+testes ok). 015: 2026-10-25 (variante `plan`, a partir do spike 013). 016–022: 2026-10-25, auditoria `deep` geral no
+commit `af73a23` (baseline: `npm run typecheck` ok, `npm test` 181 arquivos / 2180 testes ok, `npm audit` 0
+vulnerabilidades); o plano 034 da mesma auditoria fica no repositório `omp-tenant`.
 
 **Onde executar:** sempre neste clone de desenvolvimento (`~/Desenvolvimento/habblaud`) ou numa worktree dele, nunca
 em `~/apps/habblaud`, que é o Habblaud de produção (o `omp-tenant release` lê os commits de lá). A produção só recebe
@@ -34,6 +36,13 @@ conditions e atualize sua linha ao terminar.
 | 013  | Spike: móveis e props desenhados em lote (atlas, camadas) | P3 | L | — | DONE (2026-10-25; `plans/013-resultado.md`). B+C: −14 pontos a 30 qps. Virou o plano 015 (branch do protótipo apagado) |
 | 014  | Bate-papo paralelo com um agente do omp numa janela lateral do terminal, com histórico em disco | P2 | L | — | DONE (merge 47aae29) |
 | 015  | Móveis do prédio numa camada única e props estáticos em duas camadas (B + C do 013) | P3 | L | 013 | DONE (merge fbf77db, em produção; 72,8% → 58,5% a 30 qps, 31,1% → 25,6% a 10 qps) |
+| 016  | Pergunta paralela cancelada na fila não roda; confirmação de entrega repetida | P1 | S | — | DONE (eacc922 + 25442e5, branch advisor/016-pergunta-paralela-cancelada, worktree /tmp/hb-016; revisado, sem merge) |
+| 017  | Erro ao montar o snapshot não derruba o servidor; desligamento sempre termina | P1 | S | — | TODO (depois do merge de 016 e 019: mexe em `server/index.ts` e `server/model/office.ts`) |
+| 018  | Teclas do terminal interativo sempre no pty certo ao trocar de agente | P2 | S | — | DONE (8ecc053 + cd70b88, branch advisor/018-terminal-teclas, worktree /tmp/hb-018; revisado, sem merge; verificação manual com dois agentes não feita) |
+| 019  | Título da sessão do omp reescrito não duplica o histórico (medido: ≤ 120 ms de releitura) | P3 | M | — | DONE (f5a4759, branch advisor/019-titulo-da-sessao, worktree /tmp/hb-019; só a Parte A: mediana 119,9 ms < 250 ms; revisado, sem merge) |
+| 020  | Login remoto: freio por origem (proxy confiável) e cookie `Secure` atrás de HTTPS | P1 | M | — | TODO (depois do merge de 016 e 022: mexe em `server/index.ts` e nos READMEs) |
+| 021  | Content-Security-Policy na página | P2 | S | — | DONE (dddea47, branch advisor/021-csp, worktree /tmp/hb-021; revisado, sem merge; smoke sem violações) |
+| 022  | Docs: rotas da API nos READMEs e no `server/README.md`; AGENTS.md cita o omp | P3 | S | — | DONE (4 commits, branch advisor/022-docs-api, worktree /tmp/hb-022; revisado, sem merge) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 
@@ -42,6 +51,10 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 - 014 é independente dos outros. Usa `ctx.runEphemeralTurn` do omp 18.12.6, confirmado no binário de
   `/opt/omp-tenant/omp`. A publicação (levar o commit a `~/apps/habblaud`, `omp-tenant release` + `sync`, reabrir as
   sessões do omp) é do operador, fora do plano.
+- 016–022 são independentes entre si. 016 e 017 primeiro (bugs com efeito real). 020 tem a parte do servidor; a
+  configuração dos pods (`HABBLAUD_REMOTE_TRUST_PROXY`) é o passo 6 do plano 034 do `omp-tenant`, bloqueado até o
+  020 entrar. 016 muda a extensão do omp: depois do merge, `npm run omp:install` (dono) ou `omp-tenant release` +
+  `instalar` + `sync` (usuários) e reabrir as sessões do omp. 020 e 021 só mudam o servidor.
 - 002–009: nenhum plano depende de outro; 002 e 003 primeiro (segurança e bug com efeito real).
 - 004 cria 3 textos novos em `tr()`: se 005 já tiver entrado, o CI cobra as traduções deles (o plano 004 já manda
   traduzir).
@@ -104,6 +117,26 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 - Limitar o laço com `setTimeout` + rAF em vez de pular quadros do rAF **a 30 qps**: medido sem GPU, mesma CPU
   (36–39%). Abaixo de 30 qps vale: com GPU, 38% → 34% a 10 qps (o plano 010 usa o timer só abaixo de 30).
 - Decorações de Halloween/Natal (~120 chamadas por quadro): pequeno e sazonal.
+- Auditoria de `af73a23`, achados vetados e não planejados:
+  - Snapshot e stream sem login na porta principal: a porta principal fica em 127.0.0.1 nas duas implantações; pela
+    Tailscale e pelo Traefik só se chega à porta remota, que responde 401 sem cookie (conferido com `ss -ltn` e um GET).
+    Expor a porta principal (`HABBLAUD_HOST=0.0.0.0`) é opção documentada e desliga terminal, mensagens e permissões.
+  - Entregas leem qualquer caminho que o agente cite (modo direto): só pelo id de uma entrega que o próprio agente
+    citou, o leitor é o dono da sessão, há lista de extensões, bloqueio de pastas secretas e `realpath`; HTML/SVG vão
+    com CSP sandbox. Sem saída para terceiros.
+  - Agente do pod aprova as próprias permissões pelo loopback do pod: é o modelo "processo local é confiável"; não
+    cruza para outro usuário nem para o host (nft bloqueia a saída).
+  - "Sem marca" ainda expõe `provider` e caminhos na API: é máscara de interface; o usuário vê a própria casa.
+  - Todos os pods com o mesmo uid (`omp-tenants`): decisão de arquitetura do `omp-tenant`, fora deste repositório.
+  - ffmpeg do ditado sem lista de protocolos: o ditado não está na imagem dos usuários; endurecimento sem caso real.
+  - Chave TLS remota 0644: protegida pela pasta 0700 e pelo `nameConstraints` da CA.
+  - Corridas do painel da pergunta paralela no cliente (`sending` compartilhado entre agentes, resposta velha ao
+    reabrir o mesmo agente): efeito cosmético, sem perda de dado.
+  - Tracker do omp sem `session_shutdown` que nunca é limpo, `.tmp` de asides, linha parcial no timeline após disco
+    cheio, mapas pequenos sem poda (`SessionTracker.known`, `warnOnce`): crescimento lento ou caso raro.
+  - Caminho do omp no Windows com maiúsculas diferentes, extração do ciclo de vida comum às três fontes, alinhar
+    `engines`/alvo do bundle/Node da imagem, prazo para retirar `server/legacy.ts`: valor baixo agora.
+  - Medir a cidade e a partida do servidor: sem sintoma relatado.
 
 ## Não auditado
 
@@ -119,3 +152,6 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
   planejado.
 - Interface fora do escritório (DOM, SSE, painéis): com o escritório suspenso, a página inteira fica em 1,5% de CPU;
   não há o que planejar ali.
+- Auditoria de `af73a23`: `server/world/**` (cliente do Habblaud World), `scripts/docker-up.ts`, scripts de gancho
+  do Codex, o proxy de cota `omp-tenant-cota` (onde a lista de modelos é de fato imposta), Traefik/TLS e ACLs da
+  Tailscale. Testes do `server/sources/codex/rollout.ts` sem arquivo próprio (o dono usa pouco o Codex).
