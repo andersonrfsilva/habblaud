@@ -2659,11 +2659,6 @@
   color: #c9d1e2;
 }
 
-/* ------------------------------------------------------------------ avisos (toasts) */
-
-/* Canto inferior direito, à esquerda da gaveta: ao lado do feed quando sobra espaço (fora do prédio
-   enquadrado), senão logo acima dele. Não cobre a placa da sala em foco nem o popover de configurações.
-   Posição e largura calculadas em ui/viewport.ts. O mais novo fica embaixo, perto da borda. */
 /* Pausa das animações do escritório: canto inferior direito, à esquerda da gaveta quando ela abre. */
 .ui-anim-toggle {
   position: fixed;
@@ -2680,6 +2675,11 @@
   display: none;
 }
 
+/* ------------------------------------------------------------------ avisos (toasts) */
+
+/* Canto inferior direito, à esquerda da gaveta: ao lado do feed quando sobra espaço (fora do prédio
+   enquadrado), senão logo acima dele. Não cobre a placa da sala em foco nem o popover de configurações.
+   Posição e largura calculadas em ui/viewport.ts. O mais novo fica embaixo, perto da borda. */
 .ui-toasts {
   position: fixed;
   z-index: 50;

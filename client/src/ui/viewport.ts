@@ -205,7 +205,8 @@ export class FreeArea {
     const right = Math.max(g.feedMargin, ins.right);
     const beside = g.vw - right - (feed.offsetLeft + feed.offsetWidth) - g.feedMargin;
     const corner = !g.drawerSheet && beside >= TOAST_MIN_W;
-    const bottom = corner ? g.feedMargin : ins.bottom;
+    // no canto, acima do botão de pausar as animações (32 px + folga), que fica rente à borda
+    const bottom = corner ? g.feedMargin + 40 : ins.bottom;
     const width = corner ? Math.min(TOAST_W, beside) : Math.min(TOAST_W, Math.max(240, g.vw - right - Math.max(g.feedMargin, ins.left)));
     const key = `${bottom}|${width}`;
     if (key === this.toastPlace) return;
