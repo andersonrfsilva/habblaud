@@ -44,7 +44,7 @@ conditions e atualize sua linha ao terminar.
 | 020  | Login remoto: freio por origem (proxy confiável) e cookie `Secure` atrás de HTTPS | P1 | M | — | DONE (merge 799cefd, em produção e nos usuários). Medido: o pod vê o Traefik como `10.89.0.2` (contêiner `cockpit-traefik`), **não** como o IP do host; o passo 8 deste plano, que mede com `curl` do host, dá o valor errado. Provado pela internet: origem bloqueada (429, 31 s) enquanto outra origem recebe 401; cookie com `Secure` |
 | 021  | Content-Security-Policy na página | P2 | S | — | DONE (merge b580ba9, em produção; 0 violações na página do dono) |
 | 022  | Docs: rotas da API nos READMEs e no `server/README.md`; AGENTS.md cita o omp | P3 | S | — | DONE (merge b0170b2) |
-| 023  | Ver e baixar os arquivos da pasta de trabalho pelo botão "Arquivos" da gaveta (salas + `~/projetos`) | P2 | L | — | DONE (merge 5205df7 + correção a10d232: clique no espaço vazio fechava a janela; em produção e nos usuários, release a10d2323cf46 + sync em 2026-10-26) |
+| 023  | Ver e baixar os arquivos da pasta de trabalho pelo botão "Arquivos" da gaveta (salas + `~/projetos`) | P2 | L | — | DONE (merge 5205df7 + 0c72d86: a janela fecha só pelo X ou Esc, nunca por clique; em produção e nos usuários, release 0c72d866449d + sync em 2026-10-26) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 
