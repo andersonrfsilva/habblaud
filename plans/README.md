@@ -37,10 +37,10 @@ conditions e atualize sua linha ao terminar.
 | 014  | Bate-papo paralelo com um agente do omp numa janela lateral do terminal, com histórico em disco | P2 | L | — | DONE (merge 47aae29) |
 | 015  | Móveis do prédio numa camada única e props estáticos em duas camadas (B + C do 013) | P3 | L | 013 | DONE (merge fbf77db, em produção; 72,8% → 58,5% a 30 qps, 31,1% → 25,6% a 10 qps) |
 | 016  | Pergunta paralela cancelada na fila não roda; confirmação de entrega repetida | P1 | S | — | DONE (merge 1da57cc + 5b7dca2, em produção e nos usuários; vale nas sessões do omp reabertas) |
-| 017  | Erro ao montar o snapshot não derruba o servidor; desligamento sempre termina | P1 | S | — | TODO (pode rodar agora: 016 e 019 já entraram) |
+| 017  | Erro ao montar o snapshot não derruba o servidor; desligamento sempre termina | P1 | S | — | DONE (d20ede3, branch advisor/017-servidor-nao-cai, worktree /tmp/hb-017; revisado, sem merge) |
 | 018  | Teclas do terminal interativo sempre no pty certo ao trocar de agente | P2 | S | — | DONE (merge 015f259, em produção; verificação manual com dois agentes não feita) |
 | 019  | Título da sessão do omp reescrito não duplica o histórico (medido: ≤ 120 ms de releitura) | P3 | M | — | DONE (merge a625399, em produção; só a Parte A) |
-| 020  | Login remoto: freio por origem (proxy confiável) e cookie `Secure` atrás de HTTPS | P1 | M | — | TODO (pode rodar agora: 016 e 022 já entraram; depois, passo 6 do plano 034 do `omp-tenant`) |
+| 020  | Login remoto: freio por origem (proxy confiável) e cookie `Secure` atrás de HTTPS | P1 | M | — | DONE (370d7f7 + ff642d0, branch advisor/020-login-remoto-por-origem, worktree /tmp/hb-020; revisado, sem merge). Medição do endereço que o pod vê pelo Traefik (passo 8) não feita; ela alimenta o passo 6 do 034 |
 | 021  | Content-Security-Policy na página | P2 | S | — | DONE (merge b580ba9, em produção; 0 violações na página do dono) |
 | 022  | Docs: rotas da API nos READMEs e no `server/README.md`; AGENTS.md cita o omp | P3 | S | — | DONE (merge b0170b2) |
 
