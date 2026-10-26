@@ -3479,4 +3479,8 @@ export const EN: Readonly<Record<string, string>> = {
   "os arquivos só abrem pelo próprio computador (http://localhost)": "files only open from the computer itself (http://localhost)",
   "tipo de arquivo que não se mostra aqui: baixe": "file type that can't be shown here: download it",
   "arquivo grande demais para ver aqui: baixe": "file too large to view here: download it",
+  // client/src/ui/history.ts (favoritas)
+  "Favoritas": "Favorites",
+  "Favoritar sessão": "Favorite session",
+  "Tirar dos favoritos": "Remove from favorites",
 };

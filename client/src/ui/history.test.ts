@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentInfo, RecentSession } from '../../../shared/types';
-import { canResume, dayLabel, filterSessions, formatSize, groupSessionsByDay, parseRecentSessions, resumeTargets } from './history';
+import { canResume, dayLabel, filterSessions, formatSize, groupSessionsByDay, resumeTargets } from './history';
+import { parseRecentSessions } from './recent-sessions';
 
 const NOW = new Date(2026, 9, 8, 15, 0, 0).getTime();
 const at = (day: number, hour: number, min = 0) => new Date(2026, 9, day, hour, min).getTime();

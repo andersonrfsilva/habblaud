@@ -3480,4 +3480,8 @@ export const ES: Readonly<Record<string, string>> = {
   "os arquivos só abrem pelo próprio computador (http://localhost)": "los archivos solo se abren desde el propio ordenador (http://localhost)",
   "tipo de arquivo que não se mostra aqui: baixe": "tipo de archivo que no se muestra aquí: descárgalo",
   "arquivo grande demais para ver aqui: baixe": "archivo demasiado grande para verlo aquí: descárgalo",
+  // client/src/ui/history.ts (favoritas)
+  "Favoritas": "Favoritas",
+  "Favoritar sessão": "Marcar sesión como favorita",
+  "Tirar dos favoritos": "Quitar de favoritos",
 };
