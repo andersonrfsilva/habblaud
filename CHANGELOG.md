@@ -12,6 +12,12 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Salas comuns compactas:** em **Configurações › Escritório › Salas comuns**, a opção **Compactas** troca os
+  banheiros, a copa e o lounge por um lounge só, com copa (cafeteiras, bebedouro, máquina de lanches, mesinhas, sofá e
+  TV), ao lado da recepção. O núcleo passa a ocupar uma coluna em vez de duas, e as salas de projeto começam mais
+  perto da entrada. Sem banheiros, ping-pong e fliperama, os agentes ociosos fazem as outras atividades. A página
+  recarrega ao trocar; o padrão continua sendo **Completas**.
+
 - **Sessões favoritas no Histórico:** cada sessão do Histórico ganha uma estrela. A favorita vai para a seção
   "Favoritas", no topo, e continua lá depois dos 7 dias (abre a conversa normalmente). A mesma estrela aparece na
   gaveta: ao lado do id da sessão do agente e em cada agente da lista "Agentes" da sala (subagentes e o demo ficam

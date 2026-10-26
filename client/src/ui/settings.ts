@@ -90,6 +90,7 @@ export class SettingsPopover implements UiComponent {
   private liveliness: ReturnType<typeof segmented<UiPrefs['liveliness']>>;
   private daylight: ReturnType<typeof segmented<UiPrefs['daylight']>>;
   private theme: ReturnType<typeof segmented<UiPrefs['theme']>>;
+  private coreLayout: ReturnType<typeof segmented<UiPrefs['coreLayout']>>;
   private language: ReturnType<typeof segmented<LanguageChoice>>;
   private soundGroup: SoundSettingsGroup;
   private demoGroup: HTMLElement;
@@ -153,6 +154,22 @@ export class SettingsPopover implements UiComponent {
       },
     );
     this.theme.row.append(h('span', { class: 'ui-set__hint', text: tr('Automático: Halloween em outubro e Natal de 1º de novembro a 26 de dezembro; no resto do ano, o visual original. Nenhum: sempre o original.') }));
+    this.coreLayout = segmented<UiPrefs['coreLayout']>(
+      tr('Salas comuns'),
+      [
+        ['full', tr('Completas')],
+        ['compact', tr('Compactas')],
+      ],
+      (v) => {
+        if (v === ctx.prefs.coreLayout) return;
+        ctx.updatePrefs({ coreLayout: v });
+        // as salas de projeto mudam de coluna: o prédio é montado de novo ao carregar a página
+        location.reload();
+      },
+    );
+    this.coreLayout.row.append(
+      h('span', { class: 'ui-set__hint', text: tr('Compactas: só a recepção e um lounge com copa, sem banheiros, deixando mais espaço para as salas de projeto. A página recarrega.') }),
+    );
     this.soundGroup = new SoundSettingsGroup(ctx, sound);
 
     // Nomes dos idiomas sempre na própria língua, para quem não entende o idioma atual achar o seu.
@@ -219,6 +236,7 @@ export class SettingsPopover implements UiComponent {
           tr('Com o omp numa pasta que junta vários projetos (sem git), o personagem vai para a sala da subpasta em que está trabalhando.'),
           () => void this.toggleOmpRoom(),
         ),
+        this.coreLayout.row,
       ),
       h(
         'div',
@@ -302,6 +320,7 @@ export class SettingsPopover implements UiComponent {
     this.liveliness.set(p.liveliness);
     this.daylight.set(p.daylight);
     this.theme.set(p.theme);
+    this.coreLayout.set(p.coreLayout);
     this.language.set(savedLanguage());
     this.soundGroup.render();
     setHidden(this.demoGroup, this.ctx.store.mock || access().remote);

@@ -1,11 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { FURNITURE, TILE, type FurnitureKind, type RoomTheme } from '../../art/api';
-import { BUILDING_H, COL_W, CORRIDOR_Y, SOUTH_Y } from '../constants';
+import { BUILDING_H, COL_W, CORRIDOR_Y, setCoreLayout, SOUTH_Y } from '../constants';
 import { assembleBuilding, coreAreas } from './building';
 import { columnsFor, slotAt, slotColumn, slotRect, slotSide } from './geometry';
 import { layoutProjectRoom, roomVariant } from './room';
 import { layoutExterior, slotShell } from './exterior';
-import { RECEPTION_ID } from './core';
+import { LOUNGE_ID, RECEPTION_ID } from './core';
 import type { AreaLayout } from './types';
 
 const theme: RoomTheme = {
@@ -234,5 +234,55 @@ describe('itens de parede', () => {
     const restroom = coreAreas().find((a) => a.kind === 'restroom')!;
     expect(restroom.wallItems.some((w) => w.kind === 'door_frame')).toBe(true);
     for (const room of roomsFor([1, 3, 7])) expect(room.wallItems.some((w) => w.kind === 'door_frame'), room.id).toBe(true);
+  });
+});
+
+describe('núcleo compacto', () => {
+  let b: ReturnType<typeof assembleBuilding>;
+  let rooms: AreaLayout[];
+  beforeAll(() => {
+    setCoreLayout('compact');
+    rooms = roomsFor([0, 1, 2, 3]);
+    b = assembleBuilding(columnsFor([0, 1, 2, 3]), rooms);
+  });
+  afterAll(() => setCoreLayout('full'));
+
+  it('ocupa uma coluna: recepção e lounge com copa; as salas começam na coluna 1', () => {
+    expect(b.core.map((a) => a.id)).toEqual([RECEPTION_ID, LOUNGE_ID]);
+    expect(slotColumn(0)).toBe(1);
+    expect(slotAt(1, 'south')).toBe(1);
+    expect(columnsFor([])).toBe(2);
+    expect(slotRect(0)).toEqual({ x: COL_W, y: 0, w: COL_W, h: 12 });
+  });
+
+  it('o lounge tem copa, TV e mesinhas, e nada de banheiro', () => {
+    const kinds = new Set(b.spots.map((s) => s.kind));
+    for (const k of ['coffee', 'water', 'snack', 'sofa', 'armchair', 'cafe_seat', 'beanbag'] as const) expect(kinds.has(k)).toBe(true);
+    expect(kinds.has('stall')).toBe(false);
+    expect(b.core[1].wallItems.some((w) => w.kind === 'tv')).toBe(true);
+  });
+
+  it('todos os spots são alcançáveis, sem móveis sobrepostos nem itens de parede escondidos', () => {
+    const reception = b.core[0];
+    const elevator = reception.spots.find((s) => s.kind === 'elevator')!;
+    const reach = b.grid.reachableFrom(elevator.tx, elevator.ty);
+    expect(b.spots.filter((s) => reach[s.ty * b.grid.w + s.tx] !== 1).map((s) => s.id)).toEqual([]);
+    for (const area of [...b.core, b.corridor]) {
+      const used = new Set<string>();
+      for (const f of area.furniture) {
+        const def = FURNITURE[f.kind];
+        if (!def.blocks) continue;
+        for (let y = f.ty; y < f.ty + def.footprint.h; y++)
+          for (let x = f.tx; x < f.tx + def.footprint.w; x++) {
+            expect(used.has(`${x},${y}`), `${f.id}`).toBe(false);
+            used.add(`${x},${y}`);
+          }
+      }
+      expect(hiddenWallItems(area)).toEqual([]);
+    }
+  });
+
+  it('corredor: a coluna 1 já é de projeto (bebedouro, não o banco do núcleo)', () => {
+    expect(b.corridor.furniture.some((f) => f.kind === 'water_cooler' && f.tx === COL_W + 3)).toBe(true);
   });
 });

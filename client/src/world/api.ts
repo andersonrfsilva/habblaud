@@ -26,6 +26,9 @@ export interface WorldOptions {
   powerSave?: boolean;
 }
 
+/** Núcleo do prédio: completo (recepção, banheiros, copa e lounge) ou compacto (recepção e um lounge com copa). */
+export type CoreLayout = 'full' | 'compact';
+
 /** Tema que o renderer desenha: o escritório original ('none') ou um dos sazonais. */
 export type SeasonalTheme = 'none' | 'christmas' | 'halloween';
 export type OfficeTheme = 'auto' | SeasonalTheme;

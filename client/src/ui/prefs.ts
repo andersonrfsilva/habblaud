@@ -1,7 +1,7 @@
 // Preferências da interface, persistidas em localStorage ('habblaud:prefs').
 // Puro: o armazenamento é injetado (testável em node).
 import { DEFAULT_SOUND_SETTINGS, sanitizeSoundSettings, type SoundSettings } from '../audio/scheduler';
-import type { DaylightMode, WorldOptions } from '../world/api';
+import type { CoreLayout, DaylightMode, WorldOptions } from '../world/api';
 import { DEFAULT_WORLD_OPTIONS } from '../world/api';
 
 export const PREFS_KEY = 'habblaud:prefs';
@@ -15,6 +15,8 @@ export interface UiPrefs {
   theme: NonNullable<WorldOptions['theme']>;
   /** Economia de energia: escritório desenhado em densidade 1 (desligada por padrão). */
   powerSave: boolean;
+  /** Salas comuns: completas ou compactas (vale ao recarregar a página). */
+  coreLayout: CoreLayout;
   /** Sons sintetizados (interruptor geral; desligado por padrão). */
   sound: boolean;
   /** Volume mestre e categorias dos sons. */
@@ -36,6 +38,7 @@ export const DEFAULT_PREFS: UiPrefs = {
   daylight: 'auto',
   theme: 'auto',
   powerSave: false,
+  coreLayout: 'full',
   sound: false,
   sounds: DEFAULT_SOUND_SETTINGS,
   browserNotifications: false,
@@ -63,6 +66,7 @@ export function sanitizePrefs(raw: unknown): UiPrefs {
     daylight: oneOf(o.daylight, ['auto', 'day', 'night'] as const, o.dayNight === false ? 'day' : d.daylight),
     theme: oneOf(o.theme, ['auto', 'none', 'christmas', 'halloween'] as const, d.theme),
     powerSave: bool(o.powerSave, d.powerSave),
+    coreLayout: oneOf(o.coreLayout, ['full', 'compact'] as const, d.coreLayout),
     sound: bool(o.sound, d.sound),
     sounds: sanitizeSoundSettings(o.sounds),
     browserNotifications: bool(o.browserNotifications, d.browserNotifications),

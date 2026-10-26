@@ -1,5 +1,5 @@
 // Corredor que atravessa o prédio de oeste a leste, com bebedouros, bancos e plantas.
-import { COL_W, CORE_COLS, CORRIDOR_H, CORRIDOR_Y } from '../constants';
+import { COL_W, coreCols, CORRIDOR_H, CORRIDOR_Y } from '../constants';
 import { AreaBuilder } from './builder';
 import type { AreaLayout } from './types';
 
@@ -21,19 +21,20 @@ export function layoutCorridor(cols: number): AreaLayout {
   }
   b.walk(1, 0, w - 2, CORRIDOR_H);
 
+  const core = coreCols();
   for (let c = 0; c < cols; c++) {
     const x = c * COL_W;
     const last = c === cols - 1;
     if (c === 0) {
       b.furn('plant_tall', x + 2, 4, 'palm', { order: 0.5 });
       b.furn('plant_small', x + 13, 4, 'flower', { order: 0.5 });
-    } else if (c === 1) {
+    } else if (c < core) {
       const bench = b.furn('bench', x + 2, 0, undefined, { order: 0.5 });
       for (let i = 0; i < 2; i++) b.seat('bench', 'bench', x + 2 + i, 0, 'down', undefined, { noFurniture: true, furnitureId: bench });
       b.furn('plant_tall', x + 13, 0, 'monstera', { order: 0.5 });
     } else {
       // colunas de projeto alternam: bebedouro (pares) e banco de espera (ímpares)
-      const k = c - CORE_COLS;
+      const k = c - core;
       if (k % 2 === 0) {
         b.furn('water_cooler', x + 3, 0, undefined, { order: 0.5 });
         b.spot('water', x + 3, 1, 'up', { dy: -3 });

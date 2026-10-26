@@ -1,9 +1,10 @@
 // Montagem do prédio: núcleo + corredor + salas de projeto -> grade de caminhabilidade e spots.
 import { FURNITURE } from '../../art/api';
-import { BUILDING_H, COL_W } from '../constants';
+import type { CoreLayout } from '../api';
+import { BUILDING_H, COL_W, getCoreLayout } from '../constants';
 import { BLOCKED, FREE, SEAT, WalkGrid } from '../path/grid';
 import { furnitureBlocks, furnitureIsSeat } from './builder';
-import { layoutCafe, layoutLounge, layoutReception, layoutRestroom } from './core';
+import { layoutBreakRoom, layoutCafe, layoutLounge, layoutReception, layoutRestroom } from './core';
 import { layoutCorridor } from './corridor';
 import { buildingRect } from './geometry';
 import type { AreaLayout, SpotDef, TileRect } from './types';
@@ -18,11 +19,17 @@ export interface BuildingLayout {
   spots: SpotDef[];
 }
 
-let coreCache: AreaLayout[] | null = null;
+const coreCache = new Map<CoreLayout, AreaLayout[]>();
 
-/** Áreas fixas do núcleo (calculadas uma vez). */
+/** Áreas fixas do núcleo (calculadas uma vez por formato). */
 export function coreAreas(): AreaLayout[] {
-  return (coreCache ??= [layoutReception(), layoutRestroom(), layoutCafe(), layoutLounge()]);
+  const layout = getCoreLayout();
+  let areas = coreCache.get(layout);
+  if (!areas) {
+    areas = layout === 'compact' ? [layoutReception(), layoutBreakRoom()] : [layoutReception(), layoutRestroom(), layoutCafe(), layoutLounge()];
+    coreCache.set(layout, areas);
+  }
+  return areas;
 }
 
 /** Marca na grade as células caminháveis de uma área, os bloqueios e os assentos. */

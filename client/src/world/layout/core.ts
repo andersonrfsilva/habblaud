@@ -1,4 +1,5 @@
-// Núcleo do prédio (colunas 0 e 1): recepção com elevadores, banheiros, copa e lounge.
+// Núcleo do prédio (colunas 0 e 1): recepção com elevadores, banheiros, copa e lounge. Compacto (coluna 0): recepção e
+// um lounge com copa.
 import type { WallStyle } from '../../art/api';
 import { COL_W, NORTH_Y, ROOM_H, SOUTH_Y, TILE } from '../constants';
 import { AreaBuilder, SEATED_SORT_BIAS } from './builder';
@@ -244,5 +245,67 @@ export function layoutLounge(): AreaLayout {
   // torcida do ping-pong: atrás da mesa, de frente para a câmera
   b.spot('watch', 10, 5, 'down', { group: 'watch:pingpong', dx: 2 });
   b.spot('watch', 12, 5, 'down', { group: 'watch:pingpong', dx: -2 });
+  return b.build();
+}
+
+/** Núcleo compacto: lounge com copa no lugar dos banheiros (mesmo id do lounge: TV e rodas de conversa continuam). */
+export function layoutBreakRoom(): AreaLayout {
+  const b = new AreaBuilder(LOUNGE_ID, 'lounge', { x: 0, y: SOUTH_Y, w: COL_W, h: ROOM_H });
+  const wall = CORE_WALLS.lounge;
+  b.floor('wood', 0, 0, 16, 12, 401);
+  b.rug(1.6, 5.3, 3.8, 4.6, '#b98a5e', 402);
+  b.rug(9.5, 3.2, 6, 5.2, '#4f8a5b', 403);
+  // copa (bancada com mármore) a oeste; parede da TV a leste; passagem no meio
+  b.face(0.5, 6.5, CORE_WALLS.cafeSplash);
+  b.face(10, 5.5, wall);
+  b.south(0.5, 15, 11, { ...wall, exterior: true });
+  b.cap(0, 0, 0.5, 12, wall);
+  b.cap(15.5, 0, 0.5, 12, wall);
+  b.walk(1, 2, 14, 9);
+  b.walk(7, 0, 3, 2);
+  b.area.door = { x: 7, y: SOUTH_Y, w: 3, h: 2 };
+
+  b.furn('fridge', 1, 2, undefined, { order: 0.2 });
+  b.spot('fridge', 1, 3, 'up', { dy: -3 });
+  b.furn('counter_sink', 2, 2, undefined, { order: 0.22 });
+  b.spot('sink', 2, 3, 'up', { dy: -3 });
+  for (const lx of [3, 4]) {
+    const m = b.furn('coffee_machine', lx, 2, undefined, { order: 0.24 });
+    b.spot('coffee', lx, 3, 'up', { dy: -3, furnitureId: m });
+  }
+  b.wall('poster', 3.5, 'coffee', { order: 0.45 });
+  const vend = b.furn('vending_machine', 5, 2, undefined, { order: 0.26 });
+  b.spot('snack', 5, 3, 'up', { dy: -3, furnitureId: vend });
+  b.furn('water_cooler', 6, 2, undefined, { order: 0.28 });
+  b.spot('water', 6, 3, 'up', { dy: -3 });
+
+  // mesinhas bistrô
+  for (const [ly, i] of [
+    [6, 0],
+    [9, 1],
+  ] as const) {
+    b.furn('cafe_table', 3, ly, undefined, { order: 0.7 + i * 0.03 });
+    b.seat('cafe_seat', 'cafe_chair', 2, ly, 'right', 'right', { order: 0.72 + i * 0.03 });
+    b.seat('cafe_seat', 'cafe_chair', 4, ly, 'left', 'left', { order: 0.73 + i * 0.03 });
+  }
+
+  // sofá de costas para a câmera, de frente para a TV
+  b.wall('tv', 12.5, undefined, { order: 0.4 });
+  const sofa = b.furn('sofa', 11, 6, 'up', { order: 0.5 });
+  for (let i = 0; i < 3; i++) b.seat('sofa', 'sofa', 11 + i, 6, 'up', 'up', { noFurniture: true, furnitureId: sofa });
+  b.furn('coffee_table', 11, 4, undefined, { dx: TILE / 2, order: 0.45 });
+  b.block(13, 4, 1, 1);
+  b.seat('armchair', 'armchair', 10, 4, 'right', 'right', { order: 0.55 });
+  b.seat('armchair', 'armchair', 14, 4, 'left', 'left', { order: 0.56 });
+
+  (['red', 'blue', 'yellow'] as const).forEach((c, i) => {
+    b.seat('beanbag', 'beanbag', 10 + i * 2, 9, 'down', c, { order: 0.6 + i * 0.02 });
+  });
+  b.spot('talk', 7, 8, 'right', { group: 'talk:lounge', dx: -1 });
+  b.spot('talk', 8, 8, 'left', { group: 'talk:lounge', dx: 1 });
+  b.furn('plant_small', 14, 2, 'fern', { order: 0.2 });
+  b.furn('plant_tall', 1, 10, 'monstera', { order: 0.21 });
+  b.furn('floor_lamp', 8, 10, undefined, { order: 0.32 });
+  b.furn('trash_bin', 6, 6, undefined, { order: 0.6 });
   return b.build();
 }

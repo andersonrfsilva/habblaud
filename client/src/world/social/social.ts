@@ -481,7 +481,8 @@ export class Social {
    * Para 3–4, dois pares vizinhos da mesa comprida.
    */
   private kitchenSeats(n: number, free: (s: SpotDef) => boolean, rng: () => number): SeatPlan | null {
-    const seats = this.sim.spots.ofKind('cafe_seat').filter((s) => s.areaId === CAFE_ID);
+    // na copa ou, no núcleo compacto, nas mesinhas do lounge
+    const seats = this.sim.spots.ofKind('cafe_seat').filter((s) => s.areaId === CAFE_ID || s.areaId === LOUNGE_ID);
     const at = (x: number, y: number, dir: Dir) => seats.find((s) => s.tx === x && s.ty === y && s.dir === dir);
     const pairs: SpotDef[][] = [];
     for (const s of seats) {

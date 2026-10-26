@@ -1,7 +1,7 @@
 // Área externa: grama, árvores, calçada e rua; pátio/jardim nos slots sem sala.
 import type { WallStyle } from '../../art/api';
 import { mulberry32 } from '../../../../shared/hash';
-import { BUILDING_H, COL_W, CORE_COLS, CORRIDOR_Y, EXT_EAST, EXT_NORTH, EXT_SOUTH, EXT_WEST, SOUTH_Y, TILE } from '../constants';
+import { BUILDING_H, COL_W, coreCols, CORRIDOR_Y, EXT_EAST, EXT_NORTH, EXT_SOUTH, EXT_WEST, SOUTH_Y, TILE } from '../constants';
 import { cellRect, slotAt, slotColumn, slotSide } from './geometry';
 import type { ExteriorProp, FloorPatch, TileRect, WallItemPlacement, WallSegment } from './types';
 
@@ -77,7 +77,7 @@ export function layoutExterior(cols: number): ExteriorLayout {
   for (let x = 0; x < w; x += 2) {
     const col = Math.floor(x / COL_W);
     const lx = x - col * COL_W;
-    const gate = col >= CORE_COLS && (lx === 6 || lx === 8) ? slotAt(col, 'south') : undefined;
+    const gate = col >= coreCols() && (lx === 6 || lx === 8) ? slotAt(col, 'south') : undefined;
     props.push({ kind: (x / 2) % 3 === 1 ? 'flowers' : 'hedge', x: px(x) + TILE, y: px(south + 1) + 10, seed: x * 7 + 3, whenRoom: gate });
   }
   for (let x = bounds.x + 4; x < bounds.x + bounds.w; x += 10) {

@@ -5,7 +5,7 @@ import { TILE, type ArtModule, type CharacterFrameRequest, type IconName, type S
 import type { SeasonalTheme, WorldOptions } from '../api';
 import type { WorldAssets } from '../assets';
 import type { Camera } from '../camera';
-import { BUILDING_H, COL_W, CORE_COLS, CORRIDOR_Y } from '../constants';
+import { BUILDING_H, COL_W, coreCols, CORRIDOR_Y } from '../constants';
 import { layoutExterior, slotShell, type ExteriorLayout, type SlotShell } from '../layout/exterior';
 import { slotAt } from '../layout/geometry';
 import type { ExteriorProp } from '../layout/types';
@@ -240,7 +240,7 @@ export class Renderer {
     for (let x = this.baseX + 4; x < this.baseX + c.width; x += 24) ctx.fillRect(x, ly, 12, 2);
     this.shells = [];
     this.shellWindows = [];
-    for (let col = CORE_COLS; col < cols; col++) {
+    for (let col = coreCols(); col < cols; col++) {
       for (const side of ['north', 'south'] as const) {
         const sh = slotShell(slotAt(col, side), col === cols - 1);
         this.shells.push(sh);

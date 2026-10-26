@@ -6,12 +6,15 @@ import { createWorld, type WorldApi } from './world';
 import { createUI } from './ui';
 import type { CitySceneHost } from './ui/world/scene-switch';
 import type { CityScene } from './world/city';
-import { migrateLegacyKeys, safeLocalStorage } from './ui/prefs';
+import { loadPrefs, migrateLegacyKeys, safeLocalStorage } from './ui/prefs';
+import { setCoreLayout } from './world/constants';
 import { getLocale, tr } from '../../shared/i18n';
 
 export function start(): void {
   // Antes de tudo: o mundo (carteiras) e a UI (preferências) leem o localStorage ao serem criados.
   migrateLegacyKeys(safeLocalStorage());
+  // O formato do núcleo define a coluna de cada sala: fica fixo até recarregar a página.
+  setCoreLayout(loadPrefs(safeLocalStorage()).coreLayout);
 
   // Idioma escolhido (shared/i18n): leitores de tela e o corretor do navegador seguem o atributo lang.
   document.documentElement.lang = getLocale();

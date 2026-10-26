@@ -1,5 +1,6 @@
 // Dimensões e ritmos do mundo. Tudo em tiles (TILE px) salvo indicação em contrário.
 import { TILE } from '../art/api';
+import type { CoreLayout } from './api';
 
 export { TILE };
 
@@ -9,8 +10,21 @@ export const COL_W = 16;
 export const ROOM_H = 12;
 /** Altura do corredor que corta o prédio de leste a oeste. */
 export const CORRIDOR_H = 5;
-/** Colunas do núcleo (recepção/banheiros e copa/lounge). */
-export const CORE_COLS = 2;
+let coreLayout: CoreLayout = 'full';
+
+/** Escolhido no boot, antes de montar o prédio (trocar recarrega a página: as salas mudam de coluna). */
+export function setCoreLayout(layout: CoreLayout): void {
+  coreLayout = layout;
+}
+
+export function getCoreLayout(): CoreLayout {
+  return coreLayout;
+}
+
+/** Colunas do núcleo: recepção/banheiros e copa/lounge, ou só recepção/lounge no compacto. */
+export function coreCols(): number {
+  return coreLayout === 'compact' ? 1 : 2;
+}
 
 export const NORTH_Y = 0;
 export const CORRIDOR_Y = ROOM_H;
