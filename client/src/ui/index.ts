@@ -25,7 +25,7 @@ import { HoverTip } from './hovertip';
 import { hasRunningShells } from './model';
 import { hasShortPermission } from './provider';
 import { Notifier } from './notify';
-import { ConnectionBanner, EmptyState, Splash } from './overlays';
+import { AnimationToggle, ConnectionBanner, EmptyState, Splash } from './overlays';
 import { focusPermission, nextPermissionAgent } from './permission';
 import { loadPrefs, safeLocalStorage, savePrefs, worldOptionsFrom, type UiPrefs } from './prefs';
 import { SettingsPopover } from './settings';
@@ -289,6 +289,7 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
   world.onRoomContextMenu?.((id, at) => renamer.open(id, at));
   const empty = new EmptyState(ctx);
   const banner = new ConnectionBanner(ctx);
+  const animToggle = new AnimationToggle(ctx);
   const update = new UpdateBanner(store);
   const tip = new HoverTip(ctx);
   const splash = new Splash(ctx);
@@ -301,7 +302,7 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
   const scrim = h('div', { class: 'ui-scrim', attrs: { 'aria-hidden': 'true' }, on: { click: () => ctx.togglePanel('sidebar', false) } });
 
   root.classList.add('ui-root');
-  root.append(topbar.el, sidebar.el, scrim, feed.el, drawer.el, terminal.el, pty.el, toasts.el, banner.el, update.el, empty.el, popups.el, tip.el, settings.el, worldDialog.el, history.el, deliveries.el, files.el, help.el, renamer.el, live, splash.el);
+  root.append(topbar.el, sidebar.el, scrim, feed.el, drawer.el, terminal.el, pty.el, toasts.el, banner.el, animToggle.el, update.el, empty.el, popups.el, tip.el, settings.el, worldDialog.el, history.el, deliveries.el, files.el, help.el, renamer.el, live, splash.el);
   area = new FreeArea(world, { root, topbar: topbar.el, sidebar: sidebar.el, drawer: drawer.el, feed: feed.el }, () => ({
     sidebar: panels.sidebar,
     feed: panels.feed,
@@ -310,7 +311,7 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
   }));
   drawer.onLayoutChange = () => applyLayout();
 
-  const components: UiComponent[] = [topbar, sidebar, drawer, terminal, pty, history, deliveries, files, feed, toasts, settings, empty, banner, tip, notifier, splash, timelapse, sound, day, updateToaster, worldDialog, popups, worldChip];
+  const components: UiComponent[] = [topbar, sidebar, drawer, terminal, pty, history, deliveries, files, feed, toasts, settings, empty, banner, animToggle, tip, notifier, splash, timelapse, sound, day, updateToaster, worldDialog, popups, worldChip];
   if (scene) components.push(scene);
   root.append(worldSocial.el);
   components.push(worldSocial);

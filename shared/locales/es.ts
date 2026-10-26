@@ -3495,4 +3495,6 @@ export const ES: Readonly<Record<string, string>> = {
   "Advisor do omp ligado nesta sessão. Clique para desligar (/advisor off)": "El advisor de omp está activado en esta sesión. Haz clic para desactivarlo (/advisor off)",
   "Advisor do omp desligado nesta sessão. Clique para ligar (/advisor on)": "El advisor de omp está desactivado en esta sesión. Haz clic para activarlo (/advisor on)",
   "Liga o advisor do omp nesta sessão (/advisor on). O Habblaud não vê se ele já está ligado; o olho mostra o último comando enviado daqui": "Activa el advisor de omp en esta sesión (/advisor on). Habblaud no ve si ya está activado; el ojo muestra el último comando enviado desde aquí",
+  "Pausar animações": "Pausar animaciones",
+  "Retomar animações": "Reanudar animaciones",
 };

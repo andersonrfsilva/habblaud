@@ -111,6 +111,11 @@ export interface WorldApi {
    * escritório continua à vista, mas a 30 qps gasta cerca de metade da CPU (docs/terminal-celular-desempenho.md).
    */
   setFrameCap?(fps: number): void;
+  /**
+   * (Opcional, aditivo) Animações pausadas: a simulação e o desenho param no instante da pausa (câmera, zoom e clique
+   * continuam); ao retomar, a simulação pula para o presente, como com a aba em segundo plano.
+   */
+  setPaused?(paused: boolean): void;
   destroy(): void;
 }
 

@@ -2659,6 +2659,22 @@
   color: #c9d1e2;
 }
 
+/* Pausa das animações do escritório: canto inferior direito, à esquerda da gaveta quando ela abre. */
+.ui-anim-toggle {
+  position: fixed;
+  z-index: 15;
+  right: max(var(--gap), var(--free-right));
+  bottom: calc(var(--gap) + env(safe-area-inset-bottom, 0px));
+  background: var(--ui-bg);
+  -webkit-backdrop-filter: blur(14px) saturate(1.25);
+  backdrop-filter: blur(14px) saturate(1.25);
+  border: 1px solid var(--ui-line);
+}
+.ui-root.is-replay .ui-anim-toggle,
+.ui-root.is-city .ui-anim-toggle {
+  display: none;
+}
+
 /* ------------------------------------------------------------------ avisos (toasts) */
 
 /* Canto inferior direito, à esquerda da gaveta: ao lado do feed quando sobra espaço (fora do prédio
