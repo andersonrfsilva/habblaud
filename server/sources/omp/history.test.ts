@@ -26,13 +26,14 @@ function setup() {
   const open = new Set<string>();
   const history = new OmpHistory({ accounts: () => [{ id: '.omp', dir }], openAgentOf: (acc, sid) => (open.has(sid) ? `omp:${sid}` : undefined), now: () => now });
   /** Sessão principal em sessions/<projeto>/; `parent` grava um cabeçalho de subagente. */
-  const session = (id: string, o: { title?: string; cwd?: string; at?: number; mtime?: number; parent?: string } = {}) => {
+  const session = (id: string, o: { title?: string; cwd?: string; at?: number; mtime?: number; parent?: string; prompt?: string } = {}) => {
     const proj = join(dir, 'sessions', '-proj');
     mkdirSync(proj, { recursive: true });
     const at = o.at ?? now - 60_000;
     const path = join(proj, `${new Date(at).toISOString().replace(/[:.]/g, '-')}_${id}.jsonl`);
     const header = { type: 'session', version: 3, id, timestamp: new Date(at).toISOString(), cwd: o.cwd ?? '/projetos/loja', ...(o.parent ? { parentSession: o.parent } : {}) };
-    writeFileSync(path, `${JSON.stringify({ type: 'title', v: 1, title: o.title ?? '' })}\n${JSON.stringify(header)}\n`);
+    const msg = o.prompt ? `${JSON.stringify({ type: 'message', message: { role: 'user', content: [{ type: 'text', text: o.prompt }] } })}\n` : '';
+    writeFileSync(path, `${JSON.stringify({ type: 'title', v: 1, title: o.title ?? '' })}\n${JSON.stringify(header)}\n${msg}`);
     if (o.mtime) utimesSync(path, o.mtime / 1000, o.mtime / 1000);
     return path;
   };
@@ -43,7 +44,7 @@ describe('histórico do omp', () => {
   it('lista as sessões dos últimos 7 dias com título, projeto e início; sem subagentes nem antigas', async () => {
     const { history, now, open, session } = setup();
     const a = session(A, { title: '🏨 HABB: auditoria', cwd: '/home/u/habblaud', at: now - 3_600_000 });
-    session(B, { mtime: now - 120_000 });
+    session(B, { mtime: now - 120_000, prompt: 'arrume o checkout' });
     session(OLD, { mtime: now - 10 * 86_400_000 });
     // Subagente: pasta irmã da sessão principal (e cabeçalho com parentSession).
     mkdirSync(a.replace(/\.jsonl$/, ''), { recursive: true });
@@ -53,7 +54,16 @@ describe('histórico do omp', () => {
     expect(list.map((s) => s.sessionId)).toEqual([A, B]);
     expect(list[0]).toMatchObject({ account: '.omp', provider: 'omp', title: '🏨 HABB: auditoria', project: '/home/u/habblaud', projectDir: '-home-u-habblaud', firstAt: now - 3_600_000, open: true, agentId: `omp:${A}` });
     expect(list[1]).toMatchObject({ open: false });
-    expect(list[1]).not.toHaveProperty('title');
+    expect(list[1]).toMatchObject({ title: 'arrume o checkout' });
+  });
+
+  it('fora da lista: sessão fechada em pasta temporária ou sem instrução sua; aberta continua', async () => {
+    const { history, open, session } = setup();
+    session(A, { cwd: '/tmp/probe1', prompt: 'teste' });
+    session(B);
+    session(OLD, { cwd: '/tmp/probe2', prompt: 'teste' });
+    open.add(OLD);
+    expect((await history.list()).map((s) => s.sessionId)).toEqual([OLD]);
   });
 
   it('fora da lista: arquivo sem cabeçalho ainda e cabeçalho de subagente', async () => {

@@ -134,8 +134,8 @@ export function subagentsOf(mainPath: string): OmpSubFile[] {
 
 // ------------------------------------------------------------------ leitura curta
 
-/** Quanto do começo do arquivo cobre o slot do título e o cabeçalho (o do subagente tem o caminho do pai). */
-const HEAD_BYTES = 16 * 1024;
+/** Quanto do começo do arquivo cobre o slot do título, o cabeçalho (o do subagente tem o caminho do pai) e a primeira instrução. */
+export const OMP_HEAD_BYTES = 16 * 1024;
 /** Quanto do fim cobre a última linha (o `session_exit` tem ~250 bytes). */
 const END_BYTES = 4 * 1024;
 
@@ -153,7 +153,7 @@ function readRange(path: string, start: number, length: number): Buffer {
 /** O começo do arquivo: título do slot e cabeçalho. Arquivo ilegível ou ainda sem as duas linhas = sem cabeçalho. */
 export function readOmpHead(path: string): OmpHead {
   try {
-    return parseOmpHead(readRange(path, 0, HEAD_BYTES).toString('utf8'));
+    return parseOmpHead(readRange(path, 0, OMP_HEAD_BYTES).toString('utf8'));
   } catch {
     return { bytes: 0 };
   }
