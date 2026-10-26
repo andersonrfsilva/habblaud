@@ -10,7 +10,8 @@ plano). 010–013: 2026-10-25, auditoria `deep` da CPU da interface web com a ec
 2026-10-25 (variante `plan`), no commit `dfbdde3` (baseline: `npm run typecheck` ok, `npm test` 176 arquivos / 2119
 testes ok). 015: 2026-10-25 (variante `plan`, a partir do spike 013). 016–022: 2026-10-25, auditoria `deep` geral no
 commit `af73a23` (baseline: `npm run typecheck` ok, `npm test` 181 arquivos / 2180 testes ok, `npm audit` 0
-vulnerabilidades); o plano 034 da mesma auditoria fica no repositório `omp-tenant`.
+vulnerabilidades); o plano 034 da mesma auditoria fica no repositório `omp-tenant`. 023: 2026-10-25 (variante
+`plan`), no commit `e689895` (baseline: `npm run typecheck` ok); decisões do dono no próprio plano.
 
 **Onde executar:** sempre neste clone de desenvolvimento (`~/Desenvolvimento/habblaud`) ou numa worktree dele, nunca
 em `~/apps/habblaud`, que é o Habblaud de produção (o `omp-tenant release` lê os commits de lá). A produção só recebe
@@ -37,17 +38,20 @@ conditions e atualize sua linha ao terminar.
 | 014  | Bate-papo paralelo com um agente do omp numa janela lateral do terminal, com histórico em disco | P2 | L | — | DONE (merge 47aae29) |
 | 015  | Móveis do prédio numa camada única e props estáticos em duas camadas (B + C do 013) | P3 | L | 013 | DONE (merge fbf77db, em produção; 72,8% → 58,5% a 30 qps, 31,1% → 25,6% a 10 qps) |
 | 016  | Pergunta paralela cancelada na fila não roda; confirmação de entrega repetida | P1 | S | — | DONE (merge 1da57cc + 5b7dca2, em produção e nos usuários; vale nas sessões do omp reabertas) |
-| 017  | Erro ao montar o snapshot não derruba o servidor; desligamento sempre termina | P1 | S | — | DONE (d20ede3, branch advisor/017-servidor-nao-cai, worktree /tmp/hb-017; revisado, sem merge) |
+| 017  | Erro ao montar o snapshot não derruba o servidor; desligamento sempre termina | P1 | S | — | DONE (merge 799cefd, em produção e nos usuários) |
 | 018  | Teclas do terminal interativo sempre no pty certo ao trocar de agente | P2 | S | — | DONE (merge 015f259, em produção; verificação manual com dois agentes não feita) |
 | 019  | Título da sessão do omp reescrito não duplica o histórico (medido: ≤ 120 ms de releitura) | P3 | M | — | DONE (merge a625399, em produção; só a Parte A) |
-| 020  | Login remoto: freio por origem (proxy confiável) e cookie `Secure` atrás de HTTPS | P1 | M | — | DONE (370d7f7 + ff642d0, branch advisor/020-login-remoto-por-origem, worktree /tmp/hb-020; revisado, sem merge). Medição do endereço que o pod vê pelo Traefik (passo 8) não feita; ela alimenta o passo 6 do 034 |
+| 020  | Login remoto: freio por origem (proxy confiável) e cookie `Secure` atrás de HTTPS | P1 | M | — | DONE (merge 799cefd, em produção e nos usuários). Medido: o pod vê o Traefik como `10.89.0.2` (contêiner `cockpit-traefik`), **não** como o IP do host; o passo 8 deste plano, que mede com `curl` do host, dá o valor errado. Provado pela internet: origem bloqueada (429, 31 s) enquanto outra origem recebe 401; cookie com `Secure` |
 | 021  | Content-Security-Policy na página | P2 | S | — | DONE (merge b580ba9, em produção; 0 violações na página do dono) |
 | 022  | Docs: rotas da API nos READMEs e no `server/README.md`; AGENTS.md cita o omp | P3 | S | — | DONE (merge b0170b2) |
+| 023  | Ver e baixar os arquivos da pasta de trabalho pelo botão "Arquivos" da gaveta (salas + `~/projetos`) | P2 | L | — | IN PROGRESS (executor no worktree /tmp/hb-023, branch advisor/023-arquivos) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 
 ## Dependency notes
 
+- 023 é independente. Usa a trava `terminal`, que os pods já liberam em `HABBLAUD_REMOTE_ALLOW`: nada muda no
+  `omp-tenant`. Publicação (produção e `omp-tenant release` + `sync`) é do operador.
 - 014 é independente dos outros. Usa `ctx.runEphemeralTurn` do omp 18.12.6, confirmado no binário de
   `/opt/omp-tenant/omp`. A publicação (levar o commit a `~/apps/habblaud`, `omp-tenant release` + `sync`, reabrir as
   sessões do omp) é do operador, fora do plano.
