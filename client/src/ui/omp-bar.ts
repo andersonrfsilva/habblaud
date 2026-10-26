@@ -1,6 +1,6 @@
 // Faixa do omp no rodapé do terminal: a barra do contexto (tokens em uso / janela do modelo, como no rodapé do omp) e
-// os botões STOP, olho do advisor (liga/desliga o /advisor da sessão), /new, /shake (elide e thinking) e /resume
-// (escolhe a conversa no histórico). Vão pela fila de
+// os botões STOP, /new, /shake (elide e thinking) e /resume (escolhe a conversa no histórico), mais o olho do advisor
+// (liga/desliga o /advisor da sessão; o TerminalPanel o põe na barra de cima, ao lado da estrela). Vão pela fila de
 // controle (POST /api/messages/control {command}, {stop: true} ou {resume}); a extensão do omp digita os comandos na
 // tela dele (só com o agente livre e o editor vazio), interrompe o turno no STOP (só com o agente trabalhando) e
 // confirma ou recusa com o motivo.
@@ -8,7 +8,7 @@ import type { OmpCommand } from '../../../shared/omp-events';
 import type { AgentInfo, OmpControl } from '../../../shared/types';
 import { OFFLINE_ERROR } from './composer-model';
 import type { UiContext } from './context';
-import { h, setAttr, setHidden, setStyleVar, setText, setTitle, setVariant } from './dom';
+import { h, iconButton, setAttr, setHidden, setStyleVar, setText, setTitle, setVariant } from './dom';
 import { formatTokens, usageLevel } from './format';
 import { tr } from '../../../shared/i18n';
 import { pixelIcon } from './icons';
@@ -66,7 +66,8 @@ export class OmpBar {
   private buttons: HTMLElement;
   private statusEl: HTMLElement;
   private stopBtn: HTMLButtonElement;
-  private eyeBtn: HTMLButtonElement;
+  /** Olho do advisor: fica na barra de cima do terminal, ao lado da estrela (o TerminalPanel o coloca lá). */
+  readonly eyeBtn: HTMLButtonElement;
   /** Último estado do advisor confirmado pelo omp, por agente (a extensão não lê o estado real). */
   private advisor = new Map<string, boolean>();
   private eyeShown: boolean | undefined;
@@ -89,13 +90,12 @@ export class OmpBar {
       title: tr('Interrompe o que o agente está fazendo agora (como o Esc no omp)'),
       on: { click: () => void this.run('stop') },
     });
-    this.eyeBtn = h('button', { class: 'ui-btn ui-btn--sm ui-term__cmd', type: 'button', on: { click: () => void this.toggleAdvisor() } });
-    this.eyeBtn.innerHTML = EYE_SHUT;
+    this.eyeBtn = iconButton(EYE_SHUT, tr('Advisor do omp'), () => void this.toggleAdvisor(), 'ui-icon-btn--sm');
+    setHidden(this.eyeBtn, true);
     this.buttons = h(
       'div',
       { class: 'ui-term__cmds', role: 'group', attrs: { 'aria-label': tr('Comandos do omp') } },
       this.stopBtn,
-      this.eyeBtn,
       ...BUTTONS.map(([cmd, hint]) => h('button', { class: 'ui-btn ui-btn--sm ui-term__cmd', type: 'button', text: `/${cmd}`, title: hint, on: { click: () => void this.run(cmd) } })),
       h('button', {
         class: 'ui-btn ui-btn--sm ui-term__cmd',
@@ -129,8 +129,10 @@ export class OmpBar {
     }
     setHidden(this.buttons, !commands);
     for (const b of this.buttons.querySelectorAll('button')) b.disabled = this.busy;
+    setHidden(this.eyeBtn, !commands);
+    this.eyeBtn.disabled = this.busy;
     const on = this.agentId ? this.advisor.get(this.agentId) : undefined;
-    if (on !== this.eyeShown || !this.eyeBtn.title) {
+    if (on !== this.eyeShown) {
       this.eyeShown = on;
       this.eyeBtn.innerHTML = on ? EYE_OPEN : EYE_SHUT;
     }

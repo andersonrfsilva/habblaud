@@ -704,6 +704,7 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     setAttr(this.chatBtn, 'aria-pressed', 'false');
     const close = iconButton(ICONS.close, tr('Fechar terminal (Esc)'), () => this.close(), 'ui-icon-btn--sm ui-term__close');
     favorites.subscribe(() => this.render());
+    this.ompBar = new OmpBar(ctx);
     const bar = h(
       'div',
       { class: 'ui-term__bar' },
@@ -713,6 +714,7 @@ export class TerminalPanel implements UiComponent, TerminalControl {
       this.reconnEl,
       this.findBtn,
       this.favStar,
+      this.ompBar.eyeBtn,
       this.chatBtn,
       ...(this.actions ? [this.actions.el] : []),
       maximizeButton(() => this.movable, () => this.focusPrompt()),
@@ -777,7 +779,6 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     this.status = h('p', { class: 'ui-term__status' }, this.glyph, this.statusText, this.statusTime);
     // Esc na caixa devolve o foco à conversa (o próximo fecha o terminal).
     this.composer = new MessageComposer(ctx, 'terminal', { onEscape: () => this.focusLog() });
-    this.ompBar = new OmpBar(ctx);
     // /resume que deu certo: a conversa retomada é outro agente (ids por sessão); o terminal passa para ela.
     this.ompBar.onResumed = (id) => this.open(id);
 
