@@ -5,6 +5,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { postPty } from './ptyapi';
+import { PtyInput } from './ptyinput';
 import { tr } from '../../../shared/i18n';
 
 const RESIZE_DEBOUNCE_MS = 120;
@@ -16,9 +17,8 @@ export class PtyPane {
   private es: EventSource | null = null;
   private id: string | null = null;
   private exited = false;
-  /** Entrada ainda não enviada e a fila de envio (mantém a ordem das teclas). */
-  private pending = '';
-  private sending: Promise<void> = Promise.resolve();
+  /** Fila de teclas da ligação atual; cada `attach` cria a sua (ver ptyinput.ts). */
+  private input: PtyInput | null = null;
   private resizeTimer: ReturnType<typeof setTimeout> | null = null;
   private ro: ResizeObserver;
 
@@ -50,6 +50,7 @@ export class PtyPane {
     if (this.id === id && this.es) return;
     this.detach();
     this.id = id;
+    this.input = new PtyInput(id, (ptyId, data) => postPty(`/api/pty/${encodeURIComponent(ptyId)}/input`, { data }));
     this.exited = false;
     this.term.reset();
     const es = new EventSource(`/api/pty/${encodeURIComponent(id)}/stream`);
@@ -78,6 +79,10 @@ export class PtyPane {
     this.es?.close();
     this.es = null;
     this.id = null;
+    this.input = null;
+    // Um redimensionamento agendado para o pty que saiu não pode ser enviado ao novo.
+    clearTimeout(this.resizeTimer ?? undefined);
+    this.resizeTimer = null;
   }
 
   focus(): void {
@@ -97,15 +102,8 @@ export class PtyPane {
   }
 
   private send(data: string): void {
-    if (!this.id || this.exited) return;
-    this.pending += data;
-    const id = this.id;
-    this.sending = this.sending.then(async () => {
-      if (!this.pending) return;
-      const chunk = this.pending;
-      this.pending = '';
-      await postPty(`/api/pty/${encodeURIComponent(id)}/input`, { data: chunk }).catch(() => undefined);
-    });
+    if (!this.input || this.exited) return;
+    this.input.push(data);
   }
 
   private scheduleResize(cols: number, rows: number): void {
