@@ -57,12 +57,6 @@ export class FileBrowser implements UiComponent {
         this.listEl,
       ),
     ) as HTMLDialogElement;
-    // Fecha só com clique no fundo escurecido: o espaço vazio da janela também tem o próprio <dialog> como alvo.
-    this.el.addEventListener('click', (e) => {
-      if (e.target !== this.el) return;
-      const r = this.el.getBoundingClientRect();
-      if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) this.el.close();
-    });
 
     this.viewerTitle = h('span', { class: 'ui-deliv-viewer__title' });
     this.viewerDownload = h('a', { class: 'ui-btn ui-deliv-viewer__open', text: tr('Baixar'), attrs: { download: '' } }) as HTMLAnchorElement;
