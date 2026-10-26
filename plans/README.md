@@ -45,7 +45,7 @@ conditions e atualize sua linha ao terminar.
 | 021  | Content-Security-Policy na página | P2 | S | — | DONE (merge b580ba9, em produção; 0 violações na página do dono) |
 | 022  | Docs: rotas da API nos READMEs e no `server/README.md`; AGENTS.md cita o omp | P3 | S | — | DONE (merge b0170b2) |
 | 023  | Ver e baixar os arquivos da pasta de trabalho pelo botão "Arquivos" da gaveta (salas + `~/projetos`) | P2 | L | — | DONE (merge 5205df7 + 0c72d86: a janela fecha só pelo X ou Esc, nunca por clique; em produção e nos usuários, release 0c72d866449d + sync em 2026-10-26) |
-| 024  | Estrela para favoritar sessões no Histórico e na gaveta (agente e sala), fixadas no topo do Histórico (só cliente, `localStorage`) | P3 | S | — | DONE no branch `advisor/024-sessoes-favoritas` (a12b5a7 + ab43114 + 592f170, worktree `../habblaud-024`); revisado e testado no navegador, sem merge |
+| 024  | Estrela para favoritar sessões no Histórico e na gaveta (agente e sala), fixadas no topo do Histórico (só cliente, `localStorage`) | P3 | S | — | DONE (merge 592f170 em `producao`; em produção e nos usuários, release 7eeea6e48ff3 + instalar + sync em 2026-10-26) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 

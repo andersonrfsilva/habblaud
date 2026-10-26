@@ -48,6 +48,7 @@ import { createBuildReader, readBuildInfo } from './build';
 import { UpdateChecker } from './updates/checker';
 import { getLocale, tr } from '../shared/i18n';
 import type { WorldLocale } from '../shared/world/protocol';
+import type { AgentInfo } from '../shared/types';
 import { createCliRunner, createOpener, SpawnService } from './spawn/spawn';
 import { runnableClaudeBin } from './claude-bin';
 import { AttachmentStore } from './spawn/attachments';
@@ -215,6 +216,12 @@ const history = config.terminal
   : undefined;
 if (history && codex) history.add(new CodexHistory({ accounts: () => accounts.entriesOf('codex'), openAgentOf: (acc, sid) => openMainAgent(office.list(), acc, sid) }));
 if (history && omp) history.add(new OmpHistory({ accounts: () => accounts.entriesOf('omp'), openAgentOf: (acc, sid) => openMainAgent(office.list(), acc, sid) }));
+// Último estado de cada agente visto: entregas de quem já saiu do escritório mantêm nome e avatar.
+// shortcut: só em memória, some ao reiniciar o servidor; persistir se isso incomodar.
+const seenAgents = new Map<string, AgentInfo>();
+office.onChange(() => {
+  for (const a of office.list()) seenAgents.set(a.id, a);
+});
 // Entregas: o fim de cada pedido, lido dos transcripts do histórico (mesma trava do terminal). Os arquivos entregues
 // são lidos aqui (Node, ou pasta de conta montada no Docker) ou pelo auxiliar do host.
 const deliveries = history
@@ -228,7 +235,11 @@ const deliveries = history
         const st = office.list().find((a) => a.id === id)?.status;
         return st === 'working' || st === 'waiting' || st === 'shell';
       },
-      agentName: (id) => office.list().find((a) => a.id === id)?.name,
+      agentName: (id) => office.list().find((a) => a.id === id)?.name ?? seenAgents.get(id)?.name,
+      appearance: (id) => {
+        const a = office.list().find((x) => x.id === id) ?? seenAgents.get(id);
+        return a && { seed: a.seed, look: a.look, kind: a.kind, ...(a.parts ? { parts: a.parts } : {}) };
+      },
     })
   : undefined;
 const deliveryFiles = deliveries
