@@ -12,6 +12,10 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Arquivos da pasta de trabalho:** na gaveta da sala e na do agente, o botão Arquivos abre as pastas e os arquivos da
+  sala (e de ~/projetos, quando existir). Dá para ver imagem, PDF, vídeo, texto e página e baixar qualquer arquivo; nada
+  com "." no nome nem com cara de segredo aparece. Só leitura, com a mesma trava do terminal (pelo celular, com terminal
+  em HABBLAUD_REMOTE_ALLOW). Desligado no Docker.
 - **Modo sem marca:** com `HABBLAUD_SEM_MARCA=1` (instalação multiusuário que não quer expor a ferramenta por trás),
   os textos da interface e do servidor dizem "agente" no lugar de omp, Claude Code e Codex ("Agente principal",
   "Comandos do agente", conta "Agente"); some o selo OMP/CODEX das etiquetas e da gaveta, a pasta da conta no cartão de

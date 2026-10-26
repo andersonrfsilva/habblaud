@@ -1040,6 +1040,7 @@ mod/      o mod do Habblaud e os plugins de permissões e de mensagens (plugins 
 | `/api/spawn…` | Nouvel agent : disponibilité, dossiers suggérés, pièces jointes, démarrage et suivi de la demande. En accès local uniquement (depuis le téléphone, avec `spawn` dans `HABBLAUD_REMOTE_ALLOW`). |
 | `/api/dictation…` | Dictée (micro) dans Nouvel agent et dans la boîte de message : envoie l'audio et récupère le texte. En accès local uniquement (depuis le téléphone, avec `spawn` ou `messages` dans `HABBLAUD_REMOTE_ALLOW`). |
 | `/api/deliveries…` | Livrables : la fin de chaque demande sur laquelle un agent a travaillé, avec ses pièces jointes. En accès local uniquement (depuis le téléphone, avec `terminal` dans `HABBLAUD_REMOTE_ALLOW`). |
+| `/api/files…` | Fichiers du dossier de travail : parcourir les dossiers de chaque salle et de `~/projetos`, voir et télécharger des fichiers (lecture seule). En accès local uniquement (depuis le téléphone, avec `terminal` dans `HABBLAUD_REMOTE_ALLOW`) ; désactivé dans Docker. |
 | `/api/pty…`, `POST /api/agents/:id/stop` et `/takeover` | Terminal interactif, fin ou reprise d'une session ; seulement avec `HABBLAUD_PTY=1`. En accès local uniquement, jamais par le port du téléphone. |
 | `/api/host/*` | Auxiliaire de l'hôte (`npm run codex:bridge`) : récupère et confirme les demandes de Nouvel agent, de la dictée et des fichiers des livrables. En accès local uniquement. |
 
