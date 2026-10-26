@@ -6,6 +6,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  ACK_RETRY_MS,
   ASK_TOOL,
   ASK_WAIT_MS,
   askResult,
@@ -351,6 +352,70 @@ describe('omp extension: mensagens', () => {
       expect(t.sent).toEqual([]);
       await t.fire('session_shutdown', ctx);
     }
+  });
+
+  describe('ack da caixa de entrada', () => {
+    /** Caixa que entrega o lote uma vez só; `ack` responde pelo que o teste pedir (undefined = 200). */
+    function once(ack: () => { status: number; json: unknown } | 'down' | undefined) {
+      let delivered = false;
+      return (c: Call) => {
+        if (c.path === '/api/mod/inbox') {
+          const messages = delivered ? [] : [{ id: 'm1', text: 'oi' }];
+          delivered = true;
+          return { status: 200, json: { messages } };
+        }
+        return c.path === '/api/mod/inbox/ack' ? ack() : undefined;
+      };
+    }
+
+    it('ack perdido é repetido com o mesmo corpo até chegar', async () => {
+      vi.useFakeTimers();
+      let n = 0;
+      const t = setup({ home: tmp.dir, answer: once(() => (++n <= 2 ? 'down' : undefined)) });
+      const ctx = makeCtx();
+      t.fire('session_start', ctx);
+      await vi.advanceTimersByTimeAsync(2_000);
+      const acks = t.habblaud.of('/api/mod/inbox/ack');
+      expect(acks).toHaveLength(3);
+      for (const a of acks) expect(a.body).toEqual({ session: 'sess-1', results: [{ id: 'm1', ok: true }] });
+      expect(t.sent).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(t.habblaud.of('/api/mod/inbox/ack')).toHaveLength(3);
+      await t.fire('session_shutdown', ctx);
+    });
+
+    it('ack que o servidor recusou com 4xx não é repetido', async () => {
+      vi.useFakeTimers();
+      const t = setup({ home: tmp.dir, answer: once(() => ({ status: 400, json: {} })) });
+      const ctx = makeCtx();
+      t.fire('session_start', ctx);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(t.habblaud.of('/api/mod/inbox/ack')).toHaveLength(1);
+      await t.fire('session_shutdown', ctx);
+    });
+
+    it('ack que nunca chega para depois de ACK_RETRY_MS.length + 1 tentativas e a caixa de entrada segue funcionando', async () => {
+      vi.useFakeTimers();
+      const t = setup({ home: tmp.dir, answer: once(() => ({ status: 503, json: {} })) });
+      const ctx = makeCtx();
+      t.fire('session_start', ctx);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(t.habblaud.of('/api/mod/inbox/ack')).toHaveLength(ACK_RETRY_MS.length + 1);
+      expect(t.habblaud.of('/api/mod/inbox').length).toBeGreaterThanOrEqual(2);
+      await t.fire('session_shutdown', ctx);
+    });
+
+    it('encerrar a sessão no meio das repetições para de repetir', async () => {
+      vi.useFakeTimers();
+      const t = setup({ home: tmp.dir, answer: once(() => 'down') });
+      const ctx = makeCtx();
+      t.fire('session_start', ctx);
+      await vi.advanceTimersByTimeAsync(10);
+      expect(t.habblaud.of('/api/mod/inbox/ack')).toHaveLength(1);
+      await t.fire('session_shutdown', ctx);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(t.habblaud.of('/api/mod/inbox/ack').length).toBeLessThanOrEqual(2);
+    });
   });
 });
 

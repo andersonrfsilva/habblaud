@@ -22,6 +22,7 @@ import {
   SENT_TIMEOUT_MS,
   type SendResult,
 } from './registry';
+import { AsideStore } from '../asides/store';
 
 setQuiet(true);
 
@@ -445,6 +446,47 @@ describe('MessageRegistry: agentes do omp', () => {
       registry.inbox({ session: SESSION });
       expect(() => registry.tick()).not.toThrow();
       expect(registry.get(id)).toMatchObject({ status: 'failed', error: ERR_NOT_FETCHED });
+    });
+
+    it('discard retira a pergunta paralela queued: inbox() não a entrega mais, a vaga volta e get() não a conhece', () => {
+      const { registry } = setupOmp();
+      registry.inbox({ session: OMP_SESSION });
+      const id = sent(registry.aside(OMP_A, req));
+      expect(registry.discard(id)).toBe(true);
+      expect(registry.inbox({ session: OMP_SESSION })).toEqual([]);
+      expect(registry.get(id)).toBeUndefined();
+      const ids = Array.from({ length: MAX_OPEN }, () => sent(registry.aside(OMP_A, req)));
+      expect(registry.aside(OMP_A, req)).toEqual({ error: 'too-many' });
+      expect(registry.discard(ids[0]!)).toBe(true);
+      expect(registry.aside(OMP_A, req)).toHaveProperty('message');
+    });
+
+    it('discard não mexe em pergunta já buscada, em mensagem comum nem em id desconhecido', () => {
+      const { registry } = setupOmp();
+      registry.inbox({ session: OMP_SESSION });
+      const id = sent(registry.aside(OMP_A, req));
+      expect(registry.inbox({ session: OMP_SESSION })).toHaveLength(1);
+      expect(registry.discard(id)).toBe(false);
+      expect(registry.get(id)?.status).toBe('sent');
+      const msg = sent(registry.send({ agentId: OMP_A, text: 'oi' }));
+      expect(registry.discard(msg)).toBe(false);
+      expect(registry.inbox({ session: OMP_SESSION })).toEqual([{ id: msg, text: 'oi' }]);
+      expect(registry.discard('m-nao')).toBe(false);
+    });
+
+    it('cancelar pela AsideStore uma pergunta queued: a extensão nunca a recebe', () => {
+      let store: AsideStore | undefined;
+      const { office, registry } = setupOmp({ onSettled: (...a) => store?.settled(...a) });
+      store = new AsideStore({ dir: null, office, queue: (id, r) => registry.aside(id, r), discard: (id) => registry.discard(id) });
+      registry.inbox({ session: OMP_SESSION });
+      const first = store.ask({ agentId: OMP_A, question: 'a' });
+      if (!('topic' in first)) throw new Error(`recusada: ${JSON.stringify(first)}`);
+      expect(store.cancel(first.topic.id, { agentId: OMP_A })).toEqual({ ok: true });
+      expect(registry.inbox({ session: OMP_SESSION })).toEqual([]);
+      expect(store.ask({ agentId: OMP_A, question: 'b', topicId: first.topic.id })).toHaveProperty('topic');
+      const out = registry.inbox({ session: OMP_SESSION });
+      expect(out).toHaveLength(1);
+      expect(out[0]?.aside?.question).toBe('b');
     });
   });
 
