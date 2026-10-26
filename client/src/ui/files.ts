@@ -71,6 +71,8 @@ export class FileBrowser implements UiComponent {
       this.viewerBody,
     ) as HTMLDialogElement;
     this.viewer.addEventListener('close', () => this.viewerBody.replaceChildren());
+    // O visualizador mora dentro da janela: só `this.el` entra no DOM (ui/index.ts), e showModal() exige estar no documento.
+    this.el.append(this.viewer);
   }
 
   /** Só mantém o estado: quem decide mostrar o botão é a gaveta. */
