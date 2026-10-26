@@ -826,6 +826,7 @@ Todo funciona sin configurar nada. Si necesitas ajustar algo, usa variables de e
 | `HABBLAUD_BIND` | `127.0.0.1` | Solo Docker (en el `.env`): dónde se publica el puerto. `0.0.0.0` abre la red local (y desactiva la terminal y lo que actúa sobre las sesiones). |
 | `HABBLAUD_CLAUDE_DIRS` | detección automática | Carpetas de las cuentas, separadas por comas (p. ej., `/caminho/conta1,/caminho/conta2`). |
 | `HABBLAUD_DATA_DIR` | `~/.habblaud` | Dónde guarda Habblaud sus propios datos (nombres de los personajes y de las salas, línea de tiempo del timelapse y estadísticas de Mi día). |
+| `HABBLAUD_ATTACHMENTS_DIR` | `~/.habblaud/attachments` | Dónde se guardan los adjuntos de **Agente nuevo** antes de enviar la solicitud. |
 | `HABBLAUD_TIMELINE` | activada | `0` desactiva la grabación de la línea de tiempo (los días ya grabados siguen en el timelapse). En Docker siempre está activada. |
 | `HABBLAUD_USAGE_DIR` | `~/.habblaud/usage` | Dónde guarda el uso el mod (o el tap de statusline). |
 | `HABBLAUD_DEMO` | desactivado | `1` activa el modo demostración al iniciar. |
@@ -843,6 +844,7 @@ Todo funciona sin configurar nada. Si necesitas ajustar algo, usa variables de e
 | `HABBLAUD_OMP_USAGE` | activado (desactivado en Docker) | `0` desactiva el uso del plan de las cuentas de omp (Habblaud deja de ejecutar `omp usage --json`). |
 | `HABBLAUD_OMP_BIN` | `omp` del PATH, si no `~/.bun/bin/omp` | El ejecutable de omp para el uso del plan (una ruta o un nombre en el PATH). |
 | `HABBLAUD_OMP_PERMISSOES` | desactivado | En el entorno **de omp**, no de Habblaud: `1` hace que la extensión decida las herramientas desde la oficina (úsalo con `omp --approval-mode yolo`). Consulta [omp (oh-my-pi)](#omp-oh-my-pi). |
+| `HABBLAUD_OMP_MODELS` | todos los que lista omp | En el entorno **de omp**, no de Habblaud: `proveedor/id` o `proveedor/*`, separados por comas; el cajón del agente solo lista y solo cambia a esos modelos. |
 | `HABBLAUD_UPDATE_CHECK` | activada | `0` desactiva la comprobación de versión nueva (una consulta a las releases del repositorio en GitHub cada 6 h). |
 | `HABBLAUD_LANG` | idioma del sistema (salvo inglés); si no, `pt-BR` | Idioma de los textos que arma el servidor (actividades, avisos, logs): `pt-BR`, `en`, `es` o `fr`. La interfaz sigue al navegador o la elección en Configuración › Idioma. Consulta [Idiomas](#idiomas). |
 | `HABBLAUD_ACCOUNTS` | — | JSON para personalizar el nombre, la letra o el color, emparejado por el nombre de la carpeta de la cuenta. P. ej.: `[{"id":".claude-conta2","name":"Trabalho","short":"T","color":"#5cc97b"}]`. |

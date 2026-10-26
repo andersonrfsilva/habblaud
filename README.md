@@ -792,6 +792,7 @@ Everything works without configuring anything. If you need to adjust something, 
 | `HABBLAUD_BIND` | `127.0.0.1` | Docker only (in `.env`): where the port is published. `0.0.0.0` opens it to the local network (and turns off the terminal and anything that acts on the sessions). |
 | `HABBLAUD_CLAUDE_DIRS` | automatic detection | Account folders, comma-separated (e.g. `/caminho/conta1,/caminho/conta2`). |
 | `HABBLAUD_DATA_DIR` | `~/.habblaud` | Where Habblaud keeps its own data (character and room names, the timelapse timeline and the My day stats). |
+| `HABBLAUD_ATTACHMENTS_DIR` | `~/.habblaud/attachments` | Where the attachments of **New agent** are saved before the request is sent. |
 | `HABBLAUD_TIMELINE` | on | `0` turns off timeline recording (the days already recorded stay in the timelapse). In Docker it's always on. |
 | `HABBLAUD_USAGE_DIR` | `~/.habblaud/usage` | Where the mod (or the statusline tap) writes usage. |
 | `HABBLAUD_DEMO` | off | `1` turns on demo mode at startup. |
@@ -809,6 +810,7 @@ Everything works without configuring anything. If you need to adjust something, 
 | `HABBLAUD_OMP_USAGE` | on (off in Docker) | `0` turns off the plan usage of omp accounts (Habblaud stops running `omp usage --json`). |
 | `HABBLAUD_OMP_BIN` | `omp` from PATH, otherwise `~/.bun/bin/omp` | The omp executable used for plan usage (a path or a name on the PATH). |
 | `HABBLAUD_OMP_PERMISSOES` | off | In **omp's** environment, not Habblaud's: `1` makes the extension decide tools through the office (use with `omp --approval-mode yolo`). See [omp (oh-my-pi)](#omp-oh-my-pi). |
+| `HABBLAUD_OMP_MODELS` | all that omp lists | In **omp's** environment, not Habblaud's: comma-separated `provider/id` or `provider/*`; the agent drawer only lists and only switches to these models. |
 | `HABBLAUD_UPDATE_CHECK` | on | `0` turns off the new-version check (a request to the repository's releases on GitHub every 6 h). |
 | `HABBLAUD_LANG` | system language (except English), otherwise `pt-BR` | Language of the texts the server builds (activities, notices, logs): `pt-BR`, `en`, `es` or `fr`. The interface follows the browser or the choice in Settings › Language. See [Languages](#languages). |
 | `HABBLAUD_ACCOUNTS` | — | JSON to customize name, letter or color, matched by the account folder name. E.g. `[{"id":".claude-conta2","name":"Trabalho","short":"T","color":"#5cc97b"}]`. |
