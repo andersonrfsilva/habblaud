@@ -78,8 +78,10 @@ festa) ou 10 min. Push só avisa. O mesmo CI visto de novo em 2 min não repete 
 | `GET /api/stats/days?tz=<IANA>` | `StatsDaysResponse`: dias com dados reais (e do demo, se ligado), mais recente primeiro |
 | `GET /api/timeline/days` | `{recording, days:[{day, bytes, from, to}]}`: dias gravados para o timelapse, do mais recente ao mais antigo |
 | `GET /api/timeline/:dia` | o arquivo do dia (`AAAA-MM-DD`) em JSONL (`application/x-ndjson`, gzip se aceito); 400 para dia inválido, 404 sem gravação |
-| `GET /api/health` | `{ok, version, demo, docker, terminal, permissions, messages, updates:{state, latest, available}, sources, accounts:[{id, usageStatus}]}` |
+| `GET /api/health` | `{ok, version, demo, docker, remote, terminal, permissions, pty, messages, codexEvents, ompEvents, semMarca, updates:{state, latest, available}, sources, accounts:[{id, provider?, usageStatus}]}` (`terminal`, `permissions` e `messages` valem para a conexão que perguntou; `pty` nunca vale pela porta remota) |
 | `POST /api/demo` | `{enabled: boolean}` liga/desliga agentes simulados (misturados aos reais) |
+| `POST /api/rooms/rename` | `{id, name}`: renomeia a sala (nome vazio volta ao padrão, o nome da pasta); `200 {name}`, `400`, `404` (sala desconhecida), `403` (terminal desligado ou fora do acesso local); o nome fica em `rooms.json` na pasta de dados |
+| `GET /api/access` | `AccessInfo`: `{remote, local, permissions, messages, terminal, spawn, world}`: o que esta conexão pode usar (a porta remota só vê o que `HABBLAUD_REMOTE_ALLOW` liberar) |
 | `GET /api/mod/summary?account=&session=` | `ModSummary` para o mod do Claude Code: `{version, agents, working, waiting:[{id, name, room, account, waitingFor, since, answerable}]}`, sem o demo e sem a sessão de quem pergunta (ver abaixo) |
 | `GET /api/updates` | `{version, ...UpdateStatus}`: versão em uso e o resultado da verificação de versão nova (ver abaixo) |
 | `POST /api/updates/check` | "Verificar agora": consulta o GitHub (no máximo uma vez a cada 30 s) e devolve `{version, ...UpdateStatus}` |
@@ -92,6 +94,19 @@ festa) ou 10 min. Push só avisa. O mesmo CI visto de novo em 2 min não repete 
 | `GET /api/messages/:id` | (página) situação da mensagem (`OutboxMessage`: `queued` \| `sent` \| `delivered` \| `failed`) |
 | `POST /api/mod/inbox` | (plugin `habblaud-mensagens`) `{session, account?}`: marca a presença da sessão e entrega `{messages: InboxMessage[]}` |
 | `POST /api/mod/inbox/ack` | (plugin) `{session, results: [{id, ok, error?}]}`: confirma cada mensagem entregue (ou a falha) |
+| `POST /api/messages/control` | (página, só omp) `{agentId, model?, thinking?}`: troca o modelo e o raciocínio da sessão viva; mesmas respostas de `POST /api/messages` |
+| `POST /api/codex/events` | (hook do Codex) `{account?, codexHome?, event}`: `200 {ok}`; só pelo computador (a porta remota recebe 403) |
+| `POST /api/codex/bridge/poll` e `/ack` | (auxiliar `npm run codex:bridge`) busca as mensagens para o Codex e confirma cada entrega (`{results: [{id, ok, error?}]}`: `200 {ok: true}`); só pelo computador |
+| `POST /api/omp/events` | (extensão do omp) `OmpEvent` (`shared/omp-events.ts`): `200 {ok}`; corpo fora do formato: `400`; só pelo computador |
+| `POST /api/omp/settings` | `{roomByProject: boolean}`: Configurações › sala do omp segue o projeto; `200 {ok, roomByProject}`, `400`, `404` se desligado; só pelo computador |
+| `GET /api/asides?agentId=` / `POST /api/asides` / `POST /api/asides/<topicId>/cancel` / `DELETE /api/asides/<topicId>?agentId=` | (página) bate-papo paralelo com o agente do omp; formatos e códigos em `asides/http.ts`; ler vale com a trava do terminal, perguntar com a das mensagens |
+| `POST /api/omp/aside` | (extensão do omp) `AsideProgress`: o texto acumulado da resposta; `200 {cancel: boolean}` diz se a pergunta deve ser abortada; só pelo computador |
+| `GET /api/spawn` / `POST /api/spawn` / `GET /api/spawn/:id` | Novo agente pelo escritório: `{available, mode}`; `201` com o pedido criado (`400`, `409`, `429` na recusa); situação do pedido. Com a trava `spawn` (`spawn/spawn.ts`) |
+| `GET /api/spawn/folders` / `POST /api/spawn/attachments` | pastas sugeridas (projetos recentes) e anexos do pedido (`spawn/folders.ts`, `spawn/attachments.ts`); mesma trava |
+| `GET /api/dictation` / `POST /api/dictation` / `GET /api/dictation/:id` | ditado: `{available}`; envia o áudio (JSON base64); busca o texto (`dictation/dictation.ts`); vale com a trava `spawn` ou `messages` |
+| `GET /api/deliveries` / `GET /api/deliveries/file/:id` | entregas (`{deliveries}`) e o anexo de uma delas (`deliveries/deliveries.ts`); mesma trava do terminal |
+| `GET /api/pty`, `POST /api/pty`, `GET /api/pty/:id/stream`, `POST /api/pty/:id/input` \| `resize` \| `close`, `POST /api/agents/:id/stop` \| `takeover` | terminal interativo e ações nos agentes (`http/pty.ts`); só com `HABBLAUD_PTY=1`, conexão pelo loopback e `Host` local; nunca pela porta remota |
+| `POST /api/host/spawn/poll` \| `ack`, `/api/host/dictation/poll` \| `ack`, `/api/host/files/poll` \| `ack` | (auxiliar do host, `npm run codex:bridge`) busca e confirma os pedidos do Novo agente, do ditado e dos arquivos das entregas; só pelo computador |
 
 O snapshot (SSE e `GET /api/snapshot`) leva só as últimas 8 atividades de cada agente em `recent`; o histórico
 de até 200 (inclusive o começo de transcripts longos, lido em segundo plano) vem de `GET /api/agents/:id`.

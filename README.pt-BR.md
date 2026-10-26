@@ -790,6 +790,7 @@ Tudo funciona sem configurar nada. Se precisar ajustar, use variáveis de ambien
 | `HABBLAUD_BIND` | `127.0.0.1` | Só Docker (no `.env`): onde a porta é publicada. `0.0.0.0` libera a rede local (e desliga o terminal e o que age sobre as sessões). |
 | `HABBLAUD_CLAUDE_DIRS` | detecção automática | Pastas das contas, separadas por vírgula (ex.: `/caminho/conta1,/caminho/conta2`). |
 | `HABBLAUD_DATA_DIR` | `~/.habblaud` | Onde o Habblaud guarda os próprios dados (nomes dos personagens e das salas, linha do tempo do timelapse e estatísticas do Meu dia). |
+| `HABBLAUD_ATTACHMENTS_DIR` | `~/.habblaud/attachments` | Onde ficam gravados os anexos do **Novo agente** antes de o pedido ser enviado. |
 | `HABBLAUD_TIMELINE` | ligado | `0` desliga a gravação da linha do tempo (os dias já gravados continuam no timelapse). No Docker fica sempre ligado. |
 | `HABBLAUD_USAGE_DIR` | `~/.habblaud/usage` | Onde o mod (ou o tap de statusline) grava o uso. |
 | `HABBLAUD_DEMO` | desligado | `1` liga o modo demonstração ao iniciar. |
@@ -807,6 +808,7 @@ Tudo funciona sem configurar nada. Se precisar ajustar, use variáveis de ambien
 | `HABBLAUD_OMP_USAGE` | ligado (desligado no Docker) | `0` desliga o uso do plano das contas do omp (o Habblaud deixa de rodar `omp usage --json`). |
 | `HABBLAUD_OMP_BIN` | `omp` no PATH, senão `~/.bun/bin/omp` | Executável do omp usado para o uso do plano (caminho ou nome no PATH). |
 | `HABBLAUD_OMP_PERMISSOES` | desligado | No ambiente **do omp**, não do Habblaud: `1` faz a extensão decidir as ferramentas pelo escritório (use com `omp --approval-mode yolo`). Ver [omp (oh-my-pi)](#omp-oh-my-pi). |
+| `HABBLAUD_OMP_MODELS` | todos os que o omp lista | No ambiente **do omp**, não do Habblaud: `provedor/id` ou `provedor/*`, separados por vírgula; a gaveta do agente só lista e só troca para esses modelos. |
 | `HABBLAUD_UPDATE_CHECK` | ligado | `0` desliga a verificação de versão nova (uma consulta às releases do repositório no GitHub a cada 6 h). |
 | `HABBLAUD_LANG` | idioma do sistema (menos inglês), senão `pt-BR` | Idioma dos textos montados pelo servidor (atividades, avisos, logs): `pt-BR`, `en`, `es` ou `fr`. A interface segue o navegador ou a escolha em Configurações › Idioma. Ver [Idiomas](#idiomas). |
 | `HABBLAUD_ACCOUNTS` | — | JSON para personalizar nome, letra ou cor, casado pelo nome da pasta da conta. Ex.: `[{"id":".claude-conta2","name":"Trabalho","short":"T","color":"#5cc97b"}]`. |
@@ -980,6 +982,17 @@ mod/      o mod do Habblaud e os plugins de permissões e de mensagens (plugins 
 | `/api/messages…` e `/api/mod/inbox…` | Mandar mensagens: a página deixa a mensagem na fila e acompanha a entrega; o plugin `habblaud-mensagens` a busca, entrega à sessão e confirma. Só com acesso local. |
 | `POST /api/codex/events` | Eventos dos hooks do Codex (sessão aberta, ferramenta, aprovação, fim do turno). Só com acesso local. |
 | `/api/codex/bridge/poll` e `/ack` | O `npm run codex:bridge` busca as mensagens para o Codex e confirma a entrega. Só com acesso local. |
+| `GET /api/access` | O que esta conexão pode usar (`remote`, `local`, `permissions`, `messages`, `terminal`, `spawn`, `world`); a página usa para mostrar ou esconder recursos. |
+| `GET /api/updates` e `POST /api/updates/check` | Verificação de versão nova: a versão em uso e o resultado; `check` ("Verificar agora") consulta o GitHub (no máximo uma vez a cada 30 s). Desligada com `HABBLAUD_UPDATE_CHECK=0`. |
+| `/api/world/*` | Habblaud World (conta, personagem e prédio); ligado por padrão, `HABBLAUD_WORLD=0` desliga. Só com acesso local, nunca pela porta do celular. |
+| `POST /api/omp/events` | Eventos da extensão do Habblaud no omp (sessão, ferramenta, aprovação, batimento). Só com acesso local. |
+| `POST /api/omp/settings` | `{"roomByProject": true \| false}`: Configurações › sala segue o projeto, para os agentes do omp. Só com acesso local. |
+| `/api/asides…` e `POST /api/omp/aside` | Bate-papo paralelo com o agente do omp: a página pergunta e acompanha a resposta; a extensão do omp manda o texto acumulado e recebe se deve cancelar. A rota da extensão é só com acesso local. |
+| `/api/spawn…` | Novo agente: disponibilidade, pastas sugeridas, anexos, início e acompanhamento do pedido. Só com acesso local (pelo celular, com `spawn` em `HABBLAUD_REMOTE_ALLOW`). |
+| `/api/dictation…` | Ditado (microfone) no Novo agente e na caixa de mensagem: envia o áudio e busca o texto. Só com acesso local (pelo celular, com `spawn` ou `messages` em `HABBLAUD_REMOTE_ALLOW`). |
+| `/api/deliveries…` | Entregas: o fim de cada pedido em que um agente trabalhou, com os anexos. Só com acesso local (pelo celular, com `terminal` em `HABBLAUD_REMOTE_ALLOW`). |
+| `/api/pty…`, `POST /api/agents/:id/stop` e `/takeover` | Terminal interativo e encerrar ou assumir uma sessão; só com `HABBLAUD_PTY=1`. Só com acesso local, nunca pela porta do celular. |
+| `/api/host/*` | Auxiliar do host (`npm run codex:bridge`): busca e confirma os pedidos do Novo agente, do ditado e dos arquivos das entregas. Só com acesso local. |
 
 Mais detalhes do servidor em [`server/README.md`](server/README.md).
 
