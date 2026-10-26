@@ -45,6 +45,13 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Pergunta paralela cancelada ainda gastava tokens:** parar uma pergunta do bate-papo paralelo que ainda esperava
+  na fila não a tirava dela, e o omp a respondia assim mesmo (e recusava a pergunta seguinte). Agora ela sai da fila
+  na hora do cancelamento.
+- **Mensagem entregue aparecendo como "não confirmada":** se a confirmação de entrega da extensão do omp se perdia
+  por um instante (rede ou servidor ocupado), a mensagem aparecia como falha e o reenvio chegava duas vezes ao
+  agente. A extensão agora repete a confirmação algumas vezes. Reinstale a extensão (`npm run omp:install`) e reabra
+  as sessões do omp.
 - No Windows, os arquivos entregues pelos agentes (`C:\...`, em links ou soltos no texto) eram rejeitados como
   "caminho inválido", e as pastas temporárias e scratch do Claude apareciam na lista do Novo agente.
 - No Windows, `~` e `/projects/` com `\` no `CLAUDE_CONFIG_DIR` e no `transcript_path` do statusline.

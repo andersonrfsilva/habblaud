@@ -57,6 +57,8 @@ export const FETCH_TIMEOUT_MS = 2_000;
 export const INBOX_IDLE_MS = 2_000;
 export const INBOX_BUSY_MS = 5_000;
 export const INBOX_OFFLINE_MS = 30_000;
+/** Esperas antes de repetir o ack da caixa de entrada que não chegou: o servidor falha a mensagem sem ack em 30 s. */
+export const ACK_RETRY_MS: readonly number[] = [300, 1_000, 3_000];
 /** Tamanho máximo do motivo de uma falha de entrega. */
 export const MAX_REASON = 500;
 /** Espera do Habblaud pelo pedido de permissão com o diálogo aberto (o padrão do servidor: DEFAULT_TIMEOUT_MS). */
@@ -786,6 +788,21 @@ export function create(pi: OmpApi, deps: Deps): void {
     }
   }
 
+  /**
+   * Confirma o lote. Repete só quando o pedido não chegou ou o servidor falhou (rede, prazo, 5xx): um 4xx é recusa
+   * definitiva e repetir não muda nada. O servidor ignora ack repetido, então repetir é seguro; sem a repetição, um
+   * ack perdido faz uma mensagem entregue aparecer como "não confirmada" e o usuário a reenvia.
+   */
+  async function sendAck(session: string, results: readonly AckResult[]): Promise<void> {
+    for (let attempt = 0; ; attempt++) {
+      const r = await request('POST', '/api/mod/inbox/ack', { session, results });
+      if (r && r.status < 500) return;
+      const wait = ACK_RETRY_MS[attempt];
+      if (wait === undefined || closed) return;
+      await sleep(wait);
+    }
+  }
+
   /** Uma rodada: pergunta, entrega, confirma. Uma por vez (o próximo agendamento só sai no fim). */
   async function inboxRound(): Promise<void> {
     let next = busy ? INBOX_BUSY_MS : INBOX_IDLE_MS;
@@ -799,7 +816,7 @@ export function create(pi: OmpApi, deps: Deps): void {
         if (!messages) next = INBOX_OFFLINE_MS;
         else if (messages.length) {
           const results = await deliver(session, messages);
-          await request('POST', '/api/mod/inbox/ack', { session, results });
+          await sendAck(session, results);
         }
       }
     } catch {
