@@ -408,6 +408,21 @@ describe('omp extension: mensagens', () => {
     }
   }, 12_000);
 
+  it('/advisor: digita /advisor on', async () => {
+    const typed: string[] = [];
+    const ctx = makeCtx({ tui: true });
+    const onEnter = () => {
+      typed.push(ctx.editor);
+      ctx.editor = '';
+    };
+    const t = setup({ home: tmp.dir, answer: inbox([{ id: 'k1', text: '', control: { command: 'advisorOn' } }]), onEnter });
+    t.fire('session_start', ctx);
+    await vi.waitFor(() => expect(t.habblaud.of('/api/mod/inbox/ack')).toHaveLength(1), { timeout: 6_000 });
+    await t.fire('session_shutdown', ctx);
+    expect(t.habblaud.of('/api/mod/inbox/ack')[0].body?.results).toEqual([{ id: 'k1', ok: true }]);
+    expect(typed).toEqual(['/advisor on']);
+  }, 12_000);
+
   it('comando desconhecido (fora de OMP_COMMANDS) não toca no editor', async () => {
     const t = setup({ home: tmp.dir, answer: inbox([{ id: 'k1', text: '', control: { command: 'toString' } }]) });
     const ctx = makeCtx({ tui: true });

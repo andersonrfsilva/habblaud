@@ -25,7 +25,7 @@ export const OMP_HEARTBEAT_LOST_MS = 30_000;
  * Comandos do omp que o terminal do Habblaud dispara (POST /api/messages/control {command}): id -> o que é digitado
  * no omp, em ordem. O botão mostra `/${id}`. O /shake do omp aceita um modo por vez, então o `shake` roda os dois.
  */
-export const OMP_COMMANDS = { new: ['/new'], shake: ['/shake elide', '/shake thinking'] } as const;
+export const OMP_COMMANDS = { new: ['/new'], shake: ['/shake elide', '/shake thinking'], advisorOn: ['/advisor on'], advisorOff: ['/advisor off'] } as const;
 export type OmpCommand = keyof typeof OMP_COMMANDS;
 /** Id de sessão do omp (uuid do cabeçalho e do nome do arquivo); vale para o `/resume <id>`. */
 export const OMP_SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

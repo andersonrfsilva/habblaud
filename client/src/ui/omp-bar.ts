@@ -1,5 +1,6 @@
 // Faixa do omp no rodapé do terminal: a barra do contexto (tokens em uso / janela do modelo, como no rodapé do omp) e
-// os botões STOP, /new, /shake (elide e thinking) e /resume (escolhe a conversa no histórico). Vão pela fila de
+// os botões STOP, olho do advisor (liga/desliga o /advisor da sessão), /new, /shake (elide e thinking) e /resume
+// (escolhe a conversa no histórico). Vão pela fila de
 // controle (POST /api/messages/control {command}, {stop: true} ou {resume}); a extensão do omp digita os comandos na
 // tela dele (só com o agente livre e o editor vazio), interrompe o turno no STOP (só com o agente trabalhando) e
 // confirma ou recusa com o motivo.
@@ -10,6 +11,7 @@ import type { UiContext } from './context';
 import { h, setAttr, setHidden, setStyleVar, setText, setTitle, setVariant } from './dom';
 import { formatTokens, usageLevel } from './format';
 import { tr } from '../../../shared/i18n';
+import { pixelIcon } from './icons';
 
 /** Rótulo e dica de cada botão, na ordem da faixa. */
 const BUTTONS: ReadonlyArray<[OmpCommand, string]> = [
@@ -22,6 +24,32 @@ const STOP = 'STOP';
 const RESUME_POLLS = 30;
 /** /resume com a mensagem já falhada: quantas vezes ainda espera a sessão aparecer (a falha pode ser só a saída da anterior). */
 const RESUME_GRACE_POLLS = 6;
+
+const EYE_OPEN = pixelIcon([
+  '...######...',
+  '..#......#..',
+  '.#...##...#.',
+  '#....##....#',
+  '#....##....#',
+  '.#........#.',
+  '..#......#..',
+  '...######...',
+]);
+const EYE_SHUT = pixelIcon([
+  '............',
+  '............',
+  '............',
+  '############',
+  '.#..#..#..#.',
+  '...#..#..#..',
+  '............',
+  '............',
+]);
+
+/** Advisor do omp: ligado (true), desligado (false) ou ainda não sabido (undefined; a extensão não lê o estado). */
+export function advisorNext(on: boolean | undefined): 'advisorOn' | 'advisorOff' {
+  return on ? 'advisorOff' : 'advisorOn';
+}
 
 /** Barra do contexto: percentual (uma casa), nível de cor e o texto "123 k / 1 M · 12%". undefined = sem leitura. */
 export function contextView(c: AgentInfo['context']): { pct: number; level: ReturnType<typeof usageLevel>; text: string } | undefined {
@@ -38,6 +66,10 @@ export class OmpBar {
   private buttons: HTMLElement;
   private statusEl: HTMLElement;
   private stopBtn: HTMLButtonElement;
+  private eyeBtn: HTMLButtonElement;
+  /** Último estado do advisor confirmado pelo omp, por agente (a extensão não lê o estado real). */
+  private advisor = new Map<string, boolean>();
+  private eyeShown: boolean | undefined;
   private agentId: string | null = null;
   private busy = false;
   /** Abre o histórico para escolher a conversa a retomar neste agente (ligado pelo index.ts). */
@@ -57,10 +89,13 @@ export class OmpBar {
       title: tr('Interrompe o que o agente está fazendo agora (como o Esc no omp)'),
       on: { click: () => void this.run('stop') },
     });
+    this.eyeBtn = h('button', { class: 'ui-btn ui-btn--sm ui-term__cmd', type: 'button', on: { click: () => void this.toggleAdvisor() } });
+    this.eyeBtn.innerHTML = EYE_SHUT;
     this.buttons = h(
       'div',
       { class: 'ui-term__cmds', role: 'group', attrs: { 'aria-label': tr('Comandos do omp') } },
       this.stopBtn,
+      this.eyeBtn,
       ...BUTTONS.map(([cmd, hint]) => h('button', { class: 'ui-btn ui-btn--sm ui-term__cmd', type: 'button', text: `/${cmd}`, title: hint, on: { click: () => void this.run(cmd) } })),
       h('button', {
         class: 'ui-btn ui-btn--sm ui-term__cmd',
@@ -94,6 +129,21 @@ export class OmpBar {
     }
     setHidden(this.buttons, !commands);
     for (const b of this.buttons.querySelectorAll('button')) b.disabled = this.busy;
+    const on = this.agentId ? this.advisor.get(this.agentId) : undefined;
+    if (on !== this.eyeShown || !this.eyeBtn.title) {
+      this.eyeShown = on;
+      this.eyeBtn.innerHTML = on ? EYE_OPEN : EYE_SHUT;
+    }
+    setAttr(this.eyeBtn, 'aria-pressed', on === undefined ? null : String(on));
+    setAttr(this.eyeBtn, 'aria-label', tr('Advisor do omp'));
+    setTitle(
+      this.eyeBtn,
+      on === true
+        ? tr('Advisor do omp ligado nesta sessão. Clique para desligar (/advisor off)')
+        : on === false
+          ? tr('Advisor do omp desligado nesta sessão. Clique para ligar (/advisor on)')
+          : tr('Liga o advisor do omp nesta sessão (/advisor on). O Habblaud não vê se ele já está ligado; o olho mostra o último comando enviado daqui'),
+    );
     // Só há o que parar num turno (ou esperando você no meio dele).
     this.stopBtn.disabled = this.busy || (agent?.status !== 'working' && agent?.status !== 'waiting');
   }
@@ -124,16 +174,27 @@ export class OmpBar {
     void this.send(command === 'stop' ? { stop: true } : { command }, command === 'stop' ? STOP : `/${command}`);
   }
 
+  private async toggleAdvisor(): Promise<void> {
+    const id = this.agentId;
+    if (!id) return;
+    const next = advisorNext(this.advisor.get(id));
+    if (await this.send({ command: next }, next === 'advisorOn' ? '/advisor on' : '/advisor off')) this.advisor.set(id, next === 'advisorOn');
+    this.ctx.invalidate();
+  }
+
   /** Manda o pedido e acompanha até a extensão confirmar (ou recusar, com o motivo). */
-  private async send(change: OmpControl, label: string): Promise<void> {
+  private async send(change: OmpControl, label: string): Promise<boolean> {
     const agentId = this.agentId;
-    if (!agentId || this.busy) return;
+    if (!agentId || this.busy) return false;
     this.busy = true;
     this.ctx.invalidate();
     this.say(tr('Enviando {0}…', [label]));
     try {
       const r = await this.ctx.store.controlAgent(agentId, change);
-      if ('error' in r) return this.say(r.error, true);
+      if ('error' in r) {
+        this.say(r.error, true);
+        return false;
+      }
       // /resume: a extensão só confirma que digitou; deu certo quando a sessão pedida aparece no escritório (o omp mostra
       // o erro na tela dele e não avisa ninguém). A mensagem pode falhar só porque a conversa anterior saiu do
       // escritório antes da confirmação: o veredito espera a sessão nova por mais um pouco.
@@ -146,20 +207,32 @@ export class OmpBar {
         if (resumed) {
           this.agentId = resumed.id;
           this.onResumed?.(resumed.id);
-          return this.say(tr('Conversa retomada.'));
+          this.say(tr('Conversa retomada.'));
+          return false;
         }
         const m = await this.ctx.store.messageStatus(r.message.id);
         if (target) {
           if (m?.status === 'failed') failedAt ??= i;
-          if (failedAt !== undefined && i - failedAt >= RESUME_GRACE_POLLS) return this.say(m?.error ?? tr('o omp não rodou o comando'), true);
+          if (failedAt !== undefined && i - failedAt >= RESUME_GRACE_POLLS) {
+            this.say(m?.error ?? tr('o omp não rodou o comando'), true);
+            return false;
+          }
           continue;
         }
-        if (!m || m.status === 'delivered') return this.say(tr('{0} enviado ao omp.', [label]));
-        if (m.status === 'failed') return this.say(m.error ?? tr('o omp não rodou o comando'), true);
+        if (!m || m.status === 'delivered') {
+          this.say(tr('{0} enviado ao omp.', [label]));
+          return true;
+        }
+        if (m.status === 'failed') {
+          this.say(m.error ?? tr('o omp não rodou o comando'), true);
+          return false;
+        }
       }
       this.say(target ? tr('O omp não retomou a conversa: veja o motivo na tela do omp.') : tr('O omp ainda não confirmou o comando.'), true);
+      return false;
     } catch {
       this.say(OFFLINE_ERROR, true);
+      return false;
     } finally {
       this.busy = false;
       this.ctx.invalidate();
