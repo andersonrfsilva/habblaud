@@ -330,7 +330,7 @@ Sans HTTPS, le port distant ne démarre pas ; `HABBLAUD_REMOTE_INSECURE_HTTP=1` 
 cookie en clair sur le réseau). En mode Node : `HABBLAUD_REMOTE_PORT` et `HABBLAUD_REMOTE_HOST` (par défaut
 `0.0.0.0:4748`) et `HABBLAUD_REMOTE_TLS_DIR` (par défaut `~/.habblaud/remote-tls/server`).
 
-Derrière un proxy inverse (p. ex. Traefik terminant le HTTPS), `HABBLAUD_REMOTE_TRUST_PROXY=<ip>[,<ip>...]` (les IP exactes du proxy **telles que Habblaud les voit** ; sans masque) fait utiliser au frein de connexion l'adresse réelle du client (`X-Forwarded-For`) et fait porter `Secure` au cookie quand le proxy parle HTTPS (`X-Forwarded-Proto: https`). Sans la variable, les deux en-têtes sont ignorés, car n'importe quel client les écrit, et tous les clients derrière le proxy partagent le même frein. Mode Node uniquement (dans Docker, `docker-compose.yml` ne transmet pas la variable).
+Derrière un proxy inverse (p. ex. Traefik terminant le HTTPS), `HABBLAUD_REMOTE_TRUST_PROXY=<ip>[,<ip>...]` (les IP exactes du proxy **telles que Habblaud les voit** ; sans masque) fait utiliser au frein de connexion l'adresse réelle du client (`X-Forwarded-For`) et fait porter `Secure` au cookie quand le proxy parle HTTPS (`X-Forwarded-Proto: https`). Sans la variable, les deux en-têtes sont ignorés, car n'importe quel client les écrit, et tous les clients derrière le proxy partagent le même frein.
 
 ### Mettre à jour
 
@@ -842,7 +842,7 @@ Tout fonctionne sans rien configurer. Si vous avez besoin d'ajuster quelque chos
 | `HABBLAUD_PTY` | désactivé | `1` active le terminal interactif (ouvrir, reprendre et fermer des sessions Claude Code depuis le bureau ; uniquement en accès local et hors Docker) et **Nouvel agent** (aussi dans Docker, via `npm run codex:bridge`). Lisez l'avertissement dans [Confidentialité et sécurité](#confidentialité-et-sécurité). |
 | `HABBLAUD_CLAUDE_BIN` | `claude` du PATH | L'exécutable de Claude Code que lancent le terminal interactif et Nouvel agent. |
 | `HABBLAUD_REMOTE_ALLOW` | `permissions` | Ce que peut faire le [téléphone avec connexion](#téléphone-avec-connexion-et-https-valider-les-demandes) : `permissions`, `messages`, `terminal`, `spawn` (séparés par des virgules) ou `none`. Les autres `HABBLAUD_REMOTE_*` sont écrites par `npm run remote:setup`. |
-| `HABBLAUD_REMOTE_TRUST_PROXY` | — | IP (séparées par des virgules) du proxy inverse devant le port distant, pour que le frein de connexion utilise `X-Forwarded-For` et que le cookie porte `Secure` avec `X-Forwarded-Proto: https`. Sans elle, les deux en-têtes sont ignorés. Mode Node uniquement. |
+| `HABBLAUD_REMOTE_TRUST_PROXY` | — | IP (séparées par des virgules) du proxy inverse devant le port distant, pour que le frein de connexion utilise `X-Forwarded-For` et que le cookie porte `Secure` avec `X-Forwarded-Proto: https`. Sans elle, les deux en-têtes sont ignorés. |
 | `HABBLAUD_MENSAGENS` | activé (avec le terminal) | `0` désactive seulement les messages depuis le bureau (la zone dans le terminal et dans les détails de l'agent). |
 | `HABBLAUD_CODEX` | activé | `0` désactive Codex dans le bureau. |
 | `HABBLAUD_CODEX_DIRS` | détection automatique | Dossiers de Codex, séparés par des virgules (à la place de `~/.codex*` et `CODEX_HOME`). |
