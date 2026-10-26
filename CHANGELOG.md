@@ -86,6 +86,13 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Login remoto: uma tentativa errada de qualquer pessoa não tranca mais o dono:** o freio de senha era um só para
+  todos, então quem mandasse uma senha errada por janela mantinha o dono sem poder entrar (e a porta do celular ou de
+  um tenant fica exposta). Agora o freio é por origem (o endereço do cliente; IPv6 por /64), com um teto global de
+  60 erros por 5 min para chute distribuído e no máximo 4 conferências de senha ao mesmo tempo. Atrás de um proxy
+  reverso, `HABBLAUD_REMOTE_TRUST_PROXY=<ip do proxy>` faz o Habblaud ler o endereço real no `X-Forwarded-For` (só vindo
+  desse proxy) e marca o cookie de sessão como `Secure` quando o proxy fala HTTPS (`X-Forwarded-Proto: https`). Sem a
+  variável, nada muda além do freio por origem.
 - **Pergunta paralela cancelada ainda gastava tokens:** parar uma pergunta do bate-papo paralelo que ainda esperava
   na fila não a tirava dela, e o omp a respondia assim mesmo (e recusava a pergunta seguinte). Agora ela sai da fila
   na hora do cancelamento.
