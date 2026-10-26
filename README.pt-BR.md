@@ -994,6 +994,7 @@ mod/      o mod do Habblaud e os plugins de permissões e de mensagens (plugins 
 | `/api/spawn…` | Novo agente: disponibilidade, pastas sugeridas, anexos, início e acompanhamento do pedido. Só com acesso local (pelo celular, com `spawn` em `HABBLAUD_REMOTE_ALLOW`). |
 | `/api/dictation…` | Ditado (microfone) no Novo agente e na caixa de mensagem: envia o áudio e busca o texto. Só com acesso local (pelo celular, com `spawn` ou `messages` em `HABBLAUD_REMOTE_ALLOW`). |
 | `/api/deliveries…` | Entregas: o fim de cada pedido em que um agente trabalhou, com os anexos. Só com acesso local (pelo celular, com `terminal` em `HABBLAUD_REMOTE_ALLOW`). |
+| `/api/files…` | Arquivos da pasta de trabalho: navegar pelas pastas de cada sala e de `~/projetos`, ver e baixar arquivos (só leitura). Só com acesso local (pelo celular, com `terminal` em `HABBLAUD_REMOTE_ALLOW`); desligado no Docker. |
 | `/api/pty…`, `POST /api/agents/:id/stop` e `/takeover` | Terminal interativo e encerrar ou assumir uma sessão; só com `HABBLAUD_PTY=1`. Só com acesso local, nunca pela porta do celular. |
 | `/api/host/*` | Auxiliar do host (`npm run codex:bridge`): busca e confirma os pedidos do Novo agente, do ditado e dos arquivos das entregas. Só com acesso local. |
 

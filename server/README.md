@@ -105,6 +105,7 @@ festa) ou 10 min. Push só avisa. O mesmo CI visto de novo em 2 min não repete 
 | `GET /api/spawn/folders` / `POST /api/spawn/attachments` | pastas sugeridas (projetos recentes) e anexos do pedido (`spawn/folders.ts`, `spawn/attachments.ts`); mesma trava |
 | `GET /api/dictation` / `POST /api/dictation` / `GET /api/dictation/:id` | ditado: `{available}`; envia o áudio (JSON base64); busca o texto (`dictation/dictation.ts`); vale com a trava `spawn` ou `messages` |
 | `GET /api/deliveries` / `GET /api/deliveries/file/:id` | entregas (`{deliveries}`) e o anexo de uma delas (`deliveries/deliveries.ts`); mesma trava do terminal |
+| `GET /api/files` / `GET /api/files/list?path=` / `GET /api/files/raw?path=[&download=1]` | raízes (pastas das salas e `~/projetos`), conteúdo de uma pasta e um arquivo, em stream (`files/browse.ts`, `http/files.ts`); só leitura, mesma trava do terminal; desligado no Docker |
 | `GET /api/pty`, `POST /api/pty`, `GET /api/pty/:id/stream`, `POST /api/pty/:id/input` \| `resize` \| `close`, `POST /api/agents/:id/stop` \| `takeover` | terminal interativo e ações nos agentes (`http/pty.ts`); só com `HABBLAUD_PTY=1`, conexão pelo loopback e `Host` local; nunca pela porta remota |
 | `POST /api/host/spawn/poll` \| `ack`, `/api/host/dictation/poll` \| `ack`, `/api/host/files/poll` \| `ack` | (auxiliar do host, `npm run codex:bridge`) busca e confirma os pedidos do Novo agente, do ditado e dos arquivos das entregas; só pelo computador |
 

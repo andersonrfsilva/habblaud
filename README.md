@@ -997,6 +997,7 @@ mod/      o mod do Habblaud e os plugins de permissões e de mensagens (plugins 
 | `/api/spawn…` | New agent: availability, suggested folders, attachments, start and follow-up of the request. Local access only (from the phone, with `spawn` in `HABBLAUD_REMOTE_ALLOW`). |
 | `/api/dictation…` | Dictation (microphone) in New agent and in the message box: sends the audio and fetches the text. Local access only (from the phone, with `spawn` or `messages` in `HABBLAUD_REMOTE_ALLOW`). |
 | `/api/deliveries…` | Deliveries: the end of each request an agent worked on, with its attachments. Local access only (from the phone, with `terminal` in `HABBLAUD_REMOTE_ALLOW`). |
+| `/api/files…` | Working-folder files: browse the folders of each room and `~/projetos`, view and download files (read-only). Local access only (from the phone, with `terminal` in `HABBLAUD_REMOTE_ALLOW`); off in Docker. |
 | `/api/pty…`, `POST /api/agents/:id/stop` and `/takeover` | Interactive terminal and ending or taking over a session; only with `HABBLAUD_PTY=1`. Local access only, never through the phone port. |
 | `/api/host/*` | Host helper (`npm run codex:bridge`): fetches and confirms the requests for New agent, dictation and delivery files. Local access only. |
 
