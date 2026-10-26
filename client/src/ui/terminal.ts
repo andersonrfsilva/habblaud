@@ -687,9 +687,11 @@ export class TerminalPanel implements UiComponent, TerminalControl {
       this.reconnEl,
       this.findBtn,
       ...(this.actions ? [this.actions.el] : []),
-      maximizeButton(() => this.movable),
+      maximizeButton(() => this.movable, () => this.focusPrompt()),
       close,
     );
+    // Duplo clique na barra também maximiza/restaura (movable.ts): o foco volta à caixa de mensagem.
+    bar.addEventListener('dblclick', () => this.focusPrompt());
 
     // Barra de ferramentas: filtro (segmentado) e a busca, que aparece com Ctrl/⌘+F ou a lupa.
     const filters = h('div', { class: 'ui-seg ui-term__filter', role: 'radiogroup', attrs: { 'aria-label': tr('Filtrar a conversa') } });
