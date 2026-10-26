@@ -12,6 +12,9 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Arquivos no terminal:** a barra de cima do terminal ganha o botão de gaveteiro, que abre o navegador de arquivos
+  na pasta da sala do agente (só com o agente ao vivo e com os arquivos liberados, como na gaveta).
+
 - **Pausar as animações do escritório:** um botão no canto inferior direito congela o escritório (a câmera e os
   cliques continuam); ao retomar, ele volta ao presente.
 

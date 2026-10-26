@@ -1,4 +1,4 @@
-// Navegador de arquivos da pasta de trabalho (botão "Arquivos" na gaveta da sala e na do agente): janela com as pastas
+// Navegador de arquivos da pasta de trabalho (botão "Arquivos" na gaveta da sala, na do agente e no terminal): janela com as pastas
 // e os arquivos da sala (e de ~/projetos). Entra nas pastas, abre imagem/PDF/vídeo/texto/página no visualizador e baixa
 // qualquer arquivo. Só leitura. Dados de GET /api/files, /api/files/list e /api/files/raw (server/http/files.ts);
 // partes puras em files-model.ts. Só com o terminal liberado (access().files).
@@ -10,12 +10,18 @@ import { crumbs, FILES_URL, listUrl, parseListing, parseRoots, rawUrl, rootFor }
 import { relativeTime } from './format';
 import { ICONS } from './icons';
 import { formatBytes } from './spawn';
+import { access } from '../net/access';
 
 async function getJson(url: string): Promise<unknown> {
   const res = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
   const body: unknown = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((body as { error?: string }).error ?? tr('erro {0}', [res.status]));
   return body;
+}
+
+/** O botão Arquivos só vale com o servidor liberando /api/files* e fora do mock e do replay. */
+export function filesAvailable(ctx: UiContext): boolean {
+  return access().files === true && !ctx.store.mock && !ctx.store.replaying && !!ctx.openFiles;
 }
 
 export class FileBrowser implements UiComponent {

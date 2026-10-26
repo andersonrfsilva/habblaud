@@ -16,6 +16,7 @@ import type { UiComponent, UiContext } from './context';
 import { copyText, h, iconButton, prefersReducedMotion, setAttr, setHidden, setText, setTitle, setVariant } from './dom';
 import { calendarDayDiff, formatClock, formatDateTime, formatDuration, formatElapsed, relativeTime } from './format';
 import { ICONS } from './icons';
+import { filesAvailable } from './files';
 import { maximizeButton, Movable } from './movable';
 import type { PtyControl } from './pty';
 import { TermActions } from './termactions';
@@ -652,6 +653,7 @@ export class TerminalPanel implements UiComponent, TerminalControl {
   private findBtn: HTMLButtonElement;
   /** Botão do bate-papo paralelo (só agente do omp pronto para receber mensagens) e a janela lateral dele. */
   private chatBtn: HTMLButtonElement;
+  private filesBtn: HTMLButtonElement;
   /** Estrela: favorita a sessão aberta (a do histórico ou a do agente), a mesma lista do Histórico. */
   private favStar = createFavStar('ui-icon-btn--sm');
   private chat: AsideChat;
@@ -702,6 +704,8 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     this.chatBtn = iconButton(ICONS.chat, tr('Bate-papo paralelo: pergunte sem interromper o agente'), () => this.toggleChat(), 'ui-icon-btn--sm ui-term__chat-btn');
     this.chatBtn.hidden = true;
     setAttr(this.chatBtn, 'aria-pressed', 'false');
+    this.filesBtn = iconButton(ICONS.cabinet, tr('Ver e baixar os arquivos da pasta da sala deste agente'), () => this.last && this.ctx.openFiles?.(this.last.roomId), 'ui-icon-btn--sm ui-term__files');
+    this.filesBtn.hidden = true;
     const close = iconButton(ICONS.close, tr('Fechar terminal (Esc)'), () => this.close(), 'ui-icon-btn--sm ui-term__close');
     favorites.subscribe(() => this.render());
     this.ompBar = new OmpBar(ctx);
@@ -716,6 +720,7 @@ export class TerminalPanel implements UiComponent, TerminalControl {
       this.favStar,
       this.ompBar.eyeBtn,
       this.chatBtn,
+      this.filesBtn,
       ...(this.actions ? [this.actions.el] : []),
       maximizeButton(() => this.movable, () => this.focusPrompt()),
       close,
@@ -890,6 +895,8 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     const chatOk = !!live && live.kind === 'main' && live.provider === 'omp' && kind === 'ready' && !this.ctx.store.mock;
     setHidden(this.chatBtn, !chatOk);
     this.chat.render(chatOk ? live : undefined, chatOk);
+    // Arquivos: só com o agente ao vivo (no histórico não há sala certa).
+    setHidden(this.filesBtn, !live || !filesAvailable(this.ctx));
     updateFavStar(this.favStar, this.session ?? (this.last ? favoriteSessionOf(this.ctx, this.last) : null));
   }
 

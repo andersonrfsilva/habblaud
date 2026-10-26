@@ -54,6 +54,7 @@ import { TERMINAL_UNAVAILABLE_HINT, type TerminalControl } from './terminal';
 import { Movable } from './movable';
 import type { PtyControl } from './pty';
 import { richText } from './usage';
+import { filesAvailable } from './files';
 import {
   createAccountChip,
   createProgress,
@@ -77,11 +78,6 @@ function section(title: string, ...children: (Node | null)[]): { el: HTMLElement
   const extra = h('span', { class: 'ui-sec__extra' });
   const el = h('section', { class: 'ui-sec' }, h('div', { class: 'ui-sec__head' }, t, extra), ...children.filter((c): c is Node => !!c));
   return { el, title: t, extra };
-}
-
-/** O botão Arquivos só vale com o servidor liberando /api/files* e fora do mock e do replay. */
-function filesAvailable(ctx: UiContext): boolean {
-  return access().files === true && !ctx.store.mock && !ctx.store.replaying && !!ctx.openFiles;
 }
 
 function filesButton(title: string, open: () => void): HTMLButtonElement {
