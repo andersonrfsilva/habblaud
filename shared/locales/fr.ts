@@ -3500,4 +3500,9 @@ export const FR: Readonly<Record<string, string>> = {
   "Favoritas": "Favorites",
   "Favoritar sessão": "Mettre la session en favori",
   "Tirar dos favoritos": "Retirer des favoris",
+  // client/src/ui/omp-bar.ts (olho do advisor)
+  "Advisor do omp": "Advisor d'omp",
+  "Advisor do omp ligado nesta sessão. Clique para desligar (/advisor off)": "L'advisor d'omp est activé dans cette session. Cliquez pour le désactiver (/advisor off)",
+  "Advisor do omp desligado nesta sessão. Clique para ligar (/advisor on)": "L'advisor d'omp est désactivé dans cette session. Cliquez pour l'activer (/advisor on)",
+  "Liga o advisor do omp nesta sessão (/advisor on). O Habblaud não vê se ele já está ligado; o olho mostra o último comando enviado daqui": "Active l'advisor d'omp dans cette session (/advisor on). Habblaud ne voit pas s'il est déjà activé ; l'œil montre la dernière commande envoyée d'ici",
 };

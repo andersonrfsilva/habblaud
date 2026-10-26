@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { contextView } from './omp-bar';
+import { advisorNext, contextView } from './omp-bar';
 
 describe('barra do contexto do omp no terminal', () => {
   it('percentual com uma casa, nível de cor pelos limites do uso (50% e 80%) e o texto tokens / janela', () => {
@@ -13,5 +13,13 @@ describe('barra do contexto do omp no terminal', () => {
   it('sem leitura ou janela zero: sem barra', () => {
     expect(contextView(undefined)).toBeUndefined();
     expect(contextView({ tokens: 1, window: 0 })).toBeUndefined();
+  });
+});
+
+describe('olho do advisor', () => {
+  it('estado desconhecido ou desligado liga; ligado desliga', () => {
+    expect(advisorNext(undefined)).toBe('advisorOn');
+    expect(advisorNext(false)).toBe('advisorOn');
+    expect(advisorNext(true)).toBe('advisorOff');
   });
 });
