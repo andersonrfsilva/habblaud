@@ -12,6 +12,9 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Sessões favoritas no Histórico:** cada sessão do Histórico ganha uma estrela. A favorita vai para a seção
+  "Favoritas", no topo, e continua lá depois dos 7 dias (abre a conversa normalmente). Ficam guardadas no navegador
+  (até 100), sem sincronizar entre aparelhos.
 - **Arquivos da pasta de trabalho:** na gaveta da sala e na do agente, o botão Arquivos abre as pastas e os arquivos da
   sala (e de ~/projetos, quando existir). Dá para ver imagem, PDF, vídeo, texto e página e baixar qualquer arquivo; nada
   com "." no nome nem com cara de segredo aparece. Só leitura, com a mesma trava do terminal (pelo celular, com terminal
