@@ -959,15 +959,26 @@ export class Office {
 
   /** Fecha uma revisão: devolve o snapshot (novo, se algo mudou), o feed e os avisos pendentes. */
   commit(): CommitResult {
+    let changed = false;
+    if (this.dirty || !this.last) {
+      // Se build() lançar, nada é consumido: rev, dirty, last, feed e avisos ficam como estavam
+      // e o próximo commit() refaz o snapshot.
+      const rev = this.rev;
+      this.rev++;
+      try {
+        this.last = this.build();
+      } catch (err) {
+        this.rev = rev;
+        throw err;
+      }
+      this.dirty = false;
+      changed = true;
+    }
     const feed = this.pendingFeed;
     const notices = this.pendingNotices;
     this.pendingFeed = [];
     this.pendingNotices = [];
-    if (!this.dirty && this.last) return { snapshot: this.last, changed: false, feed, notices };
-    this.rev++;
-    this.dirty = false;
-    this.last = this.build();
-    return { snapshot: this.last, changed: true, feed, notices };
+    return { snapshot: this.last!, changed, feed, notices };
   }
 
   // ---------------------------------------------------------------- internos

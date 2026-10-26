@@ -86,6 +86,11 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Servidor não cai mais por um erro ao montar o snapshot:** uma falha numa das fontes do escritório (permissões,
+  mensagens, terminais, atualizações, mundo) derrubava o processo inteiro e todas as abas. Agora o erro vai para o log
+  uma vez, as abas seguem com o último estado bom e o servidor tenta de novo sozinho; o feed e os avisos pendentes não
+  se perdem. O desligamento sempre termina, mesmo se um serviço falhar ao parar, e um erro realmente inesperado é
+  registrado antes de o processo sair (o contêiner reinicia).
 - **Pergunta paralela cancelada ainda gastava tokens:** parar uma pergunta do bate-papo paralelo que ainda esperava
   na fila não a tirava dela, e o omp a respondia assim mesmo (e recusava a pergunta seguinte). Agora ela sai da fila
   na hora do cancelamento.
