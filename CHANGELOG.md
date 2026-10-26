@@ -87,6 +87,10 @@ do meio (0.**3**.0).
   sistema) ou que não tem nenhuma instrução sua (nem título, nem primeiro pedido) não aparece mais na lista. Vale para
   todas as ferramentas; sessão aberta no escritório aparece sempre.
 
+- **Página abre mais leve:** o player do timelapse e a janela do Habblaud World passam a ser baixados só quando usados
+  (o timelapse na primeira abertura; a janela do World quando o servidor do mundo está configurado ou ao abri-la).
+  O pedaço principal do client (`app-*.js`) caiu de 766.929 bytes (251.038 com gzip) para 572.997 (187.813 com gzip).
+
 - **Escritório mais leve:** sem ninguém andando na tela, o escritório desenha a 10 quadros por segundo (5 sem foco)
   em vez de 30; volta a 30 (15 sem foco) assim que alguém anda, uma sala é montada ou cai confete. Arrastar, dar zoom
   e a câmera seguindo alguém continuam no ritmo do monitor. Medido com GPU: 79% → 35% de CPU.
