@@ -1,8 +1,9 @@
 // Camadas de estado: splash de carregamento, escritório vazio e aviso de conexão perdida.
 import type { UiComponent, UiContext } from './context';
-import { h, prefersReducedMotion, setHidden, setText } from './dom';
+import { h, iconButton, prefersReducedMotion, setHidden, setText, setTitle } from './dom';
 import { FALLBACK_MARK } from './icons';
 import { emptyOfficeHint } from './provider';
+import { TIMELAPSE_ICONS } from './timelapse-icons';
 import { wordmark } from './widgets';
 import { tr } from '../../../shared/i18n';
 
@@ -185,4 +186,26 @@ export class ConnectionBanner implements UiComponent {
       this.ctx.invalidate();
     }, 1_000);
   }
+}
+
+/** Canto inferior direito: pausa e retoma as animações do escritório (some no timelapse e na cidade, pelo CSS). */
+export class AnimationToggle implements UiComponent {
+  readonly el: HTMLButtonElement;
+  private paused = false;
+
+  constructor(private readonly ctx: UiContext) {
+    this.el = iconButton(TIMELAPSE_ICONS.pause, tr('Pausar animações'), () => this.toggle(), 'ui-anim-toggle');
+  }
+
+  private toggle(): void {
+    this.paused = !this.paused;
+    this.ctx.world.setPaused?.(this.paused);
+    this.el.innerHTML = this.paused ? TIMELAPSE_ICONS.play : TIMELAPSE_ICONS.pause;
+    const label = this.paused ? tr('Retomar animações') : tr('Pausar animações');
+    setTitle(this.el, label);
+    this.el.setAttribute('aria-label', label);
+    this.el.setAttribute('aria-pressed', String(this.paused));
+  }
+
+  render(): void {}
 }

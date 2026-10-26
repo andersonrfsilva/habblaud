@@ -83,6 +83,7 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
   let timer: ReturnType<typeof setTimeout> | 0 = 0;
   let lastTs = 0;
   let hiddenAt = 0;
+  let pausedAt = 0; // 0 = tocando; senão o Date.now() do instante da pausa
   /** Escritório fora da tela (cidade aberta): sem laço de desenho nem teclado da câmera. */
   let suspended = false;
   let suspendedAt = 0;
@@ -331,7 +332,7 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
       active: cameraMoved || camera.animating || !!playback || performance.now() - lastInputAt < ACTIVE_GRACE_MS,
       focused: document.hasFocus(),
       powerSave: !!options.powerSave,
-      motion: renderer.motion,
+      motion: !pausedAt && renderer.motion,
     });
     schedule(cap);
     // 2 ms de folga: com 30 qps num monitor de 60 Hz, o quadro de 33,3 ms não pode cair para o seguinte.
@@ -341,10 +342,10 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
     const realDt = lastTs ? Math.min(0.25, Math.max(0, (ts - lastTs) / 1000)) : 1 / 60;
     lastTs = ts;
     // Timelapse: simulação e desenho no relógio do mundo (acelerado ou parado); a câmera segue no tempo real.
-    const k = playback ? Math.max(0, playback.scale()) : 1;
+    const k = pausedAt ? 0 : playback ? Math.max(0, playback.scale()) : 1;
     const dt = realDt * k;
     if (playback) worldNow += dt * 1000;
-    const now = playback ? worldNow : real;
+    const now = playback ? worldNow : pausedAt || real;
     try {
       const dpr = renderDpr(window.devicePixelRatio, !!options.powerSave, camera.zoom);
       const devDpr = renderDpr(window.devicePixelRatio, false);
@@ -385,7 +386,7 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
       overlay.draw(now, options, { agent: selection?.type === 'agent' ? selection.id : null, room: selection?.type === 'room' ? selection.id : null, hover }, viewDpr);
       renderer.pruneHeads();
       // No timelapse o mundo fica mudo: o teclado e o elevador em alta velocidade só fariam barulho.
-      if (soundCbs.size && !playback) cues.update(now, (c) => soundCbs.forEach((cb) => cb(c)));
+      if (soundCbs.size && !playback && !pausedAt) cues.update(now, (c) => soundCbs.forEach((cb) => cb(c)));
       if (mouse) {
         const hit = pick(mouse.x, mouse.y);
         setHover(hit?.type === 'agent' ? hit.id : null);
@@ -556,6 +557,17 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
       const next = Math.max(0, fps);
       if (next === frameCap) return;
       frameCap = next;
+      wake();
+    },
+    setPaused: (on) => {
+      if (on === !!pausedAt) return;
+      if (on) {
+        pausedAt = Date.now();
+        return;
+      }
+      lastTs = 0;
+      sim.fastForward(playback ? worldNow : Date.now());
+      pausedAt = 0;
       wake();
     },
     destroy: () => {

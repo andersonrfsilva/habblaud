@@ -12,6 +12,9 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Pausar as animações do escritório:** um botão no canto inferior direito congela o escritório (a câmera e os
+  cliques continuam); ao retomar, ele volta ao presente.
+
 - **Salas comuns compactas:** em **Configurações › Escritório › Salas comuns**, a opção **Compactas** troca os
   banheiros, a copa e o lounge por um lounge só, com copa (cafeteiras, bebedouro, máquina de lanches, mesinhas, sofá e
   TV), ao lado da recepção. O núcleo passa a ocupar uma coluna em vez de duas, e as salas de projeto começam mais
