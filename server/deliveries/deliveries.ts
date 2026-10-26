@@ -41,7 +41,8 @@ export interface DeliveryIndexOptions {
   /** O agente está no meio de um pedido (o último pedido ainda não é entrega). */
   isBusy: (agentId: string) => boolean;
   agentName?: (agentId: string) => string | undefined;
-  appearance?: (agentId: string) => DeliveryInfo['appearance'];
+  /** Nome e aparência do agente da sessão, mesmo depois que ele saiu do escritório. */
+  lastSeen?: (account: string, sessionId: string) => { name: string; appearance: NonNullable<DeliveryInfo['appearance']> } | undefined;
 }
 
 export type StoredAttachment =
@@ -323,8 +324,9 @@ export class DeliveryIndex {
     });
     const headline = headlineOf(text);
     const summary = summaryOf(text, headline);
-    const agentName = s.agentId ? this.opts.agentName?.(s.agentId) : undefined;
-    const appearance = s.agentId ? this.opts.appearance?.(s.agentId) : undefined;
+    const seen = this.opts.lastSeen?.(s.account, s.sessionId);
+    const agentName = (s.agentId ? this.opts.agentName?.(s.agentId) : undefined) ?? seen?.name;
+    const appearance = seen?.appearance;
     const provider: Provider | undefined = s.provider;
     return {
       id,

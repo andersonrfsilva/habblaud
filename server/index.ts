@@ -216,11 +216,11 @@ const history = config.terminal
   : undefined;
 if (history && codex) history.add(new CodexHistory({ accounts: () => accounts.entriesOf('codex'), openAgentOf: (acc, sid) => openMainAgent(office.list(), acc, sid) }));
 if (history && omp) history.add(new OmpHistory({ accounts: () => accounts.entriesOf('omp'), openAgentOf: (acc, sid) => openMainAgent(office.list(), acc, sid) }));
-// Último estado de cada agente visto: entregas de quem já saiu do escritório mantêm nome e avatar.
+// Último estado do agente de cada sessão: entregas de quem já saiu do escritório (sem agentId) mantêm nome e avatar.
 // shortcut: só em memória, some ao reiniciar o servidor; persistir se isso incomodar.
 const seenAgents = new Map<string, AgentInfo>();
 office.onChange(() => {
-  for (const a of office.list()) seenAgents.set(a.id, a);
+  for (const a of office.list()) if (a.kind === 'main') seenAgents.set(`${a.account}:${a.sessionId}`, a);
 });
 // Entregas: o fim de cada pedido, lido dos transcripts do histórico (mesma trava do terminal). Os arquivos entregues
 // são lidos aqui (Node, ou pasta de conta montada no Docker) ou pelo auxiliar do host.
@@ -235,10 +235,10 @@ const deliveries = history
         const st = office.list().find((a) => a.id === id)?.status;
         return st === 'working' || st === 'waiting' || st === 'shell';
       },
-      agentName: (id) => office.list().find((a) => a.id === id)?.name ?? seenAgents.get(id)?.name,
-      appearance: (id) => {
-        const a = office.list().find((x) => x.id === id) ?? seenAgents.get(id);
-        return a && { seed: a.seed, look: a.look, kind: a.kind, ...(a.parts ? { parts: a.parts } : {}) };
+      agentName: (id) => office.list().find((a) => a.id === id)?.name,
+      lastSeen: (account, sessionId) => {
+        const a = seenAgents.get(`${account}:${sessionId}`);
+        return a && { name: a.name, appearance: { seed: a.seed, look: a.look, kind: a.kind, ...(a.parts ? { parts: a.parts } : {}) } };
       },
     })
   : undefined;
