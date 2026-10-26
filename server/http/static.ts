@@ -39,6 +39,17 @@ export const HASHED_DIR = '/bundle/';
 export const IMMUTABLE = 'public, max-age=31536000, immutable';
 export const REVALIDATE = 'no-cache';
 
+/**
+ * CSP da página. Texto do agente (títulos, saída de ferramentas, respostas) é mostrado numa tela que aprova permissões
+ * e manda mensagens; se um dia um `innerHTML` deixar passar HTML, o `script-src 'self'` impede que ele execute.
+ * `'unsafe-inline'` fica só nos estilos (o <style> do index.html e o do xterm). O Habblaud World passa pelo servidor
+ * (/api/world), então o navegador só fala com a própria origem. Só vale em produção: o modo dev (Vite) não passa por aqui.
+ */
+export const PAGE_CSP =
+  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; " +
+  "connect-src 'self'; media-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; " +
+  "frame-ancestors 'none'; form-action 'self'";
+
 function fileStat(p: string): Stats | undefined {
   try {
     const st = statSync(p);
@@ -85,6 +96,8 @@ export function createStaticHandler(distDir: string): (req: IncomingMessage, res
       'X-Frame-Options': 'DENY',
       'Referrer-Policy': 'no-referrer',
     };
+    // Só o HTML carrega a política; o navegador a aplica ao documento, não aos arquivos de /bundle.
+    if (extname(file).toLowerCase() === '.html') headers['Content-Security-Policy'] = PAGE_CSP;
     if (isNotModified(req, etag, st.mtimeMs)) {
       res.writeHead(304, headers);
       return void res.end();

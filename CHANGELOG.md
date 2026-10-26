@@ -80,6 +80,9 @@ do meio (0.**3**.0).
 - **Escritório:** móveis do prédio e árvores, cercas e flores do lado de fora são pintados uma vez e reaproveitados
   a cada quadro, em vez de desenhados um a um: 72,8% → 58,5% de CPU a 30 quadros por segundo (medido com GPU); no
   ritmo de 10 quadros por segundo com o escritório parado, 31,1% → 25,6%.
+- **Página com Content-Security-Policy:** o servidor passa a mandar uma CSP junto com a página (só em produção, não no
+  `npm run dev`). Scripts só rodam se vierem do próprio Habblaud, e a página não pode ser embutida em outro site. É uma
+  barreira extra caso algum texto de agente chegue à tela como HTML. Nada muda no uso.
 
 ### Corrigido
 

@@ -12,7 +12,7 @@ import { tempDir } from '../test/fixtures';
 import { createApiHandler, type ApiDeps } from './app';
 import { createRequestGuard, hostAllowed, hostnameOf, isLoopbackHost, originAllowed, parseAllowedHosts } from './guard';
 import { Hub } from './sse';
-import { createStaticHandler, IMMUTABLE, REVALIDATE } from './static';
+import { createStaticHandler, IMMUTABLE, PAGE_CSP, REVALIDATE } from './static';
 
 setQuiet(true);
 
@@ -245,9 +245,20 @@ describe('API HTTP', () => {
     expect(await page.text()).toContain('<title>Habblaud</title>');
     expect(page.headers.get('cache-control')).toBe(REVALIDATE);
     expect(page.headers.get('x-frame-options')).toBe('DENY');
+    // A página (inclusive a rota de SPA) leva a CSP; o script externo e as imagens não precisam dela.
+    expect(page.headers.get('content-security-policy')).toBe(PAGE_CSP);
+    const csp = page.headers.get('content-security-policy')!;
+    expect(csp).toMatch(/(^|; )script-src 'self'(;|$)/);
+    expect(csp).not.toMatch(/script-src[^;]*unsafe-/);
+    expect(csp).toContain("frame-ancestors 'none'");
     const bundle = await fetch(`${env.base}/bundle/main-abc12345.js`);
     expect(bundle.headers.get('cache-control')).toBe(IMMUTABLE);
     expect(bundle.headers.get('content-type')).toMatch(/javascript/);
+    expect(bundle.headers.get('content-security-policy')).toBeNull();
+    const pageEtag = page.headers.get('etag')!;
+    const page304 = await fetch(`${env.base}/`, { headers: { 'If-None-Match': pageEtag } });
+    expect(page304.status).toBe(304);
+    expect(page304.headers.get('content-security-policy')).toBe(PAGE_CSP);
     // client/public: nome fixo, pode mudar a cada build.
     for (const path of ['/assets/brand/logo-mark.png', '/assets/manifest.json']) {
       const res = await fetch(`${env.base}${path}`);
