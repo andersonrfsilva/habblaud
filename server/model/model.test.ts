@@ -217,6 +217,50 @@ function makeOffice(names = new NameStore(null)) {
 const act = (id: string, at: number, kind: Activity['kind'] = 'read'): Activity => ({ id, at, kind, icon: '📖', text: 'Lendo x' });
 
 describe('Office', () => {
+  function brokenOffice() {
+    const flag = { broken: true };
+    const clock = 1_000_000;
+    const office = new Office({
+      names: new NameStore(null),
+      version: 't',
+      startedAt: clock,
+      accounts: (s) => [{ id: 'acc', short: 'C', name: 'Conta C', color: '#f08a3c', configDir: '/x', sessions: s.get('acc') ?? 0, usageStatus: 'disabled' }],
+      sources: () => [],
+      accountName: () => 'Conta C',
+      now: () => clock,
+      permissions: () => {
+        if (flag.broken) throw new Error('falhou');
+        return new Map();
+      },
+    });
+    return { office, flag, now: () => clock };
+  }
+
+  it('commit() que falha preserva tudo e o seguinte recupera', () => {
+    const { office, flag, now } = brokenOffice();
+    office.addMain({ id: 'acc:1', account: 'acc', sessionId: 's1', cwd: '/p/loja/', role: 'Agente principal', startedAt: now(), status: 'working' });
+    office.addActivity('acc:1', act('a1', now()), true);
+    expect(() => office.commit()).toThrow('falhou');
+    flag.broken = false;
+    const r = office.commit();
+    expect(r.changed).toBe(true);
+    expect(r.feed.map((f) => f.id)).toContain('a1');
+    expect(r.notices.some((n) => n.text.includes('Nova sala'))).toBe(true);
+    expect(r.snapshot.rev).toBe(1);
+    const again = office.commit();
+    expect(again.changed).toBe(false);
+    expect(again.snapshot).toBe(r.snapshot);
+  });
+
+  it('dois commits com falha seguidos não acumulam revisão', () => {
+    const { office, flag, now } = brokenOffice();
+    office.addMain({ id: 'acc:1', account: 'acc', sessionId: 's1', cwd: '/p/loja/', role: 'Agente principal', startedAt: now(), status: 'working' });
+    expect(() => office.commit()).toThrow();
+    expect(() => office.commit()).toThrow();
+    flag.broken = false;
+    expect(office.commit().snapshot.rev).toBe(1);
+  });
+
   it('avisos com dedupe de 10 s e feed em lote', () => {
     const { office, advance, now } = makeOffice();
     office.addMain({ id: 'acc:1', account: 'acc', sessionId: 's1', cwd: '/p/loja/', role: 'Agente principal', startedAt: now(), status: 'working' });

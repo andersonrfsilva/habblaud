@@ -589,24 +589,34 @@ function shutdown(signal: string): void {
   if (shuttingDown) return;
   shuttingDown = true;
   log.info(tr('Encerrando ({0})…', [signal]));
-  clearInterval(ticker);
-  stats.stop();
-  agents.stop();
-  accounts.stop();
-  hub.stop();
-  terminals?.stop();
-  timeline?.stop();
-  permissions?.stop();
-  messages?.stop();
-  asides?.stop();
-  ptys?.stopAll();
-  updates.stop();
-  worldViewer?.stop();
-  worldUplink?.stop();
-  world?.stop();
-  names.flush();
-  void closeVite?.();
-  remoteListener?.close();
+  const steps: Array<() => void> = [
+    () => clearInterval(ticker),
+    () => stats.stop(),
+    () => agents.stop(),
+    () => accounts.stop(),
+    () => hub.stop(),
+    () => terminals?.stop(),
+    () => timeline?.stop(),
+    () => permissions?.stop(),
+    () => messages?.stop(),
+    () => asides?.stop(),
+    () => ptys?.stopAll(),
+    () => updates.stop(),
+    () => worldViewer?.stop(),
+    () => worldUplink?.stop(),
+    () => world?.stop(),
+    () => names.flush(),
+    () => void closeVite?.(),
+    () => remoteListener?.close(),
+  ];
+  for (const step of steps) {
+    try {
+      step();
+    } catch (err) {
+      // Um serviço que falha ao parar não pode impedir o process.exit nem os que vêm depois (names.flush grava os nomes).
+      log.warn(tr('Falha ao encerrar um serviço: {0}', [errMsg(err)]));
+    }
+  }
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 1_500).unref();
 }
@@ -614,3 +624,23 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 // Ctrl+Break no console do Windows (no macOS e no Linux o Node só ignora o registro).
 process.on('SIGBREAK', () => shutdown('SIGBREAK'));
+
+// Rede de segurança. Exceção não capturada: o estado pode estar pela metade, então registra e sai (o contêiner
+// reinicia); antes, tenta salvar os nomes. Promessa rejeitada: não deixa estado pela metade, então só registra.
+let crashing = false;
+process.on('uncaughtException', (err) => {
+  if (crashing) return;
+  crashing = true;
+  // Só os quadros da stack (sem a mensagem completa), para o log não carregar conteúdo de conversa.
+  const frames = String((err as Error)?.stack ?? '').split('\n').filter((l) => l.trimStart().startsWith('at ')).slice(0, 6).join(' | ');
+  log.error(tr('Erro não tratado; encerrando para o reinício limpo: {0}', [`${errMsg(err)} ${frames}`.trim()]));
+  try {
+    names.flush();
+  } catch {
+    // saindo de qualquer jeito
+  }
+  process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+  log.warnOnce(`unhandled:${errMsg(reason)}`, tr('Promessa rejeitada sem tratamento: {0}', [errMsg(reason)]));
+});

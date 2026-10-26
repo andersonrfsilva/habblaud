@@ -3,8 +3,10 @@
 // Snapshots saem com throttle (~200 ms); feed e avisos vão em lote logo depois do snapshot.
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { OfficeSnapshot } from '../../shared/types';
-import type { Office } from '../model/office';
+import type { CommitResult, Office } from '../model/office';
 import { isLoopbackHost } from './guard';
+import { errMsg, log } from '../log';
+import { tr } from '../../shared/i18n';
 
 /** Cliente lento demais (buffer acumulado acima disto) é desconectado; o EventSource reconecta. */
 const MAX_BUFFERED = 8 * 1024 * 1024;
@@ -20,21 +22,29 @@ export class Hub {
   private snapshotCbs = new Set<(snap: OfficeSnapshot) => void>();
   private readonly throttleMs: number;
   private readonly pingMs: number;
+  private readonly retryMs: number;
   /** Quem pode responder pelo escritório; padrão: Host local. A porta remota (http/remote.ts) troca a regra. */
   private readonly canAnswer: (req: IncomingMessage) => boolean;
 
   constructor(
     private readonly office: Office,
-    opts: { throttleMs?: number; pingMs?: number; canAnswer?: (req: IncomingMessage) => boolean } = {},
+    opts: { throttleMs?: number; pingMs?: number; retryMs?: number; canAnswer?: (req: IncomingMessage) => boolean } = {},
   ) {
     this.throttleMs = opts.throttleMs ?? 200;
     this.pingMs = opts.pingMs ?? 15_000;
+    this.retryMs = opts.retryMs ?? 2_000;
     this.canAnswer = opts.canAnswer ?? ((req) => isLoopbackHost(req.headers.host));
   }
 
   start(): void {
     this.unsubscribe = this.office.onChange(() => this.schedule());
-    this.pinger = setInterval(() => this.writeAll(': ping\n\n'), this.pingMs);
+    this.pinger = setInterval(() => {
+      try {
+        this.writeAll(': ping\n\n');
+      } catch (err) {
+        log.warnOnce('sse-ping', tr('Falha ao enviar o ping do stream: {0}', [errMsg(err)]));
+      }
+    }, this.pingMs);
     this.pinger.unref?.();
   }
 
@@ -93,7 +103,14 @@ export class Hub {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     this.lastFlush = Date.now();
-    const r = this.office.commit();
+    let r: CommitResult;
+    try {
+      r = this.office.commit();
+    } catch (err) {
+      // O escritório não consumiu nada (ver Office.commit): tenta de novo logo, mesmo sem outra mudança.
+      this.schedule(this.retryMs);
+      throw err;
+    }
     if (r.changed) {
       this.writeAll(frame('snapshot', r.snapshot));
       for (const cb of this.snapshotCbs) {
@@ -114,12 +131,18 @@ export class Hub {
     return { ...this.flush(), serverTime: Date.now() };
   }
 
-  private schedule(): void {
+  private schedule(wait?: number): void {
     if (this.timer) return;
-    const wait = Math.max(0, this.lastFlush + this.throttleMs - Date.now());
+    wait ??= Math.max(0, this.lastFlush + this.throttleMs - Date.now());
     this.timer = setTimeout(() => {
       this.timer = null;
-      this.flush();
+      try {
+        this.flush();
+        log.clearOnce('sse-flush');
+      } catch (err) {
+        // Um erro ao montar o snapshot não pode derrubar o processo: segue com o último snapshot e flush() já reagendou.
+        log.warnOnce('sse-flush', tr('Falha ao montar o snapshot do escritório: {0}. Sigo com o anterior e tento de novo.', [errMsg(err)]));
+      }
     }, wait);
     this.timer.unref?.();
   }
