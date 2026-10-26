@@ -46,6 +46,7 @@ conditions e atualize sua linha ao terminar.
 | 022  | Docs: rotas da API nos READMEs e no `server/README.md`; AGENTS.md cita o omp | P3 | S | — | DONE (merge b0170b2) |
 | 023  | Ver e baixar os arquivos da pasta de trabalho pelo botão "Arquivos" da gaveta (salas + `~/projetos`) | P2 | L | — | DONE (merge 5205df7 + 0c72d86: a janela fecha só pelo X ou Esc, nunca por clique; em produção e nos usuários, release 0c72d866449d + sync em 2026-10-26) |
 | 024  | Estrela para favoritar sessões no Histórico e na gaveta (agente e sala), fixadas no topo do Histórico (só cliente, `localStorage`) | P3 | S | — | DONE (merge 592f170 em `producao`; em produção e nos usuários, release 7eeea6e48ff3 + instalar + sync em 2026-10-26) |
+| 025  | Olho em pixel art na faixa do terminal liga e desliga o advisor do omp (`/advisor on` / `off`; estado = último comando confirmado, só cliente) | P3 | S | — | DONE (branch `advisor/025-olho-do-advisor`, worktree `../habblaud-025`; não mesclado nem publicado) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 
