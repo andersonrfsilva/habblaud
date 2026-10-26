@@ -36,13 +36,13 @@ conditions e atualize sua linha ao terminar.
 | 013  | Spike: móveis e props desenhados em lote (atlas, camadas) | P3 | L | — | DONE (2026-10-25; `plans/013-resultado.md`). B+C: −14 pontos a 30 qps. Virou o plano 015 (branch do protótipo apagado) |
 | 014  | Bate-papo paralelo com um agente do omp numa janela lateral do terminal, com histórico em disco | P2 | L | — | DONE (merge 47aae29) |
 | 015  | Móveis do prédio numa camada única e props estáticos em duas camadas (B + C do 013) | P3 | L | 013 | DONE (merge fbf77db, em produção; 72,8% → 58,5% a 30 qps, 31,1% → 25,6% a 10 qps) |
-| 016  | Pergunta paralela cancelada na fila não roda; confirmação de entrega repetida | P1 | S | — | DONE (eacc922 + 25442e5, branch advisor/016-pergunta-paralela-cancelada, worktree /tmp/hb-016; revisado, sem merge) |
-| 017  | Erro ao montar o snapshot não derruba o servidor; desligamento sempre termina | P1 | S | — | TODO (depois do merge de 016 e 019: mexe em `server/index.ts` e `server/model/office.ts`) |
-| 018  | Teclas do terminal interativo sempre no pty certo ao trocar de agente | P2 | S | — | DONE (8ecc053 + cd70b88, branch advisor/018-terminal-teclas, worktree /tmp/hb-018; revisado, sem merge; verificação manual com dois agentes não feita) |
-| 019  | Título da sessão do omp reescrito não duplica o histórico (medido: ≤ 120 ms de releitura) | P3 | M | — | DONE (f5a4759, branch advisor/019-titulo-da-sessao, worktree /tmp/hb-019; só a Parte A: mediana 119,9 ms < 250 ms; revisado, sem merge) |
-| 020  | Login remoto: freio por origem (proxy confiável) e cookie `Secure` atrás de HTTPS | P1 | M | — | TODO (depois do merge de 016 e 022: mexe em `server/index.ts` e nos READMEs) |
-| 021  | Content-Security-Policy na página | P2 | S | — | DONE (dddea47, branch advisor/021-csp, worktree /tmp/hb-021; revisado, sem merge; smoke sem violações) |
-| 022  | Docs: rotas da API nos READMEs e no `server/README.md`; AGENTS.md cita o omp | P3 | S | — | DONE (4 commits, branch advisor/022-docs-api, worktree /tmp/hb-022; revisado, sem merge) |
+| 016  | Pergunta paralela cancelada na fila não roda; confirmação de entrega repetida | P1 | S | — | DONE (merge 1da57cc + 5b7dca2, em produção e nos usuários; vale nas sessões do omp reabertas) |
+| 017  | Erro ao montar o snapshot não derruba o servidor; desligamento sempre termina | P1 | S | — | TODO (pode rodar agora: 016 e 019 já entraram) |
+| 018  | Teclas do terminal interativo sempre no pty certo ao trocar de agente | P2 | S | — | DONE (merge 015f259, em produção; verificação manual com dois agentes não feita) |
+| 019  | Título da sessão do omp reescrito não duplica o histórico (medido: ≤ 120 ms de releitura) | P3 | M | — | DONE (merge a625399, em produção; só a Parte A) |
+| 020  | Login remoto: freio por origem (proxy confiável) e cookie `Secure` atrás de HTTPS | P1 | M | — | TODO (pode rodar agora: 016 e 022 já entraram; depois, passo 6 do plano 034 do `omp-tenant`) |
+| 021  | Content-Security-Policy na página | P2 | S | — | DONE (merge b580ba9, em produção; 0 violações na página do dono) |
+| 022  | Docs: rotas da API nos READMEs e no `server/README.md`; AGENTS.md cita o omp | P3 | S | — | DONE (merge b0170b2) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 
