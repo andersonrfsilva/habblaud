@@ -13,8 +13,9 @@ do meio (0.**3**.0).
 ### Adicionado
 
 - **Sessões favoritas no Histórico:** cada sessão do Histórico ganha uma estrela. A favorita vai para a seção
-  "Favoritas", no topo, e continua lá depois dos 7 dias (abre a conversa normalmente). Ficam guardadas no navegador
-  (até 100), sem sincronizar entre aparelhos.
+  "Favoritas", no topo, e continua lá depois dos 7 dias (abre a conversa normalmente). A mesma estrela aparece na
+  gaveta: ao lado do id da sessão do agente e em cada agente da lista "Agentes" da sala (subagentes e o demo ficam
+  sem estrela). Ficam guardadas no navegador (até 100), sem sincronizar entre aparelhos.
 
 ## [1.0.3] - 2026-10-16
 
