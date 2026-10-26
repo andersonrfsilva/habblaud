@@ -23,6 +23,8 @@ import { TermTabs } from './termtabs';
 import { renderMarkdown } from './markdown';
 import { roleLabel, shellWaitIn } from './model';
 import { providerOf } from './provider';
+import { favorites } from './favorites';
+import { createFavStar, favoriteSessionOf, updateFavStar } from './favstar';
 import {
   clearHits,
   copyTextOf,
@@ -650,6 +652,8 @@ export class TerminalPanel implements UiComponent, TerminalControl {
   private findBtn: HTMLButtonElement;
   /** Botão do bate-papo paralelo (só agente do omp pronto para receber mensagens) e a janela lateral dele. */
   private chatBtn: HTMLButtonElement;
+  /** Estrela: favorita a sessão aberta (a do histórico ou a do agente), a mesma lista do Histórico. */
+  private favStar = createFavStar('ui-icon-btn--sm');
   private chat: AsideChat;
   private alertEl: HTMLElement;
   private alertText: HTMLElement;
@@ -699,6 +703,7 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     this.chatBtn.hidden = true;
     setAttr(this.chatBtn, 'aria-pressed', 'false');
     const close = iconButton(ICONS.close, tr('Fechar terminal (Esc)'), () => this.close(), 'ui-icon-btn--sm ui-term__close');
+    favorites.subscribe(() => this.render());
     const bar = h(
       'div',
       { class: 'ui-term__bar' },
@@ -707,6 +712,7 @@ export class TerminalPanel implements UiComponent, TerminalControl {
       h('div', { class: 'ui-term__who' }, this.accEl, this.nameEl, this.provEl, this.roleEl, this.roomEl),
       this.reconnEl,
       this.findBtn,
+      this.favStar,
       this.chatBtn,
       ...(this.actions ? [this.actions.el] : []),
       maximizeButton(() => this.movable),
@@ -881,6 +887,7 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     const chatOk = !!live && live.kind === 'main' && live.provider === 'omp' && kind === 'ready' && !this.ctx.store.mock;
     setHidden(this.chatBtn, !chatOk);
     this.chat.render(chatOk ? live : undefined, chatOk);
+    updateFavStar(this.favStar, this.session ?? (this.last ? favoriteSessionOf(this.ctx, this.last) : null));
   }
 
   private toggleChat(): void {
