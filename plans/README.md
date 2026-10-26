@@ -49,6 +49,7 @@ conditions e atualize sua linha ao terminar.
 | 025  | Olho em pixel art na faixa do terminal liga e desliga o advisor do omp (`/advisor on` / `off`; estado = último comando confirmado, só cliente) | P3 | S | — | DONE (branch `advisor/025-olho-do-advisor`, worktree `../habblaud-025`; não mesclado nem publicado) |
 | 026  | Timelapse e janela do Habblaud World baixados só quando abertos (issue upstream #73, seção 4) | P3 | M | — | DONE (branch `advisor/026-bundle-sob-demanda`, worktree `../habblaud-026`, `5cfd229` + `53e6a57`; não mesclado). JS na abertura 879.994 → 822.375 B (294.100 → 278.043 gzip). Com o mundo configurado (padrão), `settings-world` baixa logo após abrir: o ganho grande é para quem não usa o World |
 | 027  | Cache de sprites descarta a quarta parte mais antiga ao encher, em vez de zerar (issue upstream #73, seção 3) | P3 | S | — | DONE (branch `advisor/027-cache-de-sprites`, worktree `../habblaud-027`; não mesclado) |
+| 028  | Botão no canto inferior direito pausa e retoma as animações do escritório (não salvo; some no timelapse e na cidade) | P3 | S | — | DONE (branch `advisor/028-pausar-animacoes`, worktree `../habblaud-028`; revisão moveu os avisos do canto para cima do botão; não mesclado) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 
