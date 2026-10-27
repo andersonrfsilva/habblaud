@@ -599,6 +599,16 @@ línea): el texto entra en la sesión **como si lo hubieras escrito en su termin
 termina su turno y espera la siguiente solicitud, darle una instrucción nueva o corregir el rumbo, sin buscar la
 ventana correcta.
 
+- Adjunta con el clip, pegando o arrastrando (hasta cinco archivos de 15 MiB); el texto es opcional.
+  El texto del portapapeles tiene prioridad sobre las imágenes. Borradores y archivos permanecen con su agente durante la carga.
+  Los archivos se guardan antes de la entrega en `~/.habblaud/attachments/<UUID>/` (o `HABBLAUD_ATTACHMENTS_DIR`),
+  nunca en el proyecto. Las cargas pendientes vencen a los 30 minutos; los archivos guardados no caducan y se borran manualmente.
+  Cada instalación/tenant necesita su propia raíz: monta solo esa raíz RW en Habblaud y RO en la misma ruta absoluta
+  en agentes aislados, con el mismo UID (carpetas 0700, archivos 0600). Nunca compartas todo el estado de Habblaud.
+  Los mensajes y **Agente nuevo** (hasta ocho archivos) comparten 120 MiB, incluidas cargas activas, pendientes
+  y lotes en preparación. La carga escribe por stream en disco: `<attachmentsRoot>/.pending/` en modo directo
+  o `<config.dataDir>/attachments-pending/` en el volumen persistente `/data` de Docker, nunca `/tmp`.
+  El auxiliar descarga los descriptores secuencialmente a su propia `.pending/` y publica el lote completo con rename local.
 - El cuadro muestra el estado: **en cola** (la sesión busca los mensajes cada 2 segundos), **entregado** o **no se
   entregó**, con el motivo. Con el agente ocupado, el mensaje espera y entra cuando termine su turno, como un prompt
   escrito con el agente trabajando.
@@ -828,7 +838,7 @@ Todo funciona sin configurar nada. Si necesitas ajustar algo, usa variables de e
 | `HABBLAUD_BIND` | `127.0.0.1` | Solo Docker (en el `.env`): dónde se publica el puerto. `0.0.0.0` abre la red local (y desactiva la terminal y lo que actúa sobre las sesiones). |
 | `HABBLAUD_CLAUDE_DIRS` | detección automática | Carpetas de las cuentas, separadas por comas (p. ej., `/caminho/conta1,/caminho/conta2`). |
 | `HABBLAUD_DATA_DIR` | `~/.habblaud` | Dónde guarda Habblaud sus propios datos (nombres de los personajes y de las salas, línea de tiempo del timelapse y estadísticas de Mi día). |
-| `HABBLAUD_ATTACHMENTS_DIR` | `~/.habblaud/attachments` | Dónde se guardan los adjuntos de **Agente nuevo** antes de enviar la solicitud. |
+| `HABBLAUD_ATTACHMENTS_DIR` | `~/.habblaud/attachments` | Raíz de adjuntos del prompt y de **Agente nuevo**, en carpetas UUID exclusivas. Limpieza solo manual. |
 | `HABBLAUD_TIMELINE` | activada | `0` desactiva la grabación de la línea de tiempo (los días ya grabados siguen en el timelapse). En Docker siempre está activada. |
 | `HABBLAUD_USAGE_DIR` | `~/.habblaud/usage` | Dónde guarda el uso el mod (o el tap de statusline). |
 | `HABBLAUD_DEMO` | desactivado | `1` activa el modo demostración al iniciar. |
@@ -1033,6 +1043,17 @@ mod/      o mod do Habblaud e os plugins de permissões e de mensagens (plugins 
 | `/api/files…` | Archivos de la carpeta de trabajo: navegar por las carpetas de cada sala y de `~/projetos`, ver y descargar archivos (solo lectura). Solo con acceso local (desde el celular, con `terminal` en `HABBLAUD_REMOTE_ALLOW`); desactivado en Docker. |
 | `/api/pty…`, `POST /api/agents/:id/stop` y `/takeover` | Terminal interactivo y terminar o tomar una sesión; solo con `HABBLAUD_PTY=1`. Solo con acceso local, nunca por el puerto del celular. |
 | `/api/host/*` | Auxiliar del host (`npm run codex:bridge`): recoge y confirma las solicitudes de Agente nuevo, del dictado y de los archivos de las entregas. Solo con acceso local. |
+
+Las cargas (`POST /api/messages/attachments` y `POST /api/spawn/attachments`) usan `application/octet-stream`
+con los bytes del File, `X-Habblaud-File-Name: encodeURIComponent(file.name)` (máximo 2048 caracteres codificados)
+y `X-Habblaud-File-Type` (máximo 256; fallback `application/octet-stream`).
+Éxito: `201 {id, name, size}`; vacío/metadatos inválidos: 400; más de 15 MiB: 413; presupuesto ocupado: 429;
+JSON antiguo u otro formato de cuerpo: 415. Las solicitudes de mensaje/spawn siguen usando JSON con IDs.
+La excepción binaria solo corresponde a esos POST exactos; se mantienen Host, Origin, inicio de sesión y permisos.
+El auxiliar solo lee archivos de un job activo mediante
+`GET /api/codex/bridge/files/:jobId/attachments/:fileId`, nunca mediante permisos remotos de archivos del proyecto.
+Actualiza o revierte servidor, navegador y auxiliar juntos, pausa las cargas al reiniciar y recarga las páginas.
+Reiniciar invalida los IDs pendientes, no los archivos finales; su limpieza sigue siendo manual.
 
 Más detalles del servidor en [`server/README.md`](server/README.md).
 

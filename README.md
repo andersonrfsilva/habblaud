@@ -571,6 +571,16 @@ With the messages plugin installed (`npm run mod:install`, which installs it alo
 goes into the session **as if you had typed it in its terminal**. You can reply when the agent finishes its turn
 and waits for the next request, give a new instruction or correct its course, without hunting for the right window.
 
+- Attach files with the paperclip, paste or drop (up to five files, 15 MiB each); text is optional.
+  Clipboard text takes precedence over images. Drafts and files stay with their original agent during uploads.
+  Files are saved before delivery in `~/.habblaud/attachments/<UUID>/` (override: `HABBLAUD_ATTACHMENTS_DIR`),
+  never in the project. Pending uploads expire after 30 minutes; saved files never expire and require manual cleanup.
+  Each installation/tenant needs its own root: mount only that root RW in Habblaud and RO at the same absolute
+  path in isolated agents, using the same UID (directories 0700, files 0600). Never share the whole Habblaud state.
+  Messages and **New agent** (up to eight files) share one 120 MiB budget, including active uploads, pending files
+  and batches being prepared. Uploads stream to disk: `<attachmentsRoot>/.pending/` directly, or
+  `<config.dataDir>/attachments-pending/` on Docker's persistent `/data` volume, not `/tmp`. The host helper
+  downloads descriptors sequentially into its own `.pending/` and promotes complete batches by local rename.
 - The box shows the status: **queued** (the session fetches messages every 2 seconds), **delivered** or **not
   delivered**, with the reason. With the agent busy, the message waits and goes in when it finishes its turn, like a
   prompt typed while the agent is working.
@@ -794,7 +804,7 @@ Everything works without configuring anything. If you need to adjust something, 
 | `HABBLAUD_BIND` | `127.0.0.1` | Docker only (in `.env`): where the port is published. `0.0.0.0` opens it to the local network (and turns off the terminal and anything that acts on the sessions). |
 | `HABBLAUD_CLAUDE_DIRS` | automatic detection | Account folders, comma-separated (e.g. `/caminho/conta1,/caminho/conta2`). |
 | `HABBLAUD_DATA_DIR` | `~/.habblaud` | Where Habblaud keeps its own data (character and room names, the timelapse timeline and the My day stats). |
-| `HABBLAUD_ATTACHMENTS_DIR` | `~/.habblaud/attachments` | Where the attachments of **New agent** are saved before the request is sent. |
+| `HABBLAUD_ATTACHMENTS_DIR` | `~/.habblaud/attachments` | Root for prompt and **New agent** attachments, stored in exclusive UUID folders. Manual cleanup only. |
 | `HABBLAUD_TIMELINE` | on | `0` turns off timeline recording (the days already recorded stay in the timelapse). In Docker it's always on. |
 | `HABBLAUD_USAGE_DIR` | `~/.habblaud/usage` | Where the mod (or the statusline tap) writes usage. |
 | `HABBLAUD_DEMO` | off | `1` turns on demo mode at startup. |
@@ -1000,6 +1010,17 @@ mod/      o mod do Habblaud e os plugins de permissões e de mensagens (plugins 
 | `/api/files…` | Working-folder files: browse the folders of each room and `~/projetos`, view and download files (read-only). Local access only (from the phone, with `terminal` in `HABBLAUD_REMOTE_ALLOW`); off in Docker. |
 | `/api/pty…`, `POST /api/agents/:id/stop` and `/takeover` | Interactive terminal and ending or taking over a session; only with `HABBLAUD_PTY=1`. Local access only, never through the phone port. |
 | `/api/host/*` | Host helper (`npm run codex:bridge`): fetches and confirms the requests for New agent, dictation and delivery files. Local access only. |
+
+Attachment uploads (`POST /api/messages/attachments` and `POST /api/spawn/attachments`) use
+`application/octet-stream` with the File bytes, `X-Habblaud-File-Name: encodeURIComponent(file.name)` (2048
+encoded characters maximum) and `X-Habblaud-File-Type` (256 maximum; fallback `application/octet-stream`).
+Success is `201 {id, name, size}`; empty/invalid metadata returns 400, over 15 MiB returns 413, a full budget 429,
+and legacy JSON or another body format 415. Message/spawn requests still use JSON with IDs.
+The binary exception matches only those exact POST routes; Host, Origin, login and feature checks remain.
+The helper reads only files belonging to a live job through
+`GET /api/codex/bridge/files/:jobId/attachments/:fileId`, never through remote project-file permissions.
+Update or roll back server, browser and helper together, pause uploads during restart, then reload pages.
+Restart invalidates pending IDs, not final files; cleanup of final attachments stays manual.
 
 More server details in [`server/README.md`](server/README.md).
 

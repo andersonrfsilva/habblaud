@@ -2,6 +2,12 @@
 // As lacunas {0}, {1}... (e as nomeadas, como {sala}) precisam aparecer na tradução, em qualquer ordem.
 // Chave ausente = o texto fica em PT. `npm run i18n:check` lista os textos sem tradução e as chaves que sobraram.
 export const FR: Readonly<Record<string, string>> = {
+  "Anexar arquivos": "Joindre des fichiers",
+  "Remover anexo: {0}": "Retirer la pièce jointe : {0}",
+  "Arquivo acima de 15 MiB: {0}": "Le fichier dépasse 15 MiB : {0}",
+  "Limite de 5 anexos: {0}": "Limite de 5 pièces jointes : {0}",
+  "não foi possível gravar os anexos": "impossible d'enregistrer les pièces jointes",
+  "Envie o arquivo como binário (Content-Type: application/octet-stream).": "Envoyez le fichier au format binaire (Content-Type: application/octet-stream).",
   // client/src/main.ts
   "Escritório virtual em pixel art que mostra, em tempo real, o que seus agentes do Claude Code estão fazendo.": "Bureau virtuel en pixel art qui montre, en temps réel, ce que font vos agents Claude Code.",
 
@@ -2454,7 +2460,6 @@ export const FR: Readonly<Record<string, string>> = {
   "Não foi possível sair: sem resposta do servidor.": "Impossible de se déconnecter : pas de réponse du serveur.",
 
   // client/src/ui/spawn.ts
-  "não deu para ler o arquivo": "impossible de lire le fichier",
   "Projetos recentes": "Projets récents",
   "+ Outra pasta": "+ Autre dossier",
   "Caminho da pasta": "Chemin du dossier",
@@ -2596,7 +2601,6 @@ export const FR: Readonly<Record<string, string>> = {
 
   // server/spawn/attachments.ts
   "arquivo vazio": "fichier vide",
-  "arquivo ilegível (base64)": "fichier illisible (base64)",
   "o arquivo passa de {0} MB": "le fichier dépasse {0} Mo",
   "anexos demais esperando: envie o pedido ou tente de novo daqui a pouco": "trop de pièces jointes en attente : envoyez la demande ou réessayez dans un instant",
   "anexos inválidos": "pièces jointes invalides",
@@ -2623,8 +2627,6 @@ export const FR: Readonly<Record<string, string>> = {
 
   // scripts/codex-bridge.ts
   "Uso: npm run codex:bridge [-- opções]\n\nEntrega as mensagens do escritório às sessões do Codex quando o Habblaud roda no Docker (deixe rodando no computador).\n\nOpções:\n  --port <n>   porta do Habblaud (padrão: HABBLAUD_PORT ou {0})\n  --once       faz uma rodada só e sai\n  -h, --help   mostra esta ajuda\n\nBinário do Codex: HABBLAUD_CODEX_BIN ou `codex` do PATH.": "Usage : npm run codex:bridge [-- options]\n\nRemet les messages du bureau aux sessions Codex quand Habblaud tourne dans Docker (laissez-le tourner sur l'ordinateur).\n\nOptions :\n  --port <n>   port de Habblaud (par défaut : HABBLAUD_PORT ou {0})\n  --once       fait un seul passage et quitte\n  -h, --help   affiche cette aide\n\nBinaire Codex : HABBLAUD_CODEX_BIN ou `codex` du PATH.",
-  "anexo ilegível": "pièce jointe illisible",
-  "anexo vazio ou grande demais": "pièce jointe vide ou trop volumineuse",
   "✓ agente novo rodando em segundo plano em {0}": "✓ nouvel agent dans {0} lancé en arrière-plan",
   "✓ agente novo rodando em segundo plano em {0} com {1} anexos": "✓ nouvel agent dans {0} lancé en arrière-plan avec {1} pièces jointes",
   "✓ agente novo rodando em segundo plano em {0} com 1 anexo": "✓ nouvel agent dans {0} lancé en arrière-plan avec 1 pièce jointe",

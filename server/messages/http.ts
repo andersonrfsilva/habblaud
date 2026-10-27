@@ -13,6 +13,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { HttpError, readJson, sendJson } from '../http/app';
 import { InvalidRequest, MAX_OPEN, type MessageRegistry } from './registry';
 import { tr } from '../../shared/i18n';
+import { AttachmentError } from '../spawn/attachments';
 
 const ITEM = /^\/api\/messages\/([^/]+)$/;
 
@@ -23,8 +24,8 @@ function methodNotAllowed(res: ServerResponse, allow: string): void {
 
 function fail(res: ServerResponse, err: unknown): void {
   if (res.headersSent) return void res.destroy();
-  if (err instanceof HttpError) sendJson(res, err.status, { error: err.message });
-  else if (err instanceof InvalidRequest) sendJson(res, 400, { error: err.message });
+  if (err instanceof HttpError || err instanceof AttachmentError) sendJson(res, err.status, { error: err.message });
+  else if (err instanceof InvalidRequest) sendJson(res, 400, { error: err.message, ...(err.attachmentsExpired ? { attachmentsExpired: true } : {}) });
   else sendJson(res, 500, { error: tr('erro interno') });
 }
 
@@ -43,6 +44,10 @@ export function createMessageRoutes(registry: MessageRegistry): (req: IncomingMe
 
   const send = async (req: IncomingMessage, res: ServerResponse) => reply(res, registry.send(await readJson(req)));
   const control = async (req: IncomingMessage, res: ServerResponse) => reply(res, registry.control(await readJson(req)));
+  const upload = async (req: IncomingMessage, res: ServerResponse) => {
+    const result = await registry.uploadAttachment(req);
+    sendJson(res, 201, result);
+  };
 
   const inbox = async (req: IncomingMessage, res: ServerResponse) => {
     sendJson(res, 200, { messages: registry.inbox(await readJson(req)) });
@@ -69,6 +74,7 @@ export function createMessageRoutes(registry: MessageRegistry): (req: IncomingMe
 
   return (req, res, path) => {
     if (path === '/api/messages') return post(req, res, send);
+    if (path === '/api/messages/attachments') return post(req, res, upload);
     if (path === '/api/messages/control') return post(req, res, control);
     if (path === '/api/mod/inbox') return post(req, res, inbox);
     if (path === '/api/mod/inbox/ack') return post(req, res, ack);

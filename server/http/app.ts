@@ -18,7 +18,7 @@ import { handleStatsRoute } from './stats';
 import type { TerminalStreams } from './terminal';
 import { isNeutralBrand, tr } from '../../shared/i18n';
 import type { SpawnService } from '../spawn/spawn';
-import { ATTACHMENT_BODY_MAX, parseAttachment, type AttachmentStore } from '../spawn/attachments';
+import { AttachmentError, type AttachmentStore } from '../spawn/attachments';
 import type { SpawnFolder } from '../spawn/folders';
 import { AUDIO_BODY_MAX, type DictationService } from '../dictation/dictation';
 import type { DeliveryIndex } from '../deliveries/deliveries';
@@ -360,7 +360,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
 
   const fail = (res: ServerResponse, err: unknown) => {
     if (res.headersSent) return void res.destroy();
-    if (err instanceof HttpError) sendJson(res, err.status, { error: err.message });
+    if (err instanceof HttpError || err instanceof AttachmentError) sendJson(res, err.status, { error: err.message });
     else sendJson(res, 500, { error: tr('erro interno') });
   };
 
@@ -568,16 +568,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
         const store = deps.attachments;
         if (method !== 'POST') methodNotAllowed(res, 'POST');
         else if (!store) sendJson(res, 403, { error: tr('anexos desligados') });
-        else
-          readJson(req, ATTACHMENT_BODY_MAX)
-            .then((body) => {
-              const a = parseAttachment(body);
-              if ('error' in a) return sendJson(res, 400, { error: a.error });
-              const r = store.put(a);
-              if ('error' in r) return sendJson(res, 429, { error: r.error });
-              sendJson(res, 201, { id: r.id, name: a.name, size: a.data.length });
-            })
-            .catch((err) => fail(res, err));
+        else store.receive(req, 'spawn').then(result => sendJson(res, 201, result)).catch(err => fail(res, err));
       }
       else if (path === '/api/spawn' && method === 'POST') {
         readJson(req)
@@ -710,6 +701,19 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
             sendJson(res, 200, { ok: true });
           })
           .catch((err) => fail(res, err));
+      }
+      return true;
+    }
+    const attachmentMatch = /^\/api\/codex\/bridge\/files\/([^/]+)\/attachments\/([^/]+)$/.exec(path);
+    if (attachmentMatch) {
+      if (method !== 'GET') methodNotAllowed(res, 'GET');
+      else if (!trusted(req) || (!deps.inDocker && !isLoopbackAddress(req.socket.remoteAddress))) {
+        sendJson(res, 403, { error: denied(req, tr('só o auxiliar do próprio computador')) });
+      } else {
+        const [, job, file] = attachmentMatch;
+        const transfer = deps.files?.attachment(job, file, res) ?? deps.spawn?.attachment(job, file, res);
+        if (!transfer) sendJson(res, 404, { error: tr('arquivo não encontrado') });
+        else transfer.catch(err => fail(res, err));
       }
       return true;
     }

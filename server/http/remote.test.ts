@@ -459,6 +459,7 @@ describe('porta remota', () => {
       ['POST', '/api/mod/inbox'],
       ['POST', '/api/mod/inbox/ack'],
       ['POST', '/api/codex/bridge/poll'],
+      ['GET', '/api/codex/bridge/files/job/attachments/file'],
       ['POST', '/api/codex/events'],
       ['POST', '/api/host/files/poll'],
       ['POST', '/api/host/spawn/poll'],

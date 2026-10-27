@@ -16,15 +16,21 @@
 // anexos) e transcreve o ditado com o Whisper local (whisper-cli + ffmpeg + modelo; ver server/dictation/whisper.ts).
 // Arquivos e ditado usam rodadas com espera: o Habblaud só responde quando chega trabalho (ou a cada 20 s).
 // Ctrl+C para parar.
-import { statSync } from 'node:fs';
-import { isAbsolute, resolve } from 'node:path';
+import { createWriteStream, statSync } from 'node:fs';
+import { lstat, mkdir, mkdtemp, readdir, rename, rm } from 'node:fs/promises';
+import { Readable, Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
+import { randomUUID } from 'node:crypto';
+import { isAbsolute, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isClaudeDir } from '../server/accounts/detect';
 import { createCodexQueueRunner, findCodexBin, THREAD_ID, type CodexQueueResult, type CodexQueueRunner } from '../server/messages/codex';
 import { tr } from '../shared/i18n';
 import { createCliRunner, createOpener, folderProblem, launch, parseSpawn, type CliRunner, type Opener, type SpawnHow } from '../server/spawn/spawn';
 import { runnableClaudeBin } from '../server/claude-bin';
-import { ATTACHMENT_MAX_BYTES, ATTACHMENTS_PER_SPAWN, attachmentsRoot, promptWithAttachments, safeFileName, writeAttachments, type Attachment } from '../server/spawn/attachments';
+import { ATTACHMENT_MAX_BYTES, ATTACHMENTS_PER_SPAWN, attachmentsRoot, promptWithAttachments, safeFileName } from '../server/spawn/attachments';
+import type { AttachmentDescriptor } from '../shared/types';
 import { createWhisperTranscriber, findWhisper, type Transcriber } from '../server/dictation/whisper';
 import { checkFile, insideKnownFolder, tempRoots } from '../server/deliveries/files';
 import { discoverClaudeDirs } from '../server/accounts/detect';
@@ -172,19 +178,108 @@ export async function round(post: Post, run: CodexQueueRunner, log: (line: strin
   return { state: 'ok', results };
 }
 
-/** Anexos de um pedido vindo do Habblaud: nomes seguros, base64 válido, tamanho e quantidade no limite. */
-export function checkFiles(raw: unknown): Attachment[] | { error: string } {
+/** Validate the whole descriptor batch before opening any host file or HTTP stream. */
+export function checkFiles(raw: unknown, limit = ATTACHMENTS_PER_SPAWN): AttachmentDescriptor[] | { error: string } {
   if (raw === undefined) return [];
-  if (!Array.isArray(raw) || raw.length > ATTACHMENTS_PER_SPAWN) return { error: tr('anexos inválidos') };
-  const out: Attachment[] = [];
+  if (!Array.isArray(raw) || raw.length > limit) return { error: tr('anexos inválidos') };
+  const out: AttachmentDescriptor[] = [];
+  const ids = new Set<string>();
   for (const f of raw) {
     const r = rec(f);
-    if (!r || typeof r.data !== 'string' || !/^[A-Za-z0-9+/]*={0,2}$/.test(r.data)) return { error: tr('anexo ilegível') };
-    const data = Buffer.from(r.data, 'base64');
-    if (!data.length || data.length > ATTACHMENT_MAX_BYTES) return { error: tr('anexo vazio ou grande demais') };
-    out.push({ name: safeFileName(typeof r.name === 'string' ? r.name : 'arquivo'), type: typeof r.type === 'string' ? r.type : '', data });
+    if (!r || typeof r.id !== 'string' || !r.id || r.id.length > 256 || ids.has(r.id) ||
+        typeof r.name !== 'string' || !r.name.trim() || typeof r.type !== 'string' ||
+        !/^[\w.+-]+\/[\w.+-]+$/.test(r.type) || !Number.isSafeInteger(r.size) ||
+        (r.size as number) < 1 || (r.size as number) > ATTACHMENT_MAX_BYTES) return { error: tr('anexos inválidos') };
+    ids.add(r.id);
+    out.push({ id: r.id, name: safeFileName(r.name), type: r.type, size: r.size as number });
   }
   return out;
+}
+
+export type AttachmentDownload = (path: string, signal: AbortSignal) => Promise<Response>;
+
+export function httpAttachmentDownload(port: number): AttachmentDownload {
+  return (path, signal) => fetch(`http://127.0.0.1:${port}${path}`, { signal, redirect: 'error' });
+}
+
+/** Run once before polling starts; one helper writes this root, so only its abandoned staging is removed. */
+export async function cleanupAttachmentStaging(root = attachmentsRoot()): Promise<void> {
+  const pending = join(resolve(root), '.pending');
+  try {
+    if (!(await lstat(pending)).isDirectory()) throw new Error(tr('não foi possível gravar os anexos'));
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return;
+    throw error;
+  }
+  for (const entry of await readdir(pending, { withFileTypes: true })) {
+    if (entry.isDirectory() && /^bridge-[A-Za-z0-9]{6}$/.test(entry.name)) {
+      await rm(join(pending, entry.name), { recursive: true, force: true });
+    }
+  }
+}
+
+/** Download sequentially, close every stream, then publish the complete batch with one same-filesystem rename. */
+export async function downloadAttachments(
+  jobId: string,
+  files: readonly AttachmentDescriptor[],
+  download: AttachmentDownload,
+  root = attachmentsRoot(),
+  timeoutMs = 30_000,
+): Promise<string[]> {
+  if (!files.length) return [];
+  const checked = checkFiles(files);
+  if ('error' in checked) throw new Error(checked.error);
+  root = resolve(root);
+  await mkdir(root, { recursive: true, mode: 0o700 });
+  const pending = join(root, '.pending');
+  await mkdir(pending, { recursive: true, mode: 0o700 });
+  if (!(await lstat(pending)).isDirectory()) throw new Error(tr('não foi possível gravar os anexos'));
+  const stage = await mkdtemp(join(pending, 'bridge-'));
+  const final = join(root, randomUUID());
+  const signal = AbortSignal.timeout(timeoutMs);
+  const names: string[] = [];
+  const used = new Set<string>();
+  try {
+    for (const file of checked) {
+      signal.throwIfAborted();
+      let name = safeFileName(file.name);
+      if (used.has(name.toLowerCase())) {
+        const dot = name.lastIndexOf('.');
+        const [stem, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ''];
+        let n = 2;
+        while (used.has(`${stem}-${n}${ext}`.toLowerCase())) n++;
+        name = `${stem}-${n}${ext}`;
+      }
+      used.add(name.toLowerCase());
+      names.push(name);
+      const response = await download(`/api/codex/bridge/files/${encodeURIComponent(jobId)}/attachments/${encodeURIComponent(file.id)}`, signal);
+      if (!response.ok || !response.body) {
+        await response.body?.cancel();
+        throw new Error(tr('não foi possível gravar os anexos'));
+      }
+      const length = response.headers.get('content-length');
+      if (length === null || !/^\d+$/.test(length) || Number(length) !== file.size) {
+        await response.body.cancel();
+        throw new Error(tr('anexos inválidos'));
+      }
+      let size = 0;
+      const verify = new Transform({
+        transform(chunk: Buffer, _encoding, done) {
+          size += chunk.length;
+          done(size > file.size || size > ATTACHMENT_MAX_BYTES ? new Error(tr('anexos inválidos')) : null, chunk);
+        },
+      });
+      await pipeline(Readable.fromWeb(response.body as NodeReadableStream), verify,
+        createWriteStream(join(stage, name), { flags: 'wx', mode: 0o600 }), { signal });
+      if (size !== file.size) throw new Error(tr('anexos inválidos'));
+    }
+    signal.throwIfAborted();
+    await rename(stage, final);
+    return names.map((name) => join(final, name));
+  } catch (error) {
+    await rm(stage, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 /** Linha do log de um agente novo que abriu: uma frase inteira por caso (anexos e nota), para traduzir. */
@@ -217,7 +312,7 @@ export async function spawnRound(
   open: Opener,
   log: (line: string) => void = () => {},
   problem: (folder: string) => string | undefined = folderProblem,
-  write: (id: string, files: readonly Attachment[]) => string[] = (id, files) => writeAttachments(attachmentsRoot(), id, files),
+  download: AttachmentDownload = httpAttachmentDownload(DEFAULT_PORT),
   cli?: CliRunner,
 ): Promise<RoundResult> {
   const polled = await post('/api/host/spawn/poll', {});
@@ -238,7 +333,7 @@ export async function spawnRound(
     }
     let r: { ok: true; how: SpawnHow; note?: string } | { ok: false; error: string };
     try {
-      const paths = write(id, files);
+      const paths = await downloadAttachments(id, files, download);
       r = await launch({ folder: req.folder, prompt: promptWithAttachments(req.prompt, paths) }, open, cli);
     } catch (err) {
       r = { ok: false, error: String((err as Error)?.message ?? err) };
@@ -293,17 +388,35 @@ export async function filesRound(
   log: (line: string) => void = () => {},
   read: (p: string) => Buffer = readFileSync,
   check: typeof checkFile = checkFile,
-  opts: { inside?: (realPath: string) => boolean; wait?: boolean } = {},
+  opts: { inside?: (realPath: string) => boolean; wait?: boolean; download?: AttachmentDownload } = {},
 ): Promise<RoundResult> {
   const polled = await post(`/api/host/files/poll${opts.wait ? '?wait=1' : ''}`, {});
   if (!polled) return { state: 'down' };
   const list = rec(polled.json)?.files;
   if (polled.status !== 200 || !Array.isArray(list)) return { state: 'refused', status: polled.status };
-  const results: Array<BridgeResult & { data?: string }> = [];
+  const results: Array<BridgeResult & { data?: string; paths?: string[] }> = [];
   for (const raw of list) {
     const r = rec(raw);
     const id = typeof r?.id === 'string' ? r.id : '';
     if (!id) continue;
+    if (r?.op === 'writeAttachments') {
+      const files = checkFiles(r.files, 5);
+      if ('error' in files || !files.length) results.push({ id, ok: false, error: tr('anexos inválidos') });
+      else {
+        try {
+          // Only the host selects the root and batch directory; ignore paths from the container.
+          const paths = await downloadAttachments(id, files, opts.download ?? httpAttachmentDownload(DEFAULT_PORT));
+          results.push({ id, ok: true, paths });
+        } catch {
+          results.push({ id, ok: false, error: tr('não foi possível gravar os anexos') });
+        }
+      }
+      continue;
+    }
+    if (r?.op !== undefined && r.op !== 'read') {
+      results.push({ id, ok: false, error: tr('anexos inválidos') });
+      continue;
+    }
     const checked = check(typeof r?.path === 'string' ? r.path : '');
     const c = 'error' in checked || !opts.inside || opts.inside(checked.path) ? checked : { error: tr('fora das pastas de projeto conhecidas') };
     if ('error' in c) {
@@ -337,12 +450,14 @@ async function main(): Promise<void> {
     console.log(USAGE);
     return;
   }
+  await cleanupAttachmentStaging();
   const bin = findCodexBin(process.env);
   const run = bin ? createCodexQueueRunner(bin) : undefined;
   const open = createOpener();
   const claudeBin = runnableClaudeBin(process.env);
   const cli = claudeBin ? createCliRunner(claudeBin) : undefined;
   const post = httpPost(parsed.port);
+  const download = httpAttachmentDownload(parsed.port);
   const log = (line: string) => console.log(`[codex-bridge] ${line}`);
   log(
     bin
@@ -363,7 +478,7 @@ async function main(): Promise<void> {
     const accountDirs = discoverClaudeDirs(process.env);
     const roots = [...tempRoots(), attachmentsRoot()];
     const inside = (p: string) => insideKnownFolder(p, { accountDirs, roots });
-    void waitLoop(() => filesRound(waitPost, log, undefined, undefined, { inside, wait: true }));
+    void waitLoop(() => filesRound(waitPost, log, undefined, undefined, { inside, wait: true, download }));
     if (transcribe) {
       const t = transcribe;
       void waitLoop(() => dictationRound(waitPost, t, log, { wait: true }));
@@ -375,7 +490,7 @@ async function main(): Promise<void> {
   let spawned: RoundResult = { state: 'ok', results: [] };
   for (;;) {
     if (Date.now() >= spawnRetryAt) {
-      spawned = await spawnRound(post, open, log, undefined, undefined, cli);
+      spawned = await spawnRound(post, open, log, undefined, download, cli);
       if (spawned.state === 'refused') spawnRetryAt = Date.now() + REFUSED_RETRY_MS;
     }
     const r = run ? await round(post, run, log) : spawned;

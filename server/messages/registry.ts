@@ -19,13 +19,15 @@
 // o auxiliar visto há até PRESENCE_MS). `delivered` = entrou na fila da sessão (entra quando ela ficar ociosa).
 import { randomBytes } from 'node:crypto';
 import { truncate } from '../../shared/activity';
-import { describeMessage, MESSAGE_MAX, OMP_THINKING_LEVELS } from '../../shared/messages';
+import { describeMessage, MESSAGE_MAX, MESSAGE_ATTACHMENTS_MAX, OMP_THINKING_LEVELS } from '../../shared/messages';
 import { OMP_COMMANDS, OMP_SESSION_ID } from '../../shared/omp-events';
 import type { AsideRequest } from '../../shared/asides';
 import type { Activity, AgentInfo, InboxMessage, OmpControl, OutboxMessage } from '../../shared/types';
 import { errMsg, log } from '../log';
 import type { CodexQueueResult, CodexQueueRunner } from './codex';
 import { tr } from '../../shared/i18n';
+import type { IncomingMessage } from 'node:http';
+import { AttachmentStore, promptWithAttachments, type Attachment } from '../spawn/attachments';
 
 /** Sessão que perguntou pela caixa de entrada há até este tempo: recebe mensagens (canMessage). */
 export const PRESENCE_MS = 10_000;
@@ -85,6 +87,8 @@ export interface MessageRegistryOptions {
   demoDeliver?: (agentId: string, text: string) => boolean;
   /** Mensagens aos agentes do Codex; ausente = eles não recebem. */
   codex?: CodexDeliveryOptions;
+  attachments?: AttachmentStore;
+  writeAttachments?: (files: readonly Attachment[]) => Promise<{ paths: string[] } | { error: string; status: number }>;
   now?: () => number;
   /** Intervalo do relógio interno (start). */
   tickMs?: number;
@@ -111,7 +115,11 @@ export interface CodexBridgeMessage {
 }
 
 /** Erro de validação do corpo (vira 400). */
-export class InvalidRequest extends Error {}
+export class InvalidRequest extends Error {
+  constructor(message: string, readonly attachmentsExpired = false) {
+    super(message);
+  }
+}
 
 interface Entry {
   msg: OutboxMessage;
@@ -135,6 +143,9 @@ interface Entry {
   via?: 'node' | 'bridge';
   /** Falhou por falta de confirmação: uma confirmação atrasada ainda corrige a situação. */
   late?: boolean;
+  /** Nunca entregar enquanto a gravação está em andamento. */
+  preparing?: boolean;
+  releaseAttachments?: () => void;
 }
 
 type Rec = Record<string, unknown>;
@@ -169,13 +180,16 @@ function unavailableReason(a: AgentInfo, reachable: boolean): string | undefined
 }
 
 /** Corpo de POST /api/messages: `{agentId, text}`. O texto não é alterado (nem aparado). */
-export function parseSend(raw: unknown): { agentId: string; text: string } {
+export function parseSend(raw: unknown): { agentId: string; text: string; attachments?: string[] } {
   const r = rec(raw);
   const agentId = shortStr(r?.agentId, ID_MAX);
   if (!r || !agentId || typeof r.text !== 'string') throw new InvalidRequest('esperado {agentId, text}');
-  if (!r.text.trim()) throw new InvalidRequest(tr('a mensagem está vazia'));
+  if (r.attachments !== undefined && (!Array.isArray(r.attachments) || r.attachments.some((id) => typeof id !== 'string') || new Set(r.attachments).size !== r.attachments.length)) throw new InvalidRequest(tr('anexos inválidos'));
+  const attachments = r.attachments as string[] | undefined;
+  if (attachments && attachments.length > MESSAGE_ATTACHMENTS_MAX) throw new InvalidRequest(tr('no máximo {0} anexos por pedido', [MESSAGE_ATTACHMENTS_MAX]));
+  if (!r.text.trim() && !attachments?.length) throw new InvalidRequest(tr('a mensagem está vazia'));
   if (r.text.length > MAX_TEXT) throw new InvalidRequest(tr('a mensagem passa de 20.000 caracteres'));
-  return { agentId, text: r.text };
+  return { agentId, text: r.text, attachments };
 }
 
 /**
@@ -304,7 +318,7 @@ export class MessageRegistry {
    * (too-many). Corpo inválido: lança InvalidRequest.
    */
   send(raw: unknown): SendResult {
-    const { agentId, text } = parseSend(raw);
+    const { agentId, text, attachments } = parseSend(raw);
     const real = this.opts.office.get(agentId);
     const demo = real ? undefined : this.opts.demoAgent?.(agentId);
     const agent = real ?? demo;
@@ -312,14 +326,49 @@ export class MessageRegistry {
     const reason = unavailableReason(agent, real ? this.canMessage(agentId) : demo!.canMessage === true);
     if (reason) return { error: 'unavailable', reason };
     if (this.openCount(agentId) >= MAX_OPEN) return { error: 'too-many' };
+    const store = this.opts.attachments;
+    if (attachments?.length && (!store || !this.opts.writeAttachments)) throw new InvalidRequest(tr('um anexo expirou: anexe de novo'), true);
+    const files = store?.take(attachments, MESSAGE_ATTACHMENTS_MAX, 'messages') ?? [];
+    if ('error' in files) throw new InvalidRequest(files.error, files.attachmentsExpired);
 
     const entry = this.entry(agentId, agent.sessionId, { text, activity: describeMessage(text) });
     if (demo) entry.demo = true;
     else if (real?.provider === 'codex') entry.codex = true;
     this.messages.set(entry.msg.id, entry);
+    if (files.length) {
+      entry.preparing = true;
+      entry.releaseAttachments = () => {
+        store!.release(files);
+        delete entry.releaseAttachments;
+      };
+      void this.prepareAttachments(entry, files);
+    }
     const out = { ...entry.msg };
     if (entry.codex) this.pumpCodex();
     return { message: out };
+  }
+
+  uploadAttachment(req: IncomingMessage): Promise<{ id: string; name: string; size: number }> {
+    if (!this.opts.attachments) throw new InvalidRequest(tr('um anexo expirou: anexe de novo'), true);
+    return this.opts.attachments.receive(req, 'messages');
+  }
+
+  private async prepareAttachments(e: Entry, files: readonly Attachment[]): Promise<void> {
+    try {
+      const result = await this.opts.writeAttachments!(files);
+      if (isFinal(e)) return;
+      const agent = e.demo ? this.opts.demoAgent?.(e.msg.agentId) : this.opts.office.get(e.msg.agentId);
+      if (!present(agent)) return this.fail(e, this.now(), ERR_GONE);
+      if (agent.sessionId !== e.target) return this.fail(e, this.now(), ERR_SESSION_CHANGED);
+      if ('error' in result) return this.fail(e, this.now(), result.error);
+      e.text = promptWithAttachments(e.text, result.paths);
+      delete e.preparing;
+      this.pumpCodex();
+    } catch (error) {
+      if (!isFinal(e)) this.fail(e, this.now(), errMsg(error));
+    } finally {
+      e.releaseAttachments?.();
+    }
   }
 
   /**
@@ -412,9 +461,15 @@ export class MessageRegistry {
     if (!was) this.opts.office.markDirty();
 
     const out: InboxMessage[] = [];
+    let blocked = false;
     for (const e of this.messages.values()) {
       if (out.length >= INBOX_BATCH) break;
       if (e.demo || e.codex || e.msg.agentId !== agent.id || e.msg.status !== 'queued' || e.target !== session) continue;
+      if (e.preparing) {
+        blocked = true;
+        continue;
+      }
+      if (blocked && !e.control && !e.aside) continue;
       this.setStatus(e, 'sent', now);
       e.session = session;
       e.sentAt = now;
@@ -463,6 +518,7 @@ export class MessageRegistry {
     for (const e of this.messages.values()) {
       if (out.length >= INBOX_BATCH) break;
       if (!e.codex || e.msg.status !== 'queued' || busy.has(e.msg.agentId)) continue;
+      if (e.preparing) { busy.add(e.msg.agentId); continue; }
       busy.add(e.msg.agentId);
       const target = this.codexTarget(e, now);
       if (!target) continue;
@@ -502,7 +558,8 @@ export class MessageRegistry {
       }
       if (e.demo) {
         if (!present(this.opts.demoAgent?.(e.msg.agentId))) this.fail(e, now, ERR_GONE);
-        else if (now - e.msg.createdAt >= this.demoDeliveryMs) {
+        else if (e.preparing && now - e.msg.createdAt >= this.queuedTimeoutMs) this.fail(e, now, ERR_NOT_FETCHED);
+        else if (!e.preparing && now - e.msg.createdAt >= this.demoDeliveryMs) {
           if (this.opts.demoDeliver?.(e.msg.agentId, e.text)) this.finish(e, 'delivered', now);
           else this.fail(e, now, ERR_GONE);
         }
@@ -560,6 +617,7 @@ export class MessageRegistry {
     const now = this.now();
     for (const e of this.messages.values()) {
       if (!e.codex || e.msg.status !== 'queued' || busy.has(e.msg.agentId)) continue;
+      if (e.preparing) { busy.add(e.msg.agentId); continue; }
       busy.add(e.msg.agentId);
       const target = this.codexTarget(e, now);
       if (!target) continue;

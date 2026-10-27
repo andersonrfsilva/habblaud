@@ -242,7 +242,7 @@ const deliveries = history
       },
     })
   : undefined;
-const deliveryFiles = deliveries
+const deliveryFiles = deliveries || config.messages
   ? new FileFetcher({
       direct: !config.inDocker,
       mapHostPath: (p) => {
@@ -285,7 +285,7 @@ const ptyOptIn = isTruthy(ptyFlag);
 // Novo agente pelo escritório (sessão do Claude Code em segundo plano, ou a tela do app do Claude preenchida): a
 // liberação acima mais a trava das mensagens. No Docker, quem roda é o auxiliar do host (npm run codex:bridge).
 const spawnOn = config.messages && ptyOptIn;
-const attachments = spawnOn ? new AttachmentStore() : undefined;
+const attachments = config.messages ? new AttachmentStore({ dir: config.inDocker ? join(config.dataDir, 'attachments-pending') : undefined }) : undefined;
 const spawnBin = config.inDocker ? undefined : runnableClaudeBin(process.env);
 const spawn = spawnOn
   ? new SpawnService(config.inDocker ? { attachments } : { opener: createOpener(), cli: spawnBin ? createCliRunner(spawnBin) : undefined, attachments })
@@ -304,6 +304,8 @@ const messages = config.messages
         run: codexBin ? createCodexQueueRunner(codexBin) : undefined,
         homeOf: (account) => accounts.entriesOf('codex').find((e) => e.id === account)?.detected.configDir,
       },
+      attachments,
+      writeAttachments: (files) => deliveryFiles!.writeAttachments(files),
       onSettled: (id, status, error) => asides?.settled(id, status, error),
     })
   : undefined;

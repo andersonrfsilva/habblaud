@@ -10,6 +10,24 @@ import type { AsideTopic } from '../../../shared/asides';
 import { DemoSimulator } from '../../../shared/demo/simulator';
 import { tr } from '../../../shared/i18n';
 
+/** Both attachment consumers send the File itself; JSON remains reserved for metadata requests. */
+export async function uploadAttachment(path: '/api/messages/attachments' | '/api/spawn/attachments', file: File): Promise<{ id: string } | { error: string }> {
+  const res = await fetch(path, {
+    method: 'POST',
+    credentials: 'same-origin',
+    cache: 'no-store',
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'X-Habblaud-File-Name': encodeURIComponent(file.name),
+      'X-Habblaud-File-Type': file.type || 'application/octet-stream',
+    },
+    body: file,
+  });
+  const body = await res.json().catch(() => ({})) as { id?: unknown; error?: unknown };
+  if (res.status === 201 && typeof body.id === 'string') return { id: body.id };
+  return { error: typeof body.error === 'string' ? body.error : tr('erro {0}', [res.status]) };
+}
+
 export type ConnectionState = 'connecting' | 'open' | 'closed' | 'mock';
 
 export interface StoreEvents {
@@ -323,9 +341,9 @@ export class OfficeStore {
    * (agente que não recebe mensagens, fila cheia, acesso que não é local...). Sem conexão com o servidor: lança.
    * No ?mock=1 a entrega é fictícia (o simulador põe a atividade no agente).
    */
-  async sendMessage(agentId: string, text: string): Promise<{ message: OutboxMessage } | { error: string }> {
+  async sendMessage(agentId: string, text: string, attachments?: string[]): Promise<{ message: OutboxMessage } | { error: string; attachmentsExpired?: boolean }> {
     if (this.mock) return this.mockSend(agentId, text);
-    const res = await fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId, text }) });
+    const res = await fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId, text, ...(attachments?.length ? { attachments } : {}) }) });
     let body: unknown;
     try {
       body = await res.json();
@@ -334,7 +352,13 @@ export class OfficeStore {
     }
     if (res.status === 201 && body && typeof body === 'object') return { message: body as OutboxMessage };
     const error = (body as { error?: unknown } | undefined)?.error;
-    return { error: typeof error === 'string' ? error : tr('erro {0}', [res.status]) };
+    return { error: typeof error === 'string' ? error : tr('erro {0}', [res.status]), ...((body as { attachmentsExpired?: unknown } | undefined)?.attachmentsExpired === true ? { attachmentsExpired: true } : {}) };
+  }
+
+  /** Binary upload to the shared deposit, scoped to the message consumer. */
+  async uploadMessageAttachment(file: File): Promise<{ id: string } | { error: string }> {
+    if (this.mock) return { error: tr('indisponível no modo de demonstração') };
+    return uploadAttachment('/api/messages/attachments', file);
   }
 
   /**

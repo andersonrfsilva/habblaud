@@ -90,13 +90,15 @@ festa) ou 10 min. Push só avisa. O mesmo CI visto de novo em 2 min não repete 
 | `GET /api/permissions/:id/wait` | (hook) long-poll de até 25 s (`?timeout=` em segundos): `{status: 'pending' \| 'decided' \| 'released', ...}` |
 | `GET /api/permissions/:id` | (página) detalhe do pedido com os argumentos (`PermissionRequestInfo` com `input`) |
 | `POST /api/permissions/:id/decision` | (página) `PermissionDecision`: `{behavior: 'allow' \| 'deny' \| 'terminal' \| 'answer', message?, interrupt?, suggestion?, answers?}` |
-| `POST /api/messages` | (página) `{agentId, text}`: manda uma mensagem a um agente principal; `201 OutboxMessage`; só com bind local (ver abaixo) |
+| `POST /api/messages` | (página) `{agentId, text, attachments?: string[]}`: até cinco IDs; aceita somente anexos; `201 OutboxMessage`; trava `messages` |
+| `POST /api/messages/attachments` | (página) bytes `application/octet-stream` com headers de nome/tipo: `201 {id, name, size}`; até 15 MiB/arquivo, mesma trava `messages` e Origin; não aceita destino |
 | `GET /api/messages/:id` | (página) situação da mensagem (`OutboxMessage`: `queued` \| `sent` \| `delivered` \| `failed`) |
 | `POST /api/mod/inbox` | (plugin `habblaud-mensagens`) `{session, account?}`: marca a presença da sessão e entrega `{messages: InboxMessage[]}` |
 | `POST /api/mod/inbox/ack` | (plugin) `{session, results: [{id, ok, error?}]}`: confirma cada mensagem entregue (ou a falha) |
 | `POST /api/messages/control` | (página, só omp) `{agentId, model?, thinking?}`: troca o modelo e o raciocínio da sessão viva; mesmas respostas de `POST /api/messages` |
 | `POST /api/codex/events` | (hook do Codex) `{account?, codexHome?, event}`: `200 {ok}`; só pelo computador (a porta remota recebe 403) |
 | `POST /api/codex/bridge/poll` e `/ack` | (auxiliar `npm run codex:bridge`) busca as mensagens para o Codex e confirma cada entrega (`{results: [{id, ok, error?}]}`: `200 {ok: true}`); só pelo computador |
+| `GET /api/codex/bridge/files/:jobId/attachments/:fileId` | bytes de anexo de mensagem ou spawn para o auxiliar; somente arquivo pertencente a um job enviado e ainda vivo, com a mesma proteção local do poll/ack; nunca pela allowlist remota de arquivos |
 | `POST /api/omp/events` | (extensão do omp) `OmpEvent` (`shared/omp-events.ts`): `200 {ok}`; corpo fora do formato: `400`; só pelo computador |
 | `POST /api/omp/settings` | `{roomByProject: boolean}`: Configurações › sala do omp segue o projeto; `200 {ok, roomByProject}`, `400`, `404` se desligado; só pelo computador |
 | `GET /api/asides?agentId=` / `POST /api/asides` / `POST /api/asides/<topicId>/cancel` / `DELETE /api/asides/<topicId>?agentId=` | (página) bate-papo paralelo com o agente do omp; formatos e códigos em `asides/http.ts`; ler vale com a trava do terminal, perguntar com a das mensagens |
@@ -109,13 +111,66 @@ festa) ou 10 min. Push só avisa. O mesmo CI visto de novo em 2 min não repete 
 | `GET /api/pty`, `POST /api/pty`, `GET /api/pty/:id/stream`, `POST /api/pty/:id/input` \| `resize` \| `close`, `POST /api/agents/:id/stop` \| `takeover` | terminal interativo e ações nos agentes (`http/pty.ts`); só com `HABBLAUD_PTY=1`, conexão pelo loopback e `Host` local; nunca pela porta remota |
 | `POST /api/host/spawn/poll` \| `ack`, `/api/host/dictation/poll` \| `ack`, `/api/host/files/poll` \| `ack` | (auxiliar do host, `npm run codex:bridge`) busca e confirma os pedidos do Novo agente, do ditado e dos arquivos das entregas; só pelo computador |
 
+Anexos de mensagens e do Novo agente compartilham um único depósito de **120 MiB**, incluindo reservas de uploads
+em voo, pendentes e lotes em preparação (`held`). Cada arquivo tem até **15 MiB**; são até cinco por mensagem e oito
+por Novo agente. IDs pertencem ao consumidor que fez o upload: mensagem e spawn não podem trocar IDs. Mensagens
+não exigem `HABBLAUD_PTY=1`. IDs repetidos, desconhecidos ou vencidos são recusados sem consumir o lote; recusa por
+agente ou fila cheia também preserva uploads. ID perdido/vencido retorna `400 {error, attachmentsExpired: true}`:
+a interface mantém os `File`, invalida IDs e permite uma nova tentativa manual.
+
+`POST /api/messages/attachments` e `POST /api/spawn/attachments` recebem **somente bytes**, com
+`Content-Type: application/octet-stream` e corpo igual ao `File`, sem JSON/base64 nem multipart:
+
+- `X-Habblaud-File-Name`: `encodeURIComponent(file.name)`, até 2048 caracteres codificados. O servidor decodifica
+  uma vez e aplica `safeFileName` (NFC, sem separadores/controles, até 120 caracteres).
+- `X-Habblaud-File-Type`: MIME original, até 256 caracteres; a regra existente de MIME usa
+  `application/octet-stream` como fallback.
+- Sucesso: `201 {id, name, size}`; o cliente nunca fornece ID, raiz ou caminho. O POST da mensagem/spawn continua
+  JSON e referencia os IDs.
+- Erros: `400` para metadados/corpo vazio, `413` acima de 15 MiB, `429` por orçamento ocupado e `415` para formato
+  de corpo diferente. As travas existentes continuam retornando `403`; falhas internas continuam `5xx`.
+
+O servidor reserva espaço antes de receber o corpo: `Content-Length` válido até 15 MiB quando presente, ou 15 MiB
+para transferência sem tamanho. O stream confere os bytes reais e ajusta a reserva ao terminar; não retém o
+conteúdo completo em RAM. Pendentes expiram após 30 minutos. Uploads parciais e falhas liberam sua reserva;
+um reinício invalida IDs antigos e remove somente staging órfão próprio, nunca anexos finais.
+
+A mensagem fica publicamente `queued`, mas não sai por inbox/Codex durante a gravação. Agente e sessão são
+capturados antes dela; troca de sessão, saída, timeout ou falha de disco não entregam prompt parcial.
+Textos comuns preservam a ordem durante a preparação; controles (incluindo STOP) e perguntas paralelas continuam disponíveis.
+No Node/Podman o staging fica em `<attachmentsRoot>/.pending/`, no mesmo filesystem dos arquivos finais.
+No Docker o servidor usa `<config.dataDir>/attachments-pending/` (no volume `/data`, nunca no tmpfs `/tmp`).
+O auxiliar recebe somente descritores `{id, name, type, size}` e `job.id`, tanto para mensagens quanto para spawn.
+Ele busca cada conteúdo sequencialmente pelo GET de anexos do job, valida tamanho/bytes/nomes e grava por stream
+em `<attachmentsRoot do host>/.pending/`. Só o host escolhe sua raiz; campos de raiz/path do job não são autoridade.
+Antes de começar qualquer polling, o auxiliar remove somente diretórios órfãos próprios `bridge-<sufixo mkdtemp>`
+nessa `.pending/`, sem seguir links nem tocar pendentes do servidor ou lotes finais. Cada raiz admite um único
+auxiliar escritor; a limpeza de restart não roda durante downloads.
+A promoção final usa rename local, com nomes únicos; o ACK devolve somente caminhos absolutos finais.
+No host, os caminhos continuam em `~/.habblaud/attachments/<UUID>/` ou `HABBLAUD_ATTACHMENTS_DIR`.
+Cada lote novo usa diretório exclusivo (0700) e arquivos 0600; a raiz preexistente mantém suas permissões.
+Falha/timeout fecha os streams antes de remover apenas os parciais próprios e liberar reservas.
+Arquivos finais publicados nunca expiram: limpeza somente manual. ACK perdido não autoriza apagá-los.
+Em agentes isolados, monte somente a raiz de anexos RO, no mesmo caminho absoluto e com o mesmo UID.
+Habblaud precisa de RW; cada instalação/tenant mantém raiz própria. Não exponha o restante do estado nem monte projetos RW.
+
+
 O snapshot (SSE e `GET /api/snapshot`) leva só as últimas 8 atividades de cada agente em `recent`; o histórico
 de até 200 (inclusive o começo de transcripts longos, lido em segundo plano) vem de `GET /api/agents/:id`.
 
 Borda (`http/guard.ts`, vale para API, estáticos e Vite): `Host` precisa ser `localhost`/`*.localhost`, um IP
-ou um nome de `HABBLAUD_ALLOWED_HOSTS` (contra DNS rebinding) → senão 403; `POST` em `/api/*` exige
-`Content-Type: application/json` (415) e `Origin` da mesma origem ou local (403), contra CSRF. Respostas JSON
-saem com `nosniff` e `Cross-Origin-Resource-Policy: same-origin`, sem CORS.
+ou um nome de `HABBLAUD_ALLOWED_HOSTS` (contra DNS rebinding), senão retorna 403. As rotas de API que alteram estado
+exigem `Content-Type: application/json` (415), exceto correspondência exata de **POST + pathname de um dos dois
+uploads + application/octet-stream**. Host, Origin da mesma origem ou local, login e permissões continuam
+obrigatórios; a exceção não libera CORS/preflight cross-origin. OPTIONS não grava nem reserva espaço.
+Respostas JSON saem com `nosniff` e `Cross-Origin-Resource-Policy: same-origin`, sem CORS.
+
+O cutover exige atualizar servidor, navegador e auxiliar juntos, suspendendo uploads durante o reinício e
+recarregando páginas antigas. O JSON legado desses dois uploads recebe 415, sem fallback. Reiniciar invalida IDs
+pendentes, mas os arquivos locais selecionados permitem novo upload. Para rollback, pare os participantes,
+restaure o conjunto anterior de artefatos e recarregue as páginas. Limpe somente staging próprio não referenciado
+pelo processo parado; nunca remova arquivos finais antigos. Isso não autoriza publicar a versão JSON/base64 sob
+o teto de memória sem sua própria validação.
 
 ## Versão nova
 

@@ -5,6 +5,9 @@ import { tr } from './i18n';
 
 /** Tamanho máximo de uma mensagem (caracteres). */
 export const MESSAGE_MAX = 20_000;
+/** Limites dos anexos enviados pelo prompt (independentes do Novo agente). */
+export const MESSAGE_ATTACHMENTS_MAX = 5;
+export const MESSAGE_ATTACHMENT_MAX_BYTES = 15 * 1024 * 1024;
 /** `Activity.tool` da atividade "Mensagem pelo Habblaud" (não é uma ferramenta do agente: é o seu texto entrando). */
 export const MESSAGE_TOOL = 'HabblaudMessage';
 /** Detalhe da atividade: o começo do texto, mascarado e cortado (o texto inteiro vai só para a sessão). */

@@ -1,86 +1,154 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { chmodSync, readdirSync, readFileSync, statSync, existsSync, writeFileSync, rmSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { PassThrough, Readable } from 'node:stream';
+import type { IncomingMessage } from 'node:http';
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { HAS_POSIX_MODES, tempDir } from '../test/fixtures';
-import { ATTACHMENT_MAX_BYTES, ATTACHMENTS_PER_SPAWN, AttachmentStore, parseAttachment, promptWithAttachments, safeFileName, writeAttachments } from './attachments';
+import { attachmentRequest, uploadAttachment } from '../test/attachment-fixture';
+import { ATTACHMENT_MAX_BYTES, ATTACHMENT_TTL_MS, AttachmentStore, promptWithAttachments, safeFileName, writeAttachments } from './attachments';
 
-const b64 = (s: string) => Buffer.from(s).toString('base64');
-
-describe('anexos do Novo agente', () => {
-  it('nome seguro: sem caminho, controles nem ponto no começo', () => {
-    expect(safeFileName('../../etc/passwd')).toBe('passwd');
-    expect(safeFileName('C:\\Users\\x\\foto 1.jpg')).toBe('foto 1.jpg');
-    expect(safeFileName('.env')).toBe('env');
+function take(store: AttachmentStore, ids: string[], consumer: 'messages' | 'spawn' = 'messages') {
+  const result = store.take(ids, 8, consumer);
+  if (!Array.isArray(result)) throw new Error(result.error);
+  return result;
+}
+describe('anexos em disco', () => {
+  it('saneia Unicode, separadores e nomes sem extensão', () => {
+    expect(safeFileName('../ac\u0327a\u0303o.txt')).toBe('ação.txt');
+    expect(safeFileName('C:\\x\\.env')).toBe('env');
     expect(safeFileName('a\u0000b:c?.png')).toBe('a_b_c_.png');
-    expect(safeFileName('')).toBe('arquivo');
-    const long = safeFileName(`${'x'.repeat(300)}.jpeg`);
-    expect(long.length).toBe(120);
-    expect(long.endsWith('.jpeg')).toBe(true);
+    expect(safeFileName(`${'x'.repeat(300)}.jpeg`)).toHaveLength(120);
   });
-
-  it('parseAttachment: base64 válido, não vazio e no limite', () => {
-    expect(parseAttachment({ name: 'a.png', type: 'image/png', data: b64('oi') })).toMatchObject({ name: 'a.png', type: 'image/png' });
-    expect(parseAttachment({ name: 'a', type: 'bad type', data: b64('oi') })).toMatchObject({ type: 'application/octet-stream' });
-    expect(parseAttachment({ name: 'a', data: '' })).toHaveProperty('error');
-    expect(parseAttachment({ name: 'a', data: 'não é base64!' })).toHaveProperty('error');
-    expect(parseAttachment({ name: 'a', data: Buffer.alloc(ATTACHMENT_MAX_BYTES + 1).toString('base64') })).toHaveProperty('error');
+  it('1 byte, 15 MiB exatos e chunked; quota volta após descarte', async () => {
+    const store = new AttachmentStore({ dir: tempDir().dir });
+    for (const size of [1, ATTACHMENT_MAX_BYTES]) {
+      const req = attachmentRequest(Buffer.alloc(size, 7));
+      delete req.headers['content-length'];
+      const result = await store.receive(req, 'messages');
+      const files = take(store, [result.id]);
+      expect(result.size).toBe(size);
+      expect(createHash('sha256').update(readFileSync(files[0].path)).digest('hex')).toBe(createHash('sha256').update(Buffer.alloc(size, 7)).digest('hex'));
+      expect(store.usedBytes).toBe(size);
+      store.release(files); store.release(files);
+      expect(store.usedBytes).toBe(0);
+    }
   });
-
-  it('o depósito entrega cada anexo uma vez, expira e limita a quantidade', () => {
-    let now = 0;
-    let n = 0;
-    const store = new AttachmentStore(() => now, () => `id${++n}`);
-    const a = store.put({ name: 'a.txt', type: 'text/plain', data: Buffer.from('a') });
-    const b = store.put({ name: 'b.txt', type: 'text/plain', data: Buffer.from('b') });
-    expect(a).toEqual({ id: 'id1' });
-    expect(store.take(['id1', 'id2'])).toHaveLength(2);
-    expect(store.take(['id1'])).toHaveProperty('error');
-    expect(b).toEqual({ id: 'id2' });
-    store.put({ name: 'c', type: 't/t', data: Buffer.from('c') });
-    now += 31 * 60_000;
-    expect(store.take(['id3'])).toHaveProperty('error');
-    expect(store.take(undefined)).toEqual([]);
-    expect(store.take('id1')).toHaveProperty('error');
-    expect(store.take(Array.from({ length: ATTACHMENTS_PER_SPAWN + 1 }, (_, i) => `x${i}`))).toHaveProperty('error');
+  it('vazio, oversized e metadados inválidos não deixam parciais', async () => {
+    const dir = tempDir().dir;
+    const store = new AttachmentStore({ dir });
+    for (const request of [attachmentRequest(''), attachmentRequest('x', '', {}), attachmentRequest('x', 'a', { 'x-habblaud-file-name': '%ZZ' }), attachmentRequest('x', 'a', { 'content-length': 'invalid' }), attachmentRequest('x', 'a', { 'content-type': 'application/json' })]) {
+      await expect(store.receive(request, 'messages')).rejects.toHaveProperty('status');
+    }
+    const req = attachmentRequest(Buffer.alloc(ATTACHMENT_MAX_BYTES + 1));
+    delete req.headers['content-length'];
+    await expect(store.receive(req, 'messages')).rejects.toHaveProperty('status', 413);
+    await expect(store.receive(attachmentRequest('x', 'a', { 'content-length': '2' }), 'messages')).rejects.toHaveProperty('status', 400);
+    expect(store.usedBytes).toBe(0);
+    expect(readdirSync(dir)).toEqual([]);
   });
-
-  it('grava numa pasta nova (700, arquivos 600) com nomes únicos', () => {
+  it('aborto e falha do disco fecham e devolvem reservas', async () => {
+    const dir = tempDir().dir;
+    const store = new AttachmentStore({ dir });
+    const req = Readable.from((async function* () { yield Buffer.from('a'); throw new Error('interrompido'); })()) as IncomingMessage;
+    req.headers = attachmentRequest('ab').headers;
+    await expect(store.receive(req, 'messages')).rejects.toThrow('interrompido');
+    expect(store.usedBytes).toBe(0);
+    expect(readdirSync(dir)).toEqual([]);
+    // Diretório de staging removido simula falha do filesystem antes da abertura.
+    rmSync(dir, { recursive: true });
+    writeFileSync(dir, 'not a directory');
+    await expect(store.receive(attachmentRequest('x'), 'messages')).rejects.toThrow();
+    expect(store.usedBytes).toBe(0);
+  });
+  it('IDs duplicados, estrangeiros, consumidores errados e limite não consomem lote válido', async () => {
+    const store = new AttachmentStore({ dir: tempDir().dir });
+    const a = await uploadAttachment(store);
+    expect(store.take([a.id, a.id], 5, 'messages')).toHaveProperty('error');
+    expect(store.take([a.id, 'missing'], 5, 'messages')).toHaveProperty('attachmentsExpired', true);
+    expect(store.take([a.id], 8, 'spawn')).toHaveProperty('error');
+    expect(store.take([a.id], 0, 'messages')).toHaveProperty('error');
+    const files = take(store, [a.id]);
+    expect(store.take([a.id], 5, 'messages')).toHaveProperty('error');
+    store.release(files);
+  });
+  it('reservas simultâneas e held compartilham orçamento messages/spawn', async () => {
+    const store = new AttachmentStore({ dir: tempDir().dir, maxBytes: 8 });
+    const a = await uploadAttachment(store, '12345');
+    const b = await uploadAttachment(store, '123', 'b', 'spawn');
+    const held = take(store, [a.id]);
+    await expect(uploadAttachment(store, 'x')).rejects.toHaveProperty('status', 429);
+    store.release(held);
+    expect((await uploadAttachment(store, '12345')).size).toBe(5);
+    store.release(take(store, [b.id], 'spawn'));
+  });
+  it('oito reservas em voo de 15 MiB são comuns; abortos devolvem capacidade', async () => {
+    const store = new AttachmentStore({ dir: tempDir().dir });
+    const requests = Array.from({ length: 8 }, () => {
+      const req = new PassThrough() as unknown as IncomingMessage;
+      req.headers = attachmentRequest('x', 'x', { 'content-length': String(ATTACHMENT_MAX_BYTES) }).headers;
+      return req;
+    });
+    const receiving = requests.map((req, index) => store.receive(req, index < 5 ? 'messages' : 'spawn'));
+    const settled = Promise.allSettled(receiving);
+    expect(store.usedBytes).toBe(120 * 1024 * 1024);
+    await expect(uploadAttachment(store, 'x')).rejects.toHaveProperty('status', 429);
+    for (const req of requests) req.destroy(new Error('cancelled'));
+    expect((await settled).every(result => result.status === 'rejected')).toBe(true);
+    expect(store.usedBytes).toBe(0);
+    expect((await uploadAttachment(store, 'x')).size).toBe(1);
+  });
+  it('TTL só remove pendentes; restart preserva finais e remove staging órfão', async () => {
     const root = tempDir().dir;
-    const files = [
-      { name: 'foto.jpg', type: 'image/jpeg', data: Buffer.from('1') },
-      { name: 'foto.jpg', type: 'image/jpeg', data: Buffer.from('2') },
-      { name: '../nota.txt', type: 'text/plain', data: Buffer.from('3') },
-    ];
-    const paths = writeAttachments(root, 'abcdef12-3456', files, new Date(2026, 9, 12, 13, 5, 9));
-    expect(paths.map((p) => p.split(/[\\/]/).slice(-2).join('/'))).toEqual(['20261012-130509-abcdef12/foto.jpg', '20261012-130509-abcdef12/foto-2.jpg', '20261012-130509-abcdef12/nota.txt']);
-    const dir = join(root, '20261012-130509-abcdef12');
+    const dir = join(root, '.pending');
+    let now = 0;
+    const store = new AttachmentStore({ dir, now: () => now });
+    const a = await uploadAttachment(store, 'held');
+    const held = take(store, [a.id]);
+    const b = await uploadAttachment(store, 'pending');
+    now += ATTACHMENT_TTL_MS + 1;
+    expect(store.take([b.id], 5, 'messages')).toHaveProperty('error');
+    expect(existsSync(held[0].path)).toBe(true);
+    const [final] = await writeAttachments(root, 'job', held);
+    store.release(held);
+    await uploadAttachment(store, 'orphan');
+    new AttachmentStore({ dir });
+    expect(readdirSync(dir)).toEqual([]);
+    expect(readFileSync(final, 'utf8')).toBe('held');
+  });
+  it('rename com nomes únicos, modos privados e raiz 0750 intacta', async () => {
+    const root = tempDir().dir;
+    chmodSync(root, 0o750);
+    const store = new AttachmentStore({ dir: join(root, '.pending') });
+    const a = await uploadAttachment(store, 'one', 'ação.txt');
+    const b = await uploadAttachment(store, 'two', 'ação.txt');
+    const files = take(store, [a.id, b.id]);
+    const paths = await writeAttachments(root, 'job', files);
+    expect(paths.map(path => path.split('/').pop())).toEqual(['ação.txt', 'ação-2.txt']);
+    expect(readFileSync(paths[1], 'utf8')).toBe('two');
     if (HAS_POSIX_MODES) {
-      expect(statSync(dir).mode & 0o777).toBe(0o700);
+      expect(statSync(root).mode & 0o777).toBe(0o750);
+      expect(statSync(dirname(paths[0])).mode & 0o777).toBe(0o700);
       expect(statSync(paths[0]).mode & 0o777).toBe(0o600);
     }
-    expect(readFileSync(paths[1], 'utf8')).toBe('2');
-    expect(readdirSync(dir)).toHaveLength(3);
-    expect(writeAttachments(root, 'x', [])).toEqual([]);
+    store.release(files);
+    expect(existsSync(paths[0])).toBe(true);
   });
-
-  it('o pedido ganha a lista dos caminhos', () => {
-    expect(promptWithAttachments('Corrija o layout', ['/h/.habblaud/attachments/x/print.png'])).toBe(
-      'Corrija o layout\n\nAnexo enviado pelo Habblaud (leia antes de começar):\n- /h/.habblaud/attachments/x/print.png',
-    );
+  it('falha parcial remove só tentativa sem publicar ou apagar finais antigos', async () => {
+    const root = tempDir().dir;
+    const store = new AttachmentStore({ dir: join(root, '.pending') });
+    const a = await uploadAttachment(store, 'old');
+    const [old] = await writeAttachments(root, 'old', take(store, [a.id]));
+    const b = await uploadAttachment(store, 'new');
+    const files = take(store, [b.id]);
+    await expect(writeAttachments(root, 'bad', [...files, { ...files[0], path: '/not-existing' }])).rejects.toThrow();
+    expect(readdirSync(root).filter(name => name !== '.pending')).toEqual([dirname(old).split('/').pop()]);
+    expect(readFileSync(old, 'utf8')).toBe('old');
+    store.release(files);
+    expect(store.usedBytes).toBe(3); // lote antigo ainda held; TTL nunca libera held.
+  });
+  it('o pedido ganha caminhos sem reler arquivos', () => {
     expect(promptWithAttachments('', ['/a', '/b'])).toBe('Anexos enviados pelo Habblaud (leia antes de começar):\n- /a\n- /b');
-    expect(promptWithAttachments('só texto', [])).toBe('só texto');
-  });
-
-  it('teto de memória: conta também os anexos já tirados por pedidos na fila, até serem soltos', () => {
-    let n = 0;
-    const store = new AttachmentStore(Date.now, () => `a${++n}`, 10);
-    const file = (size: number) => ({ name: 'x.png', type: 'image/png', data: Buffer.alloc(size, 1) });
-    expect(store.put(file(6))).toEqual({ id: 'a1' });
-    const taken = store.take(['a1']);
-    expect(Array.isArray(taken) && taken.length).toBe(1);
-    // Os 6 bytes saíram do depósito, mas seguem na memória (pedido na fila): 6 + 6 passa do teto.
-    expect(store.put(file(6))).toHaveProperty('error');
-    store.release(6);
-    expect(store.put(file(6))).toEqual({ id: 'a2' });
+    expect(promptWithAttachments('texto', [])).toBe('texto');
   });
 });

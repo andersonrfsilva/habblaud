@@ -4,9 +4,13 @@
 // passa por checkFile (deliveries/files.ts), aqui e no auxiliar. Os arquivos lidos ficam num cache pequeno em memória.
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { isAbsolute } from 'node:path';
+import type { ServerResponse } from 'node:http';
+import type { AttachmentDescriptor } from '../../shared/types';
 import { tr } from '../../shared/i18n';
 import { HostWait, pollWithWait } from '../host-wait';
 import { checkFile, DELIVERY_FILE_MAX_BYTES } from './files';
+import { ATTACHMENT_MAX_BYTES, AttachmentTransfers, attachmentsRoot, writeAttachments, type Attachment } from '../spawn/attachments';
 
 export const HOST_PRESENCE_MS = 10_000;
 export const WAIT_MS = 20_000;
@@ -15,13 +19,19 @@ const MAX_PENDING = 16;
 
 export type FetchResult = { data: Buffer } | { error: string; status: number };
 
-interface Pending {
+export type AttachmentWriteResult = { paths: string[] } | { error: string; status: number };
+export type FileOperation =
+  | { id: string; path: string; op?: 'read' }
+  | { id: string; op: 'writeAttachments'; path?: never; files: AttachmentDescriptor[] };
+
+type Pending = {
   id: string;
-  path: string;
   sent: boolean;
-  at: number;
-  done: (r: FetchResult) => void;
-}
+  timer: NodeJS.Timeout;
+} & (
+  | { op: 'read'; path: string; done: (r: FetchResult) => void }
+  | { op: 'writeAttachments'; files: readonly Attachment[]; transfers: AttachmentTransfers; done: (r: AttachmentWriteResult) => void }
+);
 
 export interface FileFetcherOptions {
   /** Modo Node: lê direto do disco. */
@@ -64,32 +74,75 @@ export class FileFetcher {
     if (this.opts.direct) return { error: tr('arquivo não encontrado'), status: 404 };
     if (!this.hostAvailable()) return { error: tr('o auxiliar do computador (npm run codex:bridge) não está rodando'), status: 503 };
     if (this.pending.size >= MAX_PENDING) return { error: tr('arquivos demais sendo buscados: tente de novo'), status: 429 };
-    const r = await new Promise<FetchResult>((done) => {
-      const p: Pending = { id: randomUUID(), path, sent: false, at: this.now(), done };
-      this.pending.set(p.id, p);
-      this.host.wake();
-      setTimeout(() => {
-        if (this.pending.delete(p.id)) done({ error: tr('o computador não respondeu a tempo'), status: 504 });
-      }, WAIT_MS).unref?.();
-    });
+    const { promise, resolve: done } = Promise.withResolvers<FetchResult>();
+    const id = randomUUID();
+    this.pending.set(id, { id, op: 'read', path, sent: false, timer: this.timeout(id), done });
+    this.host.wake();
+    const r = await promise;
     if ('data' in r) this.remember(path, r.data);
     return r;
   }
 
+  async writeAttachments(files: readonly Attachment[]): Promise<AttachmentWriteResult> {
+    if (files.length > 5 || files.some((f) => !f.size || f.size > ATTACHMENT_MAX_BYTES)) {
+      return { error: tr('anexos inválidos'), status: 400 };
+    }
+    if (!files.length) return { paths: [] };
+    if (this.opts.direct) {
+      try {
+        return { paths: await writeAttachments(attachmentsRoot(), randomUUID(), files) };
+      } catch {
+        return { error: tr('não foi possível gravar os anexos'), status: 500 };
+      }
+    }
+    if (!this.hostAvailable()) return { error: tr('o auxiliar do computador (npm run codex:bridge) não está rodando'), status: 503 };
+    if (this.pending.size >= MAX_PENDING) {
+      return { error: tr('anexos demais esperando: envie o pedido ou tente de novo daqui a pouco'), status: 429 };
+    }
+    const { promise, resolve: done } = Promise.withResolvers<AttachmentWriteResult>();
+    const id = randomUUID();
+    this.pending.set(id, { id, op: 'writeAttachments', files, transfers: new AttachmentTransfers(), sent: false, timer: this.timeout(id), done });
+    this.host.wake();
+    return promise;
+  }
+
+  private timeout(id: string): NodeJS.Timeout {
+    const timer = setTimeout(() => {
+      const p = this.pending.get(id);
+      if (!p) return;
+      this.pending.delete(id);
+      if (p.op === 'writeAttachments') void p.transfers.close().then(() => p.done({ error: tr('o computador não respondeu a tempo'), status: 504 }));
+      else p.done({ error: tr('o computador não respondeu a tempo'), status: 504 });
+    }, WAIT_MS);
+    timer.unref?.();
+    return timer;
+  }
+
   /** Rodada do auxiliar: marca presença e entrega os caminhos pedidos. */
-  poll(): Array<{ id: string; path: string }> {
+  poll(): FileOperation[] {
     this.host.seen();
-    const out: Array<{ id: string; path: string }> = [];
+    const out: FileOperation[] = [];
     for (const p of this.pending.values()) {
       if (p.sent) continue;
       p.sent = true;
-      out.push({ id: p.id, path: p.path });
+      out.push(p.op === 'read' ? { id: p.id, path: p.path } : {
+        id: p.id,
+        op: 'writeAttachments',
+        files: p.files.map(({ id, name, type, size }) => ({ id, name, type, size })),
+      });
     }
     return out;
   }
 
+  attachment(jobId: string, fileId: string, res: ServerResponse): Promise<void> | undefined {
+    const job = this.pending.get(jobId);
+    if (!job || job.op !== 'writeAttachments' || !job.sent) return undefined;
+    const file = job.files.find(file => file.id === fileId);
+    return file ? job.transfers.serve(file, res) : undefined;
+  }
+
   /** Rodada com espera (?wait=1): sem nada pedido, fica parada até chegar um pedido ou passar `ms`. */
-  pollWait(ms: number, signal?: AbortSignal): Promise<Array<{ id: string; path: string }>> {
+  pollWait(ms: number, signal?: AbortSignal): Promise<FileOperation[]> {
     return pollWithWait(this.host, () => this.poll(), ms, signal);
   }
 
@@ -99,8 +152,24 @@ export class FileFetcher {
     for (const r of list) {
       const x = r && typeof r === 'object' ? (r as Record<string, unknown>) : {};
       const p = typeof x.id === 'string' ? this.pending.get(x.id) : undefined;
-      if (!p) continue;
+      if (!p || !p.sent) continue;
+      if (p.op === 'writeAttachments') {
+        if (x.ok === true) {
+          if (!Array.isArray(x.paths) || x.paths.length !== p.files.length ||
+            x.paths.some((path) => typeof path !== 'string' || !isAbsolute(path) || /[\r\n\0]/.test(path)) ||
+            new Set(x.paths).size !== x.paths.length) continue;
+          this.pending.delete(p.id);
+          clearTimeout(p.timer);
+          void p.transfers.close().then(() => p.done({ paths: x.paths as string[] }));
+        } else if (x.ok === false && typeof x.error === 'string' && x.error) {
+          this.pending.delete(p.id);
+          clearTimeout(p.timer);
+          void p.transfers.close().then(() => p.done({ error: (x.error as string).slice(0, 200), status: 500 }));
+        }
+        continue;
+      }
       this.pending.delete(p.id);
+      clearTimeout(p.timer);
       if (x.ok === true && typeof x.data === 'string' && /^[A-Za-z0-9+/]*={0,2}$/.test(x.data)) {
         const data = Buffer.from(x.data, 'base64');
         if (data.length <= DELIVERY_FILE_MAX_BYTES) {

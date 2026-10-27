@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import { ago, formatBytes, shortPath, spawnFolders } from './spawn';
+import { describe, expect, it, vi } from 'vitest';
+import { ago, formatBytes, shortPath, SpawnPanel, spawnFolders } from './spawn';
+import { uploadAttachment } from '../net/store';
 import { insertDictation, pickMimeType } from './dictation';
 
 describe('spawnFolders', () => {
@@ -46,5 +47,133 @@ describe('ditado no campo', () => {
     expect(pickMimeType((t) => t.startsWith('audio/webm'))).toBe('audio/webm;codecs=opus');
     expect(pickMimeType(() => false)).toBeUndefined();
     expect(pickMimeType(() => { throw new Error('x'); })).toBeUndefined();
+  });
+});
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  // The browser's ES2023 target does not include Promise.withResolvers.
+  const promise = new Promise<void>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
+async function withUploadTransport(handler: (request: Request) => Promise<Response>, run: () => Promise<void>): Promise<void> {
+  vi.stubGlobal('fetch', (path: string, init?: RequestInit) => handler(new Request(new URL(path, 'http://localhost'), init)));
+  try {
+    await run();
+  } finally {
+    vi.unstubAllGlobals();
+  }
+}
+
+describe('upload binário compartilhado', () => {
+  it('envia bytes e nome Unicode pelos dois endpoints; mantém erro HTTP observável', async () => {
+    const bytes = new Uint8Array([0, 1, 255, 42]);
+    const seen: string[] = [];
+    await withUploadTransport(async (request) => {
+      expect(new Uint8Array(await request.arrayBuffer())).toEqual(bytes);
+      expect(request.method).toBe('POST');
+      expect(request.headers.get('Content-Type')).toBe('application/octet-stream');
+      expect(request.headers.get('X-Habblaud-File-Name')).toBe(encodeURIComponent('ação 🐈.png'));
+      expect(request.headers.get('X-Habblaud-File-Type')).toBe('image/png');
+      seen.push(new URL(request.url).pathname);
+      const refused = seen.length === 3;
+      return Response.json(refused ? { error: 'too large' } : { id: `id-${seen.length}`, name: 'ação 🐈.png', size: bytes.length }, { status: refused ? 413 : 201 });
+    }, async () => {
+      const file = new File([bytes], 'ação 🐈.png', { type: 'image/png' });
+      expect(await uploadAttachment('/api/messages/attachments', file)).toEqual({ id: 'id-1' });
+      expect(await uploadAttachment('/api/spawn/attachments', file)).toEqual({ id: 'id-2' });
+      expect(await uploadAttachment('/api/spawn/attachments', file)).toEqual({ error: 'too large' });
+    });
+    expect(seen).toEqual(['/api/messages/attachments', '/api/spawn/attachments', '/api/spawn/attachments']);
+  });
+});
+
+interface TestPendingFile {
+  file: File;
+  id?: string;
+  el: { remove(): void };
+}
+
+interface TestSpawnPanel {
+  submit(): Promise<void>;
+  files: TestPendingFile[];
+  busy: boolean;
+  selected: string;
+  prompt: { value: string };
+}
+
+/** Exercise the real submit method without a DOM; Request bodies still contain the selected File bytes. */
+function submitPanel(files: TestPendingFile[]): TestSpawnPanel {
+  return Object.assign(Object.create(SpawnPanel.prototype), {
+    files, busy: false, selected: '/original', typing: false,
+    prompt: { value: 'pedido original' },
+    dictate: { busy: false }, submitBtn: { disabled: false },
+    status: { textContent: '', classList: { toggle() {} } },
+    ctx: { announce() {} },
+  });
+}
+
+describe('captura e reuso do lote do Novo agente', () => {
+  it('mantém pasta/prompt/lote capturados durante await e conserva arquivos adicionados depois', async () => {
+    const started = deferred();
+    const resume = deferred();
+    const first = { file: new File(['first'], 'original.txt'), el: { remove: vi.fn() } };
+    const later = { file: new File(['later'], 'depois.txt'), el: { remove: vi.fn() } };
+    const panel = submitPanel([first]);
+    let uploads = 0;
+    let submittedRequest: unknown;
+    await withUploadTransport(async (request) => {
+      if (new URL(request.url).pathname === '/api/spawn/attachments') {
+        uploads++;
+        expect(await request.text()).toBe('first');
+        started.resolve();
+        await resume.promise;
+        return Response.json({ id: 'first-id' }, { status: 201 });
+      }
+      submittedRequest = await request.json();
+      return Response.json({ id: 'spawn', status: 'opened', how: 'cli' }, { status: 201 });
+    }, async () => {
+      const submitted = panel.submit();
+      await started.promise;
+      panel.files.push(later);
+      panel.prompt.value = 'rascunho posterior';
+      panel.selected = '/depois';
+      resume.resolve();
+      await submitted;
+    });
+    expect(submittedRequest).toEqual({ folder: '/original', prompt: 'pedido original', attachments: ['first-id'] });
+    expect(uploads).toBe(1);
+    expect(panel.files).toEqual([later]);
+    expect(panel.prompt.value).toBe('rascunho posterior');
+    expect(first.el.remove).toHaveBeenCalledOnce();
+    expect(later.el.remove).not.toHaveBeenCalled();
+  });
+
+  it('reusa IDs na recusa anterior à aceitação e reenvia após expiração', async () => {
+    const file: TestPendingFile = { file: new File(['x'], 'x.txt'), el: { remove() {} } };
+    const panel = submitPanel([file]);
+    let uploads = 0;
+    let submissions = 0;
+    await withUploadTransport(async (request) => {
+      if (new URL(request.url).pathname === '/api/spawn/attachments') {
+        expect(await request.text()).toBe('x');
+        uploads++;
+        return Response.json({ id: `upload-${uploads}` }, { status: 201 });
+      }
+      submissions++;
+      if (submissions === 1) return Response.json({ error: 'refused' }, { status: 403 });
+      if (submissions === 2) return Response.json({ error: 'expired', attachmentsExpired: true }, { status: 400 });
+      return Response.json({ id: 'spawn', status: 'opened', how: 'cli' }, { status: 201 });
+    }, async () => {
+      await panel.submit();
+      expect(file.id).toBe('upload-1');
+      await panel.submit();
+      expect(uploads).toBe(1);
+      expect(file.id).toBeUndefined();
+      await panel.submit();
+    });
+    expect(uploads).toBe(2);
+    expect(panel.files).toEqual([]);
   });
 });
