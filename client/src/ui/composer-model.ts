@@ -4,7 +4,7 @@
 // isso; sem quem entregue (no Docker, o auxiliar do host), a dica é a do `npm run codex:bridge`. No omp a extensão do
 // Habblaud busca as mensagens como o plugin do Claude Code e as entrega como continuação (`followUp`): o agente ocupado
 // termina o turno antes; a dica de instalação é a do `npm run omp:install`.
-import { MESSAGE_MAX } from '../../../shared/messages';
+import { MESSAGE_MAX, MESSAGE_ATTACHMENTS_MAX, MESSAGE_ATTACHMENT_MAX_BYTES } from '../../../shared/messages';
 import type { AgentInfo, OutboxStatus, Provider } from '../../../shared/types';
 import { isNeutralBrand, tr } from '../../../shared/i18n';
 
@@ -58,9 +58,9 @@ export function messageText(raw: string): string {
   return raw.replace(/\s+$/, '');
 }
 
-export function canSend(raw: string): boolean {
+export function canSend(raw: string, attachments = 0): boolean {
   const text = messageText(raw);
-  return text.trim().length > 0 && text.length <= MESSAGE_MAX;
+  return (text.trim().length > 0 || attachments > 0) && text.length <= MESSAGE_MAX;
 }
 
 /** Enter manda; Shift+Enter (e Alt+Enter) quebram a linha; Enter compondo um acento (IME) não conta. */
@@ -135,4 +135,87 @@ export const OFFLINE_ERROR = tr('não foi possível falar com o Habblaud');
 /** Prazo da consulta acabou sem notícia: onde conferir. */
 export function timeoutError(provider: Provider = 'claude'): string {
   return provider === 'codex' ? CODEX_TIMEOUT_ERROR : provider === 'omp' ? OMP_TIMEOUT_ERROR : TIMEOUT_ERROR;
+}
+
+/** Texto do clipboard tem precedência, mesmo quando o navegador também oferece uma imagem. */
+export function pastedAttachments(data: Pick<DataTransfer, 'getData' | 'files'>): File[] {
+  if (data.getData('text/plain') || data.getData('text/html')) return [];
+  return Array.from(data.files);
+}
+
+export interface ComposerAttachment {
+  file: File;
+  url?: string;
+  id?: string;
+}
+
+/** Rascunhos guardam os File mesmo após uma recusa; IDs pertencem à mesma seleção, não ao agente em exibição. */
+export class ComposerAttachments {
+  private drafts = new Map<string, ComposerAttachment[]>();
+  private destroyed = false;
+
+  constructor(private urls = {
+    create: (file: File) => URL.createObjectURL(file),
+    revoke: (url: string) => URL.revokeObjectURL(url),
+  }) {}
+
+  get(agentId: string): readonly ComposerAttachment[] {
+    return this.drafts.get(agentId) ?? [];
+  }
+
+  add(agentId: string, files: readonly File[]): string[] {
+    if (this.destroyed) return [];
+    const list = [...this.get(agentId)];
+    const errors: string[] = [];
+    for (const file of files) {
+      if (file.size > MESSAGE_ATTACHMENT_MAX_BYTES) {
+        errors.push(tr('Arquivo acima de 15 MiB: {0}', [file.name]));
+      } else if (list.length >= MESSAGE_ATTACHMENTS_MAX) {
+        errors.push(tr('Limite de 5 anexos: {0}', [file.name]));
+      } else {
+        list.push({ file, ...(file.type.startsWith('image/') ? { url: this.urls.create(file) } : {}) });
+      }
+    }
+    this.drafts.set(agentId, list);
+    return errors;
+  }
+
+  remove(agentId: string, attachment: ComposerAttachment): void {
+    if (!this.get(agentId).includes(attachment)) return;
+    if (attachment.url) this.urls.revoke(attachment.url);
+    const list = this.get(agentId).filter((item) => item !== attachment);
+    if (list.length) this.drafts.set(agentId, list);
+    else this.drafts.delete(agentId);
+  }
+
+  capture(agentId: string): ComposerAttachment[] {
+    return [...this.get(agentId)];
+  }
+
+  async upload(batch: readonly ComposerAttachment[], upload: (file: File) => Promise<{ id: string } | { error: string }>): Promise<string[]> {
+    const ids: string[] = [];
+    for (const attachment of batch) {
+      if (this.destroyed) throw new Error(OFFLINE_ERROR);
+      if (!attachment.id) {
+        const result = await upload(attachment.file);
+        if ('error' in result) throw new Error(result.error);
+        attachment.id = result.id;
+      }
+      ids.push(attachment.id);
+    }
+    return ids;
+  }
+
+  invalidate(batch: readonly ComposerAttachment[]): void {
+    for (const attachment of batch) delete attachment.id;
+  }
+
+  accepted(agentId: string, batch: readonly ComposerAttachment[]): void {
+    for (const attachment of batch) this.remove(agentId, attachment);
+  }
+
+  destroy(): void {
+    this.destroyed = true;
+    for (const [agentId, list] of this.drafts) this.accepted(agentId, list);
+  }
 }

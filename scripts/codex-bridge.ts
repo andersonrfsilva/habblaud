@@ -17,6 +17,7 @@
 // Arquivos e ditado usam rodadas com espera: o Habblaud só responde quando chega trabalho (ou a cada 20 s).
 // Ctrl+C para parar.
 import { statSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { isAbsolute, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isClaudeDir } from '../server/accounts/detect';
@@ -24,7 +25,7 @@ import { createCodexQueueRunner, findCodexBin, THREAD_ID, type CodexQueueResult,
 import { tr } from '../shared/i18n';
 import { createCliRunner, createOpener, folderProblem, launch, parseSpawn, type CliRunner, type Opener, type SpawnHow } from '../server/spawn/spawn';
 import { runnableClaudeBin } from '../server/claude-bin';
-import { ATTACHMENT_MAX_BYTES, ATTACHMENTS_PER_SPAWN, attachmentsRoot, promptWithAttachments, safeFileName, writeAttachments, type Attachment } from '../server/spawn/attachments';
+import { ATTACHMENT_MAX_BYTES, ATTACHMENTS_PER_SPAWN, attachmentsRoot, parseAttachment, promptWithAttachments, safeFileName, writeAttachments, type Attachment } from '../server/spawn/attachments';
 import { createWhisperTranscriber, findWhisper, type Transcriber } from '../server/dictation/whisper';
 import { checkFile, insideKnownFolder, tempRoots } from '../server/deliveries/files';
 import { discoverClaudeDirs } from '../server/accounts/detect';
@@ -299,11 +300,41 @@ export async function filesRound(
   if (!polled) return { state: 'down' };
   const list = rec(polled.json)?.files;
   if (polled.status !== 200 || !Array.isArray(list)) return { state: 'refused', status: polled.status };
-  const results: Array<BridgeResult & { data?: string }> = [];
+  const results: Array<BridgeResult & { data?: string; paths?: string[] }> = [];
   for (const raw of list) {
     const r = rec(raw);
     const id = typeof r?.id === 'string' ? r.id : '';
     if (!id) continue;
+    if (r?.op === 'writeAttachments') {
+      const files: Attachment[] = [];
+      let error: string | undefined;
+      if (!Array.isArray(r.files) || !r.files.length || r.files.length > 5) error = tr('anexos inválidos');
+      else {
+        for (const rawFile of r.files) {
+          const file = parseAttachment(rawFile);
+          if ('error' in file) {
+            error = file.error;
+            break;
+          }
+          files.push(file);
+        }
+      }
+      if (error) results.push({ id, ok: false, error });
+      else {
+        try {
+          // Only the host selects the root and batch directory; ignore paths from the container.
+          const paths = writeAttachments(attachmentsRoot(), randomUUID(), files);
+          results.push({ id, ok: true, paths });
+        } catch {
+          results.push({ id, ok: false, error: tr('não foi possível gravar os anexos') });
+        }
+      }
+      continue;
+    }
+    if (r?.op !== undefined && r.op !== 'read') {
+      results.push({ id, ok: false, error: tr('anexos inválidos') });
+      continue;
+    }
     const checked = check(typeof r?.path === 'string' ? r.path : '');
     const c = 'error' in checked || !opts.inside || opts.inside(checked.path) ? checked : { error: tr('fora das pastas de projeto conhecidas') };
     if ('error' in c) {

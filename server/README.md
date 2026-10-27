@@ -90,7 +90,8 @@ festa) ou 10 min. Push só avisa. O mesmo CI visto de novo em 2 min não repete 
 | `GET /api/permissions/:id/wait` | (hook) long-poll de até 25 s (`?timeout=` em segundos): `{status: 'pending' \| 'decided' \| 'released', ...}` |
 | `GET /api/permissions/:id` | (página) detalhe do pedido com os argumentos (`PermissionRequestInfo` com `input`) |
 | `POST /api/permissions/:id/decision` | (página) `PermissionDecision`: `{behavior: 'allow' \| 'deny' \| 'terminal' \| 'answer', message?, interrupt?, suggestion?, answers?}` |
-| `POST /api/messages` | (página) `{agentId, text}`: manda uma mensagem a um agente principal; `201 OutboxMessage`; só com bind local (ver abaixo) |
+| `POST /api/messages` | (página) `{agentId, text, attachments?: string[]}`: até cinco IDs; aceita somente anexos; `201 OutboxMessage`; trava `messages` |
+| `POST /api/messages/attachments` | (página) `{name, type?, data}` em base64: `201 {id}`; até 15 MiB/arquivo, mesma trava `messages`, JSON e Origin; não aceita destino |
 | `GET /api/messages/:id` | (página) situação da mensagem (`OutboxMessage`: `queued` \| `sent` \| `delivered` \| `failed`) |
 | `POST /api/mod/inbox` | (plugin `habblaud-mensagens`) `{session, account?}`: marca a presença da sessão e entrega `{messages: InboxMessage[]}` |
 | `POST /api/mod/inbox/ack` | (plugin) `{session, results: [{id, ok, error?}]}`: confirma cada mensagem entregue (ou a falha) |
@@ -108,6 +109,25 @@ festa) ou 10 min. Push só avisa. O mesmo CI visto de novo em 2 min não repete 
 | `GET /api/files` / `GET /api/files/list?path=` / `GET /api/files/raw?path=[&download=1]` | raízes (pastas das salas e `~/projetos`), conteúdo de uma pasta e um arquivo, em stream (`files/browse.ts`, `http/files.ts`); só leitura, mesma trava do terminal; desligado no Docker |
 | `GET /api/pty`, `POST /api/pty`, `GET /api/pty/:id/stream`, `POST /api/pty/:id/input` \| `resize` \| `close`, `POST /api/agents/:id/stop` \| `takeover` | terminal interativo e ações nos agentes (`http/pty.ts`); só com `HABBLAUD_PTY=1`, conexão pelo loopback e `Host` local; nunca pela porta remota |
 | `POST /api/host/spawn/poll` \| `ack`, `/api/host/dictation/poll` \| `ack`, `/api/host/files/poll` \| `ack` | (auxiliar do host, `npm run codex:bridge`) busca e confirma os pedidos do Novo agente, do ditado e dos arquivos das entregas; só pelo computador |
+
+Anexos de mensagens usam depósito separado do Novo agente (cinco por mensagem, oito por Novo agente), sem exigir
+`HABBLAUD_PTY=1`. IDs repetidos, desconhecidos ou vencidos são recusados sem consumir o lote; recusa por agente ou
+fila cheia também preserva uploads. ID perdido/vencido retorna `400 {error, attachmentsExpired: true}`: a interface
+mantém os `File`, invalida IDs e permite uma nova tentativa manual. Pendentes expiram após 30 minutos; o teto de
+120 MiB por depósito inclui lotes em preparação até sua liberação.
+
+A mensagem fica publicamente `queued`, mas não sai por inbox/Codex durante a gravação. Agente e sessão são
+capturados antes dela; troca de sessão, saída, timeout ou falha de disco não entregam prompt parcial.
+Textos comuns preservam a ordem durante a preparação; controles (incluindo STOP) e perguntas paralelas continuam disponíveis.
+No Node/Podman o servidor grava; no Docker o auxiliar recebe `op: 'writeAttachments'` pela fila de arquivos,
+valida quantidade/base64/bytes/nomes e usa sua própria `attachmentsRoot()`, nunca um destino do cliente.
+Os caminhos absolutos apontam para `~/.habblaud/attachments/<UUID>/` ou `HABBLAUD_ATTACHMENTS_DIR`.
+Cada lote usa diretório exclusivo (0700) e arquivos 0600; a raiz preexistente mantém suas permissões.
+Falha remove apenas a própria tentativa.
+Arquivos gravados nunca expiram: limpeza somente manual, sem apagar referências antigas automaticamente.
+Em agentes isolados, monte somente a raiz de anexos RO, no mesmo caminho absoluto e com o mesmo UID.
+Habblaud precisa de RW; cada instalação/tenant mantém raiz própria. Não exponha o restante do estado nem monte projetos RW.
+
 
 O snapshot (SSE e `GET /api/snapshot`) leva só as últimas 8 atividades de cada agente em `recent`; o histórico
 de até 200 (inclusive o começo de transcripts longos, lido em segundo plano) vem de `GET /api/agents/:id`.

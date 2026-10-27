@@ -571,6 +571,12 @@ With the messages plugin installed (`npm run mod:install`, which installs it alo
 goes into the session **as if you had typed it in its terminal**. You can reply when the agent finishes its turn
 and waits for the next request, give a new instruction or correct its course, without hunting for the right window.
 
+- Attach files with the paperclip, paste or drop (up to five files, 15 MiB each); text is optional.
+  Clipboard text takes precedence over images. Drafts and files stay with their original agent during uploads.
+  Files are saved before delivery in `~/.habblaud/attachments/<UUID>/` (override: `HABBLAUD_ATTACHMENTS_DIR`),
+  never in the project. Pending uploads expire after 30 minutes; saved files never expire and require manual cleanup.
+  Each installation/tenant needs its own root: mount only that root RW in Habblaud and RO at the same absolute
+  path in isolated agents, using the same UID (directories 0700, files 0600). Never share the whole Habblaud state.
 - The box shows the status: **queued** (the session fetches messages every 2 seconds), **delivered** or **not
   delivered**, with the reason. With the agent busy, the message waits and goes in when it finishes its turn, like a
   prompt typed while the agent is working.
@@ -794,7 +800,7 @@ Everything works without configuring anything. If you need to adjust something, 
 | `HABBLAUD_BIND` | `127.0.0.1` | Docker only (in `.env`): where the port is published. `0.0.0.0` opens it to the local network (and turns off the terminal and anything that acts on the sessions). |
 | `HABBLAUD_CLAUDE_DIRS` | automatic detection | Account folders, comma-separated (e.g. `/caminho/conta1,/caminho/conta2`). |
 | `HABBLAUD_DATA_DIR` | `~/.habblaud` | Where Habblaud keeps its own data (character and room names, the timelapse timeline and the My day stats). |
-| `HABBLAUD_ATTACHMENTS_DIR` | `~/.habblaud/attachments` | Where the attachments of **New agent** are saved before the request is sent. |
+| `HABBLAUD_ATTACHMENTS_DIR` | `~/.habblaud/attachments` | Root for prompt and **New agent** attachments, stored in exclusive UUID folders. Manual cleanup only. |
 | `HABBLAUD_TIMELINE` | on | `0` turns off timeline recording (the days already recorded stay in the timelapse). In Docker it's always on. |
 | `HABBLAUD_USAGE_DIR` | `~/.habblaud/usage` | Where the mod (or the statusline tap) writes usage. |
 | `HABBLAUD_DEMO` | off | `1` turns on demo mode at startup. |

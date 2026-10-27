@@ -242,7 +242,7 @@ const deliveries = history
       },
     })
   : undefined;
-const deliveryFiles = deliveries
+const deliveryFiles = deliveries || config.messages
   ? new FileFetcher({
       direct: !config.inDocker,
       mapHostPath: (p) => {
@@ -304,6 +304,8 @@ const messages = config.messages
         run: codexBin ? createCodexQueueRunner(codexBin) : undefined,
         homeOf: (account) => accounts.entriesOf('codex').find((e) => e.id === account)?.detected.configDir,
       },
+      attachments: new AttachmentStore(),
+      writeAttachments: (files) => deliveryFiles!.writeAttachments(files),
       onSettled: (id, status, error) => asides?.settled(id, status, error),
     })
   : undefined;

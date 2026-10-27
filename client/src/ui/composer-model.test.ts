@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentInfo } from '../../../shared/types';
+import { MESSAGE_ATTACHMENT_MAX_BYTES, MESSAGE_ATTACHMENTS_MAX } from '../../../shared/messages';
 import {
   canSend,
+  ComposerAttachments,
+  pastedAttachments,
   CODEX_BRIDGE_HINT,
   CODEX_TIMEOUT_ERROR,
   composerMode,
@@ -147,4 +150,121 @@ describe('caixa de mensagem (peças puras)', () => {
     expect(composerTip('omp')).toMatch(/^Entra na sessão como continuação/);
     expect(timeoutError('omp')).toBe(OMP_TIMEOUT_ERROR);
   });
+});
+
+describe('anexos do prompt', () => {
+  it('cola arquivos apenas sem texto, inclusive quando texto e imagem coexistem', () => {
+    const image = { name: 'clipboard.png', type: 'image/png', size: 1 } as File;
+    const clipboard = (plain: string, html = '') => ({
+      files: [image] as unknown as FileList,
+      getData: (type: string) => type === 'text/plain' ? plain : html,
+    });
+    expect(pastedAttachments(clipboard('text'))).toEqual([]);
+    expect(pastedAttachments(clipboard('', '<p>text</p>'))).toEqual([]);
+    expect(pastedAttachments(clipboard(''))).toEqual([image]);
+  });
+  const file = (name: string, size = 1, type = 'text/plain') => ({ name, size, type }) as File;
+  function setup() {
+    const revoked: string[] = [];
+    const model = new ComposerAttachments({
+      create: (item) => `blob:${item.name}`,
+      revoke: (url) => revoked.push(url),
+    });
+    return { model, revoked };
+  }
+
+  it('valida cinco arquivos e 15 MiB, aceita o limite e permite remover e selecionar novamente', () => {
+    const { model } = setup();
+    const max = file('max.txt', MESSAGE_ATTACHMENT_MAX_BYTES);
+    expect(model.add('a', [max, file('grande', MESSAGE_ATTACHMENT_MAX_BYTES + 1)])).toEqual(['Arquivo acima de 15 MiB: grande']);
+    expect(model.get('a')[0].file).toBe(max);
+    model.add('a', [file('2'), file('3'), file('4'), file('5')]);
+    expect(model.get('a')).toHaveLength(MESSAGE_ATTACHMENTS_MAX);
+    expect(model.add('a', [file('6')])).toEqual(['Limite de 5 anexos: 6']);
+    model.remove('a', model.get('a')[0]);
+    expect(model.add('a', [max])).toEqual([]);
+    expect(canSend('', model.get('a').length)).toBe(true);
+    expect(canSend(' \n', 1)).toBe(true);
+    expect(canSend('x'.repeat(20_001), 1)).toBe(false);
+    expect(canSend('', 0)).toBe(false);
+  });
+
+  it('captura agente/lote antes da rede e não limpa arquivos novos nem outro agente', async () => {
+    const { model, revoked } = setup();
+    model.add('a', [file('old.png', 1, 'image/png')]);
+    const batch = model.capture('a');
+    let finish!: (result: { id: string }) => void;
+    const pending = new Promise<{ id: string }>((resolve) => { finish = resolve; });
+    const sending = model.upload(batch, () => pending);
+    model.add('b', [file('other.png', 1, 'image/png')]);
+    model.add('a', [file('new.png', 1, 'image/png')]);
+    finish({ id: 'uploaded' });
+    expect(await sending).toEqual(['uploaded']);
+    model.accepted('a', batch);
+    expect(model.get('a').map((item) => item.file.name)).toEqual(['new.png']);
+    expect(model.get('b').map((item) => item.file.name)).toEqual(['other.png']);
+    expect(revoked).toEqual(['blob:old.png']);
+  });
+
+  it('preserva File e IDs após falha intermediária ou recusa; expiração exige tentativa explícita', async () => {
+    const { model } = setup();
+    const first = file('first');
+    model.add('a', [first, file('second')]);
+    const batch = model.capture('a');
+    const calls: string[] = [];
+    await expect(model.upload(batch, async (item) => {
+      calls.push(item.name);
+      if (item.name === 'second') return { error: 'offline' };
+      return { id: 'one' };
+    })).rejects.toThrow('offline');
+    expect(model.get('a')[0].file).toBe(first);
+    expect(await model.upload(batch, async (item) => {
+      calls.push(item.name);
+      return { id: 'two' };
+    })).toEqual(['one', 'two']);
+    expect(calls).toEqual(['first', 'second', 'second']);
+    // A recusa do POST não aceita o lote: a próxima tentativa reutiliza ambos os IDs.
+    expect(await model.upload(model.capture('a'), async () => { throw new Error('must not upload'); })).toEqual(['one', 'two']);
+    model.invalidate(batch);
+    expect(batch.every((item) => item.id === undefined)).toBe(true);
+    expect(calls).toHaveLength(3);
+    expect(await model.upload(batch, async (item) => ({ id: item.name }))).toEqual(['first', 'second']);
+  });
+
+  it('revoga previews ao remover, aceitar e destruir; destruir duas vezes é seguro', () => {
+    const { model, revoked } = setup();
+    model.add('a', [file('remove.png', 1, 'image/png'), file('send.png', 1, 'image/png')]);
+    model.remove('a', model.get('a')[0]);
+    model.accepted('a', model.capture('a'));
+    model.add('b', [file('destroy.png', 1, 'image/png')]);
+    model.destroy();
+    model.destroy();
+    expect(model.get('a')).toEqual([]);
+    expect(model.get('b')).toEqual([]);
+    expect(revoked).toEqual(['blob:remove.png', 'blob:send.png', 'blob:destroy.png']);
+    expect(model.add('b', [file('late.png', 1, 'image/png')])).toEqual([]);
+    expect(model.get('b')).toEqual([]);
+  });
+});
+
+it('interrompe o lote destruído durante upload sem enviar o próximo arquivo', async () => {
+  const revoked: string[] = [];
+  const model = new ComposerAttachments({
+    create: (item) => `blob:${item.name}`,
+    revoke: (url) => revoked.push(url),
+  });
+  model.add('a', [
+    { name: 'first.png', type: 'image/png', size: 1 } as File,
+    { name: 'second.png', type: 'image/png', size: 1 } as File,
+  ]);
+  const batch = model.capture('a');
+  const calls: string[] = [];
+  await expect(model.upload(batch, async (item) => {
+    calls.push(item.name);
+    model.destroy();
+    return { id: 'first' };
+  })).rejects.toThrow();
+  expect(calls).toEqual(['first.png']);
+  expect(model.get('a')).toEqual([]);
+  expect(revoked).toEqual(['blob:first.png', 'blob:second.png']);
 });

@@ -12,6 +12,11 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Anexos no prompt:** o clipe no terminal e na gaveta aceita seleção, colagem e arraste de até cinco arquivos
+  de 15 MiB, inclusive sem texto. Cada envio grava em `~/.habblaud/attachments/<UUID>/` (ou
+  `HABBLAUD_ATTACHMENTS_DIR`) antes da entrega, sem escrever no projeto. Rascunhos e anexos ficam por agente;
+  novas tentativas reutilizam uploads válidos. Arquivos persistidos não expiram: a limpeza é manual.
+
 - **Arquivos no terminal:** a barra de cima do terminal ganha o botão de gaveteiro, que abre o navegador de arquivos
   na pasta da sala do agente (só com o agente ao vivo e com os arquivos liberados, como na gaveta).
 

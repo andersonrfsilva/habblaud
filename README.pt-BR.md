@@ -569,6 +569,12 @@ Com o plugin de mensagens instalado (`npm run mod:install`, que o instala junto 
 entra na sessão **como se você tivesse digitado no terminal dela**. Dá para responder quando o agente termina o turno
 e espera o próximo pedido, dar uma instrução nova ou corrigir o rumo, sem procurar a janela certa.
 
+- Anexe pelo clipe, colagem ou arraste (até cinco arquivos de 15 MiB); o texto é opcional.
+  Texto no clipboard tem precedência sobre imagens. Rascunhos e arquivos continuam no agente original durante uploads.
+  Os arquivos são gravados antes da entrega em `~/.habblaud/attachments/<UUID>/` (ou `HABBLAUD_ATTACHMENTS_DIR`),
+  nunca no projeto. Uploads pendentes vencem em 30 minutos; arquivos gravados não expiram e exigem limpeza manual.
+  Cada instalação/tenant precisa de sua própria raiz: monte somente essa raiz RW no Habblaud e RO no mesmo caminho
+  absoluto nos agentes isolados, com o mesmo UID (pastas 0700, arquivos 0600). Nunca compartilhe todo o estado.
 - A caixa mostra a situação: **na fila** (a sessão busca as mensagens a cada 2 segundos), **entregue** ou **não
   entregue**, com o motivo. Com o agente ocupado, a mensagem espera e entra quando ele terminar o turno, como um
   prompt digitado com o agente trabalhando.
@@ -792,7 +798,7 @@ Tudo funciona sem configurar nada. Se precisar ajustar, use variáveis de ambien
 | `HABBLAUD_BIND` | `127.0.0.1` | Só Docker (no `.env`): onde a porta é publicada. `0.0.0.0` libera a rede local (e desliga o terminal e o que age sobre as sessões). |
 | `HABBLAUD_CLAUDE_DIRS` | detecção automática | Pastas das contas, separadas por vírgula (ex.: `/caminho/conta1,/caminho/conta2`). |
 | `HABBLAUD_DATA_DIR` | `~/.habblaud` | Onde o Habblaud guarda os próprios dados (nomes dos personagens e das salas, linha do tempo do timelapse e estatísticas do Meu dia). |
-| `HABBLAUD_ATTACHMENTS_DIR` | `~/.habblaud/attachments` | Onde ficam gravados os anexos do **Novo agente** antes de o pedido ser enviado. |
+| `HABBLAUD_ATTACHMENTS_DIR` | `~/.habblaud/attachments` | Raiz dos anexos do prompt e do **Novo agente**, em pastas UUID exclusivas. Limpeza somente manual. |
 | `HABBLAUD_TIMELINE` | ligado | `0` desliga a gravação da linha do tempo (os dias já gravados continuam no timelapse). No Docker fica sempre ligado. |
 | `HABBLAUD_USAGE_DIR` | `~/.habblaud/usage` | Onde o mod (ou o tap de statusline) grava o uso. |
 | `HABBLAUD_DEMO` | desligado | `1` liga o modo demonstração ao iniciar. |

@@ -2,6 +2,11 @@
 // As lacunas {0}, {1}... (e as nomeadas, como {sala}) precisam aparecer na tradução, em qualquer ordem.
 // Chave ausente = o texto fica em PT. `npm run i18n:check` lista os textos sem tradução e as chaves que sobraram.
 export const ES: Readonly<Record<string, string>> = {
+  "Anexar arquivos": "Adjuntar archivos",
+  "Remover anexo: {0}": "Eliminar adjunto: {0}",
+  "Arquivo acima de 15 MiB: {0}": "El archivo supera los 15 MiB: {0}",
+  "Limite de 5 anexos: {0}": "Límite de 5 adjuntos: {0}",
+  "não foi possível gravar os anexos": "no se pudieron guardar los adjuntos",
   // client/src/main.ts
   "Escritório virtual em pixel art que mostra, em tempo real, o que seus agentes do Claude Code estão fazendo.": "Oficina virtual en pixel art que muestra, en tiempo real, lo que están haciendo tus agentes de Claude Code.",
 

@@ -9,6 +9,7 @@ import { MESSAGE_MAX } from '../../../shared/messages';
 import type { AgentInfo, OutboxMessage, Provider } from '../../../shared/types';
 import {
   canSend,
+  ComposerAttachments,
   composerMode,
   composerTip,
   enterSends,
@@ -17,17 +18,20 @@ import {
   messageText,
   OFFLINE_ERROR,
   POLL_LIMIT_MS,
+  pastedAttachments,
   pollDelay,
   sendStatusText,
   timeoutError,
   type ComposerMode,
   type SendState,
+  type ComposerAttachment,
 } from './composer-model';
 import type { UiContext } from './context';
 import { DictationButton, dictationAvailable, insertDictation } from './dictation';
-import { h, setAttr, setHidden, setText, setTitle } from './dom';
+import { h, iconButton, setAttr, setHidden, setText, setTitle } from './dom';
 import { access } from '../net/access';
 import { tr } from '../../../shared/i18n';
+import { formatBytes } from './spawn';
 
 export type ComposerVariant = 'drawer' | 'terminal';
 
@@ -51,6 +55,16 @@ export class MessageComposer {
   private provider: Provider = 'claude';
   /** O que a caixa mostra agora ("<agente>|<pronta>"): ao mudar, o conteúdo vem do rascunho. */
   private shown = '';
+  private attachments = new ComposerAttachments();
+  private attachmentErrors = new Map<string, string>();
+  private shownAttachments: readonly ComposerAttachment[] = [];
+  private files: HTMLInputElement;
+  private attachBtn: HTMLButtonElement;
+  private attachmentList: HTMLElement;
+  private attachmentStatus: HTMLElement;
+  private pickerAgentId = '';
+  private destroyed = false;
+  private pollTimers = new Set<number>();
 
   private row: HTMLElement;
   private box: HTMLTextAreaElement;
@@ -83,6 +97,20 @@ export class MessageComposer {
     });
     this.box.addEventListener('focus', () => this.resize());
     this.box.addEventListener('keydown', (e) => this.onKey(e));
+    this.files = h('input', { type: 'file', hidden: true, attrs: { multiple: true } });
+    this.files.addEventListener('change', () => {
+      this.addFiles(Array.from(this.files.files ?? []), this.pickerAgentId);
+      this.files.value = '';
+    });
+    this.attachBtn = iconButton(
+      '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5 12 20a6 6 0 0 1-8.5-8.5l10-10a4 4 0 0 1 5.7 5.7L9 17.3a2 2 0 0 1-2.8-2.8L15 5.7"/></svg>',
+      tr('Anexar arquivos'),
+      () => {
+        this.pickerAgentId = this.agentId;
+        this.files.click();
+      },
+      'ui-msg__attach',
+    );
     this.sendBtn = h(
       'button',
       {
@@ -104,7 +132,7 @@ export class MessageComposer {
     setHidden(this.dictate.el, true);
     this.row = h('div', { class: `ui-msg__row${term ? ' ui-term__prompt ui-term__prompt--mic' : ''}` });
     if (term) this.row.append(h('span', { class: 'ui-term__caret', text: '>', attrs: { 'aria-hidden': 'true' } }));
-    this.row.append(this.box, this.dictate.el, this.sendBtn);
+    this.row.append(this.box, this.attachBtn, this.dictate.el, this.sendBtn);
     // Clique na "linha do prompt" (fora do botão) põe o cursor na caixa, como num terminal.
     this.row.addEventListener('mousedown', (e) => {
       if (e.target === this.row && !this.box.disabled) {
@@ -115,7 +143,25 @@ export class MessageComposer {
     this.hint = h('p', { class: 'ui-msg__hint', hidden: true });
     this.status = h('p', { class: 'ui-msg__status', role: 'status', hidden: true, attrs: { 'aria-live': 'polite' } });
     this.tip = term ? null : h('p', { class: 'ui-msg__tip', text: composerTip() });
-    this.el = h('div', { class: `ui-msg ui-msg--${variant}` }, this.hint, this.row, this.dictStatus, this.status, this.tip);
+    this.attachmentList = h('div', { class: 'ui-msg__attachments', hidden: true });
+    this.attachmentStatus = h('p', { class: 'ui-msg__status is-error', role: 'status', hidden: true, attrs: { 'aria-live': 'polite' } });
+    this.el = h('div', { class: `ui-msg ui-msg--${variant}` }, this.hint, this.row, this.files, this.attachmentList, this.attachmentStatus, this.dictStatus, this.status, this.tip);
+    this.box.addEventListener('paste', (event) => {
+      const data = event.clipboardData;
+      if (this.mode.kind !== 'ready' || !data) return;
+      const files = pastedAttachments(data);
+      if (!files.length) return;
+      event.preventDefault();
+      this.addFiles(files);
+    });
+    this.el.addEventListener('dragover', (event) => {
+      if (this.mode.kind === 'ready' && event.dataTransfer?.types.includes('Files')) event.preventDefault();
+    });
+    this.el.addEventListener('drop', (event) => {
+      if (this.mode.kind !== 'ready' || !event.dataTransfer?.files.length) return;
+      event.preventDefault();
+      this.addFiles(Array.from(event.dataTransfer.files));
+    });
   }
 
   /**
@@ -146,6 +192,9 @@ export class MessageComposer {
       if (ready) requestAnimationFrame(() => this.resize());
     }
     this.box.disabled = !ready;
+    this.attachBtn.disabled = !ready;
+    setHidden(this.attachBtn, !ready);
+    this.renderAttachments();
     const name = agent?.name ?? tr('o agente');
     const placeholder = ready ? tr('Mensagem para {0}…', [name]) : mode.text;
     setAttr(this.box, 'placeholder', placeholder);
@@ -181,6 +230,52 @@ export class MessageComposer {
   }
 
   // ---------------------------------------------------------------- internos
+  destroy(): void {
+    this.destroyed = true;
+    this.attachments.destroy();
+    this.dictate.cancel();
+    clearTimeout(this.dictTimer ?? undefined);
+    for (const timer of this.pollTimers) clearTimeout(timer);
+    this.pollTimers.clear();
+  }
+
+  private addFiles(files: File[], agentId = this.agentId): void {
+    if (this.destroyed || !files.length) return;
+    this.attachmentErrors.set(agentId, this.attachments.add(agentId, files).join(' · '));
+    this.renderAttachments();
+    this.syncButton();
+  }
+
+  private renderAttachments(): void {
+    const ready = this.mode.kind === 'ready';
+    const list = this.attachments.get(this.agentId);
+    setHidden(this.attachmentList, !ready || !list.length);
+    const error = this.attachmentErrors.get(this.agentId) ?? '';
+    setText(this.attachmentStatus, error);
+    setHidden(this.attachmentStatus, !ready || !error);
+    if (list.length === this.shownAttachments.length && list.every((item, index) => item === this.shownAttachments[index])) return;
+    this.shownAttachments = list;
+    this.attachmentList.replaceChildren(...list.map((attachment) => {
+      const file = attachment.file;
+      const preview = attachment.url
+        ? h('img', { attrs: { src: attachment.url, alt: '' } })
+        : h('span', { class: 'ui-msg__extension', text: file.name.includes('.') ? file.name.split('.').pop()!.slice(0, 8) : '—' });
+      return h('div', { class: 'ui-msg__attachment' },
+        preview,
+        h('span', { class: 'ui-msg__filename', text: file.name, title: file.name }),
+        h('span', { class: 'ui-msg__size', text: formatBytes(file.size) }),
+        h('button', {
+          class: 'ui-msg__remove', type: 'button', title: tr('Remover anexo: {0}', [file.name]),
+          attrs: { 'aria-label': tr('Remover anexo: {0}', [file.name]) },
+          on: { click: () => {
+            this.attachments.remove(this.agentId, attachment);
+            this.attachmentErrors.delete(this.agentId);
+            this.renderAttachments();
+            this.syncButton();
+          } },
+        }, '×'));
+    }));
+  }
 
   private onKey(e: KeyboardEvent): void {
     // Os atalhos globais (F, T, P, /, setas...) não valem dentro da caixa. Com Ctrl/⌘ a tecla segue adiante
@@ -228,7 +323,7 @@ export class MessageComposer {
   }
 
   private syncButton(): void {
-    this.sendBtn.disabled = this.mode.kind !== 'ready' || !canSend(this.box.value) || this.states.get(this.agentId)?.phase === 'sending';
+    this.sendBtn.disabled = this.mode.kind !== 'ready' || !canSend(this.box.value, this.attachments.get(this.agentId).length) || this.states.get(this.agentId)?.phase === 'sending';
   }
 
   /** Cresce com o texto até o limite do CSS (~6 linhas; depois rola). Escondida, mede quando aparecer. */
@@ -248,20 +343,28 @@ export class MessageComposer {
   private async send(): Promise<void> {
     const agentId = this.agentId;
     const raw = this.box.value;
-    if (this.mode.kind !== 'ready' || !canSend(raw) || this.states.get(agentId)?.phase === 'sending') return;
+    const batch = this.attachments.capture(agentId);
+    if (this.destroyed || this.mode.kind !== 'ready' || !canSend(raw, batch.length) || this.states.get(agentId)?.phase === 'sending') return;
     this.providers.set(agentId, this.provider);
     this.setState(agentId, { phase: 'sending', at: Date.now() });
-    let r: { message: OutboxMessage } | { error: string };
+    let r: { message: OutboxMessage } | { error: string; attachmentsExpired?: boolean };
     try {
-      r = await this.ctx.store.sendMessage(agentId, messageText(raw));
-    } catch {
-      r = { error: OFFLINE_ERROR };
+      const ids = await this.attachments.upload(batch, (file) => this.ctx.store.uploadMessageAttachment(file));
+      if (this.destroyed) return;
+      r = await this.ctx.store.sendMessage(agentId, messageText(raw), ids);
+    } catch (error) {
+      r = { error: error instanceof Error ? error.message : OFFLINE_ERROR };
     }
+    if (this.destroyed) return;
     if ('error' in r) {
       // Recusada: o texto continua na caixa para tentar de novo.
+      if (r.attachmentsExpired) this.attachments.invalidate(batch);
       this.setState(agentId, { phase: 'rejected', error: r.error, at: Date.now() });
       return;
     }
+    this.attachments.accepted(agentId, batch);
+    this.attachmentErrors.delete(agentId);
+    this.renderAttachments();
     // Na fila: a caixa esvazia (a não ser que você tenha continuado a escrever enquanto o envio ia).
     if ((this.drafts.get(agentId) ?? '') === raw) {
       this.drafts.delete(agentId);
@@ -278,7 +381,7 @@ export class MessageComposer {
   /** Consulta a situação até ela se resolver (ou o prazo acabar). Para quando outro envio toma a linha de situação. */
   private poll(agentId: string, id: string, since: number): void {
     const step = async () => {
-      if (this.states.get(agentId)?.id !== id) return;
+      if (this.destroyed || this.states.get(agentId)?.id !== id) return;
       let m: OutboxMessage | null | undefined;
       try {
         m = await this.ctx.store.messageStatus(id);
@@ -286,15 +389,23 @@ export class MessageComposer {
         // Sem conexão agora: tenta de novo na próxima volta.
       }
       const cur = this.states.get(agentId);
-      if (cur?.id !== id) return;
+      if (this.destroyed || cur?.id !== id) return;
       const now = Date.now();
       if (m === null) return this.setState(agentId, { phase: 'failed', id, error: LOST_ERROR, at: now });
       if (m && (m.status !== cur.phase || m.error !== cur.error)) this.setState(agentId, { phase: m.status, id, error: m.error, at: now });
       if (m && isSettled(m.status)) return;
       const elapsed = now - since;
       if (elapsed >= POLL_LIMIT_MS) return this.setState(agentId, { phase: 'failed', id, error: timeoutError(this.providers.get(agentId)), at: now });
-      setTimeout(() => void step(), pollDelay(elapsed));
+      this.schedulePoll(step, pollDelay(elapsed));
     };
-    setTimeout(() => void step(), pollDelay(0));
+    this.schedulePoll(step, pollDelay(0));
+  }
+
+  private schedulePoll(step: () => Promise<void>, delay: number): void {
+    const timer = window.setTimeout(() => {
+      this.pollTimers.delete(timer);
+      if (!this.destroyed) void step();
+    }, delay);
+    this.pollTimers.add(timer);
   }
 }

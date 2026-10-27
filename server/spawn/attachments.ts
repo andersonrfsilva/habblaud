@@ -1,12 +1,12 @@
 // Anexos do "Novo agente" (imagens e arquivos que o celular manda junto com o pedido). O link do app do Claude só leva
-// texto, então os arquivos são gravados no computador do app, em ~/.habblaud/attachments/<data>-<id>/, e o pedido ganha
+// texto, então os arquivos são gravados no computador do app, em ~/.habblaud/attachments/<UUID>/, e o pedido ganha
 // a lista dos caminhos para o agente ler. Quem grava é quem abre o link: o servidor no modo Node, o auxiliar do host
 // (scripts/codex-bridge.ts) no Docker. Os arquivos chegam como JSON base64 (o guard exige JSON em todo POST: CSRF).
 // Node puro e sem dependências: também é importado pelo auxiliar do host (via tsx).
 import { randomUUID } from 'node:crypto';
-import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import { tr } from '../../shared/i18n';
 
 export const ATTACHMENT_MAX_BYTES = 15 * 1024 * 1024;
@@ -49,7 +49,10 @@ export function parseAttachment(raw: unknown): Attachment | { error: string } {
   const name = typeof r.name === 'string' ? safeFileName(r.name) : 'arquivo';
   const type = typeof r.type === 'string' && /^[\w.+-]+\/[\w.+-]+$/.test(r.type) ? r.type : 'application/octet-stream';
   if (typeof r.data !== 'string' || !r.data) return { error: tr('arquivo vazio') };
-  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(r.data)) return { error: tr('arquivo ilegível (base64)') };
+  if (r.data.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(r.data)) return { error: tr('arquivo ilegível (base64)') };
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  if ((r.data.endsWith('==') && (alphabet.indexOf(r.data.at(-3)!) & 15) !== 0) ||
+      (r.data.endsWith('=') && !r.data.endsWith('==') && (alphabet.indexOf(r.data.at(-2)!) & 3) !== 0)) return { error: tr('arquivo ilegível (base64)') };
   const data = Buffer.from(r.data, 'base64');
   if (!data.length) return { error: tr('arquivo vazio') };
   if (data.length > ATTACHMENT_MAX_BYTES) return { error: tr('o arquivo passa de {0} MB', [ATTACHMENT_MAX_BYTES / 1024 / 1024]) };
@@ -70,6 +73,8 @@ export class AttachmentStore {
 
   put(a: Attachment): { id: string } | { error: string } {
     this.prune();
+    if (!a.data.length) return { error: tr('arquivo vazio') };
+    if (a.data.length > ATTACHMENT_MAX_BYTES) return { error: tr('o arquivo passa de {0} MB', [ATTACHMENT_MAX_BYTES / 1024 / 1024]) };
     let total = a.data.length + this.held;
     for (const it of this.items.values()) total += it.data.length;
     if (total > this.maxBytes) return { error: tr('anexos demais esperando: envie o pedido ou tente de novo daqui a pouco') };
@@ -79,15 +84,16 @@ export class AttachmentStore {
   }
 
   /** Tira os anexos do depósito (cada um só serve a um pedido). Ids desconhecidos ou vencidos = erro. */
-  take(ids: unknown): Attachment[] | { error: string } {
+  take(ids: unknown, limit = ATTACHMENTS_PER_SPAWN): Attachment[] | { error: string; attachmentsExpired?: true } {
     this.prune();
     if (ids === undefined) return [];
     if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string')) return { error: tr('anexos inválidos') };
-    if (ids.length > ATTACHMENTS_PER_SPAWN) return { error: tr('no máximo {0} anexos por pedido', [ATTACHMENTS_PER_SPAWN]) };
+    if (ids.length > limit) return { error: tr('no máximo {0} anexos por pedido', [limit]) };
+    if (new Set(ids).size !== ids.length) return { error: tr('anexos inválidos') };
     const out: Attachment[] = [];
     for (const id of ids as string[]) {
       const it = this.items.get(id);
-      if (!it) return { error: tr('um anexo expirou: anexe de novo') };
+      if (!it) return { error: tr('um anexo expirou: anexe de novo'), attachmentsExpired: true };
       out.push({ name: it.name, type: it.type, data: it.data });
     }
     for (const id of ids as string[]) this.items.delete(id);
@@ -107,35 +113,38 @@ export class AttachmentStore {
 }
 
 export function attachmentsRoot(env: NodeJS.ProcessEnv = process.env): string {
-  return env.HABBLAUD_ATTACHMENTS_DIR?.trim() || join(env.HOME || homedir(), '.habblaud', 'attachments');
+  const root = env.HABBLAUD_ATTACHMENTS_DIR?.trim() || join(env.HOME || homedir(), '.habblaud', 'attachments');
+  return isAbsolute(root) ? root : resolve(root);
 }
 
-function stamp(at: Date): string {
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${at.getFullYear()}${p(at.getMonth() + 1)}${p(at.getDate())}-${p(at.getHours())}${p(at.getMinutes())}${p(at.getSeconds())}`;
-}
 
 /** Grava os anexos numa pasta nova (700; arquivos 600), com nomes únicos. Devolve os caminhos, na ordem. */
-export function writeAttachments(root: string, spawnId: string, files: readonly Attachment[], at = new Date()): string[] {
+export function writeAttachments(root: string, _requestId: string, files: readonly Attachment[]): string[] {
   if (!files.length) return [];
-  const dir = join(root, `${stamp(at)}-${spawnId.replace(/[^\w-]/g, '').slice(0, 8) || 'pedido'}`);
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  chmodSync(dir, 0o700);
+  root = resolve(root);
+  mkdirSync(root, { recursive: true, mode: 0o700 });
+  const dir = join(root, randomUUID());
+  mkdirSync(dir, { mode: 0o700 });
   const used = new Set<string>();
-  return files.map((f) => {
-    let name = safeFileName(f.name);
-    if (used.has(name.toLowerCase())) {
-      const dot = name.lastIndexOf('.');
-      const [stem, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ''];
-      let n = 2;
-      while (used.has(`${stem}-${n}${ext}`.toLowerCase())) n++;
-      name = `${stem}-${n}${ext}`;
-    }
-    used.add(name.toLowerCase());
-    const path = join(dir, name);
-    writeFileSync(path, f.data, { mode: 0o600, flag: 'wx' });
-    return path;
-  });
+  try {
+    return files.map((f) => {
+      let name = safeFileName(f.name);
+      if (used.has(name.toLowerCase())) {
+        const dot = name.lastIndexOf('.');
+        const [stem, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ''];
+        let n = 2;
+        while (used.has(`${stem}-${n}${ext}`.toLowerCase())) n++;
+        name = `${stem}-${n}${ext}`;
+      }
+      used.add(name.toLowerCase());
+      const path = join(dir, name);
+      writeFileSync(path, f.data, { mode: 0o600, flag: 'wx' });
+      return path;
+    });
+  } catch (error) {
+    rmSync(dir, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 /** O pedido com a lista dos anexos no fim (o agente lê os arquivos pelos caminhos). */

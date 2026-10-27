@@ -2,10 +2,10 @@
 // /api/codex/bridge/*): a trava das mensagens (recurso ligado + Host local), a rodada completa página → auxiliar →
 // codex queue (binário falso) → confirmação, e a conferência de cada mensagem antes de rodar o comando.
 import http from 'node:http';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
-import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { dirname, isAbsolute, join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { checkMessage, dictationRound, filesRound, httpPost, parseArgs, round, spawnRound, type Post } from '../../scripts/codex-bridge';
 import { spawnUrl } from '../spawn/spawn';
 import { AccountsService } from '../accounts/service';
@@ -21,6 +21,8 @@ import { Office } from '../model/office';
 import { FAKE_CODEX_RUNS, fakeCodexCalls, writeFakeCodex } from './fake-codex';
 import { tempDir } from './fixtures';
 import { request } from './permission-server';
+import { FileFetcher } from '../deliveries/fetcher';
+import { ATTACHMENT_MAX_BYTES } from '../spawn/attachments';
 
 setQuiet(true);
 
@@ -36,6 +38,7 @@ beforeEach(() => {
   mkdirSync(join(codexHome, 'sessions', '2026'), { recursive: true });
 });
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await close?.();
   close = undefined;
   tmp.cleanup();
@@ -229,6 +232,71 @@ describe('filesRound (arquivos das entregas pelo auxiliar)', () => {
     expect(r).toEqual({ state: 'ok', results: [{ id: 'f1', ok: false, error: 'fora das pastas de projeto conhecidas' }] });
     expect(reads).toBe(0);
     expect(paths[0]).toBe('/api/host/files/poll?wait=1');
+  });
+
+  it('grava pelo contrato real da fila em raiz do host, sem obedecer raiz/pasta do contêiner', async () => {
+    const root = join(tmp.dir, 'host-attachments');
+    vi.stubEnv('HABBLAUD_ATTACHMENTS_DIR', root);
+    const fetcher = new FileFetcher();
+    fetcher.poll();
+    const bytes = Buffer.from([0, 1, 2, 255]);
+    const pending = fetcher.writeAttachments([{ name: '../imagem.png', type: 'image/png', data: bytes }]);
+    const post: Post = async (path, body) => {
+      if (path.startsWith('/api/host/files/poll')) {
+        return { status: 200, json: { files: fetcher.poll().map((op) => ({ ...op, root: '/arbitrary', path: '/arbitrary/x', id: op.id })) } };
+      }
+      fetcher.ack(body);
+      return { status: 200, json: {} };
+    };
+    expect(await filesRound(post)).toMatchObject({ state: 'ok', results: [{ ok: true }] });
+    const result = await pending;
+    if (!('paths' in result)) throw new Error(result.error);
+    expect(result.paths).toHaveLength(1);
+    expect(isAbsolute(result.paths[0])).toBe(true);
+    expect(result.paths[0].startsWith(`${root}/`)).toBe(true);
+    expect(result.paths[0].endsWith('/imagem.png')).toBe(true);
+    expect(readFileSync(result.paths[0])).toEqual(bytes);
+    expect(statSync(result.paths[0]).mode & 0o777).toBe(0o600);
+    expect(statSync(dirname(result.paths[0])).mode & 0o777).toBe(0o700);
+  });
+
+  it('valida todo o lote antes de gravar: quantidade, vazio, base64 estrito e tamanho', async () => {
+    const root = join(tmp.dir, 'invalid-attachments');
+    vi.stubEnv('HABBLAUD_ATTACHMENTS_DIR', root);
+    const valid = { name: '../../safe.txt', data: 'eA==' };
+    const invalid = [
+      undefined,
+      [],
+      Array(6).fill(valid),
+      [valid, { name: 'bad.txt', data: 'ab==' }],
+      [{ name: 'bad.txt', data: 'a' }],
+      [{ name: 'bad.txt', data: '%%%' }],
+      [{ name: 'bad.txt', data: '' }],
+      [{ name: 'huge.txt', data: Buffer.alloc(ATTACHMENT_MAX_BYTES + 1).toString('base64') }],
+    ];
+    let ack: unknown;
+    const post: Post = async (path, body) => {
+      if (path.startsWith('/api/host/files/poll')) return { status: 200, json: { files: invalid.map((files, i) => ({ id: `bad-${i}`, op: 'writeAttachments', files, root: '/arbitrary' })) } };
+      ack = body;
+      return { status: 200, json: {} };
+    };
+    expect(await filesRound(post)).toMatchObject({ state: 'ok', results: invalid.map((_, i) => ({ id: `bad-${i}`, ok: false, error: expect.any(String) })) });
+    expect(ack).toMatchObject({ results: invalid.map((_, i) => ({ id: `bad-${i}`, ok: false })) });
+    expect(existsSync(root)).toBe(false);
+  });
+
+  it('falha de disco devolve erro sem caminhos e não tenta tratar operação desconhecida como leitura', async () => {
+    const blocked = join(tmp.dir, 'not-a-directory');
+    writeFileSync(blocked, 'blocked');
+    vi.stubEnv('HABBLAUD_ATTACHMENTS_DIR', blocked);
+    const post: Post = async (path) => path.startsWith('/api/host/files/poll')
+      ? { status: 200, json: { files: [
+        { id: 'disk', op: 'writeAttachments', files: [{ name: 'a.txt', data: 'eA==' }] },
+        { id: 'unknown', op: 'other', path: '/not-read' },
+      ] } }
+      : { status: 200, json: {} };
+    const result = await filesRound(post, () => {}, () => { throw new Error('não deve ler'); });
+    expect(result).toMatchObject({ state: 'ok', results: [{ id: 'disk', ok: false, error: expect.any(String) }, { id: 'unknown', ok: false }] });
   });
 });
 

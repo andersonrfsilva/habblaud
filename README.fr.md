@@ -599,6 +599,12 @@ du [terminal](#terminal) devient une zone de saisie. Écrivez et appuyez sur `En
 texte entre dans la session **comme si vous l'aviez tapé dans son terminal**. Vous pouvez répondre quand l'agent finit
 son tour et attend la demande suivante, donner une nouvelle instruction ou corriger le cap, sans chercher la bonne fenêtre.
 
+- Joignez avec le trombone, par collage ou glisser-déposer (cinq fichiers maximum, 15 MiB chacun) ; le texte est facultatif.
+  Le texte du presse-papiers prime sur les images. Brouillons et fichiers restent avec leur agent pendant l'envoi.
+  Les fichiers sont enregistrés avant la remise dans `~/.habblaud/attachments/<UUID>/` (ou `HABBLAUD_ATTACHMENTS_DIR`),
+  jamais dans le projet. Les envois en attente expirent après 30 minutes ; les fichiers enregistrés restent jusqu'au nettoyage manuel.
+  Chaque installation/tenant doit avoir sa propre racine : montez uniquement cette racine RW dans Habblaud et RO au même
+  chemin absolu dans les agents isolés, avec le même UID (dossiers 0700, fichiers 0600). Ne partagez jamais tout l'état.
 - La zone indique l'état : **en file** (la session récupère les messages toutes les 2 secondes), **remis** ou **non
   remis**, avec la raison. Si l'agent est occupé, le message attend et entre quand il finit son tour, comme un
   prompt tapé pendant que l'agent travaille.
@@ -833,7 +839,7 @@ Tout fonctionne sans rien configurer. Si vous avez besoin d'ajuster quelque chos
 | `HABBLAUD_BIND` | `127.0.0.1` | Docker uniquement (dans le `.env`) : où le port est publié. `0.0.0.0` ouvre l'accès au réseau local (et désactive le terminal et tout ce qui agit sur les sessions). |
 | `HABBLAUD_CLAUDE_DIRS` | détection automatique | Dossiers des comptes, séparés par des virgules (ex. : `/caminho/conta1,/caminho/conta2`). |
 | `HABBLAUD_DATA_DIR` | `~/.habblaud` | Où Habblaud garde ses propres données (noms des personnages et des salles, chronologie du timelapse et statistiques de Ma journée). |
-| `HABBLAUD_ATTACHMENTS_DIR` | `~/.habblaud/attachments` | Où sont enregistrées les pièces jointes de **Nouvel agent** avant l'envoi de la demande. |
+| `HABBLAUD_ATTACHMENTS_DIR` | `~/.habblaud/attachments` | Racine des pièces jointes du prompt et de **Nouvel agent**, dans des dossiers UUID exclusifs. Nettoyage manuel uniquement. |
 | `HABBLAUD_TIMELINE` | activé | `0` désactive l'enregistrement de la chronologie (les jours déjà enregistrés restent dans le timelapse). Dans Docker, il est toujours activé. |
 | `HABBLAUD_USAGE_DIR` | `~/.habblaud/usage` | Où le mod (ou la dérivation de statusline) enregistre l'utilisation. |
 | `HABBLAUD_DEMO` | désactivé | `1` active le mode démonstration au démarrage. |

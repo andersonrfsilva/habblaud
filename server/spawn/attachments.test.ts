@@ -1,5 +1,5 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { chmodSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { HAS_POSIX_MODES, tempDir } from '../test/fixtures';
 import { ATTACHMENT_MAX_BYTES, ATTACHMENTS_PER_SPAWN, AttachmentStore, parseAttachment, promptWithAttachments, safeFileName, writeAttachments } from './attachments';
@@ -24,6 +24,9 @@ describe('anexos do Novo agente', () => {
     expect(parseAttachment({ name: 'a', data: '' })).toHaveProperty('error');
     expect(parseAttachment({ name: 'a', data: 'não é base64!' })).toHaveProperty('error');
     expect(parseAttachment({ name: 'a', data: Buffer.alloc(ATTACHMENT_MAX_BYTES + 1).toString('base64') })).toHaveProperty('error');
+    expect(parseAttachment({ name: 'a', data: 'a' })).toHaveProperty('error');
+    expect(parseAttachment({ name: 'a', data: 'ab==' })).toHaveProperty('error');
+    expect(parseAttachment({ name: 'a', data: Buffer.alloc(ATTACHMENT_MAX_BYTES).toString('base64') })).toHaveProperty('data');
   });
 
   it('o depósito entrega cada anexo uma vez, expira e limita a quantidade', () => {
@@ -51,9 +54,10 @@ describe('anexos do Novo agente', () => {
       { name: 'foto.jpg', type: 'image/jpeg', data: Buffer.from('2') },
       { name: '../nota.txt', type: 'text/plain', data: Buffer.from('3') },
     ];
-    const paths = writeAttachments(root, 'abcdef12-3456', files, new Date(2026, 9, 12, 13, 5, 9));
-    expect(paths.map((p) => p.split(/[\\/]/).slice(-2).join('/'))).toEqual(['20261012-130509-abcdef12/foto.jpg', '20261012-130509-abcdef12/foto-2.jpg', '20261012-130509-abcdef12/nota.txt']);
-    const dir = join(root, '20261012-130509-abcdef12');
+    const paths = writeAttachments(root, 'abcdef12-3456', files);
+    expect(paths.map((p) => p.split(/[\\/]/).pop())).toEqual(['foto.jpg', 'foto-2.jpg', 'nota.txt']);
+    const dir = dirname(paths[0]);
+    expect(dir.slice(root.length + 1)).toMatch(/^[a-f0-9-]{36}$/);
     if (HAS_POSIX_MODES) {
       expect(statSync(dir).mode & 0o777).toBe(0o700);
       expect(statSync(paths[0]).mode & 0o777).toBe(0o600);
@@ -82,5 +86,44 @@ describe('anexos do Novo agente', () => {
     expect(store.put(file(6))).toHaveProperty('error');
     store.release(6);
     expect(store.put(file(6))).toEqual({ id: 'a2' });
+  });
+
+  it('mensagens aceitam cinco e Novo agente oito; recusas são atômicas', () => {
+    let n = 0;
+    const store = new AttachmentStore(Date.now, () => `id${++n}`);
+    for (let i = 0; i < 8; i++) store.put({ name: 'x', type: 'text/plain', data: Buffer.from('x') });
+    expect(store.take(['id1', 'id1'], 5)).toHaveProperty('error');
+    expect(store.take(['id1', 'missing'], 5)).toMatchObject({ attachmentsExpired: true });
+    expect(store.take(['id1', 'id2', 'id3', 'id4', 'id5', 'id6'], 5)).toHaveProperty('error');
+    expect(store.take(['id1', 'id2', 'id3', 'id4', 'id5', 'id6', 'id7', 'id8'])).toHaveLength(8);
+  });
+
+  it('lotes no mesmo instante não compartilham pasta nem sobrescrevem bytes', () => {
+    const root = tempDir().dir;
+    const file = (text: string) => [{ name: 'ação.txt', type: 'text/plain', data: Buffer.from(text) }];
+    const [a] = writeAttachments(root, 'mesmo-pedido', file('primeiro'));
+    const [b] = writeAttachments(root, 'mesmo-pedido', file('segundo'));
+    expect(dirname(a)).not.toBe(dirname(b));
+    expect(readFileSync(a, 'utf8')).toBe('primeiro');
+    expect(readFileSync(b, 'utf8')).toBe('segundo');
+  });
+
+  it.skipIf(!HAS_POSIX_MODES)('preserva permissões da raiz configurada preexistente', () => {
+    const root = tempDir().dir;
+    chmodSync(root, 0o750);
+    const [path] = writeAttachments(root, 'permissões', [{ name: 'nota.txt', type: 'text/plain', data: Buffer.from('ok') }]);
+    expect(statSync(root).mode & 0o777).toBe(0o750);
+    expect(statSync(dirname(path)).mode & 0o777).toBe(0o700);
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+    expect(readFileSync(path, 'utf8')).toBe('ok');
+  });
+
+  it('falha de disco remove só a pasta da própria tentativa', () => {
+    const root = tempDir().dir;
+    const file = { name: 'old', type: 'text/plain', data: Buffer.from('preservado') };
+    const [old] = writeAttachments(root, 'old', [file]);
+    expect(() => writeAttachments(root, 'bad', [file, { ...file, data: null as unknown as Buffer }])).toThrow();
+    expect(readdirSync(root)).toEqual([dirname(old).split('/').pop()]);
+    expect(readFileSync(old, 'utf8')).toBe('preservado');
   });
 });

@@ -2,6 +2,8 @@
 // (terminal + HABBLAUD_MENSAGENS), a trava das rotas (recurso desligado / Host que não é local), os status (400, 404,
 // 405, 409, 429), o fluxo completo página → caixa de entrada do plugin → confirmação → consulta, e o demo.
 import http from 'node:http';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { InboxMessage, OfficeSnapshot, OutboxMessage } from '../../shared/types';
@@ -17,6 +19,7 @@ import { request } from '../test/permission-server';
 import { tempDir } from '../test/fixtures';
 import { createMessageRoutes } from './http';
 import { MessageRegistry, type MessageRegistryOptions } from './registry';
+import { AttachmentStore, ATTACHMENT_MAX_BYTES, writeAttachments } from '../spawn/attachments';
 
 setQuiet(true);
 
@@ -135,6 +138,7 @@ describe('trava das mensagens (config)', () => {
 describe('trava das rotas', () => {
   const ROUTES: Array<[string, string]> = [
     ['POST', '/api/messages'],
+    ['POST', '/api/messages/attachments'],
     ['GET', '/api/messages/x'],
     ['POST', '/api/mod/inbox'],
     ['POST', '/api/mod/inbox/ack'],
@@ -173,6 +177,7 @@ describe('trava das rotas', () => {
     expect((await post(srv, '/api/messages', 'agentId=x&text=oi', { 'Content-Type': 'application/x-www-form-urlencoded' })).status).toBe(415);
     expect((await post(srv, '/api/mod/inbox', { session: SESSION }, { Origin: 'https://evil.example' })).status).toBe(403);
     expect((await post(srv, '/api/messages', { agentId: MAIN, text: 'oi' }, { Origin: 'https://evil.example' })).status).toBe(403);
+    expect((await post(srv, '/api/messages/attachments', {}, { Origin: 'https://evil.example' })).status).toBe(403);
   });
 });
 
@@ -286,5 +291,53 @@ describe('rotas', () => {
   it('demo com o recurso desligado: os agentes fictícios também não recebem', async () => {
     srv = await serveMessages({ enabled: false, demo: true });
     expect((await snapshot(srv)).agents.filter((a) => a.canMessage)).toEqual([]);
+  });
+});
+
+describe('upload de anexos por HTTP real', () => {
+  it('upload grande, somente anexo, polling/inbox e bytes gravados; destino não vem do cliente', async () => {
+    const root = tempDir().dir;
+    srv = await serveMessages({ registry: {
+      attachments: new AttachmentStore(),
+      writeAttachments: async (files) => ({ paths: writeAttachments(root, 'http', files) }),
+    } });
+    const bytes = Buffer.alloc(300_000, 65);
+    const upload = await post(srv, '/api/messages/attachments', { name: '../ação.txt', type: 'text/plain', data: bytes.toString('base64'), root: '/must-not-write', path: '/must-not-write' });
+    expect(upload.status).toBe(201);
+    expect((await request(srv.base, '/api/messages/attachments')).status).toBe(405);
+    await post(srv, '/api/mod/inbox', { session: SESSION });
+    const accepted = await post(srv, '/api/messages', { agentId: MAIN, text: '', attachments: [(upload.json as { id: string }).id] });
+    expect(accepted.status).toBe(201);
+    const id = (accepted.json as OutboxMessage).id;
+    expect((await request(srv.base, `/api/messages/${id}`)).json).toMatchObject({ status: 'queued' });
+    const inbox = (await post(srv, '/api/mod/inbox', { session: SESSION })).json as { messages: InboxMessage[] };
+    const path = inbox.messages[0].text.split('\n- ')[1];
+    expect(path.startsWith(root + '/')).toBe(true);
+    expect(path).toBe(join(root, path.slice(root.length + 1)));
+    expect(readFileSync(path)).toEqual(bytes);
+    await post(srv, '/api/mod/inbox/ack', { session: SESSION, results: [{ id, ok: true }] });
+    expect((await request(srv.base, `/api/messages/${id}`)).json).toMatchObject({ status: 'delivered' });
+    const retry = await post(srv, '/api/messages', { agentId: MAIN, text: '', attachments: [(upload.json as { id: string }).id] });
+    expect(retry).toMatchObject({ status: 400, json: { attachmentsExpired: true } });
+  });
+
+  it('limite individual e corpo HTTP são conferidos no servidor', async () => {
+    srv = await serveMessages({ registry: { attachments: new AttachmentStore() } });
+    const tooLarge = await post(srv, '/api/messages/attachments', { name: 'x', data: Buffer.alloc(ATTACHMENT_MAX_BYTES + 1).toString('base64') });
+    expect(tooLarge.status).toBe(400);
+    expect((await post(srv, '/api/messages/attachments', { name: 'x', data: 'x'.repeat(22 * 1024 * 1024) })).status).toBe(413);
+  });
+
+  it('auxiliar indisponível falha sem entregar prompt parcial', async () => {
+    srv = await serveMessages({ registry: {
+      attachments: new AttachmentStore(),
+      writeAttachments: async () => ({ error: 'auxiliar indisponível', status: 503 }),
+    } });
+    await post(srv, '/api/mod/inbox', { session: SESSION });
+    const uploaded = await post(srv, '/api/messages/attachments', { name: 'x', data: 'b2k=' });
+    const accepted = await post(srv, '/api/messages', { agentId: MAIN, text: 'não entregar', attachments: [(uploaded.json as { id: string }).id] });
+    const id = (accepted.json as OutboxMessage).id;
+    expect((await request(srv.base, `/api/messages/${id}`)).json).toMatchObject({ status: 'failed', error: 'auxiliar indisponível' });
+    expect((await post(srv, '/api/mod/inbox', { session: SESSION })).json).toEqual({ messages: [] });
   });
 });
