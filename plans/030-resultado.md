@@ -120,3 +120,21 @@ Rollback disponível, não executado:
 podman tag localhost/habblaud:rollback-c987dd8fdaf6 localhost/habblaud:producao
 systemctl --user restart habblaud.service
 ```
+
+## Atualização posterior dos cinco tenants
+
+- Aplicada a pedido do usuário em 2026-10-27: anderson, camilez, mira, tadeuz e teuz.
+- Mounts da candidata `0ed95c9` mesclados em `omp-tenant/main` por `20dac54`; 75 testes Python passaram. O plano não relacionado `omp-tenant/plans/033-redesenhar-painel-multitenant.md` permaneceu fora do merge/commit.
+- Revisão `7e164a5bf16b45aa0ba3501c931bae77eeb89292` importada por fetch local no repo usado pelo gerenciador (`~/apps/habblaud`), sem mudar sua working tree. `omp-tenant release` preparou imagem e extensão pinadas.
+- A tag `localhost/habblaud:tenant-7e164a5bf16b` recebeu a mesma imagem já validada no ambiente pessoal, digest `54993768e7c8fc6be5e39cf846c22093c3bcaf28c866f886f3457fb5799dbb15`, preservando o build stamp correto. `sync` a carregou no Podman do usuário `omp-tenants`.
+- Antes do restart, as seis salas estavam idle. `sync` reiniciou os cinco contêineres OMP e os cinco Habblaud; pods infra, binário do OMP, gateway e proxy de cota não foram atualizados.
+- Todos os Habblaud ficaram healthy; `/api/health` retornou ok e `/app/dist/build.json` confirmou a revisão correta em cada um. O limite de 268435456 bytes por Habblaud foi mantido.
+- Cada tenant usa `/habblaud/<nome>/anexos` como backing fora do HOME; o mesmo destino absoluto `home/.habblaud/attachments` é RW no Habblaud e RO no OMP. Inspeção dos mounts confirmou Source idêntico e RW verdadeiro/falso nos cinco.
+- Prova real em todos: cliente HTTP dentro do Habblaud iniciou upload binário parcial com marcador único; o contêiner OMP leu os bytes exatos da staging. Tentativa de escrever retornou erro de filesystem somente leitura (EROFS). Estado privado do Habblaud e HOME de outro tenant ficaram invisíveis.
+- Após a prova, o cliente abortou cada upload e confirmou a remoção da staging. Nenhum prompt foi enviado às sessões dos usuários e nenhum anexo final de teste foi criado.
+- Os conteúdos de 15 arquivos (`tenant.json`, `remote.env`, `token` por tenant) permaneceram idênticos ao baseline privado de hashes: senhas, tokens, modelos, cotas, número de salas e montagens individuais preservados.
+- Anderson e Teuz retomaram os três IDs de sessão anteriores. Camilez, Mira e Tadeuz ganharam IDs novos: seus IDs ativos anteriores não tinham transcript materializado, nem por filename nem por ID do header. As novas sessões também ainda não tinham arquivo materializado. Mira mantém cinco transcrições históricas de outras sessões; não foi forçada retomada de uma história diferente.
+- Rota pública de Anderson verificada por HTTPS: redirecionou para `/login`, com proteção de acesso presente. Não fiz login nas contas nem alterei senhas para testar a UI privada; a prova completa de UI/OMP usa o mesmo artefato, validado no ambiente pessoal.
+- Backup anterior: `~/.config/omp-tenants/rollback-upload.TXollj/`, contendo release anterior `6fd1c5be49cd`, quadlets, clients.json e rotas. Imagem/release antigas preservadas no host e no Podman dos tenants. Rollback não foi executado.
+- Rollback operacional exige restaurar release e quadlets desse backup, daemon-reload do usuário `omp-tenants` e reinício das units afetadas. Não apagar `/habblaud/<nome>/anexos`: conterá uploads reais após esta publicação.
+- Nenhum push foi feito; ambiente pessoal não foi reiniciado nesta etapa.

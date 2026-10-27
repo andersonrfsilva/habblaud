@@ -1,15 +1,15 @@
 # Plan 029: Enviar arquivos pelo prompt com armazenamento centralizado
 
-> Retomada após o 030: implementação e provas de memória concluídas em `../habblaud-030`, commit `155e734`, branch `advisor/030-upload-binario-em-disco`. A candidata dos mounts está em `../omp-tenant-029`, commit `0ed95c9`. Não reimplementar os passos históricos abaixo nem restaurar JSON/base64 ou depósito em RAM: essa arquitetura foi substituída pelo plano 030.
+> Execução concluída: arquitetura de upload substituída pelo 030 e publicada como revisão `7e164a5`. Mounts `0ed95c9` integrados em `omp-tenant/main` por `20dac54` e aplicados nos cinco tenants. Não reimplementar os passos históricos abaixo nem restaurar JSON/base64 ou depósito em RAM.
 >
-> Resta o aceite integrado da candidata atual com os mounts por tenant, sem publicar ou alterar tenants ativos. Consulte `030-resultado.md` para provas já exercitadas e `plans/README.md` para estado canônico. Drift da retomada: `git diff --stat 155e734..HEAD` na candidata Habblaud e `git diff --stat 0ed95c9..HEAD` na candidata de tenants; compare também alterações locais antes de agir.
+> Provas e rollback estão em `030-resultado.md`; estado canônico em `plans/README.md`. O aceite integrado confirmou upload HTTP no servidor, bytes acessíveis ao contêiner OMP, escrita bloqueada por filesystem RO e separação de estado/outros tenants.
 
 ## Status
 
 - Priority: P2
 - Effort: L
 - Risk: MED
-- Depends on: 030 concluído; integração de isolamento `0ed95c9` faz parte do aceite restante.
+- Depends on: 030 concluído; integração de isolamento `0ed95c9` concluída.
 - Category: direction
 - Planned at: `6fd1c5b`, 2026-10-27.
 
