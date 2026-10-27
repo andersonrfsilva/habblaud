@@ -16,6 +16,15 @@ do meio (0.**3**.0).
   de 15 MiB, inclusive sem texto. Cada envio grava em `~/.habblaud/attachments/<UUID>/` (ou
   `HABBLAUD_ATTACHMENTS_DIR`) antes da entrega, sem escrever no projeto. Rascunhos e anexos ficam por agente;
   novas tentativas reutilizam uploads válidos. Arquivos persistidos não expiram: a limpeza é manual.
+  Os uploads do prompt e do **Novo agente** agora recebem bytes (`application/octet-stream`) e metadados nos
+  cabeçalhos `X-Habblaud-File-Name`/`X-Habblaud-File-Type`, com resposta `201 {id, name, size}`; JSON/base64
+  nesses uploads recebe 415. Um único orçamento de 120 MiB cobre reservas, pendentes e lotes em preparação,
+  mantendo 15 MiB por arquivo e cinco/oito por mensagem/Novo agente. O staging usa disco persistente
+  (`<attachmentsRoot>/.pending/` ou `<config.dataDir>/attachments-pending/` no Docker), sem reter o lote em RAM.
+  O auxiliar recebe descritores, baixa os bytes por GET de um job vivo e promove o lote por rename local antes
+  do ACK. Host, Origin, login e permissões continuam efetivos; a nova leitura é somente local.
+  Só pendentes expiram em 30 minutos. Atualização e rollback exigem servidor, navegador e auxiliar da mesma versão,
+  com uploads suspensos no reinício e páginas recarregadas; anexos finais antigos permanecem intactos.
 
 - **Arquivos no terminal:** a barra de cima do terminal ganha o botão de gaveteiro, que abre o navegador de arquivos
   na pasta da sala do agente (só com o agente ao vivo e com os arquivos liberados, como na gaveta).

@@ -13,7 +13,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { HttpError, readJson, sendJson } from '../http/app';
 import { InvalidRequest, MAX_OPEN, type MessageRegistry } from './registry';
 import { tr } from '../../shared/i18n';
-import { ATTACHMENT_BODY_MAX } from '../spawn/attachments';
+import { AttachmentError } from '../spawn/attachments';
 
 const ITEM = /^\/api\/messages\/([^/]+)$/;
 
@@ -24,7 +24,7 @@ function methodNotAllowed(res: ServerResponse, allow: string): void {
 
 function fail(res: ServerResponse, err: unknown): void {
   if (res.headersSent) return void res.destroy();
-  if (err instanceof HttpError) sendJson(res, err.status, { error: err.message });
+  if (err instanceof HttpError || err instanceof AttachmentError) sendJson(res, err.status, { error: err.message });
   else if (err instanceof InvalidRequest) sendJson(res, 400, { error: err.message, ...(err.attachmentsExpired ? { attachmentsExpired: true } : {}) });
   else sendJson(res, 500, { error: tr('erro interno') });
 }
@@ -45,8 +45,8 @@ export function createMessageRoutes(registry: MessageRegistry): (req: IncomingMe
   const send = async (req: IncomingMessage, res: ServerResponse) => reply(res, registry.send(await readJson(req)));
   const control = async (req: IncomingMessage, res: ServerResponse) => reply(res, registry.control(await readJson(req)));
   const upload = async (req: IncomingMessage, res: ServerResponse) => {
-    const result = registry.uploadAttachment(await readJson(req, ATTACHMENT_BODY_MAX));
-    sendJson(res, 'error' in result ? 400 : 201, result);
+    const result = await registry.uploadAttachment(req);
+    sendJson(res, 201, result);
   };
 
   const inbox = async (req: IncomingMessage, res: ServerResponse) => {

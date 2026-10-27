@@ -10,6 +10,24 @@ import type { AsideTopic } from '../../../shared/asides';
 import { DemoSimulator } from '../../../shared/demo/simulator';
 import { tr } from '../../../shared/i18n';
 
+/** Both attachment consumers send the File itself; JSON remains reserved for metadata requests. */
+export async function uploadAttachment(path: '/api/messages/attachments' | '/api/spawn/attachments', file: File): Promise<{ id: string } | { error: string }> {
+  const res = await fetch(path, {
+    method: 'POST',
+    credentials: 'same-origin',
+    cache: 'no-store',
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'X-Habblaud-File-Name': encodeURIComponent(file.name),
+      'X-Habblaud-File-Type': file.type || 'application/octet-stream',
+    },
+    body: file,
+  });
+  const body = await res.json().catch(() => ({})) as { id?: unknown; error?: unknown };
+  if (res.status === 201 && typeof body.id === 'string') return { id: body.id };
+  return { error: typeof body.error === 'string' ? body.error : tr('erro {0}', [res.status]) };
+}
+
 export type ConnectionState = 'connecting' | 'open' | 'closed' | 'mock';
 
 export interface StoreEvents {
@@ -337,24 +355,10 @@ export class OfficeStore {
     return { error: typeof error === 'string' ? error : tr('erro {0}', [res.status]), ...((body as { attachmentsExpired?: unknown } | undefined)?.attachmentsExpired === true ? { attachmentsExpired: true } : {}) };
   }
 
-  /** Mesmo formato base64 usado pelo Novo agente; o depósito de mensagens é independente. */
+  /** Binary upload to the shared deposit, scoped to the message consumer. */
   async uploadMessageAttachment(file: File): Promise<{ id: string } | { error: string }> {
     if (this.mock) return { error: tr('indisponível no modo de demonstração') };
-    const data = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result).replace(/^data:[^,]*,/, ''));
-      reader.onerror = () => reject(new Error(tr('não deu para ler o arquivo')));
-      reader.onabort = () => reject(new Error(tr('não deu para ler o arquivo')));
-      reader.readAsDataURL(file);
-    });
-    const res = await fetch('/api/messages/attachments', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: file.name, type: file.type, data }),
-    });
-    const body = await res.json().catch(() => ({})) as { id?: unknown; error?: unknown };
-    if (res.ok && typeof body.id === 'string') return { id: body.id };
-    return { error: typeof body.error === 'string' ? body.error : tr('erro {0}', [res.status]) };
+    return uploadAttachment('/api/messages/attachments', file);
   }
 
   /**

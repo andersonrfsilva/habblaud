@@ -20,6 +20,7 @@ import { tempDir } from '../test/fixtures';
 import { createMessageRoutes } from './http';
 import { MessageRegistry, type MessageRegistryOptions } from './registry';
 import { AttachmentStore, ATTACHMENT_MAX_BYTES, writeAttachments } from '../spawn/attachments';
+import { attachmentStore } from '../test/attachment-fixture';
 
 setQuiet(true);
 
@@ -106,6 +107,26 @@ afterEach(async () => {
 const post = (s: MessageServer, path: string, body: unknown, headers?: Record<string, string>) => request(s.base, path, { method: 'POST', body, headers });
 const snapshot = async (s: MessageServer) => (await request(s.base, '/api/snapshot')).json as OfficeSnapshot;
 const sleep = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
+async function binary(s: MessageServer, data: Buffer, headers: Record<string, string> = {}, chunked = false) {
+  const { promise, resolve, reject } = Promise.withResolvers<{ status: number; json: unknown }>();
+  const req = http.request(`${s.base}/api/messages/attachments`, { method: 'POST', headers: {
+    'content-type': 'application/octet-stream', 'x-habblaud-file-name': encodeURIComponent('../ação.txt'),
+    'x-habblaud-file-type': 'text/plain', ...(chunked ? {} : { 'content-length': String(data.length) }), ...headers,
+  } }, res => {
+    let text = '';
+    res.setEncoding('utf8');
+    res.on('data', chunk => { text += chunk; });
+    res.on('end', () => {
+      let json: unknown;
+      try { json = JSON.parse(text); } catch { json = text; }
+      resolve({ status: res.statusCode!, json });
+    });
+  });
+  req.on('error', reject);
+  if (chunked) req.write(data);
+  req.end(chunked ? undefined : data);
+  return promise;
+}
 
 describe('trava das mensagens (config)', () => {
   it('messagesOffReason: a trava do terminal e HABBLAUD_MENSAGENS (0/false/off/no desligam)', () => {
@@ -147,7 +168,7 @@ describe('trava das rotas', () => {
   it('desligado: 403 em todas as rotas; health e snapshot dizem messages: false; /api/mod/summary continua no ar', async () => {
     srv = await serveMessages({ enabled: false });
     for (const [method, path] of ROUTES) {
-      const r = await request(srv.base, path, { method, body: method === 'POST' ? {} : undefined });
+      const r = await request(srv.base, path, { method, body: method === 'POST' ? {} : undefined, headers: path.endsWith('/attachments') ? { 'Content-Type': 'application/octet-stream' } : undefined });
       expect(r.status, `${method} ${path}`).toBe(403);
       expect(r.json).toMatchObject({ error: expect.stringMatching(/desligad/) });
     }
@@ -164,7 +185,7 @@ describe('trava das rotas', () => {
     expect((await snapshot(srv)).meta.messages).toBe(true);
     for (const host of ['habblaud.lan', '192.168.0.10:4747']) {
       for (const [method, path] of ROUTES) {
-        const r = await request(srv.base, path, { method, body: method === 'POST' ? { session: SESSION } : undefined, headers: { Host: host } });
+        const r = await request(srv.base, path, { method, body: method === 'POST' ? { session: SESSION } : undefined, headers: { Host: host, ...(path.endsWith('/attachments') ? { 'Content-Type': 'application/octet-stream' } : {}) } });
         expect(r.status, `${host} ${path}`).toBe(403);
         expect(r.json).toMatchObject({ error: expect.stringMatching(/próprio computador/) });
       }
@@ -298,11 +319,11 @@ describe('upload de anexos por HTTP real', () => {
   it('upload grande, somente anexo, polling/inbox e bytes gravados; destino não vem do cliente', async () => {
     const root = tempDir().dir;
     srv = await serveMessages({ registry: {
-      attachments: new AttachmentStore(),
-      writeAttachments: async (files) => ({ paths: writeAttachments(root, 'http', files) }),
+      attachments: new AttachmentStore({ dir: join(root, '.pending') }),
+      writeAttachments: async (files) => ({ paths: await writeAttachments(root, 'http', files) }),
     } });
     const bytes = Buffer.alloc(300_000, 65);
-    const upload = await post(srv, '/api/messages/attachments', { name: '../ação.txt', type: 'text/plain', data: bytes.toString('base64'), root: '/must-not-write', path: '/must-not-write' });
+    const upload = await binary(srv, bytes);
     expect(upload.status).toBe(201);
     expect((await request(srv.base, '/api/messages/attachments')).status).toBe(405);
     await post(srv, '/api/mod/inbox', { session: SESSION });
@@ -310,7 +331,11 @@ describe('upload de anexos por HTTP real', () => {
     expect(accepted.status).toBe(201);
     const id = (accepted.json as OutboxMessage).id;
     expect((await request(srv.base, `/api/messages/${id}`)).json).toMatchObject({ status: 'queued' });
-    const inbox = (await post(srv, '/api/mod/inbox', { session: SESSION })).json as { messages: InboxMessage[] };
+    let inbox = (await post(srv, '/api/mod/inbox', { session: SESSION })).json as { messages: InboxMessage[] };
+    for (let attempt = 0; !inbox.messages.length && attempt < 100; attempt++) {
+      await sleep(10);
+      inbox = (await post(srv, '/api/mod/inbox', { session: SESSION })).json as { messages: InboxMessage[] };
+    }
     const path = inbox.messages[0].text.split('\n- ')[1];
     expect(path.startsWith(root + '/')).toBe(true);
     expect(path).toBe(join(root, path.slice(root.length + 1)));
@@ -322,19 +347,27 @@ describe('upload de anexos por HTTP real', () => {
   });
 
   it('limite individual e corpo HTTP são conferidos no servidor', async () => {
-    srv = await serveMessages({ registry: { attachments: new AttachmentStore() } });
-    const tooLarge = await post(srv, '/api/messages/attachments', { name: 'x', data: Buffer.alloc(ATTACHMENT_MAX_BYTES + 1).toString('base64') });
-    expect(tooLarge.status).toBe(400);
-    expect((await post(srv, '/api/messages/attachments', { name: 'x', data: 'x'.repeat(22 * 1024 * 1024) })).status).toBe(413);
+    const store = attachmentStore();
+    srv = await serveMessages({ registry: { attachments: store } });
+    expect((await binary(srv, Buffer.alloc(ATTACHMENT_MAX_BYTES + 1))).status).toBe(413);
+    expect((await binary(srv, Buffer.alloc(ATTACHMENT_MAX_BYTES + 1), {}, true)).status).toBe(413);
+    expect((await binary(srv, Buffer.alloc(0))).status).toBe(400);
+    expect((await post(srv, '/api/messages/attachments', { name: 'x', data: 'eA==' })).status).toBe(415);
+    const invalidHeaders: Record<string, string>[] = [
+      { 'content-type': 'text/plain' }, { 'content-type': 'application/x-www-form-urlencoded' },
+      { Origin: 'http://evil.test' }, { Host: 'evil.test' }, { 'x-habblaud-file-name': '%zz' },
+    ];
+    for (const headers of invalidHeaders) expect((await binary(srv, Buffer.from('x'), headers)).status).toBe(headers.Origin || headers.Host ? 403 : headers['content-type'] ? 415 : 400);
+    expect(store.usedBytes).toBe(0);
   });
 
   it('auxiliar indisponível falha sem entregar prompt parcial', async () => {
     srv = await serveMessages({ registry: {
-      attachments: new AttachmentStore(),
+      attachments: attachmentStore(),
       writeAttachments: async () => ({ error: 'auxiliar indisponível', status: 503 }),
     } });
     await post(srv, '/api/mod/inbox', { session: SESSION });
-    const uploaded = await post(srv, '/api/messages/attachments', { name: 'x', data: 'b2k=' });
+    const uploaded = await binary(srv, Buffer.from('ok'));
     const accepted = await post(srv, '/api/messages', { agentId: MAIN, text: 'não entregar', attachments: [(uploaded.json as { id: string }).id] });
     const id = (accepted.json as OutboxMessage).id;
     expect((await request(srv.base, `/api/messages/${id}`)).json).toMatchObject({ status: 'failed', error: 'auxiliar indisponível' });

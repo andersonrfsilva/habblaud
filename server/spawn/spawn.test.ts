@@ -17,6 +17,7 @@ import {
   type Opener,
 } from './spawn';
 import { runnableClaudeBin } from '../claude-bin';
+import { attachmentStore, uploadAttachment } from '../test/attachment-fixture';
 
 describe('novo agente: pedido e link', () => {
   it('aceita só pasta absoluta e pedido do tamanho certo', () => {
@@ -93,28 +94,25 @@ describe('SpawnService', () => {
 });
 
 describe('SpawnService com anexos', () => {
-  const att = (name: string) => ({ name, type: 'image/png', data: Buffer.from(name) });
 
-  it('host: o pedido leva os anexos em base64 uma vez só, e o depósito não os entrega de novo', async () => {
-    const { AttachmentStore } = await import('./attachments');
-    const store = new AttachmentStore(Date.now, (() => { let n = 0; return () => `f${++n}`; })());
-    store.put(att('a.png'));
+  it('host: o pedido leva descritores uma vez só, e o depósito não os entrega de novo', async () => {
+    const store = attachmentStore();
+    const { id } = await uploadAttachment(store, 'a.png', 'a.png', 'spawn');
     const s = new SpawnService({ attachments: store, newId: () => 's1' });
     s.poll();
-    expect(s.submit({ folder: '/p', prompt: 'veja', attachments: ['f1'] })).toMatchObject({ spawn: { id: 's1' } });
+    expect(s.submit({ folder: '/p', prompt: 'veja', attachments: [id] })).toMatchObject({ spawn: { id: 's1' } });
     const [polled] = s.poll();
-    expect(polled.files).toEqual([{ name: 'a.png', type: 'image/png', data: Buffer.from('a.png').toString('base64') }]);
+    expect(polled.files).toEqual([{ id, name: 'a.png', type: 'text/plain', size: 5 }]);
     expect(s.poll()).toEqual([]);
-    expect(s.submit({ folder: '/p', attachments: ['f1'] })).toMatchObject({ error: 'invalid' });
+    expect(s.submit({ folder: '/p', attachments: [id] })).toMatchObject({ error: 'invalid' });
     const bare = new SpawnService({ newId: () => 'z' });
     bare.poll();
     expect(bare.submit({ folder: '/p', attachments: ['f1'] })).toMatchObject({ error: 'invalid', reason: 'anexos desligados' });
   });
 
   it('direto: grava os anexos e o link leva os caminhos no pedido', async () => {
-    const { AttachmentStore } = await import('./attachments');
-    const store = new AttachmentStore(Date.now, () => 'f1');
-    store.put(att('print.png'));
+    const store = attachmentStore();
+    const { id } = await uploadAttachment(store, 'print.png', 'print.png', 'spawn');
     const opened: string[] = [];
     const written: string[] = [];
     const s = new SpawnService({
@@ -124,7 +122,7 @@ describe('SpawnService com anexos', () => {
       writeFiles: (id, files) => files.map((f) => (written.push(`${id}:${f.name}`), `/h/att/${f.name}`)),
       newId: () => 's2',
     });
-    s.submit({ folder: '/p', prompt: 'conserte', attachments: ['f1'] });
+    s.submit({ folder: '/p', prompt: 'conserte', attachments: [id] });
     await new Promise((ok) => setTimeout(ok, 0));
     expect(written).toEqual(['s2:print.png']);
     expect(new URL(opened[0]).searchParams.get('q')).toBe('conserte\n\nAnexo enviado pelo Habblaud (leia antes de começar):\n- /h/att/print.png');
@@ -132,9 +130,8 @@ describe('SpawnService com anexos', () => {
   });
 
   it('direto: falha ao gravar vira erro do pedido, sem abrir o app', async () => {
-    const { AttachmentStore } = await import('./attachments');
-    const store = new AttachmentStore(Date.now, () => 'f1');
-    store.put(att('x.png'));
+    const store = attachmentStore();
+    const { id } = await uploadAttachment(store, 'x.png', 'x.png', 'spawn');
     const opened: string[] = [];
     const s = new SpawnService({
       opener: async (url) => (opened.push(url), { ok: true }),
@@ -145,7 +142,7 @@ describe('SpawnService com anexos', () => {
       },
       newId: () => 's3',
     });
-    s.submit({ folder: '/p', attachments: ['f1'] });
+    s.submit({ folder: '/p', attachments: [id] });
     await new Promise((ok) => setTimeout(ok, 0));
     expect(opened).toEqual([]);
     expect(s.get('s3')).toMatchObject({ status: 'failed', error: 'não deu para gravar os anexos (disco cheio)' });

@@ -2,11 +2,11 @@
 // /api/codex/bridge/*): a trava das mensagens (recurso ligado + Host local), a rodada completa página → auxiliar →
 // codex queue (binário falso) → confirmação, e a conferência de cada mensagem antes de rodar o comando.
 import http from 'node:http';
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { dirname, isAbsolute, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { checkMessage, dictationRound, filesRound, httpPost, parseArgs, round, spawnRound, type Post } from '../../scripts/codex-bridge';
+import { checkMessage, cleanupAttachmentStaging, dictationRound, downloadAttachments, filesRound, httpAttachmentDownload, httpPost, parseArgs, round, spawnRound, type Post } from '../../scripts/codex-bridge';
 import { spawnUrl } from '../spawn/spawn';
 import { AccountsService } from '../accounts/service';
 import { createApiHandler } from '../http/app';
@@ -45,7 +45,7 @@ afterEach(async () => {
 });
 
 /** Office + Hub + rotas de verdade, com um agente do Codex e o registro das mensagens SEM o modo Node (como no Docker). */
-async function serve(enabled = true): Promise<{ base: string; port: number; office: Office; registry?: MessageRegistry }> {
+async function serve(enabled = true, files?: FileFetcher): Promise<{ base: string; port: number; office: Office; registry?: MessageRegistry }> {
   const late: { registry?: MessageRegistry } = {};
   const office = new Office({
     names: new NameStore(null),
@@ -62,7 +62,7 @@ async function serve(enabled = true): Promise<{ base: string; port: number; offi
   late.registry = registry;
   registry?.start();
   const accounts = new AccountsService({ dirs: [], home: tmp.dir, env: {}, onChange: () => {} });
-  const api = createApiHandler({ office, hub, accounts, sources: () => [], version: 't', inDocker: true, terminal: true, messages: registry ? createMessageRoutes(registry) : undefined });
+  const api = createApiHandler({ office, hub, accounts, sources: () => [], version: 't', inDocker: true, terminal: true, files, messages: registry ? createMessageRoutes(registry) : undefined });
   const guard = createRequestGuard({ allowedHosts: new Set(['habblaud.lan']) });
   const server = http.createServer((req, res) => {
     if (guard(req, res)) return;
@@ -171,22 +171,28 @@ describe('rotas do auxiliar do Codex', () => {
 });
 
 describe('spawnRound com anexos e dictationRound', () => {
-  it('grava os anexos aqui e o link leva os caminhos; anexo ilegível recusa o pedido', async () => {
-    const post: Post = async (path) =>
-      path === '/api/host/spawn/poll'
-        ? { status: 200, json: { spawns: [
-            { id: 'a', folder: '/ok', prompt: 'veja', files: [{ name: '../print.png', type: 'image/png', data: Buffer.from('png').toString('base64') }] },
-            { id: 'b', folder: '/ok', prompt: '', files: [{ name: 'x', data: 'não é base64!' }] },
-          ] } }
-        : { status: 200, json: { ok: true } };
+  it('baixa bytes por HTTP antes de abrir; descritor inválido recusa sem gravar', async () => {
+    const root = join(tmp.dir, 'spawn-host');
+    vi.stubEnv('HABBLAUD_ATTACHMENTS_DIR', root);
+    const { port } = await streamServer((_req, res) => {
+      res.writeHead(200, { 'Content-Length': 3 });
+      res.write(Buffer.from([0, 255]));
+      res.end(Buffer.from([1]));
+    });
+    const post: Post = async (path) => path === '/api/host/spawn/poll'
+      ? { status: 200, json: { spawns: [
+        { id: 'a', folder: '/ok', prompt: 'veja', files: [{ id: 'f', name: '../ação.png', type: 'image/png', size: 3 }] },
+        { id: 'b', folder: '/ok', prompt: '', files: [{ name: 'x', data: 'eA==' }] },
+      ] } }
+      : { status: 200, json: {} };
     const opened: string[] = [];
-    const wrote: string[] = [];
-    const r = await spawnRound(post, async (url) => (opened.push(url), { ok: true }), () => {}, () => undefined, (id, files) =>
-      files.map((f) => (wrote.push(`${id}:${f.name}:${f.data.toString()}`), `/h/att/${f.name}`)),
-    );
-    expect(wrote).toEqual(['a:print.png:png']);
-    expect(new URL(opened[0]).searchParams.get('q')).toBe('veja\n\nAnexo enviado pelo Habblaud (leia antes de começar):\n- /h/att/print.png');
-    expect(r).toEqual({ state: 'ok', results: [{ id: 'a', ok: true, how: 'app' }, { id: 'b', ok: false, error: 'anexo ilegível' }] });
+    const r = await spawnRound(post, async (url) => (opened.push(url), { ok: true }), undefined, () => undefined, httpAttachmentDownload(port));
+    expect(r).toMatchObject({ state: 'ok', results: [{ id: 'a', ok: true }, { id: 'b', ok: false }] });
+    const prompt = new URL(opened[0]).searchParams.get('q')!;
+    const path = prompt.split('\n- ')[1];
+    expect(path.startsWith(`${root}/`)).toBe(true);
+    expect(path.endsWith('/ação.png')).toBe(true);
+    expect(readFileSync(path)).toEqual(Buffer.from([0, 255, 1]));
   });
 
   it('dictationRound transcreve e devolve texto e idioma; erro vira resultado', async () => {
@@ -234,21 +240,27 @@ describe('filesRound (arquivos das entregas pelo auxiliar)', () => {
     expect(paths[0]).toBe('/api/host/files/poll?wait=1');
   });
 
-  it('grava pelo contrato real da fila em raiz do host, sem obedecer raiz/pasta do contêiner', async () => {
+  it('grava pela fila e HTTP reais em raiz do host, ignorando caminhos enviados', async () => {
     const root = join(tmp.dir, 'host-attachments');
+    mkdirSync(root, { mode: 0o750 });
     vi.stubEnv('HABBLAUD_ATTACHMENTS_DIR', root);
     const fetcher = new FileFetcher();
+    const { port } = await serve(true, fetcher);
     fetcher.poll();
     const bytes = Buffer.from([0, 1, 2, 255]);
-    const pending = fetcher.writeAttachments([{ name: '../imagem.png', type: 'image/png', data: bytes }]);
+    const source = join(tmp.dir, 'source');
+    writeFileSync(source, bytes);
+    const pending = fetcher.writeAttachments([{ id: 'file-a', name: '../imagem.png', type: 'image/png', size: bytes.length, path: source }]);
+    const realPost = httpPost(port);
     const post: Post = async (path, body) => {
-      if (path.startsWith('/api/host/files/poll')) {
-        return { status: 200, json: { files: fetcher.poll().map((op) => ({ ...op, root: '/arbitrary', path: '/arbitrary/x', id: op.id })) } };
+      const result = await realPost(path, body);
+      if (path.startsWith('/api/host/files/poll') && result?.status === 200) {
+        const json = result.json as { files: object[] };
+        json.files = json.files.map((op) => ({ ...op, root: '/arbitrary', path: '/arbitrary/x' }));
       }
-      fetcher.ack(body);
-      return { status: 200, json: {} };
+      return result;
     };
-    expect(await filesRound(post)).toMatchObject({ state: 'ok', results: [{ ok: true }] });
+    expect(await filesRound(post, undefined, undefined, undefined, { download: httpAttachmentDownload(port) })).toMatchObject({ state: 'ok', results: [{ ok: true }] });
     const result = await pending;
     if (!('paths' in result)) throw new Error(result.error);
     expect(result.paths).toHaveLength(1);
@@ -256,23 +268,21 @@ describe('filesRound (arquivos das entregas pelo auxiliar)', () => {
     expect(result.paths[0].startsWith(`${root}/`)).toBe(true);
     expect(result.paths[0].endsWith('/imagem.png')).toBe(true);
     expect(readFileSync(result.paths[0])).toEqual(bytes);
+    expect(statSync(root).mode & 0o777).toBe(0o750);
     expect(statSync(result.paths[0]).mode & 0o777).toBe(0o600);
     expect(statSync(dirname(result.paths[0])).mode & 0o777).toBe(0o700);
+    expect(readdirSync(join(root, '.pending'))).toEqual([]);
   });
 
-  it('valida todo o lote antes de gravar: quantidade, vazio, base64 estrito e tamanho', async () => {
+  it('valida todo o lote antes de gravar: quantidade, IDs, vazio e tamanho', async () => {
     const root = join(tmp.dir, 'invalid-attachments');
     vi.stubEnv('HABBLAUD_ATTACHMENTS_DIR', root);
-    const valid = { name: '../../safe.txt', data: 'eA==' };
+    const valid = { id: 'f', name: '../../safe.txt', type: 'text/plain', size: 1 };
     const invalid = [
-      undefined,
-      [],
-      Array(6).fill(valid),
-      [valid, { name: 'bad.txt', data: 'ab==' }],
-      [{ name: 'bad.txt', data: 'a' }],
-      [{ name: 'bad.txt', data: '%%%' }],
-      [{ name: 'bad.txt', data: '' }],
-      [{ name: 'huge.txt', data: Buffer.alloc(ATTACHMENT_MAX_BYTES + 1).toString('base64') }],
+      undefined, [], Array(6).fill(valid), [valid, valid],
+      [{ ...valid, id: '' }], [{ ...valid, size: 0 }],
+      [{ ...valid, size: ATTACHMENT_MAX_BYTES + 1 }],
+      [{ name: 'legacy', data: 'eA==' }],
     ];
     let ack: unknown;
     const post: Post = async (path, body) => {
@@ -291,7 +301,7 @@ describe('filesRound (arquivos das entregas pelo auxiliar)', () => {
     vi.stubEnv('HABBLAUD_ATTACHMENTS_DIR', blocked);
     const post: Post = async (path) => path.startsWith('/api/host/files/poll')
       ? { status: 200, json: { files: [
-        { id: 'disk', op: 'writeAttachments', files: [{ name: 'a.txt', data: 'eA==' }] },
+        { id: 'disk', op: 'writeAttachments', files: [{ id: 'f', name: 'a.txt', type: 'text/plain', size: 1 }] },
         { id: 'unknown', op: 'other', path: '/not-read' },
       ] } }
       : { status: 200, json: {} };
@@ -317,7 +327,7 @@ describe('spawnRound (agentes novos pelo auxiliar)', () => {
       async (url) => (opened.push(url), { ok: true }),
       (l) => lines.push(l),
       () => undefined,
-      () => [],
+      undefined,
       async (req) => (ran.push(req.folder), req.folder === '/conhecida' ? { ok: true, id: 'x1' } : { ok: false, error: 'Workspace not trusted. Run `claude` in /nova once' }),
     );
     expect(ran).toEqual(['/conhecida', '/nova']);
@@ -346,5 +356,116 @@ describe('spawnRound (agentes novos pelo auxiliar)', () => {
   it('Habblaud fora do ar ou recusando', async () => {
     expect(await spawnRound(async () => null, async () => ({ ok: true }))).toEqual({ state: 'down' });
     expect(await spawnRound(async () => ({ status: 403, json: { error: 'x' } }), async () => ({ ok: true }))).toEqual({ state: 'refused', status: 403 });
+  });
+});
+
+/** A real fragmented HTTP body exercises fetch, backpressure, byte checks and cancellation. */
+async function streamServer(handler: http.RequestListener): Promise<{ port: number }> {
+  const server = http.createServer(handler);
+  const listening = Promise.withResolvers<void>();
+  server.listen(0, '127.0.0.1', listening.resolve);
+  await listening.promise;
+  close = () => {
+    const stopped = Promise.withResolvers<void>();
+    server.closeAllConnections();
+    server.close(() => stopped.resolve());
+    return stopped.promise;
+  };
+  return { port: (server.address() as AddressInfo).port };
+}
+
+describe('downloads binários do auxiliar', () => {
+  it('no restart remove só staging próprio, sem tocar finais, pendentes do servidor ou destinos de links', async () => {
+    const root = join(tmp.dir, 'restart-host');
+    const pending = join(root, '.pending');
+    mkdirSync(pending, { recursive: true });
+    const final = join(root, '6ca619c1-d91f-473e-ad6d-d6de881b64cc');
+    const serverPending = join(pending, '91f60586-2aaa-434d-889a-b36f2759aa49');
+    const external = join(tmp.dir, 'external');
+    for (const directory of [final, serverPending, external]) {
+      mkdirSync(directory);
+      writeFileSync(join(directory, 'keep.txt'), 'preserve');
+    }
+    const orphan = mkdtempSync(join(pending, 'bridge-'));
+    writeFileSync(join(orphan, 'partial'), 'partial bytes');
+    symlinkSync(external, join(orphan, 'external-link'));
+    const linkedStage = join(pending, 'bridge-Ab1234');
+    symlinkSync(external, linkedStage);
+    const other = join(pending, 'bridge-not-owned');
+    mkdirSync(other);
+    await cleanupAttachmentStaging(root);
+    expect(existsSync(orphan)).toBe(false);
+    expect(lstatSync(linkedStage).isSymbolicLink()).toBe(true);
+    expect(existsSync(other)).toBe(true);
+    for (const directory of [final, serverPending, external]) {
+      expect(readFileSync(join(directory, 'keep.txt'), 'utf8')).toBe('preserve');
+    }
+    await cleanupAttachmentStaging(root);
+    expect(readdirSync(pending).sort()).toEqual(['91f60586-2aaa-434d-889a-b36f2759aa49', 'bridge-Ab1234', 'bridge-not-owned'].sort());
+  });
+
+  it('não segue .pending symlink no cleanup nem cria staging através dele', async () => {
+    const root = join(tmp.dir, 'linked-root');
+    const external = join(tmp.dir, 'linked-external');
+    mkdirSync(root);
+    mkdirSync(external);
+    const untouched = mkdtempSync(join(external, 'bridge-'));
+    writeFileSync(join(untouched, 'keep'), 'external');
+    symlinkSync(external, join(root, '.pending'));
+    await expect(cleanupAttachmentStaging(root)).rejects.toThrow();
+    await expect(downloadAttachments('job', [{ id: 'f', name: 'x', type: 'text/plain', size: 1 }],
+      async () => { throw new Error('must not download'); }, root)).rejects.toThrow();
+    expect(readFileSync(join(untouched, 'keep'), 'utf8')).toBe('external');
+    expect(readdirSync(external)).toHaveLength(1);
+  });
+
+  it('preserva bytes no limite e nomes repetidos sem publicar antes do lote completo', async () => {
+    const root = join(tmp.dir, 'stream-host');
+    const visited: string[] = [];
+    const { port } = await streamServer((req, res) => {
+      visited.push(req.url!);
+      expect(existsSync(join(root, '.pending'))).toBe(true);
+      expect(readdirSync(root).filter((name) => name !== '.pending')).toEqual([]);
+      const size = req.url!.endsWith('/small') ? 1 : ATTACHMENT_MAX_BYTES;
+      res.writeHead(200, { 'Content-Length': size });
+      let remaining = size;
+      const send = () => {
+        while (remaining) {
+          const length = Math.min(64 * 1024, remaining);
+          remaining -= length;
+          if (!res.write(Buffer.alloc(length, 173))) return void res.once('drain', send);
+        }
+        res.end();
+      };
+      send();
+    });
+    const paths = await downloadAttachments('job/id', [
+      { id: 'small', name: 'ação.txt', type: 'text/plain', size: 1 },
+      { id: 'large', name: 'ação.txt', type: 'text/plain', size: ATTACHMENT_MAX_BYTES },
+    ], httpAttachmentDownload(port), root);
+    expect(visited).toEqual(['/api/codex/bridge/files/job%2Fid/attachments/small', '/api/codex/bridge/files/job%2Fid/attachments/large']);
+    expect(paths.map((path) => path.split('/').pop())).toEqual(['ação.txt', 'ação-2.txt']);
+    expect(readFileSync(paths[0])).toEqual(Buffer.from([173]));
+    expect(readFileSync(paths[1]).equals(Buffer.alloc(ATTACHMENT_MAX_BYTES, 173))).toBe(true);
+  });
+
+  it.each(['short', 'long', 'missing-length', 'timeout'])('remove lote parcial e fecha streams: %s', async (kind) => {
+    const root = join(tmp.dir, kind);
+    let visits = 0;
+    const { port } = await streamServer((_req, res) => {
+      visits++;
+      if (visits === 1) return void res.writeHead(200, { 'Content-Length': 1 }).end('a');
+      if (kind === 'missing-length') return void res.writeHead(200).end('abc');
+      res.writeHead(200, { 'Content-Length': kind === 'long' ? 3 : 2 });
+      res.write('a');
+      if (kind === 'short') return void res.destroy();
+      if (kind === 'long') res.end('bc');
+    });
+    await expect(downloadAttachments('job', [
+      { id: 'one', name: 'a.txt', type: 'text/plain', size: 1 },
+      { id: 'two', name: 'b.txt', type: 'text/plain', size: 2 },
+    ], httpAttachmentDownload(port), root, kind === 'timeout' ? 50 : 5_000)).rejects.toThrow();
+    expect(readdirSync(root)).toEqual(['.pending']);
+    expect(readdirSync(join(root, '.pending'))).toEqual([]);
   });
 });

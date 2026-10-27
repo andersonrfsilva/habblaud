@@ -136,8 +136,10 @@ export function createRequestGuard(opts: GuardOptions = {}): (req: IncomingMessa
       return true;
     }
     const path = (req.url ?? '/').split('?')[0];
-    if (path.startsWith('/api/') && !isJsonContentType(req.headers['content-type'])) {
-      reject(res, 415, tr('Envie o corpo como JSON (Content-Type: application/json).'));
+    const upload = method === 'POST' && (path === '/api/messages/attachments' || path === '/api/spawn/attachments');
+    const binary = typeof req.headers['content-type'] === 'string' && req.headers['content-type'].split(';')[0].trim().toLowerCase() === 'application/octet-stream';
+    if (path.startsWith('/api/') && (upload ? !binary : !isJsonContentType(req.headers['content-type']))) {
+      reject(res, 415, upload ? tr('Envie o arquivo como binário (Content-Type: application/octet-stream).') : tr('Envie o corpo como JSON (Content-Type: application/json).'));
       return true;
     }
     return false;

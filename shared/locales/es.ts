@@ -7,6 +7,7 @@ export const ES: Readonly<Record<string, string>> = {
   "Arquivo acima de 15 MiB: {0}": "El archivo supera los 15 MiB: {0}",
   "Limite de 5 anexos: {0}": "Límite de 5 adjuntos: {0}",
   "não foi possível gravar os anexos": "no se pudieron guardar los adjuntos",
+  "Envie o arquivo como binário (Content-Type: application/octet-stream).": "Envía el archivo como binario (Content-Type: application/octet-stream).",
   // client/src/main.ts
   "Escritório virtual em pixel art que mostra, em tempo real, o que seus agentes do Claude Code estão fazendo.": "Oficina virtual en pixel art que muestra, en tiempo real, lo que están haciendo tus agentes de Claude Code.",
 
@@ -2443,7 +2444,6 @@ export const ES: Readonly<Record<string, string>> = {
   "Não foi possível sair: sem resposta do servidor.": "No se pudo salir: sin respuesta del servidor.",
 
   // client/src/ui/spawn.ts
-  "não deu para ler o arquivo": "no se pudo leer el archivo",
   "Projetos recentes": "Proyectos recientes",
   "+ Outra pasta": "+ Otra carpeta",
   "Caminho da pasta": "Ruta de la carpeta",
@@ -2585,7 +2585,6 @@ export const ES: Readonly<Record<string, string>> = {
 
   // server/spawn/attachments.ts
   "arquivo vazio": "archivo vacío",
-  "arquivo ilegível (base64)": "archivo ilegible (base64)",
   "o arquivo passa de {0} MB": "el archivo supera los {0} MB",
   "anexos demais esperando: envie o pedido ou tente de novo daqui a pouco": "demasiados adjuntos en espera: envía la solicitud o vuelve a intentarlo en un rato",
   "anexos inválidos": "adjuntos inválidos",
@@ -2612,8 +2611,6 @@ export const ES: Readonly<Record<string, string>> = {
 
   // scripts/codex-bridge.ts
   "Uso: npm run codex:bridge [-- opções]\n\nEntrega as mensagens do escritório às sessões do Codex quando o Habblaud roda no Docker (deixe rodando no computador).\n\nOpções:\n  --port <n>   porta do Habblaud (padrão: HABBLAUD_PORT ou {0})\n  --once       faz uma rodada só e sai\n  -h, --help   mostra esta ajuda\n\nBinário do Codex: HABBLAUD_CODEX_BIN ou `codex` do PATH.": "Uso: npm run codex:bridge [-- opciones]\n\nEntrega los mensajes de la oficina a las sesiones de Codex cuando Habblaud se ejecuta en Docker (déjalo ejecutándose en el equipo).\n\nOpciones:\n  --port <n>   puerto de Habblaud (por defecto: HABBLAUD_PORT o {0})\n  --once       hace una sola pasada y sale\n  -h, --help   muestra esta ayuda\n\nBinario de Codex: HABBLAUD_CODEX_BIN o `codex` del PATH.",
-  "anexo ilegível": "adjunto ilegible",
-  "anexo vazio ou grande demais": "adjunto vacío o demasiado grande",
   "✓ agente novo rodando em segundo plano em {0}": "✓ agente nuevo en {0} ejecutándose en segundo plano",
   "✓ agente novo rodando em segundo plano em {0} com {1} anexos": "✓ agente nuevo en {0} ejecutándose en segundo plano con {1} adjuntos",
   "✓ agente novo rodando em segundo plano em {0} com 1 anexo": "✓ agente nuevo en {0} ejecutándose en segundo plano con 1 adjunto",

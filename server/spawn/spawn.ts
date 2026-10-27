@@ -15,9 +15,11 @@ import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { statSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
+import type { ServerResponse } from 'node:http';
+import type { AttachmentDescriptor } from '../../shared/types';
 import { tr } from '../../shared/i18n';
 import { claudeLaunch } from '../claude-bin';
-import { attachmentsRoot, promptWithAttachments, writeAttachments, type Attachment, type AttachmentStore } from './attachments';
+import { AttachmentTransfers, attachmentsRoot, promptWithAttachments, writeAttachments, type Attachment, type AttachmentStore } from './attachments';
 
 /** Tamanho máximo do pedido (o link inteiro vai pela linha de comando do `open`). */
 export const PROMPT_MAX = 8_000;
@@ -166,12 +168,14 @@ interface Entry {
   req: SpawnRequest;
   files: Attachment[];
   at: number;
+  transfers: AttachmentTransfers;
+  preparing?: boolean;
 }
 
-/** Um pedido para o auxiliar do host, com os anexos em base64. */
+/** Pedido para o auxiliar do host; conteúdo é buscado pela rota autorizada do job. */
 export interface PolledSpawn extends SpawnRequest {
   id: string;
-  files: Array<{ name: string; type: string; data: string }>;
+  files: AttachmentDescriptor[];
 }
 
 export interface SpawnServiceOptions {
@@ -184,7 +188,7 @@ export interface SpawnServiceOptions {
   /** Anexos enviados antes do pedido (POST /api/spawn/attachments); ausente = pedidos sem anexos. */
   attachments?: AttachmentStore;
   /** Modo direto: grava os anexos e devolve os caminhos (padrão: ~/.habblaud/attachments/). */
-  writeFiles?: (spawnId: string, files: readonly Attachment[]) => string[];
+  writeFiles?: (spawnId: string, files: readonly Attachment[]) => Promise<string[]> | string[];
   now?: () => number;
   newId?: () => string;
 }
@@ -228,7 +232,7 @@ export class SpawnService {
       files = taken;
     }
     const info: SpawnInfo = { id: this.opts.newId?.() ?? randomUUID(), folder: req.folder, status: 'queued' };
-    const entry: Entry = { info, req, files, at: this.now() };
+    const entry: Entry = { info, req, files, at: this.now(), transfers: new AttachmentTransfers() };
     this.entries.set(info.id, entry);
     if (this.opts.opener) void this.openDirect(entry, this.opts.opener);
     return { spawn: { ...info } };
@@ -249,11 +253,18 @@ export class SpawnService {
       if (e.info.status !== 'queued') continue;
       e.info.status = 'sent';
       e.at = this.now();
-      const files = e.files.map((f) => ({ name: f.name, type: f.type, data: f.data.toString('base64') }));
-      this.dropFiles(e);
+      const files = e.files.map(({ id, name, type, size }) => ({ id, name, type, size }));
       out.push({ id: e.info.id, folder: e.req.folder, prompt: e.req.prompt, files });
     }
     return out;
+  }
+
+  attachment(jobId: string, fileId: string, res: ServerResponse): Promise<void> | undefined {
+    this.prune();
+    const entry = this.entries.get(jobId);
+    if (!entry || entry.info.status !== 'sent') return undefined;
+    const file = entry.files.find(file => file.id === fileId);
+    return file ? entry.transfers.serve(file, res) : undefined;
   }
 
   ack(raw: unknown): void {
@@ -277,20 +288,26 @@ export class SpawnService {
     const problem = (this.opts.folderProblem ?? folderProblem)(e.req.folder);
     if (problem) return this.resolve(e, { ok: false, error: problem });
     let paths: string[];
+    e.preparing = true;
     try {
-      paths = (this.opts.writeFiles ?? ((id, files) => writeAttachments(attachmentsRoot(), id, files)))(e.info.id, e.files);
+      paths = await (this.opts.writeFiles ?? ((id, files) => writeAttachments(attachmentsRoot(), id, files)))(e.info.id, e.files);
     } catch (err) {
       return this.resolve(e, { ok: false, error: tr('não deu para gravar os anexos ({0})', [(err as Error).message]).slice(0, ERROR_MAX) });
     } finally {
+      delete e.preparing;
       this.dropFiles(e);
     }
+    if (e.info.status !== 'sent') return;
     const req = { folder: e.req.folder, prompt: promptWithAttachments(e.req.prompt, paths) };
-    this.resolve(e, await launch(req, opener, this.opts.cli));
+    const result = await launch(req, opener, this.opts.cli);
+    if (e.info.status === 'sent') this.resolve(e, result);
   }
 
-  /** Os anexos do pedido saem da memória (e do teto do AttachmentStore). */
+  /** Libera staging e quota só após o fechamento das transferências do pedido. */
   private dropFiles(e: Entry): void {
-    this.opts.attachments?.release(e.files.reduce((n, f) => n + f.data.length, 0));
+    if (e.preparing) return;
+    const files = e.files;
+    void e.transfers.close().then(() => this.opts.attachments?.release(files));
     e.files = [];
   }
 

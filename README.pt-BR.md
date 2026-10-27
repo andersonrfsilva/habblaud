@@ -575,6 +575,10 @@ e espera o próximo pedido, dar uma instrução nova ou corrigir o rumo, sem pro
   nunca no projeto. Uploads pendentes vencem em 30 minutos; arquivos gravados não expiram e exigem limpeza manual.
   Cada instalação/tenant precisa de sua própria raiz: monte somente essa raiz RW no Habblaud e RO no mesmo caminho
   absoluto nos agentes isolados, com o mesmo UID (pastas 0700, arquivos 0600). Nunca compartilhe todo o estado.
+  Mensagens e **Novo agente** (até oito arquivos) compartilham 120 MiB, contando uploads em voo, pendentes e lotes
+  em preparação. O upload grava por stream em disco: `<attachmentsRoot>/.pending/` no modo direto ou
+  `<config.dataDir>/attachments-pending/` no volume persistente `/data` do Docker, nunca `/tmp`. O auxiliar do
+  host baixa os descritores sequencialmente para sua própria `.pending/` e promove o lote completo por rename local.
 - A caixa mostra a situação: **na fila** (a sessão busca as mensagens a cada 2 segundos), **entregue** ou **não
   entregue**, com o motivo. Com o agente ocupado, a mensagem espera e entra quando ele terminar o turno, como um
   prompt digitado com o agente trabalhando.
@@ -1003,6 +1007,17 @@ mod/      o mod do Habblaud e os plugins de permissões e de mensagens (plugins 
 | `/api/files…` | Arquivos da pasta de trabalho: navegar pelas pastas de cada sala e de `~/projetos`, ver e baixar arquivos (só leitura). Só com acesso local (pelo celular, com `terminal` em `HABBLAUD_REMOTE_ALLOW`); desligado no Docker. |
 | `/api/pty…`, `POST /api/agents/:id/stop` e `/takeover` | Terminal interativo e encerrar ou assumir uma sessão; só com `HABBLAUD_PTY=1`. Só com acesso local, nunca pela porta do celular. |
 | `/api/host/*` | Auxiliar do host (`npm run codex:bridge`): busca e confirma os pedidos do Novo agente, do ditado e dos arquivos das entregas. Só com acesso local. |
+
+Uploads (`POST /api/messages/attachments` e `POST /api/spawn/attachments`) usam `application/octet-stream`
+com os bytes do File, `X-Habblaud-File-Name: encodeURIComponent(file.name)` (máximo de 2048 caracteres codificados)
+e `X-Habblaud-File-Type` (máximo de 256; fallback `application/octet-stream`).
+Sucesso: `201 {id, name, size}`; vazio/metadados inválidos: 400; acima de 15 MiB: 413; orçamento ocupado: 429;
+JSON legado ou outro formato de corpo: 415. Pedidos de mensagem/spawn continuam JSON com IDs.
+A exceção binária vale somente para esses POSTs exatos; Host, Origin, login e permissões continuam efetivos.
+O auxiliar lê somente arquivos pertencentes a um job vivo por
+`GET /api/codex/bridge/files/:jobId/attachments/:fileId`, nunca pela permissão remota de arquivos do projeto.
+Atualize ou reverta servidor, navegador e auxiliar juntos, suspenda uploads durante o reinício e recarregue as páginas.
+Reiniciar invalida IDs pendentes, não arquivos finais; a limpeza dos anexos finais continua manual.
 
 Mais detalhes do servidor em [`server/README.md`](server/README.md).
 

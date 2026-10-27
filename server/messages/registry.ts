@@ -26,7 +26,8 @@ import type { Activity, AgentInfo, InboxMessage, OmpControl, OutboxMessage } fro
 import { errMsg, log } from '../log';
 import type { CodexQueueResult, CodexQueueRunner } from './codex';
 import { tr } from '../../shared/i18n';
-import { AttachmentStore, parseAttachment, promptWithAttachments, type Attachment } from '../spawn/attachments';
+import type { IncomingMessage } from 'node:http';
+import { AttachmentStore, promptWithAttachments, type Attachment } from '../spawn/attachments';
 
 /** Sessão que perguntou pela caixa de entrada há até este tempo: recebe mensagens (canMessage). */
 export const PRESENCE_MS = 10_000;
@@ -327,7 +328,7 @@ export class MessageRegistry {
     if (this.openCount(agentId) >= MAX_OPEN) return { error: 'too-many' };
     const store = this.opts.attachments;
     if (attachments?.length && (!store || !this.opts.writeAttachments)) throw new InvalidRequest(tr('um anexo expirou: anexe de novo'), true);
-    const files = store?.take(attachments, MESSAGE_ATTACHMENTS_MAX) ?? [];
+    const files = store?.take(attachments, MESSAGE_ATTACHMENTS_MAX, 'messages') ?? [];
     if ('error' in files) throw new InvalidRequest(files.error, files.attachmentsExpired);
 
     const entry = this.entry(agentId, agent.sessionId, { text, activity: describeMessage(text) });
@@ -336,9 +337,8 @@ export class MessageRegistry {
     this.messages.set(entry.msg.id, entry);
     if (files.length) {
       entry.preparing = true;
-      const bytes = files.reduce((n, f) => n + f.data.length, 0);
       entry.releaseAttachments = () => {
-        store!.release(bytes);
+        store!.release(files);
         delete entry.releaseAttachments;
       };
       void this.prepareAttachments(entry, files);
@@ -348,10 +348,9 @@ export class MessageRegistry {
     return { message: out };
   }
 
-  uploadAttachment(raw: unknown): { id: string } | { error: string } {
-    const file = parseAttachment(raw);
-    if ('error' in file) return file;
-    return this.opts.attachments?.put(file) ?? { error: tr('um anexo expirou: anexe de novo') };
+  uploadAttachment(req: IncomingMessage): Promise<{ id: string; name: string; size: number }> {
+    if (!this.opts.attachments) throw new InvalidRequest(tr('um anexo expirou: anexe de novo'), true);
+    return this.opts.attachments.receive(req, 'messages');
   }
 
   private async prepareAttachments(e: Entry, files: readonly Attachment[]): Promise<void> {
@@ -650,7 +649,6 @@ export class MessageRegistry {
   /** Resolve a mensagem: o texto não é mais necessário. */
   private finish(e: Entry, status: 'delivered' | 'failed', now: number): void {
     this.setStatus(e, status, now);
-    e.releaseAttachments?.();
     delete e.late;
     if (status === 'delivered') {
       delete e.msg.error;

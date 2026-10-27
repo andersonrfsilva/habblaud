@@ -605,6 +605,10 @@ son tour et attend la demande suivante, donner une nouvelle instruction ou corri
   jamais dans le projet. Les envois en attente expirent après 30 minutes ; les fichiers enregistrés restent jusqu'au nettoyage manuel.
   Chaque installation/tenant doit avoir sa propre racine : montez uniquement cette racine RW dans Habblaud et RO au même
   chemin absolu dans les agents isolés, avec le même UID (dossiers 0700, fichiers 0600). Ne partagez jamais tout l'état.
+  Les messages et **Nouvel agent** (huit fichiers maximum) partagent 120 MiB, y compris les envois actifs, les fichiers
+  en attente et les lots en préparation. L'envoi écrit en flux sur disque : `<attachmentsRoot>/.pending/` en mode
+  direct, ou `<config.dataDir>/attachments-pending/` sur le volume persistant `/data` de Docker, jamais `/tmp`.
+  L'auxiliaire télécharge les descripteurs séquentiellement dans son propre `.pending/`, puis publie le lot par rename local.
 - La zone indique l'état : **en file** (la session récupère les messages toutes les 2 secondes), **remis** ou **non
   remis**, avec la raison. Si l'agent est occupé, le message attend et entre quand il finit son tour, comme un
   prompt tapé pendant que l'agent travaille.
@@ -1049,6 +1053,17 @@ mod/      o mod do Habblaud e os plugins de permissões e de mensagens (plugins 
 | `/api/files…` | Fichiers du dossier de travail : parcourir les dossiers de chaque salle et de `~/projetos`, voir et télécharger des fichiers (lecture seule). En accès local uniquement (depuis le téléphone, avec `terminal` dans `HABBLAUD_REMOTE_ALLOW`) ; désactivé dans Docker. |
 | `/api/pty…`, `POST /api/agents/:id/stop` et `/takeover` | Terminal interactif, fin ou reprise d'une session ; seulement avec `HABBLAUD_PTY=1`. En accès local uniquement, jamais par le port du téléphone. |
 | `/api/host/*` | Auxiliaire de l'hôte (`npm run codex:bridge`) : récupère et confirme les demandes de Nouvel agent, de la dictée et des fichiers des livrables. En accès local uniquement. |
+
+Les envois (`POST /api/messages/attachments` et `POST /api/spawn/attachments`) utilisent `application/octet-stream`
+avec les octets du File, `X-Habblaud-File-Name: encodeURIComponent(file.name)` (2048 caractères encodés maximum)
+et `X-Habblaud-File-Type` (256 maximum ; repli `application/octet-stream`).
+Succès : `201 {id, name, size}` ; vide/métadonnées invalides : 400 ; plus de 15 MiB : 413 ; budget occupé : 429 ;
+ancien JSON ou autre format de corps : 415. Les demandes de message/spawn restent en JSON avec les IDs.
+L'exception binaire ne concerne que ces POST exacts ; Host, Origin, connexion et permissions restent vérifiés.
+L'auxiliaire ne lit que les fichiers appartenant à un job actif via
+`GET /api/codex/bridge/files/:jobId/attachments/:fileId`, jamais via les permissions distantes des fichiers du projet.
+Mettez à jour ou restaurez serveur, navigateur et auxiliaire ensemble, suspendez les envois au redémarrage, puis rechargez les pages.
+Redémarrer invalide les IDs en attente, pas les fichiers finaux ; leur nettoyage reste manuel.
 
 Plus de détails sur le serveur dans [`server/README.md`](server/README.md).
 

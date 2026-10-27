@@ -6,6 +6,7 @@
 import { tr } from '../../../shared/i18n';
 import { isDemoId } from '../../../shared/timeline';
 import type { OfficeSnapshot } from '../../../shared/types';
+import { uploadAttachment } from '../net/store';
 import type { UiContext } from './context';
 import { DictationButton, dictationAvailable, insertDictation } from './dictation';
 import { h, iconButton, setHidden, setText } from './dom';
@@ -71,15 +72,6 @@ export function formatBytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1).replace('.', ',')} MB`;
 }
 
-function fileToBase64(file: Blob): Promise<string> {
-  return new Promise((ok, fail) => {
-    const r = new FileReader();
-    r.onload = () => ok(String(r.result).replace(/^data:[^,]*,/, ''));
-    r.onerror = () => fail(new Error(tr('não deu para ler o arquivo')));
-    r.readAsDataURL(file);
-  });
-}
-
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
@@ -87,8 +79,8 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   } catch {
     throw new Error(tr('o Habblaud não respondeu'));
   }
-  const body = (await res.json().catch(() => ({}))) as T & { error?: string };
-  if (!res.ok) throw new Error(body.error ?? tr('erro {0}', [res.status]));
+  const body = (await res.json().catch(() => ({}))) as T & { error?: string; attachmentsExpired?: boolean };
+  if (!res.ok) throw Object.assign(new Error(body.error ?? tr('erro {0}', [res.status])), { attachmentsExpired: body.attachmentsExpired });
   return body;
 }
 
@@ -112,6 +104,7 @@ interface PendingFile {
   file: File;
   url?: string;
   el: HTMLElement;
+  id?: string;
 }
 
 export class SpawnPanel {
@@ -353,24 +346,27 @@ export class SpawnPanel {
     const folder = (this.typing ? this.folder.value : this.selected).trim();
     if (!folder) return this.say(tr('Escolha o projeto.'), true);
     this.busy = true;
+    const batch = [...this.files];
+    const prompt = this.prompt.value;
     this.submitBtn.disabled = true;
     try {
       const ids: string[] = [];
-      for (const [i, f] of this.files.entries()) {
-        this.say(this.files.length > 1 ? tr('Enviando anexos ({0} de {1})…', [i + 1, this.files.length]) : tr('Enviando o anexo…'));
-        const r = await api<{ id: string }>('/api/spawn/attachments', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: f.file.name, type: f.file.type, data: await fileToBase64(f.file) }),
-        });
-        ids.push(r.id);
+      for (const [i, f] of batch.entries()) {
+        this.say(batch.length > 1 ? tr('Enviando anexos ({0} de {1})…', [i + 1, batch.length]) : tr('Enviando o anexo…'));
+        if (!f.id) {
+          const r = await uploadAttachment('/api/spawn/attachments', f.file);
+          if ('error' in r) throw new Error(r.error);
+          f.id = r.id;
+        }
+        ids.push(f.id);
       }
       this.say(tr('Começando no computador…'));
       let info = await api<SpawnInfo>('/api/spawn', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ folder, prompt: this.prompt.value, ...(ids.length ? { attachments: ids } : {}) }),
+        body: JSON.stringify({ folder, prompt, ...(ids.length ? { attachments: ids } : {}) }),
       });
+      for (const file of batch) file.id = undefined;
       const end = Date.now() + WAIT_MS;
       while ((info.status === 'queued' || info.status === 'sent') && Date.now() < end) {
         await new Promise((ok) => setTimeout(ok, POLL_MS));
@@ -386,12 +382,15 @@ export class SpawnPanel {
               : tr('Abri no app do Claude: aperte Enter lá para começar.'),
           !running && !!info.note,
         );
-        this.prompt.value = '';
-        this.clearFiles();
+        if (this.prompt.value === prompt) this.prompt.value = '';
+        for (const file of batch) this.removeFile(file);
         writePref(folder);
         this.ctx.announce(running ? tr('Agente novo rodando.') : tr('Agente novo aberto no app do Claude.'));
       } else this.say(info.error ? tr('Não abriu: {0}', [info.error]) : tr('O computador não confirmou a abertura.'), true);
     } catch (err) {
+      if (err instanceof Error && 'attachmentsExpired' in err && err.attachmentsExpired === true) {
+        for (const file of batch) file.id = undefined;
+      }
       this.say(tr('Não abriu: {0}', [(err as Error).message]), true);
     } finally {
       this.busy = false;

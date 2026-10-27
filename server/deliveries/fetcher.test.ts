@@ -4,9 +4,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FileFetcher, HOST_PRESENCE_MS, WAIT_MS } from './fetcher';
 import { ATTACHMENT_MAX_BYTES } from '../spawn/attachments';
 import { tempDir } from '../test/fixtures';
+import { createServer } from 'node:http';
+import type { Attachment } from '../spawn/attachments';
 
 const ok = (p: string) => ({ path: p, size: 3 });
-const files = [{ name: '../olá.txt', type: 'text/plain', data: Buffer.from('bytes intactos') }];
+function stagedFiles(): Attachment[] {
+  const path = join(tempDir().dir, 'upload');
+  writeFileSync(path, 'bytes intactos', { mode: 0o600 });
+  return [{ id: 'file-id', name: 'olá.txt', type: 'text/plain', size: 14, path }];
+}
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllEnvs();
@@ -65,17 +71,18 @@ describe('FileFetcher', () => {
 
   it('grava diretamente em lotes distintos, com bytes e permissões privados; erro de disco não entrega caminhos', async () => {
     const tmp = tempDir();
+    const files = stagedFiles();
     try {
       vi.stubEnv('HABBLAUD_ATTACHMENTS_DIR', join(tmp.dir, 'attachments'));
       const f = new FileFetcher({ direct: true });
       const a = await f.writeAttachments(files);
-      const b = await f.writeAttachments(files);
+      const b = await f.writeAttachments(stagedFiles());
       expect(a).toHaveProperty('paths');
       expect(b).toHaveProperty('paths');
       if (!('paths' in a) || !('paths' in b)) throw new Error('gravação falhou');
       expect(isAbsolute(a.paths[0])).toBe(true);
       expect(a.paths[0]).not.toBe(b.paths[0]);
-      expect(readFileSync(a.paths[0])).toEqual(files[0].data);
+      expect(readFileSync(a.paths[0], 'utf8')).toBe('bytes intactos');
       expect(statSync(a.paths[0]).mode & 0o777).toBe(0o600);
       expect(statSync(dirname(a.paths[0])).mode & 0o777).toBe(0o700);
       const blocked = join(tmp.dir, 'blocked');
@@ -88,11 +95,12 @@ describe('FileFetcher', () => {
   });
 
   it('host escreve pela fila compartilhada, ignora ack falso e preserva leituras antigas', async () => {
+    const files = stagedFiles();
     const f = new FileFetcher();
     const round = f.pollWait(60_000);
     const pending = f.writeAttachments(files);
     const [request] = await round;
-    expect(request).toMatchObject({ op: 'writeAttachments', files: [{ name: '../olá.txt', data: files[0].data.toString('base64') }] });
+    expect(request).toMatchObject({ op: 'writeAttachments', files: [{ id: 'file-id', name: 'olá.txt', type: 'text/plain', size: 14 }] });
     expect(f.poll()).toEqual([]);
     let settled = false;
     void pending.then(() => { settled = true; });
@@ -112,11 +120,12 @@ describe('FileFetcher', () => {
   });
 
   it('recusa ausência, limites e fila cheia; timeout e falha liberam a fila', async () => {
+    const files = stagedFiles();
     vi.useFakeTimers();
     const f = new FileFetcher();
     expect(await f.writeAttachments(files)).toMatchObject({ status: 503 });
     expect(await f.writeAttachments(Array(6).fill(files[0]))).toMatchObject({ status: 400 });
-    expect(await f.writeAttachments([{ ...files[0], data: Buffer.alloc(ATTACHMENT_MAX_BYTES + 1) }])).toMatchObject({ status: 400 });
+    expect(await f.writeAttachments([{ ...files[0], size: ATTACHMENT_MAX_BYTES + 1 }])).toMatchObject({ status: 400 });
     f.poll();
     const pending = Array.from({ length: 16 }, () => f.writeAttachments(files));
     expect(await f.writeAttachments(files)).toMatchObject({ status: 429 });
@@ -132,19 +141,31 @@ describe('FileFetcher', () => {
     expect(await retry).toEqual({ paths: ['/host/retry.txt'] });
   });
 
-  it('limita bytes pendentes e libera buffers quando o host não confirma', async () => {
-    vi.useFakeTimers();
+  it('GET só serve bytes de job enviado vivo e arquivo pertencente', async () => {
     const f = new FileFetcher();
+    const files = stagedFiles();
     f.poll();
-    const big = [{ ...files[0], data: Buffer.alloc(ATTACHMENT_MAX_BYTES) }];
-    const pending = Array.from({ length: 8 }, () => f.writeAttachments(big));
-    expect(await f.writeAttachments(big)).toMatchObject({ status: 429 });
-    await vi.advanceTimersByTimeAsync(WAIT_MS);
-    expect(await Promise.all(pending)).toEqual(Array(8).fill({ error: 'o computador não respondeu a tempo', status: 504 }));
-    f.poll();
-    const retry = f.writeAttachments(files);
-    const [request] = f.poll();
-    f.ack({ results: [{ id: request.id, ok: true, paths: ['/host/retry.txt'] }] });
-    expect(await retry).toEqual({ paths: ['/host/retry.txt'] });
+    const pending = f.writeAttachments(files);
+    const server = createServer((req, res) => {
+      const [, job, file] = (req.url ?? '').split('/');
+      const transfer = f.attachment(job, file, res);
+      if (!transfer) { res.writeHead(404); res.end(); }
+      else void transfer.catch(() => res.destroy());
+    });
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('listen failed');
+    const url = `http://127.0.0.1:${address.port}`;
+    try {
+      const [job] = f.poll();
+      expect((await fetch(`${url}/${job.id}/wrong`)).status).toBe(404);
+      expect((await fetch(`${url}/wrong/${files[0].id}`)).status).toBe(404);
+      const response = await fetch(`${url}/${job.id}/${files[0].id}`);
+      expect(response.headers.get('content-length')).toBe('14');
+      expect(await response.text()).toBe('bytes intactos');
+      f.ack({ results: [{ id: job.id, ok: true, paths: ['/host/final.txt'] }] });
+      expect(await pending).toEqual({ paths: ['/host/final.txt'] });
+      expect((await fetch(`${url}/${job.id}/${files[0].id}`)).status).toBe(404);
+    } finally { await new Promise<void>(resolve => server.close(() => resolve())); }
   });
 });

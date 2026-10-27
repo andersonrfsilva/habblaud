@@ -24,6 +24,8 @@ import {
 } from './registry';
 import { AsideStore } from '../asides/store';
 import { AttachmentStore } from '../spawn/attachments';
+import { attachmentStore, uploadAttachment } from '../test/attachment-fixture';
+import { tempDir } from '../test/fixtures';
 
 setQuiet(true);
 
@@ -531,32 +533,27 @@ describe('MessageRegistry: agentes do omp', () => {
 });
 
 describe('MessageRegistry: anexos', () => {
-  const file = { name: 'nota.txt', type: 'text/plain', data: Buffer.from('marcador') };
-  const uploaded = (store: AttachmentStore) => {
-    const result = store.put(file);
-    if ('error' in result) throw new Error(result.error);
-    return result.id;
-  };
+  const uploaded = async (store: AttachmentStore) => (await uploadAttachment(store)).id;
 
-  it('recusa de agente/limite não consome uploads; IDs inválidos são atômicos', () => {
-    const attachments = new AttachmentStore();
+  it('recusa de agente/limite não consome uploads; IDs inválidos são atômicos', async () => {
+    const attachments = attachmentStore();
     const { registry } = setup({ attachments, writeAttachments: async () => ({ paths: ['/tmp/nota.txt'] }) });
-    const id = uploaded(attachments);
+    const id = await uploaded(attachments);
     expect(registry.send({ agentId: MAIN, text: '', attachments: [id] })).toHaveProperty('error');
     registry.inbox({ session: SESSION });
     expect(() => registry.send({ agentId: MAIN, text: '', attachments: [id, id] })).toThrow(/inválidos/);
     expect(() => registry.send({ agentId: MAIN, text: '', attachments: [id, 'missing'] })).toThrow(/expirou/);
     for (let i = 0; i < MAX_OPEN; i++) registry.send({ agentId: MAIN, text: 'ocupado' });
     expect(registry.send({ agentId: MAIN, text: '', attachments: [id] })).toEqual({ error: 'too-many' });
-    expect(attachments.take([id], 5)).toHaveLength(1);
+    expect(attachments.take([id], 5, 'messages')).toHaveLength(1);
   });
 
   it('preparação bloqueia inbox e mantém ordem; só entrega após gravar', async () => {
-    const attachments = new AttachmentStore();
+    const attachments = attachmentStore();
     const { promise, resolve: complete } = Promise.withResolvers<{ paths: string[] }>();
     const { registry } = setup({ attachments, writeAttachments: () => promise });
     registry.inbox({ session: SESSION });
-    const id = sent(registry.send({ agentId: MAIN, text: '', attachments: [uploaded(attachments)] }));
+    const id = sent(registry.send({ agentId: MAIN, text: '', attachments: [await uploaded(attachments)] }));
     const next = sent(registry.send({ agentId: MAIN, text: 'depois' }));
     expect(registry.get(id)?.status).toBe('queued');
     expect(registry.inbox({ session: SESSION })).toEqual([]);
@@ -568,12 +565,12 @@ describe('MessageRegistry: anexos', () => {
   });
 
   it('STOP e aside passam durante preparação sem reordenar textos comuns', async () => {
-    const attachments = new AttachmentStore();
+    const attachments = attachmentStore();
     const { promise, resolve: complete } = Promise.withResolvers<{ paths: string[] }>();
     const { registry, office } = setup({ attachments, writeAttachments: () => promise });
     office.addMain({ id: 'omp', provider: 'omp', account: '.omp', sessionId: 'omp-session', cwd: '/p', role: 'main', startedAt: 0, status: 'idle' });
     registry.inbox({ session: 'omp-session' });
-    const attachment = sent(registry.send({ agentId: 'omp', text: '', attachments: [uploaded(attachments)] }));
+    const attachment = sent(registry.send({ agentId: 'omp', text: '', attachments: [await uploaded(attachments)] }));
     const later = sent(registry.send({ agentId: 'omp', text: 'depois do anexo' }));
     const stop = sent(registry.control({ agentId: 'omp', stop: true }));
     const request = { topicId: 'topic', turnId: 'turn', index: 0, question: 'estado?', history: [] };
@@ -593,18 +590,18 @@ describe('MessageRegistry: anexos', () => {
   });
 
   it.each(['changed', 'gone', 'timeout', 'disk'] as const)('%s durante gravação falha sem entregar e libera held', async (cause) => {
-    const attachments = new AttachmentStore(Date.now, undefined, file.data.length);
+    const attachments = new AttachmentStore({ dir: tempDir().dir, maxBytes: 8 });
     const { promise, resolve: complete } = Promise.withResolvers<{ paths: string[] } | { error: string; status: number }>();
     const { registry, office, clock } = setup({ attachments, writeAttachments: () => promise });
     registry.inbox({ session: SESSION });
-    const id = sent(registry.send({ agentId: MAIN, text: '', attachments: [uploaded(attachments)] }));
-    expect(attachments.put(file)).toHaveProperty('error');
+    const id = sent(registry.send({ agentId: MAIN, text: '', attachments: [await uploaded(attachments)] }));
+    await expect(uploadAttachment(attachments)).rejects.toHaveProperty('status', 429);
     if (cause === 'changed') office.switchSession(MAIN, 'sess-nova');
     if (cause === 'gone') office.closeMain(MAIN);
     if (cause === 'timeout') {
       clock.advance(QUEUED_TIMEOUT_MS);
       registry.tick();
-      expect(attachments.put(file)).toHaveProperty('id');
+      await expect(uploadAttachment(attachments)).rejects.toHaveProperty('status', 429);
     }
     complete(cause === 'disk' ? { error: 'disk full', status: 500 } : { paths: ['/tmp/nota.txt'] });
     await Promise.resolve();
@@ -613,12 +610,12 @@ describe('MessageRegistry: anexos', () => {
     expect(registry.inbox({ session: 'sess-nova' })).toEqual([]);
     registry.ack({ session: SESSION, results: [{ id, ok: true }] });
     expect(registry.get(id)?.status).toBe('failed');
-    if (cause !== 'timeout') expect(attachments.put(file)).toHaveProperty('id');
+    expect(await uploadAttachment(attachments)).toHaveProperty('id');
   });
 
   it('preparação não vaza pelo Codex Node nem bridge', async () => {
     for (const node of [false, true]) {
-      const attachments = new AttachmentStore();
+      const attachments = attachmentStore();
       const runs: string[] = [];
       const { promise, resolve: complete } = Promise.withResolvers<{ paths: string[] }>();
       const { registry, office } = setup({
@@ -628,7 +625,7 @@ describe('MessageRegistry: anexos', () => {
       });
       office.addMain({ id: 'codex', provider: 'codex', account: '.codex', sessionId: 'thread', cwd: '/p', role: 'main', startedAt: 0, status: 'idle' });
       registry.codexPoll({});
-      registry.send({ agentId: 'codex', text: '', attachments: [uploaded(attachments)] });
+      registry.send({ agentId: 'codex', text: '', attachments: [await uploaded(attachments)] });
       registry.send({ agentId: 'codex', text: 'depois' });
       expect(registry.codexPoll({})).toEqual([]);
       expect(runs).toEqual([]);

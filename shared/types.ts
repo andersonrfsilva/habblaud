@@ -8,6 +8,14 @@ import type { AsideRequest } from './asides';
 import type { AppearanceParts } from './appearance';
 import type { WorldMeta } from './world/api';
 
+/** Descritor privado de upload; bytes são buscados pela rota autorizada do job. */
+export interface AttachmentDescriptor {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+}
+
 export type AgentKind = 'main' | 'sub';
 
 /**

@@ -1,39 +1,27 @@
-// Anexos do "Novo agente" (imagens e arquivos que o celular manda junto com o pedido). O link do app do Claude só leva
-// texto, então os arquivos são gravados no computador do app, em ~/.habblaud/attachments/<UUID>/, e o pedido ganha
-// a lista dos caminhos para o agente ler. Quem grava é quem abre o link: o servidor no modo Node, o auxiliar do host
-// (scripts/codex-bridge.ts) no Docker. Os arquivos chegam como JSON base64 (o guard exige JSON em todo POST: CSRF).
-// Node puro e sem dependências: também é importado pelo auxiliar do host (via tsx).
+// Anexos do navegador: o depósito mantém apenas metadados; bytes ficam no volume persistente.
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { constants, mkdirSync, readdirSync, rmSync, lstatSync } from 'node:fs';
+import { open, mkdir, rename, rm, type FileHandle } from 'node:fs/promises';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { homedir } from 'node:os';
-import { isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { pipeline } from 'node:stream/promises';
 import { tr } from '../../shared/i18n';
+import type { AttachmentDescriptor } from '../../shared/types';
 
 export const ATTACHMENT_MAX_BYTES = 15 * 1024 * 1024;
 export const ATTACHMENTS_PER_SPAWN = 8;
-/** Corpo de POST /api/spawn/attachments: o arquivo em base64 (4/3) e um pouco de folga para o JSON. */
-export const ATTACHMENT_BODY_MAX = Math.ceil((ATTACHMENT_MAX_BYTES * 4) / 3) + 64 * 1024;
-/** Anexos enviados e ainda não usados expiram; o total guardado em memória tem teto. */
 export const ATTACHMENT_TTL_MS = 30 * 60_000;
-/** Teto da memória dos anexos: os esperando o pedido e os já tirados por pedidos que ainda não abriram (`held`). */
 export const STORE_MAX_BYTES = 120 * 1024 * 1024;
 const NAME_MAX = 120;
-
-export interface Attachment {
-  name: string;
-  type: string;
-  data: Buffer;
+export interface Attachment extends AttachmentDescriptor { path: string }
+export type AttachmentConsumer = 'messages' | 'spawn';
+export class AttachmentError extends Error {
+  constructor(public readonly status: number, message: string) { super(message); }
 }
-
-/** Nome seguro para gravar: só a última parte, sem controles nem separadores, sem começar com ponto. */
 export function safeFileName(raw: string): string {
   const base = raw.split(/[\\/]/).pop() ?? '';
-  let name = base
-    .normalize('NFC')
-    .replace(/[\u0000-\u001f\u007f:*?"<>|]/g, '_')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/^[.\s]+/, '');
+  let name = base.normalize('NFC').replace(/[\u0000-\u001f\u007f:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim().replace(/^[.\s]+/, '');
   if (!name) name = 'arquivo';
   if (name.length > NAME_MAX) {
     const dot = name.lastIndexOf('.');
@@ -42,93 +30,117 @@ export function safeFileName(raw: string): string {
   }
   return name;
 }
-
-/** Confere o corpo de POST /api/spawn/attachments: {name, type?, data (base64)}. */
-export function parseAttachment(raw: unknown): Attachment | { error: string } {
-  const r = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
-  const name = typeof r.name === 'string' ? safeFileName(r.name) : 'arquivo';
-  const type = typeof r.type === 'string' && /^[\w.+-]+\/[\w.+-]+$/.test(r.type) ? r.type : 'application/octet-stream';
-  if (typeof r.data !== 'string' || !r.data) return { error: tr('arquivo vazio') };
-  if (r.data.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(r.data)) return { error: tr('arquivo ilegível (base64)') };
-  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-  if ((r.data.endsWith('==') && (alphabet.indexOf(r.data.at(-3)!) & 15) !== 0) ||
-      (r.data.endsWith('=') && !r.data.endsWith('==') && (alphabet.indexOf(r.data.at(-2)!) & 3) !== 0)) return { error: tr('arquivo ilegível (base64)') };
-  const data = Buffer.from(r.data, 'base64');
-  if (!data.length) return { error: tr('arquivo vazio') };
-  if (data.length > ATTACHMENT_MAX_BYTES) return { error: tr('o arquivo passa de {0} MB', [ATTACHMENT_MAX_BYTES / 1024 / 1024]) };
-  return { name, type, data };
-}
-
-/** Anexos enviados, esperando o pedido do agente novo (em memória; o id volta para o navegador). */
-export class AttachmentStore {
-  private readonly items = new Map<string, Attachment & { at: number }>();
-  /** Bytes tirados por take() e ainda em memória (pedido na fila); quem tirou devolve com release(). */
-  private held = 0;
-
-  constructor(
-    private readonly now: () => number = Date.now,
-    private readonly newId: () => string = randomUUID,
-    private readonly maxBytes: number = STORE_MAX_BYTES,
-  ) {}
-
-  put(a: Attachment): { id: string } | { error: string } {
-    this.prune();
-    if (!a.data.length) return { error: tr('arquivo vazio') };
-    if (a.data.length > ATTACHMENT_MAX_BYTES) return { error: tr('o arquivo passa de {0} MB', [ATTACHMENT_MAX_BYTES / 1024 / 1024]) };
-    let total = a.data.length + this.held;
-    for (const it of this.items.values()) total += it.data.length;
-    if (total > this.maxBytes) return { error: tr('anexos demais esperando: envie o pedido ou tente de novo daqui a pouco') };
-    const id = this.newId();
-    this.items.set(id, { ...a, at: this.now() });
-    return { id };
-  }
-
-  /** Tira os anexos do depósito (cada um só serve a um pedido). Ids desconhecidos ou vencidos = erro. */
-  take(ids: unknown, limit = ATTACHMENTS_PER_SPAWN): Attachment[] | { error: string; attachmentsExpired?: true } {
-    this.prune();
-    if (ids === undefined) return [];
-    if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string')) return { error: tr('anexos inválidos') };
-    if (ids.length > limit) return { error: tr('no máximo {0} anexos por pedido', [limit]) };
-    if (new Set(ids).size !== ids.length) return { error: tr('anexos inválidos') };
-    const out: Attachment[] = [];
-    for (const id of ids as string[]) {
-      const it = this.items.get(id);
-      if (!it) return { error: tr('um anexo expirou: anexe de novo'), attachmentsExpired: true };
-      out.push({ name: it.name, type: it.type, data: it.data });
-    }
-    for (const id of ids as string[]) this.items.delete(id);
-    this.held += out.reduce((n, f) => n + f.data.length, 0);
-    return out;
-  }
-
-  /** Os anexos tirados por take() saíram da memória (gravados, entregues ao auxiliar ou descartados). */
-  release(bytes: number): void {
-    this.held = Math.max(0, this.held - bytes);
-  }
-
-  private prune(): void {
-    const now = this.now();
-    for (const [id, it] of this.items) if (now - it.at > ATTACHMENT_TTL_MS) this.items.delete(id);
-  }
-}
-
 export function attachmentsRoot(env: NodeJS.ProcessEnv = process.env): string {
   const root = env.HABBLAUD_ATTACHMENTS_DIR?.trim() || join(env.HOME || homedir(), '.habblaud', 'attachments');
   return isAbsolute(root) ? root : resolve(root);
 }
-
-
-/** Grava os anexos numa pasta nova (700; arquivos 600), com nomes únicos. Devolve os caminhos, na ordem. */
-export function writeAttachments(root: string, _requestId: string, files: readonly Attachment[]): string[] {
+interface Stored { file: Attachment; at: number; consumer: AttachmentConsumer; held: boolean }
+export interface AttachmentStoreOptions { dir?: string; now?: () => number; maxBytes?: number }
+export class AttachmentStore {
+  private readonly items = new Map<string, Stored>();
+  private bytes = 0;
+  private readonly dir: string;
+  private readonly now: () => number;
+  private readonly maxBytes: number;
+  constructor(opts: AttachmentStoreOptions = {}) {
+    this.dir = resolve(opts.dir ?? join(attachmentsRoot(), '.pending'));
+    this.now = opts.now ?? Date.now;
+    this.maxBytes = opts.maxBytes ?? STORE_MAX_BYTES;
+    mkdirSync(this.dir, { recursive: true, mode: 0o700 });
+    if (lstatSync(this.dir).isSymbolicLink()) throw new Error('unsafe attachment staging');
+    // Uma instância escritora por instalação. Só diretórios privados UUID são órfãos nossos.
+    for (const name of readdirSync(this.dir)) if (/^[0-9a-f-]{36}$/.test(name)) rmSync(join(this.dir, name), { recursive: true, force: true });
+  }
+  get usedBytes(): number { return this.bytes; }
+  async receive(req: IncomingMessage, consumer: AttachmentConsumer): Promise<{ id: string; name: string; size: number }> {
+    const media = req.headers['content-type']?.split(';')[0].trim().toLowerCase();
+    if (media !== 'application/octet-stream') throw new AttachmentError(415, tr('Envie o arquivo como binário (Content-Type: application/octet-stream).'));
+    const encoded = req.headers['x-habblaud-file-name'];
+    const mime = req.headers['x-habblaud-file-type'];
+    let raw: string;
+    try {
+      if (typeof encoded !== 'string' || !encoded || encoded.length > 2048 || (mime !== undefined && (typeof mime !== 'string' || mime.length > 256))) throw new Error();
+      raw = decodeURIComponent(encoded);
+      if (!raw.trim()) throw new Error();
+    } catch { throw new AttachmentError(400, tr('anexos inválidos')); }
+    const name = safeFileName(raw);
+    const type = typeof mime === 'string' && /^[\w.+-]+\/[\w.+-]+$/.test(mime) ? mime : 'application/octet-stream';
+    const length = req.headers['content-length'];
+    if (length !== undefined && (!/^\d+$/.test(length) || !Number.isSafeInteger(Number(length)))) throw new AttachmentError(400, tr('anexos inválidos'));
+    const expected = length === undefined ? undefined : Number(length);
+    if (expected !== undefined && expected > ATTACHMENT_MAX_BYTES) throw new AttachmentError(413, tr('o arquivo passa de {0} MB', [15]));
+    if (expected === 0) throw new AttachmentError(400, tr('arquivo vazio'));
+    this.prune();
+    const reserved = expected ?? ATTACHMENT_MAX_BYTES;
+    if (this.bytes + reserved > this.maxBytes) throw new AttachmentError(429, tr('anexos demais esperando: envie o pedido ou tente de novo daqui a pouco'));
+    this.bytes += reserved;
+    const id = randomUUID();
+    const dir = join(this.dir, id);
+    const path = join(dir, 'file');
+    let handle: FileHandle | undefined;
+    let size = 0;
+    let failure: AttachmentError | undefined;
+    let receiveError: Error | undefined;
+    const failed = (error: Error) => { receiveError = error; };
+    req.on('error', failed);
+    try {
+      await mkdir(dir, { mode: 0o700 });
+      handle = await open(path, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600);
+      if (receiveError) throw receiveError;
+      // Não usar pipeline(req,...): ela destrói o socket antes de o cliente receber 413.
+      for await (const chunk of req.iterator({ destroyOnReturn: false })) {
+        size += chunk.length;
+        if (size > ATTACHMENT_MAX_BYTES) { failure = new AttachmentError(413, tr('o arquivo passa de {0} MB', [15])); break; }
+        let offset = 0;
+        while (offset < chunk.length) offset += (await handle.write(chunk, offset, chunk.length - offset)).bytesWritten;
+      }
+      await handle.close(); handle = undefined;
+      if (failure) { req.resume(); throw failure; }
+      if (!size) throw new AttachmentError(400, tr('arquivo vazio'));
+      if (expected !== undefined && size !== expected) throw new AttachmentError(400, tr('anexos inválidos'));
+      this.bytes += size - reserved;
+      this.items.set(id, { file: { id, name, type, size, path }, consumer, held: false, at: this.now() });
+      return { id, name, size };
+    } catch (error) {
+      try { await handle?.close(); await rm(dir, { recursive: true, force: true }); }
+      finally { this.bytes -= reserved; }
+      throw error;
+    } finally { req.off('error', failed); }
+  }
+  take(ids: unknown, limit = ATTACHMENTS_PER_SPAWN, consumer: AttachmentConsumer = 'spawn'): Attachment[] | { error: string; attachmentsExpired?: true } {
+    this.prune();
+    if (ids === undefined) return [];
+    if (!Array.isArray(ids) || ids.some(id => typeof id !== 'string') || new Set(ids).size !== ids.length) return { error: tr('anexos inválidos') };
+    if (ids.length > limit) return { error: tr('no máximo {0} anexos por pedido', [limit]) };
+    const entries = ids.map(id => this.items.get(id));
+    if (entries.some(it => !it || it.held || it.consumer !== consumer)) return { error: tr('um anexo expirou: anexe de novo'), attachmentsExpired: true };
+    return entries.map(it => { it!.held = true; return it!.file; });
+  }
+  release(files: readonly Attachment[]): void {
+    for (const file of files) {
+      const item = this.items.get(file.id);
+      if (!item || item.file !== file) continue;
+      this.items.delete(file.id);
+      this.bytes -= file.size;
+      rmSync(dirname(file.path), { recursive: true, force: true });
+    }
+  }
+  private prune(): void {
+    for (const item of this.items.values()) if (!item.held && this.now() - item.at > ATTACHMENT_TTL_MS) this.release([item.file]);
+  }
+}
+/** Promove lote fechado no mesmo filesystem. Nenhum caminho é publicado antes do lote completo. */
+export async function writeAttachments(root: string, _requestId: string, files: readonly Attachment[]): Promise<string[]> {
   if (!files.length) return [];
   root = resolve(root);
-  mkdirSync(root, { recursive: true, mode: 0o700 });
+  await mkdir(root, { recursive: true, mode: 0o700 });
   const dir = join(root, randomUUID());
-  mkdirSync(dir, { mode: 0o700 });
+  await mkdir(dir, { mode: 0o700 });
   const used = new Set<string>();
+  const paths: string[] = [];
   try {
-    return files.map((f) => {
-      let name = safeFileName(f.name);
+    for (const file of files) {
+      let name = safeFileName(file.name);
       if (used.has(name.toLowerCase())) {
         const dot = name.lastIndexOf('.');
         const [stem, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ''];
@@ -138,19 +150,42 @@ export function writeAttachments(root: string, _requestId: string, files: readon
       }
       used.add(name.toLowerCase());
       const path = join(dir, name);
-      writeFileSync(path, f.data, { mode: 0o600, flag: 'wx' });
-      return path;
-    });
-  } catch (error) {
-    rmSync(dir, { recursive: true, force: true });
-    throw error;
+      await rename(file.path, path);
+      paths.push(path);
+    }
+    return paths;
+  } catch (error) { await rm(dir, { recursive: true, force: true }); throw error; }
+}
+/** Streams autorizados de um job; cancelamento só termina após fechar os descritores. */
+export class AttachmentTransfers {
+  private readonly active = new Set<{ abort: AbortController; done: Promise<void> }>();
+  serve(file: Attachment, res: ServerResponse): Promise<void> {
+    const abort = new AbortController();
+    const { promise: done, resolve: closed } = Promise.withResolvers<void>();
+    const transfer = { abort, done };
+    this.active.add(transfer);
+    return this.stream(file, res, abort.signal).finally(() => { this.active.delete(transfer); closed(); });
+  }
+  private async stream(file: Attachment, res: ServerResponse, signal: AbortSignal): Promise<void> {
+    const handle = await open(file.path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    try {
+      signal.throwIfAborted();
+      if ((await handle.stat()).size !== file.size) throw new Error('attachment size changed');
+      signal.throwIfAborted();
+      res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': file.size });
+      await pipeline(handle.createReadStream({ autoClose: false }), res, { signal });
+    } finally { await handle.close(); }
+  }
+  async close(): Promise<void> {
+    const active = [...this.active];
+    for (const transfer of active) transfer.abort.abort();
+    await Promise.allSettled(active.map(transfer => transfer.done));
   }
 }
-
 /** O pedido com a lista dos anexos no fim (o agente lê os arquivos pelos caminhos). */
 export function promptWithAttachments(prompt: string, paths: readonly string[]): string {
   if (!paths.length) return prompt;
-  const list = paths.map((p) => `- ${p}`).join('\n');
+  const list = paths.map(p => `- ${p}`).join('\n');
   const head = paths.length === 1 ? tr('Anexo enviado pelo Habblaud (leia antes de começar):') : tr('Anexos enviados pelo Habblaud (leia antes de começar):');
   return `${prompt.trim() ? `${prompt.trimEnd()}\n\n` : ''}${head}\n${list}`;
 }

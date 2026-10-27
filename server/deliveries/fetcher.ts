@@ -5,10 +5,12 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
+import type { ServerResponse } from 'node:http';
+import type { AttachmentDescriptor } from '../../shared/types';
 import { tr } from '../../shared/i18n';
 import { HostWait, pollWithWait } from '../host-wait';
 import { checkFile, DELIVERY_FILE_MAX_BYTES } from './files';
-import { ATTACHMENT_MAX_BYTES, STORE_MAX_BYTES, attachmentsRoot, writeAttachments, type Attachment } from '../spawn/attachments';
+import { ATTACHMENT_MAX_BYTES, AttachmentTransfers, attachmentsRoot, writeAttachments, type Attachment } from '../spawn/attachments';
 
 export const HOST_PRESENCE_MS = 10_000;
 export const WAIT_MS = 20_000;
@@ -20,7 +22,7 @@ export type FetchResult = { data: Buffer } | { error: string; status: number };
 export type AttachmentWriteResult = { paths: string[] } | { error: string; status: number };
 export type FileOperation =
   | { id: string; path: string; op?: 'read' }
-  | { id: string; op: 'writeAttachments'; path?: never; files: Array<{ name: string; type: string; data: string }> };
+  | { id: string; op: 'writeAttachments'; path?: never; files: AttachmentDescriptor[] };
 
 type Pending = {
   id: string;
@@ -28,7 +30,7 @@ type Pending = {
   timer: NodeJS.Timeout;
 } & (
   | { op: 'read'; path: string; done: (r: FetchResult) => void }
-  | { op: 'writeAttachments'; files: readonly Attachment[]; done: (r: AttachmentWriteResult) => void }
+  | { op: 'writeAttachments'; files: readonly Attachment[]; transfers: AttachmentTransfers; done: (r: AttachmentWriteResult) => void }
 );
 
 export interface FileFetcherOptions {
@@ -82,28 +84,24 @@ export class FileFetcher {
   }
 
   async writeAttachments(files: readonly Attachment[]): Promise<AttachmentWriteResult> {
-    if (files.length > 5 || files.some((f) => !f.data.length || f.data.length > ATTACHMENT_MAX_BYTES)) {
+    if (files.length > 5 || files.some((f) => !f.size || f.size > ATTACHMENT_MAX_BYTES)) {
       return { error: tr('anexos inválidos'), status: 400 };
     }
     if (!files.length) return { paths: [] };
     if (this.opts.direct) {
       try {
-        return { paths: writeAttachments(attachmentsRoot(), randomUUID(), files) };
+        return { paths: await writeAttachments(attachmentsRoot(), randomUUID(), files) };
       } catch {
         return { error: tr('não foi possível gravar os anexos'), status: 500 };
       }
     }
     if (!this.hostAvailable()) return { error: tr('o auxiliar do computador (npm run codex:bridge) não está rodando'), status: 503 };
-    let bytes = files.reduce((n, f) => n + f.data.length, 0);
-    for (const p of this.pending.values()) {
-      if (p.op === 'writeAttachments') bytes += p.files.reduce((n, f) => n + f.data.length, 0);
-    }
-    if (this.pending.size >= MAX_PENDING || bytes > STORE_MAX_BYTES) {
+    if (this.pending.size >= MAX_PENDING) {
       return { error: tr('anexos demais esperando: envie o pedido ou tente de novo daqui a pouco'), status: 429 };
     }
     const { promise, resolve: done } = Promise.withResolvers<AttachmentWriteResult>();
     const id = randomUUID();
-    this.pending.set(id, { id, op: 'writeAttachments', files, sent: false, timer: this.timeout(id), done });
+    this.pending.set(id, { id, op: 'writeAttachments', files, transfers: new AttachmentTransfers(), sent: false, timer: this.timeout(id), done });
     this.host.wake();
     return promise;
   }
@@ -113,7 +111,8 @@ export class FileFetcher {
       const p = this.pending.get(id);
       if (!p) return;
       this.pending.delete(id);
-      p.done({ error: tr('o computador não respondeu a tempo'), status: 504 });
+      if (p.op === 'writeAttachments') void p.transfers.close().then(() => p.done({ error: tr('o computador não respondeu a tempo'), status: 504 }));
+      else p.done({ error: tr('o computador não respondeu a tempo'), status: 504 });
     }, WAIT_MS);
     timer.unref?.();
     return timer;
@@ -129,10 +128,17 @@ export class FileFetcher {
       out.push(p.op === 'read' ? { id: p.id, path: p.path } : {
         id: p.id,
         op: 'writeAttachments',
-        files: p.files.map((f) => ({ name: f.name, type: f.type, data: f.data.toString('base64') })),
+        files: p.files.map(({ id, name, type, size }) => ({ id, name, type, size })),
       });
     }
     return out;
+  }
+
+  attachment(jobId: string, fileId: string, res: ServerResponse): Promise<void> | undefined {
+    const job = this.pending.get(jobId);
+    if (!job || job.op !== 'writeAttachments' || !job.sent) return undefined;
+    const file = job.files.find(file => file.id === fileId);
+    return file ? job.transfers.serve(file, res) : undefined;
   }
 
   /** Rodada com espera (?wait=1): sem nada pedido, fica parada até chegar um pedido ou passar `ms`. */
@@ -154,11 +160,11 @@ export class FileFetcher {
             new Set(x.paths).size !== x.paths.length) continue;
           this.pending.delete(p.id);
           clearTimeout(p.timer);
-          p.done({ paths: x.paths as string[] });
+          void p.transfers.close().then(() => p.done({ paths: x.paths as string[] }));
         } else if (x.ok === false && typeof x.error === 'string' && x.error) {
           this.pending.delete(p.id);
           clearTimeout(p.timer);
-          p.done({ error: x.error.slice(0, 200), status: 500 });
+          void p.transfers.close().then(() => p.done({ error: (x.error as string).slice(0, 200), status: 500 }));
         }
         continue;
       }
