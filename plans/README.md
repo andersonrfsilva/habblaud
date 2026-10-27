@@ -50,14 +50,14 @@ conditions e atualize sua linha ao terminar.
 | 026  | Timelapse e janela do Habblaud World baixados só quando abertos (issue upstream #73, seção 4) | P3 | M | — | DONE (branch `advisor/026-bundle-sob-demanda`, worktree `../habblaud-026`, `5cfd229` + `53e6a57`; não mesclado). JS na abertura 879.994 → 822.375 B (294.100 → 278.043 gzip). Com o mundo configurado (padrão), `settings-world` baixa logo após abrir: o ganho grande é para quem não usa o World |
 | 027  | Cache de sprites descarta a quarta parte mais antiga ao encher, em vez de zerar (issue upstream #73, seção 3) | P3 | S | — | DONE (branch `advisor/027-cache-de-sprites`, worktree `../habblaud-027`; não mesclado) |
 | 028  | Botão no canto inferior direito pausa e retoma as animações do escritório (não salvo; some no timelapse e na cidade) | P3 | S | — | DONE (branch `advisor/028-pausar-animacoes`, worktree `../habblaud-028`; revisão moveu os avisos do canto para cima do botão; não mesclado) |
-| 029  | Anexos no prompt: seletor, colar e arrastar, armazenamento centralizado por instalação e mounts isolados por tenant | P2 | L | 030 | TODO (bloqueio de memória resolvido no 030; resta revisão integrada da candidata `155e734` com mounts `0ed95c9`. Não reimplementar o transporte antigo; sem publicação) |
-| 030  | Upload binário por stream para disco, orçamento compartilhado e auxiliar sem base64 | P1 | L | — (base obrigatória: candidata 029 `c19afb0`) | DONE (código `155e734`, merge local `0697614` em `producao`; typecheck, build e smoke direct/misto sob 256 MiB passaram após merge. Ver `030-resultado.md`; sem push/deploy) |
+| 029  | Anexos no prompt: seletor, colar e arrastar, armazenamento centralizado por instalação e mounts isolados por tenant | P2 | L | 030 | TODO (upload publicado no ambiente pessoal em `7e164a5`; resta aceite integrado dos tenants com mounts `0ed95c9`. Não reimplementar o transporte antigo; tenants não atualizados) |
+| 030  | Upload binário por stream para disco, orçamento compartilhado e auxiliar sem base64 | P1 | L | — (base obrigatória: candidata 029 `c19afb0`) | DONE (código `155e734`, merge `0697614`; revisão `7e164a5` publicada no Podman pessoal, serviço saudável e upload/OMP real verificados. Ver `030-resultado.md`; sem push ou deploy nos tenants) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 
 ## Dependency notes
 
-- 029 inclui integração no clone `../omp-tenant`: origem de volume fora do HOME manipulável pelo usuário, escrita só no Habblaud e leitura no omp. Não publicar antes da prova em pods descartáveis; produção permanece inalterada.
+- 029 inclui integração no clone `../omp-tenant`: origem de volume fora do HOME manipulável pelo usuário, escrita só no Habblaud e leitura no omp. O ambiente pessoal já foi publicado e verificado; a validação/publicação por tenant permanece separada e nenhum tenant foi alterado.
 - Investigação do OOM do 029: `029-upload-lab-results.md`; implementação e provas do servidor completo aprovadas no 030: `030-resultado.md`. O pico máximo independente foi 126,8 MiB, incluindo pagecache, nas cargas descritas.
 - 030 partiu da candidata `c19afb0` e substituiu sua arquitetura de upload; a candidata de integração passa a ser `155e734`. O 029 não depende mais de resolver RAM: resta seu aceite integrado com os mounts `0ed95c9`, antes da decisão de publicação.
 - 023 é independente. Usa a trava `terminal`, que os pods já liberam em `HABBLAUD_REMOTE_ALLOW`: nada muda no

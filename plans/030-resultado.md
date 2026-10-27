@@ -98,3 +98,25 @@ A primeira instância gerenciada do navegador apresentou falhas de worker/retân
 - `git diff --exit-code 155e734 HEAD -- . ':(exclude)plans/**'` confirmou produto idêntico à candidata aprovada; por isso, os resultados da suíte completa permanecem aplicáveis.
 - Após o merge, `npm run typecheck`, `npm run build` e `python3 plans/030-upload-fullapp-smoke.py --memory 256m --repeats 1 --topology direct` passaram. Rodada normal e mista entregaram os cinco arquivos com hashes corretos, sem OOM; maior pico de 128360448 bytes.
 - Evidência pós-merge: `artifact://251`. Nenhum push, deploy, restart de produção ou merge do repositório de tenants foi realizado.
+
+## Deploy posterior no ambiente pessoal
+
+- Publicado a pedido do usuário em 2026-10-27, somente na instância pessoal `habblaud.service` do systemd de usuário. Não houve atualização dos tenants.
+- Revisão da imagem: `7e164a5bf16b45aa0ba3501c931bae77eeb89292`, `dirty=false`, confirmada em `/app/dist/build.json` dentro do contêiner ativo.
+- Imagem construída por `deploy/podman/Containerfile`, com `HABBLAUD_BUILD_COMMIT`/`HABBLAUD_BUILD_DIRTY` e label OCI de revisão. Tag construída `localhost/habblaud:deploy-7e164a5`, promovida para `localhost/habblaud:producao`.
+- Imagem ativa nova: `54993768e7c8fc6be5e39cf846c22093c3bcaf28c866f886f3457fb5799dbb15`.
+- Imagem anterior preservada em `localhost/habblaud:rollback-c987dd8fdaf6`, digest local `c987dd8fdaf67388220cc8b8f54f8928aeaf8e2196c5e2d65a9141e4e8056b43`.
+- Unit, volumes, configuração de acesso remoto e arquivos de autenticação não foram alterados. Configuração ativa é `HABBLAUD_IN_DOCKER=0`: servidor grava diretamente em `~/.habblaud/attachments`; não precisa do auxiliar do host.
+- `systemctl --user restart habblaud.service` concluiu; estado `active/running`. `podman healthcheck run habblaud` passou; contêiner `healthy`; `/api/health` retornou `ok=true`.
+- Prova na interface publicada em `http://127.0.0.1:4747`: seletor nativo enviou `prova de upload.txt`, sem texto, para uma sessão OMP descartável exclusiva. POST retornou 201, mensagem `m-mvqwe6rd-1-B-5nFTysvUv3` ficou `delivered`.
+- Arquivo foi persistido em `~/.habblaud/attachments/4e8912fa-53c7-4208-b2c3-7cb71b23dd70/`; agente executou read e respondeu exatamente `DEPLOY-7e164a5-yd5OCO`. Leitura independente no host confirmou os mesmos bytes. Nenhuma mensagem de teste foi enviada às sessões de trabalho existentes.
+- Captura: `/tmp/omp-sshots-15b6d932a985721e.webp`. Nenhum erro de página foi observado na consulta efetuada.
+- Sessão, bucket de transcrição, arquivo final de teste, diretório temporário e Chromium próprios foram encerrados/removidos após a prova. Os agentes de trabalho do usuário não foram reiniciados.
+- Atualizar abas antigas com reload: o novo servidor rejeita o formato JSON/base64 antigo de anexos. Nenhum push foi feito.
+
+Rollback disponível, não executado:
+
+```sh
+podman tag localhost/habblaud:rollback-c987dd8fdaf6 localhost/habblaud:producao
+systemctl --user restart habblaud.service
+```
