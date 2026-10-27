@@ -430,6 +430,8 @@ class AgentView {
     ]);
     for (const level of OMP_THINKING_LEVELS) this.thinkSel.append(h('option', { text: level, attrs: { value: level } }));
     this.modelSel.addEventListener('change', () => void this.control({ model: this.modelSel.value }));
+    // A troca das opções adiada com o seletor aberto (renderControls) sai quando o foco deixa o seletor.
+    this.modelSel.addEventListener('blur', () => this.render());
     this.thinkSel.addEventListener('change', () => void this.control({ thinking: this.thinkSel.value }));
     const statsSec = section(tr('Estatísticas'), this.stats.el, this.ctlStatus);
     this.codexHint = h('p', { class: 'ui-codex-hint', hidden: true }, ...richText(CODEX_LIVE_HINT));
@@ -781,7 +783,10 @@ class AgentView {
     // Sem lista da extensão (ou modelo fora dela): só o atual, para o seletor nunca mentir.
     const options = current ? models : [...(a.model ? [''] : []), ...models];
     const key = `${options.join('\n')}|${a.model ?? ''}`;
-    if (key !== this.modelOptions) {
+    // Não mexe no seletor aberto: o usuário está escolhendo. Recriar as opções volta a seleção para a primeira (e o
+    // navegador, ao fechar a lista, dispara `change` com ela); a troca fica para depois do foco sair.
+    const open = document.activeElement === this.modelSel;
+    if (key !== this.modelOptions && !open) {
       this.modelOptions = key;
       this.modelSel.replaceChildren(
         ...(current ? [] : [h('option', { text: prettyModel(a.model), attrs: { value: '' } })]),
@@ -792,8 +797,7 @@ class AgentView {
         }),
       );
     }
-    // Não mexe no seletor aberto: o usuário está escolhendo.
-    if (document.activeElement !== this.modelSel) this.modelSel.value = current;
+    if (!open) this.modelSel.value = current;
     if (document.activeElement !== this.thinkSel) this.thinkSel.value = a.thinking ?? '';
   }
 
