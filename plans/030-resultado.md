@@ -90,3 +90,11 @@ A primeira instância gerenciada do navegador apresentou falhas de worker/retân
 - Anexos finais continuam acumulando disco até limpeza manual. O orçamento de 120 MiB é de pendentes/reservas, não quota persistente de finais.
 - A mudança HTTP é um cutover conjunto: atualizar servidor, página e auxiliar juntos e recarregar páginas antigas; sem fallback base64. Caminhos finais existentes são preservados.
 - Serviços/abas/contêineres e dados próprios de smoke foram encerrados/removidos. Branch e worktree de implementação permanecem para revisão do operador.
+
+## Integração posterior solicitada pelo usuário
+
+- Planos e evidências commitados em `producao`: `4568dd3`, `docs(plans): record upload migration evidence`.
+- Candidata `advisor/030-upload-binario-em-disco` mesclada localmente por merge commit `0697614`, `merge: 030 upload binário em disco`. Inclui `c19afb0` e `155e734`.
+- `git diff --exit-code 155e734 HEAD -- . ':(exclude)plans/**'` confirmou produto idêntico à candidata aprovada; por isso, os resultados da suíte completa permanecem aplicáveis.
+- Após o merge, `npm run typecheck`, `npm run build` e `python3 plans/030-upload-fullapp-smoke.py --memory 256m --repeats 1 --topology direct` passaram. Rodada normal e mista entregaram os cinco arquivos com hashes corretos, sem OOM; maior pico de 128360448 bytes.
+- Evidência pós-merge: `artifact://251`. Nenhum push, deploy, restart de produção ou merge do repositório de tenants foi realizado.

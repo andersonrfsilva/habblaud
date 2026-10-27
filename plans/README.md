@@ -51,7 +51,7 @@ conditions e atualize sua linha ao terminar.
 | 027  | Cache de sprites descarta a quarta parte mais antiga ao encher, em vez de zerar (issue upstream #73, seção 3) | P3 | S | — | DONE (branch `advisor/027-cache-de-sprites`, worktree `../habblaud-027`; não mesclado) |
 | 028  | Botão no canto inferior direito pausa e retoma as animações do escritório (não salvo; some no timelapse e na cidade) | P3 | S | — | DONE (branch `advisor/028-pausar-animacoes`, worktree `../habblaud-028`; revisão moveu os avisos do canto para cima do botão; não mesclado) |
 | 029  | Anexos no prompt: seletor, colar e arrastar, armazenamento centralizado por instalação e mounts isolados por tenant | P2 | L | 030 | TODO (bloqueio de memória resolvido no 030; resta revisão integrada da candidata `155e734` com mounts `0ed95c9`. Não reimplementar o transporte antigo; sem publicação) |
-| 030  | Upload binário por stream para disco, orçamento compartilhado e auxiliar sem base64 | P1 | L | — (base obrigatória: candidata 029 `c19afb0`) | DONE (branch `advisor/030-upload-binario-em-disco`, worktree `../habblaud-030`, commit `155e734`; testes e app completo direct/bridge sob 256 MiB aprovados. Ver `030-resultado.md`; não mesclado/publicado) |
+| 030  | Upload binário por stream para disco, orçamento compartilhado e auxiliar sem base64 | P1 | L | — (base obrigatória: candidata 029 `c19afb0`) | DONE (código `155e734`, merge local `0697614` em `producao`; typecheck, build e smoke direct/misto sob 256 MiB passaram após merge. Ver `030-resultado.md`; sem push/deploy) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 
