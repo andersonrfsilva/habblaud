@@ -473,6 +473,12 @@ class OmpLineParser {
         this.out.signals.push({ type: 'usage', tokensIn, tokensOut });
         this.out.changed = true;
       }
+      // Custo estimado que o próprio omp calcula por resposta (usage.cost.total, em USD).
+      const cost = num(rec(usage.cost)?.total);
+      if (cost) {
+        this.s.stats.costUSD = Math.round(((this.s.stats.costUSD ?? 0) + cost) * 1e6) / 1e6;
+        this.out.changed = true;
+      }
     }
     switch (m.stopReason) {
       case 'toolUse':

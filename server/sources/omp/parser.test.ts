@@ -86,6 +86,7 @@ describe('saída limpa (session_exit)', () => {
     expect(r.state.stats.tokensOut).toBe(usages.reduce((n, u) => n + u.tokensOut, 0));
     expect(usages[0]).toMatchObject({ tokensIn: 4 + 15419, tokensOut: 95 });
     expect(r.state.stats.toolCalls).toBe(2);
+    expect(r.state.stats.costUSD).toBe(0.102804); // soma de usage.cost.total: 0.062634 + 0.0078639 + 0.0323056
   });
 
   it('modelo da última resposta (vale mais que o model_change), com o provedor como no model_change', () => {
