@@ -1,6 +1,6 @@
 // Rotas da API (/api/*). Respostas JSON; rotas desconhecidas -> 404 JSON.
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { NAME_MAX, parseAppearanceParts, parseCharacterName, parseSeed } from '../../shared/appearance';
+import { parseCastMember } from '../model/cast';
 import type { AccessInfo, AgentInfo, ModSummary, OfficeSnapshot, SourceInfo, UpdateStatus } from '../../shared/types';
 import type { AccountsService } from '../accounts/service';
 import { handleCodexEvent } from '../codex/http';
@@ -123,8 +123,9 @@ const TERMINAL_ROUTE = /^\/api\/agents\/([^/]+)\/terminal$/;
 /** POST /api/agents/:id/stop|takeover (terminal interativo). */
 const AGENT_ACTION_ROUTE = /^\/api\/agents\/[^/]+\/(stop|takeover)$/;
 
-/** PUT|DELETE /api/agents/:id/character: personagem do projeto (ver Office.setCharacter). */
-const CHARACTER_ROUTE = /^\/api\/agents\/([^/]+)\/character$/;
+/** Elenco e vínculo de um agente principal. */
+const CAST_ROUTE = /^\/api\/cast\/([a-z0-9-]{1,40})$/;
+const AGENT_CAST_ROUTE = /^\/api\/agents\/([^/]+)\/cast$/;
 const NOT_EDITABLE = tr('agente não encontrado: só o agente principal de uma sessão aberta tem personagem editável');
 
 /** Conexão vinda do próprio computador (127.x, ::1 ou ::ffff:127.x). */
@@ -323,23 +324,38 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
     sendJson(res, 200, { ok: true, roomByProject: set(body.roomByProject) });
   };
 
-  const handleCharacter = async (req: IncomingMessage, res: ServerResponse, id: string, method: string) => {
-    if (method === 'DELETE') {
-      req.resume();
-      if (office.resetCharacter(id) === 'not-found') return sendJson(res, 404, { error: NOT_EDITABLE });
+  const handleCast = async (req: IncomingMessage, res: ServerResponse, method: string, id?: string, agentId?: string) => {
+    if (agentId) {
+      if (method === 'DELETE') {
+        req.resume();
+        return sendJson(res, office.undress(agentId) === 'ok' ? 200 : 404, { ok: true });
+      }
+      const body = await readJson(req) as { cast?: unknown } | null;
+      if (typeof body?.cast !== 'string') throw new HttpError(400, tr('id inválido'));
+      const result = office.dress(agentId, body.cast);
+      if (result === 'not-found') return sendJson(res, 404, { error: NOT_EDITABLE });
+      if (result === 'conflict') return sendJson(res, 409, { error: tr('personagem ocupado') });
+      if (result === 'room') return sendJson(res, 422, { error: tr('personagem não trabalha nesta sala') });
       return sendJson(res, 200, { ok: true });
     }
-    const body = (await readJson(req)) as { name?: unknown; seed?: unknown; parts?: unknown } | null;
-    const name = parseCharacterName(body?.name);
-    const seed = parseSeed(body?.seed);
-    const parts = parseAppearanceParts(body?.parts);
-    if (!name || seed === null || !parts) {
-      throw new HttpError(400, tr('esperado {name: texto de 1 a {0} caracteres, seed: inteiro de 0 a 4294967295, parts: peças da aparência}', [NAME_MAX]));
+    if (method === 'GET') return sendJson(res, 200, { members: office.cast.list() });
+    if (method === 'DELETE') {
+      req.resume();
+      return sendJson(res, office.deleteCast(id!) ? 200 : 404, { ok: true });
     }
-    const r = office.setCharacter(id, { name, seed, parts });
-    if (r.result === 'not-found') return sendJson(res, 404, { error: NOT_EDITABLE });
-    if (r.result === 'conflict') return sendJson(res, 409, { error: r.message });
-    sendJson(res, 200, { ok: true });
+    const body = await readJson(req);
+    if (!body || typeof body !== 'object' || Array.isArray(body)) throw new HttpError(400, tr('membro do elenco inválido'));
+    const old = id ? office.cast.get(id) : undefined;
+    if (id && !old) return sendJson(res, 404, { error: tr('membro do elenco não encontrado') });
+    const data = body as Record<string, unknown>;
+    if (data.home === null) delete old?.home;
+    if (data.match === null) delete old?.match;
+    if (data.home === null) delete data.home;
+    if (data.match === null) delete data.match;
+    const member = parseCastMember({ ...old, ...data, id: id ?? office.cast.nextId(typeof data.name === 'string' ? data.name : '') });
+    if (!member) throw new HttpError(400, tr('membro do elenco inválido'));
+    if (office.putCast(member) === 'conflict') return sendJson(res, 409, { error: tr('nome já está em uso') });
+    return sendJson(res, method === 'POST' ? 201 : 200, { member });
   };
 
   /**
@@ -500,23 +516,17 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       else deps.pty(req, res, path);
       return true;
     }
-    const characterMatch = CHARACTER_ROUTE.exec(path);
-    if (characterMatch) {
-      // Mudar o personagem age sobre o escritório: a mesma trava do terminal (bind local + Host local).
-      if (method !== 'PUT' && method !== 'DELETE') methodNotAllowed(res, 'PUT, DELETE');
-      else if (!deps.terminal) {
-        sendJson(res, 403, { error: tr('editar o personagem desligado: só funciona com o Habblaud acessível apenas pelo próprio computador') });
-      } else if (!trusted(req)) {
-        sendJson(res, 403, { error: denied(req, tr('o personagem só é editado pelo próprio computador (http://localhost ou http://127.0.0.1)')) });
-      } else {
-        let id: string;
-        try {
-          id = decodeURIComponent(characterMatch[1]);
-        } catch {
-          sendJson(res, 400, { error: tr('id inválido') });
-          return true;
-        }
-        handleCharacter(req, res, id, method).catch((err) => fail(res, err));
+    const castMatch = CAST_ROUTE.exec(path);
+    const agentCastMatch = AGENT_CAST_ROUTE.exec(path);
+    if (path === '/api/cast' || castMatch || agentCastMatch) {
+      const allow = agentCastMatch ? 'PUT, DELETE' : castMatch ? 'PUT, DELETE' : 'GET, POST';
+      if (!allow.split(', ').includes(method)) methodNotAllowed(res, allow);
+      else if (!deps.terminal || !trusted(req)) sendJson(res, 403, { error: tr('o elenco só pode ser editado pelo próprio computador') });
+      else {
+        let agentId: string | undefined;
+        try { agentId = agentCastMatch ? decodeURIComponent(agentCastMatch[1]) : undefined; }
+        catch { sendJson(res, 400, { error: tr('id inválido') }); return true; }
+        handleCast(req, res, method, castMatch?.[1], agentId).catch((err) => fail(res, err));
       }
       return true;
     }

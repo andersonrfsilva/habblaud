@@ -213,6 +213,7 @@ describe('ClaudeWatcher', () => {
 
   it('subagente em primeiro plano: entra, trabalha e entrega ao concluir', () => {
     const mainId = bootWithSession();
+    c.office.cast.put({ id: 'explorer', name: 'Explorador', look: 'm', seed: 1, kind: 'sub', match: ['Explore'], rooms: [] });
     appendLines(c.transcript('sess-a'), [L.assistant([L.tool('toolu_f', 'Agent', { description: 'Mapear arquivos', subagent_type: 'Explore', prompt: 'x' })])]);
     c.subFile('sess-a', 'f1', { agentType: 'Explore', description: 'Mapear arquivos', toolUseId: 'toolu_f', spawnDepth: 1, requestShape: 'foreground' }, [
       L.prompt('Mapeie os arquivos do carrinho', { agentId: 'f1' }),
@@ -222,6 +223,7 @@ describe('ClaudeWatcher', () => {
     const sub = c.agent('sess-a:f1')!;
     const main = c.agent(mainId)!;
     expect(sub).toMatchObject({ kind: 'sub', parentId: mainId, role: 'Explore', title: 'Mapear arquivos', status: 'working', account: '.claude', roomId: CWD });
+    expect(sub.cast).toBe('explorer');
     expect(sub.background).toBeUndefined();
     expect(sub.name).not.toBe(main.name);
     expect(sub.activity?.text).toBe('Buscando “useCart”');

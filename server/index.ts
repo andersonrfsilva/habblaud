@@ -20,6 +20,7 @@ import { DayStatsService } from './history/daystats';
 import { describeStateMigration, legacyEnvWarning, migrateLegacyStateDir } from './legacy';
 import { errMsg, log } from './log';
 import { NameStore } from './model/names';
+import { CastStore } from './model/cast';
 import { Office } from './model/office';
 import { RoomAliases } from './model/room-aliases';
 import { OmpSettings } from './sources/omp/settings';
@@ -82,6 +83,8 @@ if (legacyEnv) log.warn(legacyEnv);
 
 const names = new NameStore(join(config.dataDir, 'names.json'));
 names.load();
+const cast = new CastStore(join(config.dataDir, 'cast.json'));
+cast.load();
 // Nomes de sala escolhidos pelo usuário (botão direito > Renomear).
 const roomAliases = new RoomAliases(join(config.dataDir, 'rooms.json'));
 roomAliases.load();
@@ -126,6 +129,7 @@ const accounts = new AccountsService({
 });
 const office = new Office({
   names,
+  cast,
   roomAlias: (path) => roomAliases.get(path),
   version: config.version,
   // No modo dev o Vite serve o cliente direto do código-fonte: não há build para comparar.
@@ -633,6 +637,7 @@ function shutdown(signal: string): void {
     () => worldUplink?.stop(),
     () => world?.stop(),
     () => names.flush(),
+    () => cast.flush(),
     () => void closeVite?.(),
     () => remoteListener?.close(),
   ];
@@ -663,6 +668,11 @@ process.on('uncaughtException', (err) => {
   log.error(tr('Erro não tratado; encerrando para o reinício limpo: {0}', [`${errMsg(err)} ${frames}`.trim()]));
   try {
     names.flush();
+  } catch {
+    // saindo de qualquer jeito
+  }
+  try {
+    cast.flush();
   } catch {
     // saindo de qualquer jeito
   }

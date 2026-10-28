@@ -763,6 +763,7 @@ export class ClaudeWatcher implements AgentSource {
       parentId,
       sessionId: t.sessionId,
       role: subagentRole(meta, spawn?.subagentType),
+      agentType: meta?.agentType ?? spawn?.subagentType,
       title,
       background,
       startedAt: state.firstAt ?? now,

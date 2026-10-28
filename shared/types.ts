@@ -18,6 +18,18 @@ export interface AttachmentDescriptor {
 
 export type AgentKind = 'main' | 'sub';
 
+export interface CastMember {
+  id: string;
+  name: string;
+  look: 'f' | 'm';
+  seed: number;
+  parts?: AppearanceParts;
+  kind: 'main' | 'advisor' | 'sub';
+  match?: string[];
+  home?: string;
+  rooms: string[];
+}
+
 /**
  * De qual ferramenta vem o agente (ou a conta, a fonte, a sessão, o pedido). Nos tipos do protocolo o campo
  * `provider` é opcional e AUSENTE quer dizer 'claude' (tudo o que existia antes do Codex continua igual).
@@ -188,8 +200,10 @@ export interface AgentInfo {
   seed: number;
   /** Peças escolhidas no editor do personagem, aplicadas por cima da aparência da `seed` (ver shared/appearance.ts). */
   parts?: AppearanceParts;
-  /** Usa o personagem escolhido para o projeto (a sala): o painel oferece "Voltar ao sorteio". */
-  custom?: true;
+  /** Membro do elenco vestido pelo agente, quando houver. */
+  cast?: string;
+  /** Tipo do subagente informado pela fonte, quando conhecido. */
+  agentType?: string;
   /** Subagente rodando em segundo plano. */
   background?: boolean;
   /**

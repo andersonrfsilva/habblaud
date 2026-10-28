@@ -136,6 +136,13 @@ describe('ferramentas do omp', () => {
     expect(r.state.stats.subagents).toBeGreaterThan(0);
   });
 
+  it('guarda tipos por nome e usa task como padrão', () => {
+    const state = createOmpState();
+    const line = JSON.stringify({ type: 'message', message: { role: 'assistant', content: [{ type: 'toolCall', id: 't', name: 'task', arguments: { tasks: [{ name: 'Review', agent: 'reviewer' }, { name: 'Default' }] } }], stopReason: 'toolUse' } });
+    parseOmpLine(state, line, { idPrefix: 'omp:t', now: 1 });
+    expect([...state.subTypes]).toEqual([['Review', 'reviewer'], ['Default', 'task']]);
+  });
+
   it('title_change atualiza o título e sinaliza', () => {
     expect(r.state.title).toBe('Título da sessão');
     expect(r.signals.find((s) => s.type === 'title')).toEqual({ type: 'title', title: 'Título da sessão' });

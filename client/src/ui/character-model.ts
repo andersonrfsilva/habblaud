@@ -2,7 +2,7 @@
 // em português e o que vai para o servidor em `parts`. A interface fica em character-editor.ts.
 import { PART_KEYS, type AppearanceParts, type PartKey } from '../../../shared/appearance';
 import { isDemoId } from '../../../shared/timeline';
-import type { AgentInfo } from '../../../shared/types';
+import type { AgentInfo, CastMember } from '../../../shared/types';
 import type { Appearance } from '../art/api';
 import { tr } from '../../../shared/i18n';
 
@@ -103,4 +103,18 @@ export function styleLabel(key: PartKey, value: string): string {
 /** A linha aparece com esta aparência? (sem acessório, não há cor de acessório para escolher) */
 export function rowVisible(r: EditorRow, a: Pick<Appearance, 'accessory'>): boolean {
   return !(r.key === 'accessoryColor' && a.accessory === 'none');
+}
+
+export function castUnavailable(member: CastMember, agent: AgentInfo, agents: readonly AgentInfo[]): string | undefined {
+  if (member.rooms.length && !member.rooms.includes(agent.roomId)) return tr('Não trabalha nesta sala');
+  if (agents.some((a) => a.id !== agent.id && a.cast === member.id && a.status !== 'offline' && a.status !== 'done')) return tr('Ocupado');
+  return undefined;
+}
+
+export function validateCast(name: string, rooms: string[], home: string, match: string[]): string | undefined {
+  if (!name.trim() || [...name.trim()].length > 24) return tr('Dê um nome válido ao personagem.');
+  if (home && !rooms.includes(home)) return tr('A sala principal precisa estar entre as salas permitidas.');
+  if (match.length > 20 || match.some((value) => value.length > 60)) return tr('Tipos de subagente inválidos.');
+  if (rooms.length > 50) return tr('Escolha no máximo 50 salas.');
+  return undefined;
 }

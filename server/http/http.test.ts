@@ -172,17 +172,15 @@ describe('API HTTP', () => {
     expect((await snapshotOf(env.base)).meta.terminal).toBe(false);
   });
 
-  it('personagem: PUT e DELETE desligados sem o terminal (403)', async () => {
-    const res = await fetch(`${env.base}/api/agents/${encodeURIComponent('.claude:1')}/character`, {
+  it('elenco: acesso desligado sem o terminal (403)', async () => {
+    const res = await fetch(`${env.base}/api/agents/${encodeURIComponent('.claude:1')}/cast`, {
       method: 'PUT',
       headers: JSON_HEADERS,
-      body: JSON.stringify({ name: 'Ana', seed: 1, parts: {} }),
+      body: JSON.stringify({ cast: 'ana' }),
     });
     expect(res.status).toBe(403);
-    expect(((await res.json()) as { error: string }).error).toMatch(/desligado/);
-    const del = await fetch(`${env.base}/api/agents/${encodeURIComponent('.claude:1')}/character`, { method: 'DELETE', headers: JSON_HEADERS, body: '{}' });
-    expect(del.status).toBe(403);
-    expect(((await del.json()) as { error: string }).error).toMatch(/desligado/);
+    expect((await fetch(`${env.base}/api/cast`)).status).toBe(403);
+    expect((await fetch(`${env.base}/api/agents/${encodeURIComponent('.claude:1')}/cast`, { method: 'DELETE', headers: JSON_HEADERS })).status).toBe(403);
   });
 
   it('POST /api/demo liga e desliga', async () => {
@@ -283,73 +281,43 @@ describe('API HTTP', () => {
   });
 });
 
-describe('personagem do projeto (PUT/DELETE /api/agents/:id/character)', () => {
+describe('elenco (API)', () => {
   let env: Awaited<ReturnType<typeof start>>;
-  beforeEach(async () => {
-    env = await start({ terminal: true });
-  });
-  afterEach(async () => {
-    await env.close();
-    env.cleanup();
-  });
+  beforeEach(async () => { env = await start({ terminal: true }); });
+  afterEach(async () => { await env.close(); env.cleanup(); });
+  const request = (path: string, method: string, body?: unknown) => fetch(`${env.base}${path}`, { method, headers: JSON_HEADERS, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  const agentPath = (id = '.claude:1') => `/api/agents/${encodeURIComponent(id)}/cast`;
+  const member = { name: 'Ana Backend', look: 'f', seed: 7, kind: 'main', rooms: ['/p/loja'], home: '/p/loja', parts: { skin: '#5a3623' } };
 
-  const url = (id = '.claude:1') => `${env.base}/api/agents/${encodeURIComponent(id)}/character`;
-  const put = (body: unknown, id?: string) => fetch(url(id), { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify(body) });
-  const agentOf = async (id = '.claude:1') => (await snapshotOf(env.base)).agents.find((a) => a.id === id)!;
-
-  it('PUT grava e o snapshot traz nome, seed, peças e custom; DELETE volta ao sorteio', async () => {
-    const before = await agentOf();
-    const res = await put({ name: '  Ana   Backend ', seed: 7, parts: { hairStyle: 'bob', skin: '#5A3623' } });
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true });
-    await vi.waitFor(async () =>
-      expect(await agentOf()).toMatchObject({ name: 'Ana Backend', seed: 7, parts: { skin: '#5a3623', hairStyle: 'bob' }, custom: true }),
-    );
-    const del = await fetch(url(), { method: 'DELETE', headers: JSON_HEADERS, body: '{}' });
-    expect(del.status).toBe(200);
-    await vi.waitFor(async () => expect(await agentOf()).toMatchObject({ name: before.name, seed: before.seed }));
-    expect((await agentOf()).custom).toBeUndefined();
+  it('cria, lista, veste, edita e apaga', async () => {
+    expect((await request('/api/cast', 'POST', member)).status).toBe(201);
+    expect((await (await request('/api/cast', 'GET')).json()).members).toMatchObject([{ id: 'ana-backend', name: member.name }]);
+    expect((await request(agentPath(), 'PUT', { cast: 'ana-backend' })).status).toBe(200);
+    expect(env.office.get('.claude:1')).toMatchObject({ cast: 'ana-backend', name: member.name });
+    expect((await request('/api/cast/ana-backend', 'PUT', { name: 'Ana Nova' })).status).toBe(200);
+    expect(env.office.get('.claude:1')?.name).toBe('Ana Nova');
+    expect((await request('/api/cast/ana-backend', 'PUT', { home: null, rooms: ['/p/web'] })).status).toBe(200);
+    expect(env.office.get('.claude:1')?.cast).toBeUndefined();
+    expect(env.office.cast.get('ana-backend')?.home).toBeUndefined();
+    expect((await request('/api/cast/ana-backend', 'DELETE')).status).toBe(200);
+    expect(env.office.get('.claude:1')?.cast).toBeUndefined();
   });
 
-  it('400 para nome, seed ou peças inválidos', async () => {
-    for (const body of [
-      { name: '', seed: 1, parts: {} },
-      { name: 'a'.repeat(25), seed: 1, parts: {} },
-      { name: 'Ana', seed: -1, parts: {} },
-      { name: 'Ana', seed: 1, parts: { skin: 'red' } },
-      { name: 'Ana', seed: 1, parts: { lanyard: '#ffffff' } },
-      { name: 'Ana', seed: 1 },
-      { name: 'Ana', seed: 1, parts: null },
-    ]) {
-      const res = await put(body);
-      expect(res.status, JSON.stringify(body)).toBe(400);
-    }
+  it('recusa ocupado, sala proibida e nomes duplicados', async () => {
+    expect((await request('/api/cast', 'POST', member)).status).toBe(201);
+    expect((await request('/api/cast', 'POST', member)).status).toBe(409);
+    expect((await request(agentPath(), 'PUT', { cast: 'ana-backend' })).status).toBe(200);
+    env.office.addMain({ id: '.claude:2', account: '.claude', sessionId: 's2', cwd: '/p/loja', role: 'Agente principal', startedAt: Date.now(), status: 'working' });
+    expect((await request(agentPath('.claude:2'), 'PUT', { cast: 'ana-backend' })).status).toBe(409);
+    env.office.moveMain('.claude:2', '/p/web');
+    expect((await request(agentPath('.claude:2'), 'PUT', { cast: 'ana-backend' })).status).toBe(422);
   });
 
-  it('404 para subagente e agente desconhecido; 409 para nome de quem está no escritório', async () => {
-    env.office.addSub({ id: 's1:x', parentId: '.claude:1', sessionId: 's1', role: 'Explore', background: false, startedAt: Date.now() });
-    expect((await put({ name: 'Ana', seed: 1, parts: {} }, 's1:x')).status).toBe(404);
-    expect((await put({ name: 'Ana', seed: 1, parts: {} }, 'nao-existe')).status).toBe(404);
-    for (const id of ['s1:x', 'nao-existe']) expect((await fetch(url(id), { method: 'DELETE', headers: JSON_HEADERS, body: '{}' })).status).toBe(404);
-    env.office.addMain({ id: '.claude:2', account: '.claude', sessionId: 's2', cwd: '/p/web', role: 'Agente principal', startedAt: Date.now(), status: 'working' });
-    const other = env.office.get('.claude:2')!.name;
-    const res = await put({ name: other, seed: 1, parts: {} });
-    expect(res.status).toBe(409);
-    expect(((await res.json()) as { error: string }).error).toBe(`${other} já está no escritório em web`);
-  });
-
-  it('403 com Host que não é local (mesmo liberado em HABBLAUD_ALLOWED_HOSTS); 405 para GET', async () => {
+  it('recusa host não local e remove a rota antiga', async () => {
     const port = new URL(env.base).port;
-    const r = await raw(env.base, `/api/agents/${encodeURIComponent('.claude:1')}/character`, {
-      method: 'PUT',
-      headers: { ...JSON_HEADERS, Host: `habblaud.lan:${port}` },
-      body: JSON.stringify({ name: 'Ana', seed: 1, parts: {} }),
-    });
+    const r = await raw(env.base, '/api/cast', { method: 'GET', headers: { Host: `habblaud.lan:${port}` } });
     expect(r.status).toBe(403);
-    expect(r.body).toMatch(/próprio computador/);
-    const get = await fetch(url());
-    expect(get.status).toBe(405);
-    expect(get.headers.get('allow')).toBe('PUT, DELETE');
+    expect((await request(`/api/agents/${encodeURIComponent('.claude:1')}/character`, 'PUT', {})).status).toBe(405);
   });
 });
 

@@ -11987,3 +11987,20 @@ button.ui-files__open { cursor: pointer; }
 .ui-world-chip__visitors[hidden] {
   display: none;
 }
+
+.ui-cast {
+  width: min(680px, calc(100vw - 24px));
+  max-height: 90vh;
+  overflow: auto;
+  border: 1px solid #606174;
+  border-radius: 12px;
+  padding: 16px;
+  color: #f2f2f2;
+  background: #242431;
+}
+.ui-cast::backdrop { background: rgba(0, 0, 0, 0.6); }
+.ui-cast__heading, .ui-cast__row { display: flex; align-items: center; gap: 8px; }
+.ui-cast__heading h2, .ui-cast__row span { flex: 1; }
+.ui-cast__list, .ui-cast__form { display: grid; gap: 10px; }
+.ui-cast__form > label { display: grid; gap: 4px; }
+.ui-cast__check { display: flex; gap: 6px; overflow-wrap: anywhere; }

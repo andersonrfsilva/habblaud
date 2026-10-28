@@ -4,8 +4,7 @@
 // SSE segue conectado por baixo, com os snapshots ao vivo guardados até o stopReplay().
 // Também cuida da reconexão: quando o navegador desiste do stream (EventSource fechado após erro HTTP,
 // ex.: servidor reiniciando atrás de um proxy), tenta de novo com espera crescente.
-import type { AppearanceParts } from '../../../shared/appearance';
-import type { Activity, AgentDetail, AgentInfo, FeedItem, Notice, OfficeSnapshot, OmpControl, OutboxMessage, PermissionDecision, PermissionRequestInfo, RoomInfo } from '../../../shared/types';
+import type { Activity, AgentDetail, AgentInfo, CastMember, FeedItem, Notice, OfficeSnapshot, OmpControl, OutboxMessage, PermissionDecision, PermissionRequestInfo, RoomInfo } from '../../../shared/types';
 import type { AsideTopic } from '../../../shared/asides';
 import { DemoSimulator } from '../../../shared/demo/simulator';
 import { tr } from '../../../shared/i18n';
@@ -299,39 +298,44 @@ export class OfficeStore {
     return tr('Não foi possível responder (erro {0}).', [res.status]);
   }
 
-  /**
-   * Grava o personagem do projeto (PUT /api/agents/:id/character). Devolve undefined se deu certo, ou a mensagem de
-   * erro (nome em uso, acesso que não é local...).
-   */
-  async saveCharacter(id: string, body: { name: string; seed: number; parts: AppearanceParts }): Promise<string | undefined> {
-    return this.characterRequest(id, 'PUT', body);
-  }
-
-  /** "Voltar ao sorteio": apaga o personagem do projeto (DELETE /api/agents/:id/character). */
-  async resetCharacter(id: string): Promise<string | undefined> {
-    return this.characterRequest(id, 'DELETE', {});
-  }
-
-  private async characterRequest(id: string, method: 'PUT' | 'DELETE', body: object): Promise<string | undefined> {
-    if (this.mock || this.replay) return tr('Editar o personagem só funciona com o escritório ao vivo.');
-    let res: Response;
+  async castList(): Promise<{ members: CastMember[] } | { error: string }> {
     try {
-      res = await fetch(`/api/agents/${encodeURIComponent(id)}/character`, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
+      const res = await fetch('/api/cast');
+      const data = await res.json();
+      if (res.ok) return data as { members: CastMember[] };
+      return { error: typeof data.error === 'string' ? data.error : tr('Erro ao carregar o elenco.') };
+    } catch {
+      return { error: tr('Sem conexão com o Habblaud.') };
+    }
+  }
+
+  async saveCast(body: Omit<CastMember, 'id'> | CastMember): Promise<string | undefined> {
+    const id = 'id' in body ? body.id : undefined;
+    return this.castRequest(id ? `/api/cast/${encodeURIComponent(id)}` : '/api/cast', id ? 'PUT' : 'POST', { ...body, home: body.home ?? null, match: body.match ?? null });
+  }
+
+  async deleteCast(id: string): Promise<string | undefined> {
+    return this.castRequest(`/api/cast/${encodeURIComponent(id)}`, 'DELETE', {});
+  }
+
+  async dressCast(id: string, cast: string): Promise<string | undefined> {
+    return this.castRequest(`/api/agents/${encodeURIComponent(id)}/cast`, 'PUT', { cast });
+  }
+
+  async undressCast(id: string): Promise<string | undefined> {
+    return this.castRequest(`/api/agents/${encodeURIComponent(id)}/cast`, 'DELETE', {});
+  }
+
+  private async castRequest(path: string, method: 'POST' | 'PUT' | 'DELETE', body: object): Promise<string | undefined> {
+    if (this.mock || this.replay) return tr('Editar o personagem só funciona com o escritório ao vivo.');
+    try {
+      const res = await fetch(path, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      if (res.ok) return undefined;
+      const data = await res.json().catch(() => ({})) as { error?: unknown };
+      return typeof data.error === 'string' ? data.error : tr('Não foi possível salvar o personagem (erro {0}).', [res.status]);
     } catch {
       return tr('Sem conexão com o Habblaud.');
     }
-    if (res.ok) return undefined;
-    try {
-      const data = (await res.json()) as { error?: unknown };
-      if (typeof data.error === 'string') return data.error;
-    } catch {
-      // Resposta sem JSON (ex.: guard): usa a mensagem padrão.
-    }
-    return tr('Não foi possível salvar o personagem (erro {0}).', [res.status]);
   }
 
   // ---------------------------------------------------------------- mensagens pelo escritório
