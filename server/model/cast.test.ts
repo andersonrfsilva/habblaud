@@ -23,6 +23,19 @@ describe('CastStore', () => {
     again.load();
     expect(again.binding('s')).toBe('ana');
   });
+  it('migrates valid rooms and skips invalid and duplicate names', () => {
+    const dir = folder();
+    const names = JSON.stringify({ version: 1, names: {}, rooms: {
+      '/a': { name: 'Ana', look: 'f', seed: 1, at: 100 },
+      '/bad': { name: 'Bia', look: 'f', seed: -1, at: 100 },
+      '/duplicate': { name: 'ana', look: 'f', seed: 2, at: 100 },
+    } });
+    writeFileSync(join(dir, 'names.json'), names);
+    const store = new CastStore(join(dir, 'cast.json'), { now: () => 100 });
+    expect(() => store.load()).not.toThrow();
+    expect(store.list()).toEqual([ana]);
+    expect(readFileSync(join(dir, 'names.json.pre-031'), 'utf8')).toBe(names);
+  });
   it('preserves an unreadable file', () => {
     const file = join(folder(), 'cast.json');
     writeFileSync(file, '{');

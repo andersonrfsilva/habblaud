@@ -328,7 +328,8 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
     if (agentId) {
       if (method === 'DELETE') {
         req.resume();
-        return sendJson(res, office.undress(agentId) === 'ok' ? 200 : 404, { ok: true });
+        if (office.undress(agentId) === 'not-found') return sendJson(res, 404, { error: NOT_EDITABLE });
+        return sendJson(res, 200, { ok: true });
       }
       const body = await readJson(req) as { cast?: unknown } | null;
       if (typeof body?.cast !== 'string') throw new HttpError(400, tr('id inválido'));

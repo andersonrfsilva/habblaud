@@ -494,6 +494,14 @@ describe('Office: elenco', () => {
     expect(notices.some((n) => n.includes('não trabalha'))).toBe(true);
   });
 
+  it('normaliza salas e casa antes de vestir a sessão', () => {
+    const { office, now } = makeOffice();
+    office.cast.put({ ...ana, home: '/tmp//x/', rooms: ['/tmp/x/', '/tmp//x'] });
+    expect(office.cast.get('ana')).toMatchObject({ home: '/tmp/x', rooms: ['/tmp/x'] });
+    office.addMain(main('a', 's1', '/tmp/x', now()));
+    expect(office.get('a')?.cast).toBe('ana');
+  });
+
   it('não entrega o membro da sala quando outra sessão presente mantém vínculo fora dela', () => {
     const { office, now } = makeOffice();
     office.cast.put({ ...ana, rooms: [...ana.rooms] });

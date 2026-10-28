@@ -3516,4 +3516,6 @@ export const EN: Readonly<Record<string, string>> = {
   "Não foi possível gravar {0} ({1}); o elenco vale só nesta execução.": "Could not write {0} ({1}); the cast lasts only for this run.",
   "{0} não trabalha em {1}; {2} assumiu a sessão": "{0} does not work in {1}; {2} took the session",
   "{0} está ocupado em {1}; {2} assumiu a sessão": "{0} is busy in {1}; {2} took the session",
+  "Personagem de sala inválido ou repetido na migração do elenco; entrada ignorada.": "Invalid or duplicate room character during cast migration; entry skipped.",
+  "Não foi possível migrar o elenco ({0}).": "Could not migrate the cast ({0}).",
 };

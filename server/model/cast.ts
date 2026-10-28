@@ -4,6 +4,7 @@ import { nameKey, parseAppearanceParts, parseCharacterName, parseSeed } from '..
 import type { CastMember } from '../../shared/types';
 import { tr } from '../../shared/i18n';
 import { errMsg, log } from '../log';
+import { normalizeCwd } from './rooms';
 
 export type { CastMember } from '../../shared/types';
 const MAX_AGE = 60 * 24 * 3_600_000;
@@ -16,10 +17,12 @@ export function parseCastMember(raw: unknown): CastMember | null {
   const seed = parseSeed(v.seed);
   const parts = v.parts === undefined ? undefined : parseAppearanceParts(v.parts);
   if (typeof v.id !== 'string' || !ID.test(v.id) || !name || seed === null || parts === null || (v.look !== 'f' && v.look !== 'm') || (v.kind !== 'main' && v.kind !== 'advisor' && v.kind !== 'sub')) return null;
-  if (!Array.isArray(v.rooms) || v.rooms.length > 50 || v.rooms.some((r) => typeof r !== 'string' || !r || r.length > 1024)) return null;
+  if (!Array.isArray(v.rooms) || v.rooms.length > 50 || v.rooms.some((r) => typeof r !== 'string' || !normalizeCwd(r) || r.length > 1024)) return null;
+  const rooms = [...new Set((v.rooms as string[]).map(normalizeCwd))];
   if (v.match !== undefined && (!Array.isArray(v.match) || v.match.length > 20 || v.match.some((m) => typeof m !== 'string' || !m.trim() || m.length > 60))) return null;
-  if (v.home !== undefined && (v.kind !== 'main' || typeof v.home !== 'string' || !v.home || v.home.length > 1024 || !v.rooms.includes(v.home))) return null;
-  return { id: v.id, name, seed, look: v.look, kind: v.kind, rooms: [...v.rooms], ...(parts && Object.keys(parts).length ? { parts } : {}), ...(v.match !== undefined ? { match: [...v.match as string[]] } : {}), ...(v.home !== undefined ? { home: v.home as string } : {}) };
+  const home = typeof v.home === 'string' ? normalizeCwd(v.home) : undefined;
+  if (v.home !== undefined && (v.kind !== 'main' || !home || (v.home as string).length > 1024 || !rooms.includes(home))) return null;
+  return { id: v.id, name, seed, look: v.look, kind: v.kind, rooms, ...(parts && Object.keys(parts).length ? { parts } : {}), ...(v.match !== undefined ? { match: [...v.match as string[]] } : {}), ...(home ? { home } : {}) };
 }
 
 export class CastStore {
@@ -67,20 +70,17 @@ export class CastStore {
   private migrate(): void {
     if (!this.file) return;
     const namesFile = join(dirname(this.file), 'names.json');
-    let rawNames: string;
-    try { rawNames = readFileSync(namesFile, 'utf8'); }
-    catch (err) { if ((err as NodeJS.ErrnoException).code === 'ENOENT') return; throw err; }
-    let data: { rooms?: unknown };
-    try { data = JSON.parse(rawNames); }
-    catch { return; }
-    {
+    try {
+      const data = JSON.parse(readFileSync(namesFile, 'utf8')) as { rooms?: unknown } | null;
       if (!data || !data.rooms || typeof data.rooms !== 'object' || Array.isArray(data.rooms)) return;
       for (const [room, raw] of Object.entries(data.rooms)) {
-        const old = raw as Record<string, unknown>;
-        if (!old || typeof old !== 'object') throw new Error('invalid room');
+        const old = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
         const id = this.nextId(typeof old.name === 'string' ? old.name : '');
         const member = parseCastMember({ ...old, id, kind: 'main', home: room, rooms: [room] });
-        if (!member || this.members.length >= 200 || this.members.some((m) => nameKey(m.name) === nameKey(member.name))) throw new Error('invalid or duplicate room character');
+        if (!member || this.members.length >= 200 || this.members.some((m) => nameKey(m.name) === nameKey(member.name))) {
+          log.warnOnce('cast-migrate-entry', tr('Personagem de sala inválido ou repetido na migração do elenco; entrada ignorada.'));
+          continue;
+        }
         this.members.push(member);
         if (typeof old.owner === 'string' && old.owner && old.owner.length <= 200) this.bindings.set(old.owner, { cast: id, at: typeof old.at === 'number' ? old.at : this.now() });
       }
@@ -89,6 +89,8 @@ export class CastStore {
       const tmp = `${this.file}.${process.pid}.tmp`;
       writeFileSync(tmp, JSON.stringify({ version: 1, members: this.members, bindings: Object.fromEntries(this.bindings) }));
       renameSync(tmp, this.file);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') log.warnOnce('cast-migrate', tr('Não foi possível migrar o elenco ({0}).', [errMsg(err)]));
     }
   }
 

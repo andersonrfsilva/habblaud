@@ -313,6 +313,12 @@ describe('elenco (API)', () => {
     expect((await request(agentPath('.claude:2'), 'PUT', { cast: 'ana-backend' })).status).toBe(422);
   });
 
+  it('DELETE de agente inexistente retorna erro 404', async () => {
+    const response = await request(agentPath('inexistente'), 'DELETE');
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: 'agente não encontrado: só o agente principal de uma sessão aberta tem personagem editável' });
+  });
+
   it('recusa host não local e remove a rota antiga', async () => {
     const port = new URL(env.base).port;
     const r = await raw(env.base, '/api/cast', { method: 'GET', headers: { Host: `habblaud.lan:${port}` } });
