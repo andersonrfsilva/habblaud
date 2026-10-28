@@ -1015,8 +1015,9 @@ mod/      o mod do Habblaud e os plugins de permissões e de mensagens (plugins 
 | `GET /api/snapshot` | Estado actual de la oficina. |
 | `GET /api/agents/:id` | Detalles de un agente, con hasta 200 actividades. |
 | `GET /api/agents/:id/terminal` | SSE de la terminal (eventos `init` y `append`); solo con acceso local. |
-| `PUT /api/agents/:id/character` | Editar el personaje: `{name, seed, parts}` guarda el nombre y la apariencia del agente principal como el personaje del proyecto (la sala); solo con acceso local. |
-| `DELETE /api/agents/:id/character` | "Volver al sorteo": borra el personaje del proyecto y el agente vuelve al nombre sorteado; solo con acceso local. |
+| `GET /api/cast`, `POST /api/cast` | Lista o crea miembros en `cast.json`; solo con acceso local. |
+| `PUT /api/cast/:id`, `DELETE /api/cast/:id` | Edita o elimina un miembro del elenco; solo con acceso local. |
+| `PUT /api/agents/:id/cast`, `DELETE /api/agents/:id/cast` | Asigna `{cast}` al agente principal o vuelve al sorteo. Las sesiones omp pueden solicitar un miembro con `HABBLAUD_CAST=<id>`. |
 | `GET /api/sessions/recent` | Historial: sesiones de los últimos 7 días de todas las cuentas (hasta 150); solo con acceso local. |
 | `GET /api/sessions/:conta/:sessionId/terminal` | SSE de la conversación de una sesión del historial (mismo protocolo que la terminal); solo con acceso local. |
 | `GET /api/stats?day=AAAA-MM-DD` | Estadísticas de Mi día (tiempo por estado, proyectos, cuentas, horas, esperas, tokens y costo). |

@@ -70,8 +70,12 @@ festa) ou 10 min. Push só avisa. O mesmo CI visto de novo em 2 min não repete 
 | `GET /api/snapshot` | `OfficeSnapshot` atual |
 | `GET /api/agents/:id` | `AgentDetail` (histórico de até 200 atividades) |
 | `GET /api/agents/:id/terminal` | SSE do terminal: eventos `init` e `append` (`TerminalMessage`); só com bind local (ver abaixo) |
-| `PUT /api/agents/:id/character` | personagem do projeto: `{name, seed, parts}` (ver abaixo); `200 {ok}`, `400`, `404` (não é o principal de uma sessão aberta), `409` (nome em uso); só com acesso local |
-| `DELETE /api/agents/:id/character` | "Voltar ao sorteio": apaga o personagem da sala; `200 {ok}` ou `404`; só com acesso local |
+| `GET /api/cast` | `{members}` sem vínculos; acesso local |
+| `POST /api/cast` | Cria membro sem `id`; 201, 400 ou 409 |
+| `PUT /api/cast/:id` | Edita membro e atualiza os agentes que o vestem |
+| `DELETE /api/cast/:id` | Apaga membro e vínculos; agentes voltam ao sorteio |
+| `PUT /api/agents/:id/cast` | `{cast}` veste um principal; 409 ocupado, 422 sala proibida |
+| `DELETE /api/agents/:id/cast` | Remove o vínculo e volta ao sorteio |
 | `GET /api/sessions/recent` | `RecentSessionsResponse`: sessões dos últimos 7 dias de todas as contas (até 150); mesma trava do terminal |
 | `GET /api/sessions/:conta/:sessionId/terminal` | SSE da conversa de uma sessão do histórico (mesmo protocolo do terminal); mesma trava |
 | `GET /api/stats?day=AAAA-MM-DD&tz=<IANA>&source=real\|demo` | `DayStatsResponse` do "Meu dia" (ver abaixo); padrões: hoje, fuso do servidor, demo se ligado e o dia é hoje |
@@ -357,34 +361,19 @@ snapshot e em `messages` no `/api/health`.
 Qualquer processo local consegue chamar essas rotas (como as de permissão): ligar as mensagens é aceitar que um
 programa da própria máquina possa digitar nas sessões que têm o plugin.
 
-## Personagem do projeto
+## Elenco de personagens
 
-`PUT /api/agents/:id/character` (`http/app.ts`, regras em `Office.setCharacter`) escolhe o nome e a aparência do agente
-principal `:id` e grava como o personagem da sala dele (o cwd normalizado), em `names.json` › `rooms`:
-`{name, look, seed, parts?, owner?, at}`.
+`cast.json` na pasta de dados guarda até 200 membros e 4000 vínculos de sessão, que expiram após 60 dias. Cada membro
+tem `id`, `name`, `look`, `seed`, `kind` (`main`, `advisor` ou `sub`), `rooms` e, opcionalmente, `parts`, `match` e
+`home`. Salas vazias permitem todas; `home`, quando definida, deve estar nas salas permitidas. Os nomes são únicos.
 
-O corpo tem três campos:
+O primeiro principal sem vínculo recebe o membro principal da sala; vínculos e `HABBLAUD_CAST=<id>` no ambiente do
+omp têm prioridade. Membro ocupado ou fora da sala resulta em sorteio. Advisor do omp e subagentes pelos tipos
+observados usam membros compatíveis. As salas organizam a escolha do personagem: não restringem ferramentas.
 
-- `name`: de 1 a 24 caracteres, em NFC, com os espaços repetidos juntados e sem caracteres de controle;
-- `seed`: inteiro de 0 a 4294967295;
-- `parts`: peças de `shared/appearance.ts`, com os estilos dos enums e as cores em `#rrggbb`. O cliente aplica as peças
-  por cima de `appearanceFromSeed(seed, {look})`.
-
-Regras:
-
-- Quando um principal chega a uma sala que tem personagem, e o nome está livre, ele nasce com `name`, `look`, `seed`,
-  `parts` e `custom: true`. Quem está saindo não conta, porque costuma ser a mesma sessão reaberta. Se o nome não
-  estiver livre, vale o sorteio de sempre.
-- O personagem tem dono (`owner`, o `sessionId` de quem o recebeu ou salvou por último; o `/clear` passa o dono para a
-  sessão nova): uma sessão que não é a dona e já tem nome guardado mantém o dela, para que um reinício do Habblaud
-  não troque identidades nem mude o personagem de uma sessão no meio dela.
-- Os nomes escolhidos ficam reservados: o sorteio não os entrega, sem diferenciar maiúsculas. O `PUT` responde `409`
-  para o nome de alguém presente (inclusive do demo) ou o de outra sala.
-- O `/clear` mantém o personagem e não grava o nome escolhido como o nome sorteado da sessão nova.
-- O `DELETE` apaga o personagem da sala, e o agente volta ao nome sorteado da sessão e à seed do id.
-- Trava: a mesma do terminal (bind local e `Host` local). Sem ela, `403`. Subagente, demo ou agente desconhecido dão
-  `404`.
-- Personagem sem uso há 60 dias some, como os nomes.
+As rotas do elenco seguem a trava do terminal (bind e Host locais). A migração de `names.json` › `rooms` cria
+`cast.json` e preserva o original em `names.json.pre-031`. Para rollback, restaure essa cópia e remova `cast.json`;
+vínculos criados depois da migração serão perdidos.
 
 ## Codex
 
