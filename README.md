@@ -592,22 +592,22 @@ and waits for the next request, give a new instruction or correct its course, wi
   From the [phone with login](#phone-with-login-and-https-approving-requests), only with `messages` in `HABBLAUD_REMOTE_ALLOW`.
 - In demo mode, the made-up agents also receive messages (pretend ones).
 
-### Editing the character
+### Character cast
 
-Each session arrives with a random name and look. To pin a project's character, open the main
-agent's details and click the pencil next to the name (**Edit character**). In the editor:
+Open **Cast** on the top bar to create, edit or delete fixed characters. Choose a name, appearance and kind:
+main, advisor or subagent. For subagents, enter observed types such as `reviewer` or `Explore`.
 
-- **Name:** up to 24 characters. It can't repeat the name of someone who's in the office or the one chosen for another
-  project.
-- **Randomize:** brings up another look.
-- **Pieces:** skin, hair, beard, eyes, top, bottom, shoes and accessory, with a preview next to them.
-- **Save:** applies to the project (the room). The next session opened in it arrives as this character. With two sessions
-  at the same time in the same room, the second one gets a random character.
-- **Back to random:** undoes the choice.
+- **Allowed rooms:** select the folders where the character can be used; no selection allows all rooms. A home room,
+  if chosen, must be among them. It offers the character to the first unbound main session arriving there.
+- **Dress:** use the pencil in a main agent's details to select a free member or create one from the agent.
+  **Back to random** removes the session binding. If the member is busy or the room is not allowed, the session
+  gets a random character.
+- In omp, `HABBLAUD_CAST=<id>` requests a member for the session. Advisors and subagents use matching members.
+  Rooms organize character selection; they do not restrict tools or file access.
 
-The choice is stored in `~/.habblaud/names.json` and goes away after 60 days without the project being used. The editor has the same safeguard as the
-terminal: the pencil only shows up with the terminal on (without `HABBLAUD_TERMINAL=0`) and local access, that
-is, with Habblaud reachable only from the computer it runs on and opened through `http://localhost`.
+The cast is stored in `~/.habblaud/cast.json`; session bindings expire after 60 days without use. Old room characters
+migrate automatically, with a backup at `~/.habblaud/names.json.pre-031`. The cast uses the terminal safeguard:
+local access and the terminal enabled, without `HABBLAUD_TERMINAL=0`.
 
 ### Codex
 
@@ -1124,9 +1124,9 @@ metadata (letter, email, organization) is read on the host by `docker:up` and pa
   `~/.habblaud/attachments/` (folder 700, files 600). In Docker, whoever starts the sessions is the host helper
   (`npm run codex:bridge`), which also reads the delivery files only from known project folders (the ones Claude Code
   has in `<conta>/projects`), the temporary folder and the attachments.
-- **Character editor, local only:** saving or going back to random changes the office and writes to `names.json`, so it
-  follows the same safeguard as the terminal (local bind, local `Host`, no proxies or tunnels): without it, the pencil doesn't show up
-  and the server answers `403`. Changes require JSON and a local origin. `HABBLAUD_TERMINAL=0` turns it off too.
+- **Cast, local only:** creating, editing or dressing characters writes to `cast.json` and follows the terminal
+  safeguard (local bind and `Host`, no proxies or tunnels). Without it the server returns `403`. Changes require JSON
+  and a local origin. `HABBLAUD_TERMINAL=0` turns it off too.
 - **My day stats:** only aggregate numbers (time per status, counts, tokens, cost) with project,
   account and agent names, kept in `HABBLAUD_DATA_DIR/stats/` for 30 days — nothing from the conversation.
 - **Codex:** Habblaud only reads the conversations (`sessions/`, `archived_sessions/`) and the locks of the open sessions

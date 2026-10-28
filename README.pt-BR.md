@@ -590,22 +590,23 @@ e espera o próximo pedido, dar uma instrução nova ou corrigir o rumo, sem pro
   Pelo [celular com login](#celular-com-login-e-https-aprovando-pedidos), só com `messages` no `HABBLAUD_REMOTE_ALLOW`.
 - No modo demonstração, os agentes fictícios também recebem mensagens (de mentira).
 
-### Editar o personagem
+### Elenco de personagens
 
-Cada sessão chega com um nome e uma aparência sorteados. Para fixar o personagem de um projeto, abra os detalhes do
-agente principal e clique no lápis ao lado do nome (**Editar personagem**). No editor:
+Na barra superior, abra **Elenco** para criar, editar ou apagar personagens fixos. Escolha nome, aparência e tipo:
+principal, advisor ou subagente. Para subagentes, informe os tipos observados, como `reviewer` ou `Explore`.
 
-- **Nome:** até 24 caracteres. Não pode repetir o de alguém que está no escritório nem o escolhido para outro
-  projeto.
-- **Sortear:** traz outra aparência.
-- **Peças:** pele, cabelo, barba, olhos, parte de cima, parte de baixo, sapatos e acessório, com a prévia ao lado.
-- **Salvar:** vale para o projeto (a sala). A próxima sessão aberta nele chega com esse personagem. Com duas sessões
-  ao mesmo tempo na mesma sala, a segunda recebe um personagem sorteado.
-- **Voltar ao sorteio:** desfaz a escolha.
+- **Salas permitidas:** escolha as pastas onde o personagem pode ser usado; nenhuma selecionada permite todas.
+  A sala principal, quando escolhida, precisa estar entre elas. Ela oferece o personagem à primeira sessão principal
+  sem vínculo que chegar à sala.
+- **Vestir:** no lápis da gaveta de um agente principal, escolha um membro livre ou crie um a partir do agente.
+  **Voltar ao sorteio** remove o vínculo da sessão. Se o membro estiver ocupado ou fora da sala permitida, a sessão
+  recebe um personagem sorteado.
+- No omp, `HABBLAUD_CAST=<id>` pede um membro para a sessão. O advisor e os subagentes vestem membros compatíveis
+  com seus tipos. As salas organizam a escolha do personagem; elas não limitam ferramentas nem acesso a arquivos.
 
-A escolha fica em `~/.habblaud/names.json` e some depois de 60 dias sem uso do projeto. O editor tem a mesma trava do
-terminal: o lápis só aparece com o terminal ligado (sem `HABBLAUD_TERMINAL=0`) e o acesso local, isto
-é, com o Habblaud acessível apenas pelo próprio computador e aberto por `http://localhost`.
+O elenco fica em `~/.habblaud/cast.json`; vínculos de sessão expiram após 60 dias sem uso. Os personagens antigos
+das salas migram automaticamente, com cópia de segurança em `~/.habblaud/names.json.pre-031`. O elenco segue a trava
+do terminal: acesso local e terminal ligado, sem `HABBLAUD_TERMINAL=0`.
 
 ### Codex
 
@@ -1120,9 +1121,9 @@ das contas (letra, e-mail, organização) são lidos no host pelo `docker:up` e 
   `~/.habblaud/attachments/` (pasta 700, arquivos 600). No Docker, quem começa as sessões é o auxiliar do host
   (`npm run codex:bridge`), que também só lê os arquivos das entregas de pastas de projeto conhecidas (as que o Claude
   Code tem em `<conta>/projects`), da pasta temporária e dos anexos.
-- **Editor de personagem, só local:** salvar ou voltar ao sorteio muda o escritório e grava em `names.json`, então
-  segue a mesma trava do terminal (bind local, `Host` local, nada de proxies ou túneis): sem ela, o lápis não aparece
-  e o servidor responde `403`. As mudanças exigem JSON e origem local. `HABBLAUD_TERMINAL=0` desliga junto.
+- **Elenco, só local:** criar, editar ou vestir personagens grava em `cast.json` e segue a trava do terminal (bind
+  local, `Host` local, nada de proxies ou túneis). Sem ela o servidor responde `403`. Mudanças exigem JSON e origem
+  local. `HABBLAUD_TERMINAL=0` desliga junto.
 - **Estatísticas do Meu dia:** só números agregados (tempo por status, contagens, tokens, custo) com nomes de projeto,
   conta e agente, guardados em `HABBLAUD_DATA_DIR/stats/` por 30 dias — nada da conversa.
 - **Codex:** o Habblaud lê só as conversas (`sessions/`, `archived_sessions/`) e as travas das sessões abertas
