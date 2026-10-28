@@ -281,6 +281,13 @@ class AgentView {
   private ctlStatus = h('p', { class: 'ui-msg__status', role: 'status', hidden: true, attrs: { 'aria-live': 'polite' } });
   private ctlTimer: ReturnType<typeof setTimeout> | null = null;
   private modelOptions = '';
+  /**
+   * Último estado do servidor (agente + valor) aplicado a cada seletor. O seletor só é reescrito quando esse estado
+   * muda: renderizar de novo (snapshot, foco, blur) não desfaz a escolha que o usuário acabou de fazer, em qualquer
+   * ordem de eventos (no celular, o seletor nativo nem sempre é o activeElement com a lista aberta).
+   */
+  private modelSynced = '';
+  private thinkSynced = '';
   private composerKind: 'ready' | 'hint' | 'off' = 'off';
   private social: SocialSection;
   readonly character: CharacterEditor;
@@ -430,8 +437,6 @@ class AgentView {
     ]);
     for (const level of OMP_THINKING_LEVELS) this.thinkSel.append(h('option', { text: level, attrs: { value: level } }));
     this.modelSel.addEventListener('change', () => void this.control({ model: this.modelSel.value }));
-    // A troca das opções adiada com o seletor aberto (renderControls) sai quando o foco deixa o seletor.
-    this.modelSel.addEventListener('blur', () => this.render());
     this.thinkSel.addEventListener('change', () => void this.control({ thinking: this.thinkSel.value }));
     const statsSec = section(tr('Estatísticas'), this.stats.el, this.ctlStatus);
     this.codexHint = h('p', { class: 'ui-codex-hint', hidden: true }, ...richText(CODEX_LIVE_HINT));
@@ -782,12 +787,12 @@ class AgentView {
     const current = models.find((m) => m.replace(/^[^/]+\//, '') === a.model) ?? '';
     // Sem lista da extensão (ou modelo fora dela): só o atual, para o seletor nunca mentir.
     const options = current ? models : [...(a.model ? [''] : []), ...models];
-    const key = `${options.join('\n')}|${a.model ?? ''}`;
-    // Não mexe no seletor aberto: o usuário está escolhendo. Recriar as opções volta a seleção para a primeira (e o
-    // navegador, ao fechar a lista, dispara `change` com ela); a troca fica para depois do foco sair.
-    const open = document.activeElement === this.modelSel;
-    if (key !== this.modelOptions && !open) {
+    // A lista só é recriada quando as opções mudam (raro): recriar volta a seleção para a primeira opção, e o
+    // navegador pode mandá-la como `change` ao fechar uma lista aberta.
+    const key = `${options.join('\n')}|${current ? '' : (a.model ?? '')}`;
+    if (key !== this.modelOptions) {
       this.modelOptions = key;
+      this.modelSynced = '';
       this.modelSel.replaceChildren(
         ...(current ? [] : [h('option', { text: prettyModel(a.model), attrs: { value: '' } })]),
         ...modelGroups(models, current).map((g) => {
@@ -797,8 +802,23 @@ class AgentView {
         }),
       );
     }
-    if (!open) this.modelSel.value = current;
-    if (document.activeElement !== this.thinkSel) this.thinkSel.value = a.thinking ?? '';
+    const modelState = `${a.id}|${current}`;
+    if (modelState !== this.modelSynced) {
+      this.modelSynced = modelState;
+      this.modelSel.value = current;
+    }
+    const thinkState = `${a.id}|${a.thinking ?? ''}`;
+    if (thinkState !== this.thinkSynced) {
+      this.thinkSynced = thinkState;
+      this.thinkSel.value = a.thinking ?? '';
+    }
+  }
+
+  /** A troca não vingou: o próximo render volta os seletores ao estado do servidor. */
+  private resyncControls(): void {
+    this.modelSynced = '';
+    this.thinkSynced = '';
+    this.render();
   }
 
   private sayControl(text: string, error = false): void {
@@ -817,15 +837,22 @@ class AgentView {
     this.sayControl(tr('Enviando…'));
     try {
       const r = await this.ctx.store.controlAgent(agentId, change);
-      if ('error' in r) return this.sayControl(r.error, true);
+      if ('error' in r) {
+        this.resyncControls();
+        return this.sayControl(r.error, true);
+      }
       for (let i = 0; i < 20; i++) {
         await new Promise((ok) => setTimeout(ok, 500));
         const m = await this.ctx.store.messageStatus(r.message.id);
         if (!m || m.status === 'delivered') return this.sayControl(tr('Aplicado: o omp mostra a mudança em instantes.'));
-        if (m.status === 'failed') return this.sayControl(m.error ?? tr('o omp não aplicou a troca'), true);
+        if (m.status === 'failed') {
+          this.resyncControls();
+          return this.sayControl(m.error ?? tr('o omp não aplicou a troca'), true);
+        }
       }
       this.sayControl(tr('O omp ainda não confirmou a troca.'), true);
     } catch {
+      this.resyncControls();
       this.sayControl(OFFLINE_ERROR, true);
     }
   }

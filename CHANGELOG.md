@@ -130,9 +130,10 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
-- **Troca de modelo do omp pela gaveta não cai mais no primeiro da lista:** quando o omp mandava uma atualização com
-  o seletor de modelo aberto, a lista era recriada e a escolha voltava para o primeiro modelo (e o navegador podia
-  enviá-lo ao fechar a lista). Agora a lista só é atualizada depois que o seletor perde o foco.
+- **Troca de modelo do omp pela gaveta não cai mais no primeiro da lista:** cada atualização do omp recriava a lista
+  e reescrevia o seletor; com a lista aberta, a escolha voltava para o primeiro modelo (e o navegador podia enviá-lo
+  ao fechar a lista). Agora a lista só é recriada quando as opções mudam, e o modelo e o raciocínio mostrados só
+  mudam quando o omp confirma outro valor ou recusa a troca.
 - **Cache de sprites sem engasgo ao encher:** quando um cache de sprites (personagens, móveis, pisos, avatares) enche,
   ele agora descarta só a quarta parte mais antiga, em vez de zerar tudo e regenerar a tela toda de uma vez.
 - **Servidor não cai mais por um erro ao montar o snapshot:** uma falha numa das fontes do escritório (permissões,
