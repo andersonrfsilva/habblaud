@@ -1,6 +1,6 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { mkdirSync, realpathSync, truncateSync, writeFileSync } from 'node:fs';
+import { mkdirSync, realpathSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ModSummary, OfficeSnapshot, PermissionRequestInfo, UpdateStatus } from '../../shared/types';
@@ -95,6 +95,29 @@ function raw(base: string, path: string, opts: { method?: string; headers?: Reco
 }
 
 describe('rotas do auxiliar do elenco', () => {
+  it('navega somente pastas contidas nas raízes e exige a trava', async () => {
+    const tmp = tempDir();
+    const root = join(tmp.dir, 'root');
+    mkdirSync(join(root, 'pasta'), { recursive: true });
+    mkdirSync(join(root, '.oculta'));
+    writeFileSync(join(root, 'arquivo'), '');
+    symlinkSync(tmp.dir, join(root, 'escape'));
+    const launcher = new CastLauncher({ dataDir: tmp.dir, member: () => undefined, agents: () => [], account: () => tmp.dir, changed: () => {} });
+    const env = await start({ terminal: true, castLauncher: launcher, castRoots: [root] });
+    try {
+      const get = (path: string) => fetch(`${env.base}/api/cast/dirs?path=${encodeURIComponent(path)}`);
+      const result = await (await get(root)).json() as { dirs: { name: string }[] };
+      expect(result.dirs.map((entry) => entry.name)).toEqual(['pasta']);
+      expect((await get(tmp.dir)).status).toBe(404);
+      expect((await get(join(root, 'escape'))).status).toBe(404);
+      expect((await get(`${root}/../root`)).status).toBe(404);
+      expect((await raw(env.base, '/api/cast/dirs', { headers: { Host: 'habblaud.lan' } })).status).toBe(403);
+    } finally {
+      await env.close();
+      env.cleanup();
+      tmp.cleanup();
+    }
+  });
   it('exige acesso local e aceita uma chamada após o poll', async () => {
     const launcher = new CastLauncher({
       dataDir: '/tmp', member: () => ({ id: 'ana', name: 'Ana', kind: 'main', look: 'f', seed: 1, rooms: ['/a'] }),

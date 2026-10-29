@@ -988,6 +988,7 @@ The host helper (`npm run codex:bridge`) opens omp in `hb-<id>` sessions. Use `t
 | `PUT /api/cast/:id`, `DELETE /api/cast/:id` | Edit or delete a cast member; local access or the remote port after login when `terminal` is in `HABBLAUD_REMOTE_ALLOW`. |
 | `PUT /api/agents/:id/cast`, `DELETE /api/agents/:id/cast` | Dress the main agent with `{cast}`, or return to a random character. omp sessions can request a member with `HABBLAUD_CAST=<id>`; local access or the remote port after login when `terminal` is in `HABBLAUD_REMOTE_ALLOW`. |
 | `POST /api/cast/:id/start`, `POST /api/agents/:id/dismiss`, `GET /api/cast/jobs` | Start, dismiss or track cast sessions; local access or the remote port after login when `terminal` is in `HABBLAUD_REMOTE_ALLOW`. |
+| `GET /api/cast/dirs?path=<absolute>` | Browse directories under the home folder or comma-separated absolute `HABBLAUD_CAST_ROOTS`; terminal access required. |
 | `POST /api/host/cast/poll`, `POST /api/host/cast/ack` | The host helper fetches and acknowledges cast jobs. |
 | `GET /api/sessions/recent` | Session history: sessions from the last 7 days across all accounts (up to 150); local access only. |
 | `GET /api/sessions/:conta/:sessionId/terminal` | SSE of the conversation of a session from the history (same protocol as the terminal); local access only. |

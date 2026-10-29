@@ -3564,4 +3564,11 @@ export const FR: Readonly<Record<string, string>> = {
   "{0} está ocupado em {1}; {2} assumiu a sessão": "{0} est occupé dans {1} ; {2} a pris la session",
   "Personagem de sala inválido ou repetido na migração do elenco; entrada ignorada.": "Personnage de salle invalide ou en double lors de la migration de la distribution ; entrée ignorée.",
   "Não foi possível migrar o elenco ({0}).": "Impossible de migrer la distribution ({0}).",
+  "Procurar pasta…": "Parcourir les dossiers…",
+  "Usar esta pasta": "Utiliser ce dossier",
+  "Na reserva": "En réserve",
+  "Trabalhando em {0}": "Travaille dans {0}",
+  "Identidade": "Identité",
+  "Não foi possível abrir a pasta.": "Impossible d’ouvrir le dossier.",
+  "Pastas": "Dossiers",
 };

@@ -987,6 +987,7 @@ O auxiliar do host (`npm run codex:bridge`) abre o omp em sessões `hb-<id>`. Pa
 | `PUT /api/cast/:id`, `DELETE /api/cast/:id` | Edita ou apaga membro do elenco; acesso local ou pela porta remota após login, com `terminal` em `HABBLAUD_REMOTE_ALLOW`. |
 | `PUT /api/agents/:id/cast`, `DELETE /api/agents/:id/cast` | Veste o principal com `{cast}` ou volta ao sorteio. Sessões omp podem pedir um membro com `HABBLAUD_CAST=<id>`. |
 | `POST /api/cast/:id/start`, `POST /api/agents/:id/dismiss`, `GET /api/cast/jobs` | Chama, dispensa ou acompanha sessões do elenco; acesso local ou pela porta remota após login, com `terminal` em `HABBLAUD_REMOTE_ALLOW`. |
+| `GET /api/cast/dirs?path=<absoluto>` | Lista pastas sob a pasta pessoal ou as raízes absolutas de `HABBLAUD_CAST_ROOTS`, separadas por vírgula; exige acesso ao terminal. |
 | `POST /api/host/cast/poll`, `POST /api/host/cast/ack` | O auxiliar do host busca e confirma chamadas e dispensas. |
 | `GET /api/sessions/recent` | Histórico: sessões dos últimos 7 dias de todas as contas (até 150); só com acesso local. |
 | `GET /api/sessions/:conta/:sessionId/terminal` | SSE da conversa de uma sessão do histórico (mesmo protocolo do terminal); só com acesso local. |

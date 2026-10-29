@@ -82,6 +82,7 @@ O auxiliar no host (`npm run codex:bridge`) abre sessões omp em `tmux` como `hb
 | `POST /api/cast/:id/start` | `{room, mode: 'new' \| 'resume', prompt?}`: enfileira uma chamada; 202, 409, 422 ou 503; mesma trava do terminal |
 | `POST /api/agents/:id/dismiss` | Enfileira a dispensa de uma sessão aberta pelo Habblaud; mesma trava do terminal |
 | `GET /api/cast/jobs` | `{jobs, available}`: estado das chamadas e presença do auxiliar; mesma trava do terminal |
+| `GET /api/cast/dirs?path=<absoluto>` | `{path, parent?, dirs}`: subpastas nas raízes de `HABBLAUD_CAST_ROOTS` (separadas por vírgulas) ou na pasta pessoal; mesma trava do terminal |
 | `POST /api/host/cast/poll`, `/api/host/cast/ack` | Auxiliar busca e confirma chamadas e dispensas; somente acesso local |
 | `GET /api/sessions/recent` | `RecentSessionsResponse`: sessões dos últimos 7 dias de todas as contas (até 150); mesma trava do terminal |
 | `GET /api/sessions/:conta/:sessionId/terminal` | SSE da conversa de uma sessão do histórico (mesmo protocolo do terminal); mesma trava |

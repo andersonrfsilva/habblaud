@@ -3547,4 +3547,11 @@ export const EN: Readonly<Record<string, string>> = {
   "{0} está ocupado em {1}; {2} assumiu a sessão": "{0} is busy in {1}; {2} took the session",
   "Personagem de sala inválido ou repetido na migração do elenco; entrada ignorada.": "Invalid or duplicate room character during cast migration; entry skipped.",
   "Não foi possível migrar o elenco ({0}).": "Could not migrate the cast ({0}).",
+  "Procurar pasta…": "Browse folders…",
+  "Usar esta pasta": "Use this folder",
+  "Na reserva": "On standby",
+  "Trabalhando em {0}": "Working in {0}",
+  "Identidade": "Identity",
+  "Não foi possível abrir a pasta.": "Could not open the folder.",
+  "Pastas": "Folders",
 };

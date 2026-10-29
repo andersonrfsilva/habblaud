@@ -5,7 +5,9 @@ import { appearanceFromSeed } from '../art';
 import { AppearanceFields } from './appearance-fields';
 import { changedParts, validateCast } from './character-model';
 import type { UiContext } from './context';
-import { h } from './dom';
+import { h, iconButton } from './dom';
+import { ICONS } from './icons';
+import { createAvatar } from './avatar';
 import { FolderPicker, folderOptions } from './folder-picker';
 import { shortPath, spawnFolders, type FolderOption } from './spawn';
 
@@ -22,9 +24,9 @@ export class CastScreen {
   private readonly recentTypes = new Set<string>();
 
   constructor(private readonly ctx: UiContext) {
-    this.content = h('div', { class: 'ui-cast__content' });
-    const close = h('button', { class: 'ui-btn', type: 'button', text: tr('Fechar'), on: { click: () => this.el.close() } });
-    this.el = h('dialog', { class: 'ui-cast', attrs: { 'aria-label': tr('Elenco') } }, h('div', { class: 'ui-cast__heading' }, h('h2', { text: tr('Elenco') }), close), this.content);
+    this.content = h('div', { class: 'ui-dialog__body ui-cast__content' });
+    const close = iconButton(ICONS.close, tr('Fechar (Esc)'), () => this.el.close(), 'ui-icon-btn--sm');
+    this.el = h('dialog', { class: 'ui-dialog ui-cast', attrs: { 'aria-labelledby': 'ui-cast-title' } }, h('div', { class: 'ui-dialog__head' }, h('h2', { text: tr('Elenco'), attrs: { id: 'ui-cast-title' } }), close), this.content);
     ctx.root.addEventListener('habblaud:cast-create', (event) => void this.open((event as CustomEvent<AgentInfo>).detail));
     ctx.store.on('snapshot', (snapshot) => {
       for (const agent of snapshot.agents) {
@@ -57,18 +59,20 @@ export class CastScreen {
   private showList(): void {
     const add = h('button', { class: 'ui-btn ui-btn--primary', type: 'button', text: tr('Criar personagem'), on: { click: () => this.edit() } });
     const list = h('div', { class: 'ui-cast__list' });
-    const calls: Array<{ member: CastMember; button: HTMLButtonElement }> = [];
+    const calls: Array<{ member: CastMember; button: HTMLButtonElement | null; status: HTMLElement }> = [];
     const reason = h('p', { class: 'ui-rename__hint', role: 'status' });
     for (const member of this.members) {
       const label = member.kind === 'main' ? tr('Principal') : member.kind === 'advisor' ? tr('Advisor') : tr('Subagente');
       const where = member.rooms.length ? member.rooms.map((p) => shortPath(p)).join(', ') : tr('qualquer sala');
       const edit = h('button', { class: 'ui-btn ui-btn--sm', type: 'button', text: tr('Editar'), on: { click: () => this.edit(member) } });
       const call = member.kind === 'main' ? h('button', { class: 'ui-btn ui-btn--sm ui-btn--primary', type: 'button', text: tr('Chamar'), on: { click: () => void this.call(member.id) } }) : null;
-      if (call) { call.disabled = true; calls.push({ member, button: call }); }
+      const status = h('small', { text: tr('Na reserva') });
+      if (call) call.disabled = true;
+      calls.push({ member, button: call, status });
       const del = h('button', { class: 'ui-btn ui-btn--sm', type: 'button', text: tr('Apagar'), on: { click: () => void this.remove(member) } });
-      list.append(h('div', { class: 'ui-cast__row' },
-        h('div', { class: 'ui-cast__who' }, h('strong', { text: member.name }), h('small', { text: `${label} · ${where}` })),
-        call, edit, del));
+      list.append(h('div', { class: 'ui-cast__row' }, createAvatar({ ...member, kind: member.kind === 'sub' ? 'sub' : 'main' }, 'sm'),
+        h('div', { class: 'ui-cast__who' }, h('strong', { text: member.name }), h('small', { text: `${label} · ${where}` }), status),
+        h('div', { class: 'ui-cast__row-actions' }, call, edit, del)));
     }
     this.content.replaceChildren(add, reason, list);
     const watch = async () => {
@@ -76,10 +80,14 @@ export class CastScreen {
       const jobs = await this.ctx.store.castJobs();
       if (!this.el.open || !this.content.contains(list)) return;
       reason.textContent = jobs.available ? '' : HOST_OFF();
-      for (const { member, button } of calls) {
+      for (const { member, button, status } of calls) {
         const busy = !!active(jobs.jobs, member.id);
-        button.disabled = !jobs.available || busy || !!this.ctx.store.snapshot?.agents.some((a) => a.cast === member.id && a.status !== 'offline');
-        button.textContent = busy ? tr('chamando…') : tr('Chamar');
+        const agent = this.ctx.store.snapshot?.agents.find((a) => a.cast === member.id && a.status !== 'offline');
+        if (button) {
+          button.disabled = !jobs.available || busy || !!agent;
+          button.textContent = busy ? tr('chamando…') : tr('Chamar');
+        }
+        status.textContent = busy ? tr('chamando…') : agent ? tr('Trabalhando em {0}', [shortPath(agent.roomId)]) : tr('Na reserva');
       }
       setTimeout(() => void watch(), 2000);
     };
@@ -110,8 +118,8 @@ export class CastScreen {
       onChange: () => sync(),
       lockedHint: tr('Só as salas permitidas deste personagem. Para outra pasta, edite o personagem.'),
     });
-    const segResume = h('button', { class: 'ui-cast__seg-btn', type: 'button', text: tr('Continuar'), on: { click: () => { mode = 'resume'; sync(); } } });
-    const segNew = h('button', { class: 'ui-cast__seg-btn', type: 'button', text: tr('Nova'), on: { click: () => { mode = 'new'; sync(); } } });
+    const segResume = h('button', { class: 'ui-seg__opt', type: 'button', role: 'radio', text: tr('Continuar'), on: { click: () => { mode = 'resume'; sync(); } } });
+    const segNew = h('button', { class: 'ui-seg__opt', type: 'button', role: 'radio', text: tr('Nova'), on: { click: () => { mode = 'new'; sync(); } } });
     const prompt = h('textarea', { class: 'ui-rename__input ui-spawn__prompt', attrs: { id: 'ui-cast-prompt', maxlength: '8000', placeholder: tr('O que ele deve fazer ao chegar (opcional)') } });
     const status = h('p', { class: 'ui-rename__hint', role: 'status' });
     const start = h('button', { class: 'ui-btn ui-btn--primary', type: 'button', text: tr('Chamar'), on: { click: () => void (async () => {
@@ -130,8 +138,8 @@ export class CastScreen {
       if (!canResume) mode = 'new';
       segResume.disabled = !canResume;
       segResume.title = canResume ? '' : tr('Sem sessão anterior nesta sala');
-      segResume.setAttribute('aria-pressed', String(mode === 'resume'));
-      segNew.setAttribute('aria-pressed', String(mode === 'new'));
+      segResume.setAttribute('aria-checked', String(mode === 'resume'));
+      segNew.setAttribute('aria-checked', String(mode === 'new'));
       start.disabled = !available || calling || !picker.value();
     };
     picker.set(options, first.length ? [first[0]] : []);
@@ -140,11 +148,11 @@ export class CastScreen {
     if (!available) status.textContent = HOST_OFF();
     else if (!calling) status.textContent = jobs.jobs.filter((job) => job.cast === id && job.status === 'failed').at(-1)?.error ?? '';
     this.content.replaceChildren(h('div', { class: 'ui-cast__call' },
-      h('h3', { class: 'ui-cast__title', text: tr('Chamar {0}', [member.name]) }),
-      h('p', { class: 'ui-spawn__label', text: tr('Sala') }), picker.el,
-      h('p', { class: 'ui-spawn__label', text: tr('Sessão') }),
-      h('div', { class: 'ui-cast__seg', role: 'group', attrs: { 'aria-label': tr('Sessão') } }, segResume, segNew),
-      h('label', { class: 'ui-spawn__label', attrs: { for: 'ui-cast-prompt' }, text: tr('Pedido') }), prompt,
+      h('div', { class: 'ui-cast__identity' }, createAvatar({ ...member, kind: 'main' }, 'sm'), h('h3', { class: 'ui-cast__title', text: tr('Chamar {0}', [member.name]) })),
+      h('p', { class: 'ui-set__label', text: tr('Sala') }), picker.el,
+      h('p', { class: 'ui-set__label', text: tr('Sessão') }),
+      h('div', { class: 'ui-seg', role: 'radiogroup', attrs: { 'aria-label': tr('Sessão') } }, segResume, segNew),
+      h('label', { class: 'ui-set__label', attrs: { for: 'ui-cast-prompt' }, text: tr('Pedido') }), prompt,
       status,
       h('div', { class: 'ui-cast__actions' }, back, start)));
     const watch = async () => {
@@ -177,7 +185,7 @@ export class CastScreen {
     let base = appearanceFromSeed(seed, { look });
     const fields = new AppearanceFields();
     fields.set({ ...base, ...(member?.parts ?? agent?.parts) });
-    const field = (label: string, control: HTMLElement) => h('label', { class: 'ui-cast__field' }, h('span', { class: 'ui-spawn__label', text: label }), control);
+    const field = (label: string, control: HTMLElement) => h('label', { class: 'ui-cast__field' }, h('span', { class: 'ui-set__label', text: label }), control);
     const name = h('input', { class: 'ui-rename__input', type: 'text', attrs: { maxlength: '24', required: '' } });
     name.value = member?.name ?? agent?.name ?? '';
     const kind = h('select', { class: 'ui-rename__input' });
@@ -234,18 +242,23 @@ export class CastScreen {
       await this.open();
     })() } });
     const cancel = h('button', { class: 'ui-btn', type: 'button', text: tr('Cancelar'), on: { click: () => this.showList() } });
+    const group = (title: string, ...children: HTMLElement[]) => h('section', { class: 'ui-set-group' }, h('h3', { text: title }), ...children);
+    const execution = group(tr('Execução'), field(tr('Modelo'), model), models, field(tr('Instruções'), instructions),
+      field(tr('Ociosidade em minutos (0 = nunca)'), idle), field(tr('Conta'), account));
+    const sub = group(tr('Subagente'), field(tr('Tipos de subagente (separados por vírgula)'), match), suggestions);
+    const mainHome = field(tr('Sala principal'), home);
+    const syncKind = () => {
+      execution.hidden = kind.value !== 'main';
+      mainHome.hidden = kind.value !== 'main';
+      sub.hidden = kind.value !== 'sub';
+    };
+    kind.addEventListener('change', syncKind);
+    syncKind();
     this.content.replaceChildren(h('div', { class: 'ui-cast__form' },
-      field(tr('Nome'), name),
-      field(tr('Tipo'), kind),
-      field(tr('Tipos de subagente (separados por vírgula)'), match), suggestions,
-      h('div', { class: 'ui-cast__field' }, h('p', { class: 'ui-spawn__label', text: tr('Salas permitidas') }), rooms.el,
-        h('p', { class: 'ui-rename__hint', text: tr('Nenhuma marcada = trabalha em qualquer sala.') })),
-      field(tr('Sala principal'), home),
-      field(tr('Modelo'), model), models,
-      field(tr('Instruções'), instructions),
-      field(tr('Ociosidade em minutos (0 = nunca)'), idle),
-      field(tr('Conta'), account),
-      field(tr('Aparência'), lookSelect), fields.preview, roll, fields.groups, error,
-      h('div', { class: 'ui-cast__actions' }, cancel, save)));
+      group(tr('Identidade'), field(tr('Nome'), name), field(tr('Tipo'), kind),
+        field(tr('Aparência'), lookSelect), fields.preview, roll, fields.groups),
+      group(tr('Salas'), h('div', { class: 'ui-cast__field' }, h('p', { class: 'ui-set__label', text: tr('Salas permitidas') }), rooms.el,
+        h('p', { class: 'ui-rename__hint', text: tr('Nenhuma marcada = trabalha em qualquer sala.') })), mainHome),
+      execution, sub, error, h('div', { class: 'ui-cast__actions' }, cancel, save)));
   }
 }

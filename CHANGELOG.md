@@ -12,6 +12,9 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Elenco:** escolha pastas pelo navegador de diretórios e edite personagens em uma janela integrada ao escritório.
+  O navegador usa a pasta pessoal ou as raízes absolutas em `HABBLAUD_CAST_ROOTS` (separadas por vírgulas).
+
 - **Elenco:** personagens principais podem guardar modelo, instruções, conta e limite de ociosidade. Chame ou dispense
   sessões omp pelo auxiliar do host; personagens livres descansam no lounge do escritório.
 - **Elenco pelo celular:** com `terminal` em `HABBLAUD_REMOTE_ALLOW`, o elenco pode ser editado, chamado e dispensado

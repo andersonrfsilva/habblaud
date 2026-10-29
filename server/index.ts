@@ -437,6 +437,7 @@ const api = createApiHandler({
   pty: ptys ? createPtyRoutes(ptys) : undefined,
   spawn,
   castLauncher,
+  castRoots: process.env.HABBLAUD_CAST_ROOTS?.split(',').map((path) => path.trim()).filter(Boolean) ?? [config.home],
   attachments,
   dictation,
   deliveries,

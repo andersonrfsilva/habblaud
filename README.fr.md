@@ -1035,6 +1035,7 @@ L'auxiliaire de l'hôte (`npm run codex:bridge`) ouvre omp dans des sessions `hb
 | `PUT /api/cast/:id`, `DELETE /api/cast/:id` | Modifie ou supprime un membre ; accès local ou par le port distant après connexion, avec `terminal` dans `HABBLAUD_REMOTE_ALLOW`. |
 | `PUT /api/agents/:id/cast`, `DELETE /api/agents/:id/cast` | Attribue `{cast}` à l'agent principal ou revient au tirage au sort. Les sessions omp peuvent demander un membre avec `HABBLAUD_CAST=<id>` ; accès local ou par le port distant après connexion, avec `terminal` dans `HABBLAUD_REMOTE_ALLOW`. |
 | `POST /api/cast/:id/start`, `POST /api/agents/:id/dismiss`, `GET /api/cast/jobs` | Lance, renvoie ou suit les sessions du casting ; accès local ou par le port distant après connexion, avec `terminal` dans `HABBLAUD_REMOTE_ALLOW`. |
+| `GET /api/cast/dirs?path=<absolu>` | Liste les dossiers sous le répertoire personnel ou les racines absolues de `HABBLAUD_CAST_ROOTS`, séparées par des virgules ; accès terminal requis. |
 | `POST /api/host/cast/poll`, `POST /api/host/cast/ack` | L'auxiliaire de l'hôte récupère et confirme les demandes du casting. |
 | `GET /api/sessions/recent` | Historique : sessions des 7 derniers jours de tous les comptes (jusqu'à 150) ; en accès local uniquement. |
 | `GET /api/sessions/:conta/:sessionId/terminal` | SSE de la conversation d'une session de l'historique (même protocole que le terminal) ; en accès local uniquement. |
