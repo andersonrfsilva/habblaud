@@ -35,6 +35,27 @@ export interface CastMember {
   last?: Record<string, string>;
 }
 
+export type CastJob =
+  | { id: string; op: 'start'; cast: string; folder: string; agentDir: string; model?: string; instructionsFile?: string; resume?: string; prompt?: string }
+  | { id: string; op: 'stop'; cast: string };
+
+export interface CastJobInfo {
+  id: string;
+  cast: string;
+  op: 'start' | 'stop';
+  status: 'queued' | 'sent' | 'waiting' | 'done' | 'failed';
+  error?: string;
+}
+
+export interface ReserveInfo {
+  cast: string;
+  name: string;
+  look: 'f' | 'm';
+  seed: number;
+  parts?: AppearanceParts;
+  state: 'idle' | 'calling' | 'dismissing';
+}
+
 /**
  * De qual ferramenta vem o agente (ou a conta, a fonte, a sessão, o pedido). Nos tipos do protocolo o campo
  * `provider` é opcional e AUSENTE quer dizer 'claude' (tudo o que existia antes do Codex continua igual).
@@ -207,6 +228,7 @@ export interface AgentInfo {
   parts?: AppearanceParts;
   /** Membro do elenco vestido pelo agente, quando houver. */
   cast?: string;
+  castOpened?: true;
   /** Tipo do subagente informado pela fonte, quando conhecido. */
   agentType?: string;
   /** Subagente rodando em segundo plano. */
@@ -408,6 +430,7 @@ export interface OfficeSnapshot {
   serverTime: number;
   rooms: RoomInfo[];
   agents: AgentInfo[];
+  reserve?: ReserveInfo[];
   /** Terminais interativos abertos pelo Habblaud (Claude Code rodando dentro do navegador). */
   ptys?: PtyInfo[];
   /** Contas do Claude detectadas (com uso de 5h/semanal quando disponível). */

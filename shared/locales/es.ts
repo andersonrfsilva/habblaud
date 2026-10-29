@@ -2,6 +2,12 @@
 // As lacunas {0}, {1}... (e as nomeadas, como {sala}) precisam aparecer na tradução, em qualquer ordem.
 // Chave ausente = o texto fica em PT. `npm run i18n:check` lista os textos sem tradução e as chaves que sobraram.
 export const ES: Readonly<Record<string, string>> = {
+  "auxiliar do host desligado (npm run codex:bridge)": "el auxiliar del host está desconectado (npm run codex:bridge)",
+  "conta não encontrada": "cuenta no encontrada",
+  "não foi possível gravar as instruções": "no se pudieron guardar las instrucciones",
+  "o auxiliar não abriu a sessão": "el auxiliar no abrió la sesión",
+  "o auxiliar não confirmou a sessão": "el auxiliar no confirmó la sesión",
+  "💤 {0} foi dispensado por ociosidade em {1}": "💤 {0} fue despedido por inactividad en {1}",
   "Padrão": "Predeterminada",
   "Instruções": "Instrucciones",
   "Ociosidade em minutos (0 = nunca)": "Inactividad en minutos (0 = nunca)",
