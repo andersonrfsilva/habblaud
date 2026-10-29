@@ -97,7 +97,10 @@ describe('simulação do escritório', () => {
     const member = { cast: 'ana', name: 'Ana', look: 'f' as const, seed: 1, state: 'idle' as const };
     sim.applySnapshot({ ...snap([room('/a', 0)], []), reserve: [member] }, clock.now);
     const resting = sim.reserve.get('ana')!;
-    expect(resting.alpha).toBe(0.55);
+    run(sim, clock, 1);
+    // Cor normal, sentado e distraído (celular ou livro), não um fantasma.
+    expect(resting).toMatchObject({ alpha: 1, pose: 'read' });
+    expect(['phone', 'book']).toContain(resting.held);
     expect(sim.spots.get(resting.atSpot)?.areaId).toBe('core:lounge');
     expect(sim.spots.get(resting.atSpot)?.kind).toBe('beanbag');
     expect(sim.chars.size).toBe(0);
@@ -111,7 +114,7 @@ describe('simulação do escritório', () => {
     expect(sim.reserve.get('ana')?.queue.length).toBeGreaterThan(0);
     run(sim, clock, 60);
     expect(sim.reserve.get('ana')?.atSpot).toBe(sim.reserve.get('ana')?.homeSpot);
-    expect(sim.reserve.get('ana')?.alpha).toBe(0.55);
+    expect(sim.reserve.get('ana')).toMatchObject({ alpha: 1, pose: 'read' });
   });
   it('limita reserva aos assentos livres do lounge', () => {
     const sim = newSim();

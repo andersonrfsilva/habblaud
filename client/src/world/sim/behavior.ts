@@ -1,6 +1,6 @@
 // Decisões de comportamento — funções PURAS (testáveis sem DOM).
 import type { ActivityKind, AgentKind, AgentStatus, ShellJob } from '../../../../shared/types';
-import type { ScreenMode } from '../../art/api';
+import type { HeldItem, ScreenMode } from '../../art/api';
 import type { WorldOptions } from '../api';
 import type { SpotDef } from '../layout/types';
 import { foregroundWaiting } from './shell';
@@ -9,6 +9,14 @@ export function reserveSeats(spots: readonly SpotDef[], free: (id: string) => bo
   const order = ['beanbag', 'armchair', 'sofa'];
   return spots.filter((spot) => spot.areaId === lounge && order.includes(spot.kind) && free(spot.id))
     .sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
+}
+
+/** Período de cada distração de quem está na reserva (celular ↔ livro). */
+const PASTIME_MS = 40_000;
+
+/** O que o personagem da reserva segura agora: alterna celular e livro, defasado pelo seed para não sincronizar. */
+export function reservePastime(seed: number, now: number): HeldItem {
+  return Math.floor((now + (seed % PASTIME_MS)) / PASTIME_MS) % 2 === 0 ? 'phone' : 'book';
 }
 
 /**
