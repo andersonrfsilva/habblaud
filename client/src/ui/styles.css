@@ -11988,30 +11988,71 @@ button.ui-files__open { cursor: pointer; }
   display: none;
 }
 
-.ui-cast { width: min(560px, calc(100vw - 24px)); }
-.ui-cast__list { display: grid; gap: 8px; margin-top: 10px; }
+.ui-cast { width: min(600px, calc(100vw - 24px)); }
+/* O corpo da casa (.ui-dialog__body) é uma grade de 2 colunas (Ajuda); o elenco é uma coluna só, em toda a largura. */
+.ui-cast .ui-cast__content { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.ui-cast__list { display: grid; gap: 8px; }
 .ui-cast__row {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 10px;
+  gap: 12px;
+  padding: 10px 12px;
   border: 1px solid var(--ui-line);
   border-radius: var(--radius-sm);
   background: var(--ui-bg-soft);
 }
-.ui-cast__who { flex: 1; min-width: 120px; display: grid; gap: 2px; }
-.ui-cast__who small { color: var(--ui-muted); overflow-wrap: anywhere; }
-.ui-cast__row-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.ui-cast__who { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.ui-cast__who small { color: var(--ui-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-cast__row-actions { display: flex; gap: 6px; flex: none; }
 .ui-cast__identity { display: flex; align-items: center; gap: 10px; }
-.ui-cast__form, .ui-cast__call { display: grid; gap: 8px; }
+.ui-cast__form, .ui-cast__call { display: grid; gap: 10px; }
 .ui-cast__field { display: grid; gap: 4px; }
 .ui-cast__title { margin: 0; font: 600 16px var(--font-ui); }
-.ui-cast__actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.ui-cast__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ui-line);
+}
+.ui-cast__actions .ui-btn--primary { min-width: 120px; justify-content: center; }
+.ui-folder-picker { display: grid; gap: 6px; }
+.ui-folder-picker__tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ui-folder-picker__tools .ui-spawn__other { margin: 0; }
 .ui-folder-picker__other { display: flex; gap: 6px; align-items: center; }
 .ui-folder-picker__other[hidden] { display: none; }
 .ui-folder-picker__badge { color: var(--ui-accent); font-weight: 600; }
-.ui-folder-picker__browser { display: grid; gap: 6px; overflow-wrap: anywhere; }
+.ui-folder-picker__browser {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--ui-line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--ui-bg-soft);
+  overflow-wrap: anywhere;
+}
 .ui-folder-picker__browser:empty { display: none; }
-.ui-folder-picker__browser .ui-files__list { max-height: 200px; overflow: auto; }
-.ui-folder-picker__browser .ui-files__list button { display: block; width: 100%; text-align: left; }
+.ui-folder-picker__browser .ui-files__list { max-height: 240px; overflow: auto; margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; }
+.ui-folder-picker__bar { display: flex; align-items: center; gap: 8px; }
+.ui-folder-picker__path { flex: 1; min-width: 0; font: 12px var(--font-mono, monospace); color: var(--ui-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.ui-folder-picker__dir {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 34px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  text-align: left;
+}
+.ui-folder-picker__dir:hover, .ui-folder-picker__dir:focus-visible { background: color-mix(in srgb, var(--ui-accent) 12%, transparent); outline: none; }
+.ui-folder-picker__foot { display: flex; justify-content: flex-end; gap: 8px; }
+/* O corpo do diálogo tem altura limitada: a tela do elenco fica do tamanho do conteúdo (o corpo rola), em vez de
+   esticar até a altura do corpo e espremer as listas roláveis (cartões, subpastas). */
+.ui-cast .ui-cast__content { align-content: start; }
+.ui-cast__content > * { align-self: start; }
+@media (max-width: 480px) {
+  .ui-cast__row { flex-wrap: wrap; }
+  .ui-cast__row-actions { width: 100%; justify-content: flex-end; }
+}

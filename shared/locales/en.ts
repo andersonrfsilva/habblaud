@@ -3554,4 +3554,5 @@ export const EN: Readonly<Record<string, string>> = {
   "Identidade": "Identity",
   "Não foi possível abrir a pasta.": "Could not open the folder.",
   "Pastas": "Folders",
+  "Nenhuma subpasta.": "No subfolders.",
 };

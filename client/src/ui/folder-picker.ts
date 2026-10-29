@@ -42,7 +42,8 @@ export class FolderPicker {
     const hint = h('p', { class: 'ui-rename__hint', text: opts.lockedHint ?? '' });
     this.browser = h('div', { class: 'ui-folder-picker__browser' });
     const browse = h('button', { class: 'ui-btn ui-btn--sm', type: 'button', text: tr('Procurar pasta…'), on: { click: () => void this.browse() } });
-    this.el = h('div', { class: 'ui-folder-picker' }, this.list, opts.free ? browse : null, opts.free ? this.otherBtn : null, opts.free ? this.otherRow : hint, this.browser);
+    const tools = opts.free ? h('div', { class: 'ui-folder-picker__tools' }, browse, this.otherBtn) : null;
+    this.el = h('div', { class: 'ui-folder-picker' }, this.list, tools, opts.free ? this.otherRow : hint, this.browser);
     setHidden(this.otherRow, true);
   }
 
@@ -122,13 +123,13 @@ export class FolderPicker {
       const response = await fetch(`/api/cast/dirs${path ? `?path=${encodeURIComponent(path)}` : ''}`);
       if (!response.ok) throw new Error();
       const data = await response.json() as { path: string; parent?: string; dirs: { name: string; path: string }[] };
-      const crumbs = h('div', { class: 'ui-files__crumbs' },
-        h('button', { class: 'ui-btn ui-btn--sm', type: 'button', text: tr('Pastas'), on: { click: () => void this.browse() } }),
-        data.parent ? h('button', { class: 'ui-btn ui-btn--sm', type: 'button', text: tr('Voltar'), on: { click: () => void this.browse(data.parent) } }) : null,
-        h('span', { text: data.path }));
-      const list = h('div', { class: 'ui-files__list' }, ...data.dirs.map((dir) =>
-        h('button', { class: 'ui-btn', type: 'button', text: dir.name, on: { click: () => void this.browse(dir.path) } })));
-      const use = data.path ? h('button', { class: 'ui-btn ui-btn--primary', type: 'button', text: tr('Usar esta pasta'), on: { click: () => {
+      const bar = h('div', { class: 'ui-folder-picker__bar' },
+        h('button', { class: 'ui-btn ui-btn--sm', type: 'button', text: '↑', attrs: { title: tr('Voltar'), 'aria-label': tr('Voltar'), disabled: !data.parent }, on: { click: () => void this.browse(data.parent) } }),
+        h('span', { class: 'ui-folder-picker__path', text: data.path ? shortPath(data.path) : tr('Pastas'), attrs: { title: data.path } }));
+      const list = h('ul', { class: 'ui-files__list' }, ...data.dirs.map((dir) => h('li', {},
+        h('button', { class: 'ui-folder-picker__dir', type: 'button', on: { click: () => void this.browse(dir.path) } }, h('span', { text: '📁', attrs: { 'aria-hidden': 'true' } }), h('span', { text: dir.name })))));
+      if (!data.dirs.length) list.append(h('li', { class: 'ui-rename__hint', text: tr('Nenhuma subpasta.') }));
+      const use = data.path ? h('button', { class: 'ui-btn ui-btn--sm ui-btn--primary', type: 'button', text: tr('Usar esta pasta'), on: { click: () => {
         if (!this.options.some((o) => o.path === data.path)) this.options = [{ path: data.path, name: folderName(data.path), lastAt: 0 }, ...this.options];
         if (!this.opts.multi) this.chosen.clear();
         this.chosen.add(data.path);
@@ -138,8 +139,8 @@ export class FolderPicker {
         this.render();
         this.opts.onChange?.();
       } } }) : null;
-      const close = h('button', { class: 'ui-btn', type: 'button', text: tr('Cancelar'), on: { click: () => this.browser.replaceChildren() } });
-      this.browser.replaceChildren(crumbs, list, close, ...(use ? [use] : []));
+      const close = h('button', { class: 'ui-btn ui-btn--sm', type: 'button', text: tr('Cancelar'), on: { click: () => this.browser.replaceChildren() } });
+      this.browser.replaceChildren(bar, list, h('div', { class: 'ui-folder-picker__foot' }, close, use));
     } catch {
       this.browser.replaceChildren(h('p', { role: 'alert', text: tr('Não foi possível abrir a pasta.') }),
         h('button', { class: 'ui-btn', type: 'button', text: tr('Voltar'), on: { click: () => void this.browse() } }));
