@@ -3558,4 +3558,5 @@ export const EN: Readonly<Record<string, string>> = {
   "Padrão do omp": "omp default",
   "provedor/modelo (vazio = padrão do omp)": "provider/model (empty = omp default)",
   "{0} · raciocínio {1}": "{0} · reasoning {1}",
+  "  --only-cast  atende somente os pedidos do elenco": "  --only-cast  handles only cast requests",
 };

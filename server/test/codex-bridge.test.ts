@@ -2,6 +2,8 @@
 // /api/codex/bridge/*): a trava das mensagens (recurso ligado + Host local), a rodada completa página → auxiliar →
 // codex queue (binário falso) → confirmação, e a conferência de cada mensagem antes de rodar o comando.
 import http from 'node:http';
+import { spawn, spawnSync } from 'node:child_process';
+import { once } from 'node:events';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { dirname, isAbsolute, join } from 'node:path';
@@ -205,12 +207,53 @@ describe('rotas do auxiliar do Codex', () => {
   });
 
   it('parseArgs', () => {
-    expect(parseArgs([], {})).toEqual({ port: 4747, once: false });
-    expect(parseArgs(['--port', '4851', '--once'], {})).toEqual({ port: 4851, once: true });
-    expect(parseArgs([], { HABBLAUD_PORT: '4848' })).toEqual({ port: 4848, once: false });
+    expect(parseArgs([], {})).toEqual({ port: 4747, once: false, onlyCast: false });
+    expect(parseArgs(['--port', '4851', '--once', '--only-cast'], {})).toEqual({ port: 4851, once: true, onlyCast: true });
+    expect(parseArgs([], { HABBLAUD_PORT: '4848' })).toEqual({ port: 4848, once: false, onlyCast: false });
     expect(parseArgs(['-h'], {})).toBe('help');
     expect(() => parseArgs(['--port', 'x'], {})).toThrow(/--port/);
     expect(() => parseArgs(['--xyz'], {})).toThrow(/desconhecida/);
+  });
+});
+
+describe('auxiliar somente para elenco', () => {
+  it('mostra a opção na ajuda', () => {
+    const result = spawnSync(process.execPath, ['--import', 'tsx', 'scripts/codex-bridge.ts', '--help'], { encoding: 'utf8' });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('--only-cast');
+  });
+
+  it.each([200, 403])('consulta apenas o elenco e retorna o resultado HTTP %i', async (status) => {
+    const paths: string[] = [];
+    const { port } = await streamServer((req, res) => {
+      paths.push(req.url!);
+      res.writeHead(status, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(status === 200 ? { jobs: [] } : { error: 'recusado' }));
+    });
+    const child = spawn(process.execPath, ['--import', 'tsx', 'scripts/codex-bridge.ts', '--only-cast', '--once', '--port', String(port)], { env: { ...process.env, HOME: tmp.dir }, stdio: 'ignore' });
+    const [code] = await once(child, 'exit');
+    expect(code).toBe(status === 200 ? 0 : 1);
+    expect(paths).toEqual(['/api/host/cast/poll']);
+  });
+
+  it('encerra ao receber SIGTERM durante o laço de elenco', async () => {
+    const polled = Promise.withResolvers<void>();
+    const paths: string[] = [];
+    const { port } = await streamServer((req, res) => {
+      paths.push(req.url!);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ jobs: [] }), polled.resolve);
+    });
+    const child = spawn(process.execPath, ['--import', 'tsx', 'scripts/codex-bridge.ts', '--only-cast', '--port', String(port)], { env: { ...process.env, HOME: tmp.dir }, stdio: 'ignore' });
+    const exited = once(child, 'exit');
+    try {
+      await polled.promise;
+      child.kill('SIGTERM');
+      expect(await exited).toEqual([0, null]);
+      expect(paths).toEqual(['/api/host/cast/poll']);
+    } finally {
+      child.kill('SIGKILL');
+    }
   });
 });
 

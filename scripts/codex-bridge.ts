@@ -52,6 +52,7 @@ export const REFUSED_RETRY_MS = 60_000;
 const REQUEST_TIMEOUT_MS = 5_000;
 
 const USAGE = tr('Uso: npm run codex:bridge [-- opções]\n\nEntrega as mensagens do escritório às sessões do Codex quando o Habblaud roda no Docker (deixe rodando no computador).\n\nOpções:\n  --port <n>   porta do Habblaud (padrão: HABBLAUD_PORT ou {0})\n  --once       faz uma rodada só e sai\n  -h, --help   mostra esta ajuda\n\nBinário do Codex: HABBLAUD_CODEX_BIN ou `codex` do PATH.', [DEFAULT_PORT]) + '\n\n' + tr('Também chama e dispensa personagens do omp via tmux no host.');
+const CAST_USAGE = tr('  --only-cast  atende somente os pedidos do elenco');
 
 export interface BridgeMessage {
   id: string;
@@ -78,20 +79,22 @@ function rec(v: unknown): Rec | undefined {
 
 class FatalError extends Error {}
 
-export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env): { port: number; once: boolean } | 'help' {
+export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env): { port: number; once: boolean; onlyCast: boolean } | 'help' {
   const envPort = Number.parseInt(env.HABBLAUD_PORT ?? '', 10);
   let port = Number.isInteger(envPort) && envPort > 0 && envPort < 65_536 ? envPort : DEFAULT_PORT;
   let once = false;
+  let onlyCast = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '-h' || a === '--help') return 'help';
     if (a === '--once') once = true;
+    else if (a === '--only-cast') onlyCast = true;
     else if (a === '--port') {
       port = Number(argv[++i]);
       if (!Number.isInteger(port) || port <= 0 || port >= 65_536) throw new FatalError(tr('--port precisa de um número entre 1 e 65535.'));
     } else throw new FatalError(tr('opção desconhecida: {0}\n\n{1}', [a, USAGE]));
   }
-  return { port, once };
+  return { port, once, onlyCast };
 }
 
 function isDir(p: string): boolean {
@@ -506,8 +509,30 @@ async function waitLoop(roundFn: () => Promise<RoundResult>): Promise<never> {
 async function main(): Promise<void> {
   const parsed = parseArgs(process.argv.slice(2));
   if (parsed === 'help') {
-    console.log(USAGE);
+    console.log(`${USAGE}\n\n${CAST_USAGE}`);
     return;
+  }
+  if (parsed.onlyCast) {
+    process.on('SIGTERM', () => process.exit(0));
+    const post = httpPost(parsed.port);
+    const castOpts = { port: parsed.port, dataDir: process.env.HABBLAUD_DATA_DIR || join(homedir(), '.habblaud'), omp: ompBinFrom(process.env, homedir()), tmux: findExecutable('tmux', process.env, process.platform) };
+    const log = (line: string) => console.log(`[codex-bridge] ${line}`);
+    let last = '';
+    for (;;) {
+      const result = await castRound(post, runCast, log, castOpts);
+      const state = result.state === 'down'
+        ? tr('Habblaud fora do ar em http://127.0.0.1:{0}; tentando de novo a cada {1} s.', [parsed.port, POLL_MS / 1_000])
+        : result.state === 'refused'
+          ? tr('o Habblaud recusou ({0}{1}).', [result.status, result.error ? `: ${result.error}` : ''])
+          : tr('conectado ao Habblaud.');
+      if (state !== last) log(state);
+      last = state;
+      if (parsed.once) {
+        process.exitCode = result.state === 'ok' && result.results.every((x) => x.ok) ? 0 : 1;
+        return;
+      }
+      await new Promise((ok) => setTimeout(ok, POLL_MS));
+    }
   }
   await cleanupAttachmentStaging();
   const bin = findCodexBin(process.env);
