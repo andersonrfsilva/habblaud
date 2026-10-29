@@ -1,0 +1,12 @@
+[Unit]
+Description=Habblaud host bridge
+After=habblaud.service
+
+[Service]
+WorkingDirectory=%h/apps/habblaud
+Environment=HABBLAUD_OMP_BIN=%h/.local/bin/omp
+ExecStart=/usr/bin/env npm run codex:bridge
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

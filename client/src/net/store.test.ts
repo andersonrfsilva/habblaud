@@ -34,6 +34,21 @@ class FakeSource implements EventSourceLike {
   }
 }
 
+describe('ações do elenco', () => {
+  it('envia chamada e dispensa, e lê a presença do auxiliar', async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ jobs: [], available: true }), { status: 200 }));
+    vi.stubGlobal('fetch', fetcher);
+    try {
+      const store = new OfficeStore();
+      expect(await store.castJobs()).toEqual({ jobs: [], available: true });
+      expect(await store.startCast('ana', '/a', 'new', 'oi')).toBeUndefined();
+      expect(await store.dismissCast('a:1')).toBeUndefined();
+      expect(fetcher).toHaveBeenCalledWith('/api/cast/ana/start', expect.objectContaining({ method: 'POST', body: JSON.stringify({ room: '/a', mode: 'new', prompt: 'oi' }) }));
+      expect(fetcher).toHaveBeenCalledWith('/api/agents/a%3A1/dismiss', expect.objectContaining({ method: 'POST' }));
+    } finally { vi.unstubAllGlobals(); }
+  });
+});
+
 describe('mockOptionsFrom', () => {
   it('usa os padrões sem parâmetros', () => {
     expect(mockOptionsFrom('')).toEqual({ speed: 1, sessions: 4 });

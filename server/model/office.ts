@@ -56,6 +56,7 @@ const FEED_LIMIT = 200;
 export interface OfficeDeps {
   names: NameStore;
   cast?: CastStore;
+  castLauncher?: () => { state(id: string): 'calling' | 'dismissing' | undefined; isOpened(id: string): boolean; available(): boolean } | undefined;
   /** Nome escolhido pelo usuário para a sala da pasta (model/room-aliases.ts), se houver. */
   roomAlias?: (path: string) => string | undefined;
   version: string;
@@ -300,6 +301,11 @@ export class Office {
     return this.roomNames.get(roomId) ?? roomId.split('/').filter(Boolean).pop() ?? roomId;
   }
 
+  castIdle(agent: AgentInfo): void {
+    this.notice('character', agent.id, 'info', tr('💤 {0} foi dispensado por ociosidade em {1}', [agent.name, this.roomName(agent.roomId)]), agent.roomId);
+    this.markDirty();
+  }
+
   detail(id: string): AgentDetail | undefined {
     const rec = this.agents.get(id);
     if (rec) return { agent: cloneAgent(rec.info), history: rec.history.slice() };
@@ -358,6 +364,7 @@ export class Office {
       info.cast = chosen.id;
       if (chosen.parts) info.parts = { ...chosen.parts };
     }
+    if (chosen) this.rememberCast(info);
     if (p.status === 'waiting') info.waitingFor = p.waitingFor ?? tr('responder no terminal');
     const rec: AgentRecord = { info, history: [] };
     if (p.status === 'working') rec.turnStart = now;
@@ -839,7 +846,7 @@ export class Office {
   // ---------------------------------------------------------------- elenco
 
   private castFor(p: { id: string; session: string; room: string; explicit?: string; sub?: boolean; role?: string; agentType?: string }): CastMember | undefined {
-    const free = (m: CastMember) => ![...this.agents.values()].some((r) => r.info.id !== p.id && r.removeAt === undefined && r.info.cast === m.id);
+    const free = (m: CastMember) => !(this.deps.castLauncher?.()?.state(m.id) && !(p.explicit === m.id && this.deps.castLauncher?.()?.state(m.id) === 'calling')) && ![...this.agents.values()].some((r) => r.info.id !== p.id && r.removeAt === undefined && r.info.cast === m.id);
     const allowed = (m: CastMember) => !m.rooms.length || m.rooms.includes(p.room);
     if (p.sub) {
       return this.cast.list().find((m) => allowed(m) && free(m) && (p.role === '__advisor' ? m.kind === 'advisor' : m.kind === 'sub' && !!p.agentType && m.match?.some((type) => type.toLowerCase() === p.agentType!.toLowerCase())));
@@ -879,6 +886,13 @@ export class Office {
     else delete info.cast;
     if (member?.parts) info.parts = { ...member.parts };
     else delete info.parts;
+    if (member && info.kind === 'main') this.rememberCast(info);
+  }
+
+  private rememberCast(info: AgentInfo): void {
+    const member = info.cast && this.cast.get(info.cast);
+    if (!member || member.kind !== 'main' || member.last?.[info.roomId] === info.sessionId) return;
+    this.cast.put({ ...member, last: { ...member.last, [info.roomId]: info.sessionId } });
   }
 
   requestCast(id: string, castId: string): void {
@@ -1013,6 +1027,12 @@ export class Office {
     }
     const perms = this.deps.permissions?.();
     const real = [...this.agents.values()].map((r) => applyPermission(cloneAgent(r.info), perms?.get(r.info.id)));
+    const launcher = this.deps.castLauncher?.();
+    for (const a of real) if (a.kind === 'main' && a.cast && launcher?.isOpened(a.cast)) a.castOpened = true;
+    const occupied = new Set(real.filter((a) => a.status !== 'offline' && a.status !== 'done').map((a) => a.cast));
+    const reserve = this.cast.list().filter((m) => m.kind === 'main' && !occupied.has(m.id)).map((m) => ({
+      cast: m.id, name: m.name, look: m.look, seed: m.seed, ...(m.parts ? { parts: m.parts } : {}), state: launcher?.state(m.id) ?? 'idle' as const,
+    }));
     const reach = this.deps.messages?.();
     // Mensagens pelo escritório: principais presentes cuja sessão está com o plugin conectado. No demo quem decide é
     // o simulador; com o recurso desligado, ninguém recebe.
@@ -1031,6 +1051,7 @@ export class Office {
       serverTime: now,
       rooms,
       agents: [...real, ...demoAgents].map(trim),
+      reserve,
       accounts: [...this.deps.accounts(sessions), ...(this.demoSnap?.accounts ?? [])],
       ...(ptys ? { ptys: ptys.list } : {}),
       meta: {

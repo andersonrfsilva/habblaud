@@ -21,6 +21,7 @@ import { describeStateMigration, legacyEnvWarning, migrateLegacyStateDir } from 
 import { errMsg, log } from './log';
 import { NameStore } from './model/names';
 import { CastStore } from './model/cast';
+import { CastLauncher } from './cast/launcher';
 import { Office } from './model/office';
 import { RoomAliases } from './model/room-aliases';
 import { OmpSettings } from './sources/omp/settings';
@@ -93,7 +94,7 @@ const ompSettings = new OmpSettings(join(config.dataDir, 'omp.json'));
 ompSettings.load();
 
 // Office, contas e fontes de agentes se referenciam (avisos de mudança / fontes): ligação tardia.
-const late: { office?: Office; agents?: SourceSet; permissions?: PermissionRegistry; messages?: MessageRegistry; ptys?: PtyManager; ptyOff?: string } = {};
+const late: { office?: Office; agents?: SourceSet; permissions?: PermissionRegistry; messages?: MessageRegistry; ptys?: PtyManager; ptyOff?: string; castLauncher?: CastLauncher } = {};
 // Versão nova: consulta a release mais recente no GitHub a cada 6 h (HABBLAUD_UPDATE_CHECK=0 desliga).
 const updates = new UpdateChecker({
   current: config.version,
@@ -130,6 +131,7 @@ const accounts = new AccountsService({
 const office = new Office({
   names,
   cast,
+  castLauncher: () => late.castLauncher,
   roomAlias: (path) => roomAliases.get(path),
   version: config.version,
   // No modo dev o Vite serve o cliente direto do código-fonte: não há build para comparar.
@@ -146,6 +148,18 @@ const office = new Office({
   world: () => world?.meta() ?? { enabled: false, configured: false, state: 'off' },
   ompRoomByProject: config.ompDirs.length ? () => ompSettings.roomByProject : undefined,
 });
+const castLauncher = config.terminal ? new CastLauncher({
+  dataDir: config.dataDir,
+  member: (id) => cast.get(id),
+  agents: () => office.list(),
+  account: (id) => {
+    const entries = accounts.entriesOf('omp');
+    return (id ? entries.find((entry) => entry.id === id) : entries[0])?.detected.configDir;
+  },
+  changed: () => office.markDirty(),
+  idle: (agent) => office.castIdle(agent),
+}) : undefined;
+late.castLauncher = castLauncher;
 // Fontes de agentes, uma por ferramenta (sources/source.ts): a do Claude Code e, depois dela, a do Codex (quando há
 // pastas do Codex; HABBLAUD_CODEX=0 desliga), com o histórico dela no HistorySet abaixo e as contas registradas por
 // ela mesma (accounts.setProviderAccounts). `codex` também recebe os eventos dos hooks do Codex (CodexLive).
@@ -261,7 +275,7 @@ const deliveryFiles = deliveries || config.messages
 // Linha do tempo do timelapse: grava cada snapshot novo (com throttle) em <dataDir>/timeline.
 const timelineDir = join(config.dataDir, TIMELINE_DIR);
 const timeline = config.timeline ? new TimelineRecorder({ dir: timelineDir }) : undefined;
-if (timeline) hub.onSnapshot((snap) => timeline.ingest(snap));
+if (timeline) hub.onSnapshot(({ reserve: _reserve, ...snap }) => timeline.ingest(snap));
 // Responder pelo escritório (hook PermissionRequest): age sobre as sessões, então segue a mesma trava.
 const permissions = config.terminal
   ? new PermissionRegistry({
@@ -375,6 +389,7 @@ worldUplink?.start();
 const ticker = setInterval(() => {
   try {
     office.tick();
+    castLauncher?.tick();
   } catch (err) {
     log.warnOnce(`tick:${errMsg(err)}`, tr('Falha no relógio do escritório: {0}', [errMsg(err)]));
   }
@@ -421,6 +436,7 @@ const api = createApiHandler({
   asides: asides ? { page: createAsideRoutes(asides), progress: (req, res) => handleAsideProgress(req, res, asides) } : undefined,
   pty: ptys ? createPtyRoutes(ptys) : undefined,
   spawn,
+  castLauncher,
   attachments,
   dictation,
   deliveries,

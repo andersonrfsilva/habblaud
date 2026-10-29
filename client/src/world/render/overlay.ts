@@ -328,7 +328,7 @@ export class Overlay {
       const hovered = sel.hover === ch.id;
       // o visitante (cena Visita) sempre com o nome e o crachá
       const visitor = ch === this.sim.visitor;
-      const labeled = selected || hovered || ch.mode === 'wait' || showAll || visitor;
+      const labeled = ch.id.startsWith('reserve:') ? hovered : selected || hovered || ch.mode === 'wait' || showAll || visitor;
       const above = labeled && this.labelAbove(ch);
       const b = this.bubbleFor(ch, head, now, opts, selected, hovered);
       if (b) {

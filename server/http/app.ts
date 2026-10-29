@@ -1,6 +1,7 @@
 // Rotas da API (/api/*). Respostas JSON; rotas desconhecidas -> 404 JSON.
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { parseCastMember } from '../model/cast';
+import type { CastLauncher } from '../cast/launcher';
 import type { AccessInfo, AgentInfo, ModSummary, OfficeSnapshot, SourceInfo, UpdateStatus } from '../../shared/types';
 import type { AccountsService } from '../accounts/service';
 import { handleCodexEvent } from '../codex/http';
@@ -85,6 +86,7 @@ export interface ApiDeps {
   setOmpRoomByProject?: (on: boolean) => boolean;
   /** Novo agente pelo escritório (/api/spawn e, para o auxiliar do host, /api/host/spawn/*; server/spawn/spawn.ts). */
   spawn?: SpawnService;
+  castLauncher?: CastLauncher;
   /** Pastas sugeridas no "Novo agente" (GET /api/spawn/folders; spawn/folders.ts): projetos recentes. */
   spawnFolders?: () => Promise<SpawnFolder[]>;
   /** Anexos do "Novo agente" (POST /api/spawn/attachments; spawn/attachments.ts). */
@@ -353,6 +355,11 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
     if (data.match === null) delete old?.match;
     if (data.home === null) delete data.home;
     if (data.match === null) delete data.match;
+    for (const key of ['model', 'instructions', 'idleMinutes', 'account']) if (data[key] === null) {
+      if (old) delete (old as unknown as Record<string, unknown>)[key];
+      delete data[key];
+    }
+    if (data.kind !== undefined && data.kind !== 'main' && old) delete old.last;
     const member = parseCastMember({ ...old, ...data, id: id ?? office.cast.nextId(typeof data.name === 'string' ? data.name : '') });
     if (!member) throw new HttpError(400, tr('membro do elenco inválido'));
     if (office.putCast(member) === 'conflict') return sendJson(res, 409, { error: tr('nome já está em uso') });
@@ -515,6 +522,31 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       if (isRemote(req)) sendJson(res, 403, { error: tr('o terminal interativo só pode ser usado no próprio computador') });
       else if (!deps.pty) sendJson(res, 403, { error: tr('terminal interativo desligado (veja o log do servidor)') });
       else deps.pty(req, res, path);
+      return true;
+    }
+    const castStart = /^\/api\/cast\/([a-z0-9-]{1,40})\/start$/.exec(path);
+    const castDismiss = /^\/api\/agents\/([^/]+)\/dismiss$/.exec(path);
+    if (path === '/api/cast/jobs' || castStart || castDismiss) {
+      const launcher = deps.castLauncher;
+      if (!deps.terminal || !trusted(req) || !launcher) sendJson(res, 403, { error: tr('o elenco só pode ser editado pelo próprio computador') });
+      else if (path === '/api/cast/jobs') {
+        if (!isRead) methodNotAllowed(res, 'GET');
+        else sendJson(res, 200, { jobs: launcher.jobs(), available: launcher.available() });
+      } else if (method !== 'POST') methodNotAllowed(res, 'POST');
+      else if (castDismiss) {
+        let id: string;
+        try { id = decodeURIComponent(castDismiss[1]); } catch { sendJson(res, 400, { error: tr('id inválido') }); return true; }
+        const result = launcher.dismiss(office.get(id));
+        if ('error' in result) sendJson(res, result.status, { error: result.error });
+        else sendJson(res, 202, result);
+      } else {
+        readJson(req).then(async (body) => {
+          const folders = (await deps.spawnFolders?.() ?? []).map((f) => f.path);
+          const result = launcher.start(castStart![1], body, folders);
+          if ('error' in result) sendJson(res, result.status, { error: result.error });
+          else sendJson(res, 202, result);
+        }).catch((err) => fail(res, err));
+      }
       return true;
     }
     const castMatch = CAST_ROUTE.exec(path);
@@ -693,6 +725,15 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
           })
           .catch((err) => fail(res, err));
       }
+      return true;
+    }
+    if (path === '/api/host/cast/poll' || path === '/api/host/cast/ack') {
+      const launcher = deps.castLauncher;
+      if (method !== 'POST') methodNotAllowed(res, 'POST');
+      else if (!launcher) sendJson(res, 403, { error: tr('desligado') });
+      else if (!trusted(req) || (!deps.inDocker && !isLoopbackAddress(req.socket.remoteAddress))) sendJson(res, 403, { error: denied(req, tr('só o auxiliar do próprio computador')) });
+      else if (path === '/api/host/cast/poll') { req.resume(); sendJson(res, 200, { jobs: launcher.poll() }); }
+      else readJson(req).then((body) => { launcher.ack(body); sendJson(res, 200, { ok: true }); }).catch((err) => fail(res, err));
       return true;
     }
     if (path === '/api/host/spawn/poll' || path === '/api/host/spawn/ack') {

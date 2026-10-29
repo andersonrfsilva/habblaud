@@ -6,7 +6,7 @@ import type { ArtModule, Dir, RoomTheme } from '../../art/api';
 import type { WorldOptions } from '../api';
 import { COL_W, COMPACT_DELAY_MS, DISMANTLE_DELAY_MS, FOOT_DX, FOOT_DY, MISSING_DEBOUNCE_MS, RUN_SPEED, TILE, WALK_SPEED } from '../constants';
 import { assembleBuilding, type BuildingLayout } from '../layout/building';
-import { RECEPTION_ID } from '../layout/core';
+import { LOUNGE_ID, RECEPTION_ID } from '../layout/core';
 import { columnsFor, inRect } from '../layout/geometry';
 import { layoutProjectRoom } from '../layout/room';
 import type { SpotDef, SpotKind } from '../layout/types';
@@ -25,6 +25,7 @@ import {
   modeFor,
   pickIdleActivity,
   shouldRun,
+  reserveSeats,
   type IdleActivity,
   type Mode,
 } from './behavior';
@@ -99,6 +100,7 @@ const lookSig = (a: AgentInfo): string => `${a.seed}|${a.look}|${partsKey(a.part
 
 export class Sim {
   readonly chars = new Map<string, Character>();
+  readonly reserve = new Map<string, Character>();
   readonly rooms = new Map<string, RoomState>();
   readonly spots = new SpotRegistry();
   readonly elevators: Elevator[] = [];
@@ -200,6 +202,7 @@ export class Sim {
     }
     if (layoutDirty) this.relayout();
     this.roomFx.sync(snap.rooms, input.serverTime, now);
+    this.syncReserve(snap, now);
 
     // ---- agentes
     const seen = new Set<string>();
@@ -219,7 +222,15 @@ export class Sim {
         const parent = this.chars.get(a.parentId);
         if (parent && (parent.leaving || parent.gone)) continue;
       }
-      const nc = this.spawn(a, first, now);
+      const reserve = a.cast ? this.reserve.get(a.cast) : undefined;
+      const nc = this.spawn(a, first || !!reserve, now);
+      if (nc && reserve) {
+        nc.x = reserve.x; nc.y = reserve.y; nc.tx = reserve.tx; nc.ty = reserve.ty;
+        nc.atSpot = reserve.atSpot; nc.seated = reserve.seated; nc.sortY = reserve.sortY; nc.dir = reserve.dir;
+        if (nc.atSpot) nc.queue.push({ t: 'exit' });
+        this.spots.releaseAll(reserve.id);
+        this.reserve.delete(a.cast!);
+      }
       if (nc) {
         fresh.push(nc);
         // chegou ao escritório: carteira com o saldo inicial (tarefas já concluídas pagas em silêncio)
@@ -248,6 +259,56 @@ export class Sim {
   /** Reaplica o último snapshot (depuração). */
   reapply(now: number): void {
     if (this.lastSnapshot) this.applySnapshot(this.lastSnapshot, now);
+  }
+
+  private syncReserve(snap: OfficeSnapshot, now: number): void {
+    const members = this.visit ? [] : snap.reserve ?? [];
+    const wanted = new Set(members.map((m) => m.cast));
+    for (const [id, ch] of this.reserve) {
+      if (wanted.has(id) || snap.agents.some((a) => a.cast === id && !this.chars.has(a.id) && a.status !== 'offline')) continue;
+      this.spots.releaseAll(ch.id);
+      this.reserve.delete(id);
+    }
+    for (const member of members) {
+      let ch = this.reserve.get(member.cast);
+      if (ch && !this.spots.get(ch.homeSpot)) {
+        this.spots.releaseAll(ch.id);
+        this.reserve.delete(member.cast);
+        ch = undefined;
+      }
+      if (!ch) {
+        const seat = reserveSeats([...this.spots.all()], (id) => this.spots.isFree(id), LOUNGE_ID)[0];
+        if (!seat) continue;
+        const id = `reserve:${member.cast}`;
+        const info: AgentInfo = {
+          id, kind: 'main', roomId: LOUNGE_ID, name: member.name, look: member.look, role: '', sessionId: '', account: '',
+          status: 'idle', statusSince: now, startedAt: now, lastEventAt: now, recent: [], tasks: [],
+          stats: { toolCalls: 0, tokensIn: 0, tokensOut: 0, subagents: 0 }, seed: member.seed, parts: member.parts, cast: member.cast,
+        };
+        let appearance;
+        try { appearance = this.art.appearanceFromSeed(member.seed, { look: member.look, parts: member.parts }); } catch { continue; }
+        ch = new Character(info, appearance);
+        ch.homeSpot = seat.id;
+        this.spots.reserve(seat.id, id);
+        const previous = [...this.chars.values()].find((old) => old.info.cast === member.cast && !snap.agents.some((a) => a.id === old.id && a.status !== 'offline'));
+        if (previous && this.rooms.has(previous.roomId)) {
+          ch.x = previous.x; ch.y = previous.y; ch.tx = previous.tx; ch.ty = previous.ty;
+          ch.atSpot = previous.atSpot; ch.seated = previous.seated; ch.sortY = previous.sortY; ch.dir = previous.dir;
+          if (ch.atSpot) ch.queue.push({ t: 'exit' });
+          ch.queue.push({ t: 'go', tx: seat.tx, ty: seat.ty }, { t: 'enter', spot: seat.id });
+          this.social.leave(previous, now);
+          this.spots.releaseAll(previous.id);
+          this.chars.delete(previous.id);
+        } else this.snapTo(ch, seat);
+        ch.setPose('sit');
+        this.reserve.set(member.cast, ch);
+      }
+      ch.info.name = member.name;
+      ch.alpha = member.state === 'calling' || !!ch.step || !!ch.queue.length ? 1 : 0.55;
+      ch.bubbleText = member.state === 'calling' ? tr('chamando…') : null;
+      ch.bubbleAt = now - 200;
+      ch.bubbleUntil = now + 60_000;
+    }
   }
 
   private createRoom(r: RoomInfo, first: boolean, now: number): RoomState {
@@ -583,6 +644,10 @@ export class Sim {
       this.runCharacter(ch, dt, now);
     }
     if (this.visitor) this.runVisitor(this.visitor, dt, now);
+    for (const ch of this.reserve.values()) {
+      if (ch.step || ch.queue.length) this.runVisitor(ch, dt, now);
+      else { ch.setPose('sit'); ch.alpha = ch.bubbleText ? 1 : 0.55; }
+    }
     for (const [id, ch] of this.chars) {
       if (ch.gone) {
         this.spots.releaseAll(id);
@@ -1724,12 +1789,13 @@ export class Sim {
   /** Os personagens desenhados: os agentes e, na visita, o visitante (por último). */
   *people(): IterableIterator<Character> {
     yield* this.chars.values();
+    yield* this.reserve.values();
     if (this.visitor && !this.visitor.gone) yield this.visitor;
   }
 
   /** Um personagem desenhado pelo id (agente ou o visitante). */
   person(id: string): Character | undefined {
-    return this.chars.get(id) ?? (this.visitor?.id === id ? this.visitor : undefined);
+    return this.chars.get(id) ?? this.reserve.get(id.startsWith('reserve:') ? id.slice(8) : '') ?? (this.visitor?.id === id ? this.visitor : undefined);
   }
 
   /** Visita: o visitante surge no elevador da recepção e sai para o hall (null = tira o visitante). */

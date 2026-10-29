@@ -1009,6 +1009,8 @@ scripts/  build do servidor, docker-up, instaladores (mod, tap de statusline e h
 mod/      o mod do Habblaud e os plugins de permissões e de mensagens (plugins do Claude Code; marketplace em .claude-plugin/)
 ```
 
+El auxiliar del host (`npm run codex:bridge`) abre omp en sesiones `hb-<id>`. Usa `tmux attach -t hb-<id>` para ver el TUI.
+
 | Ruta | Descripción |
 | --- | --- |
 | `GET /api/stream` | SSE con los eventos `snapshot`, `feed` y `notice` (formato en `shared/types.ts`). |
@@ -1018,6 +1020,8 @@ mod/      o mod do Habblaud e os plugins de permissões e de mensagens (plugins 
 | `GET /api/cast`, `POST /api/cast` | Lista o crea miembros en `cast.json`; solo con acceso local. |
 | `PUT /api/cast/:id`, `DELETE /api/cast/:id` | Edita o elimina un miembro del elenco; solo con acceso local. |
 | `PUT /api/agents/:id/cast`, `DELETE /api/agents/:id/cast` | Asigna `{cast}` al agente principal o vuelve al sorteo. Las sesiones omp pueden solicitar un miembro con `HABBLAUD_CAST=<id>`. |
+| `POST /api/cast/:id/start`, `POST /api/agents/:id/dismiss`, `GET /api/cast/jobs` | Llama, despide o consulta sesiones del elenco; solo acceso local. |
+| `POST /api/host/cast/poll`, `POST /api/host/cast/ack` | El auxiliar del host recoge y confirma las solicitudes del elenco. |
 | `GET /api/sessions/recent` | Historial: sesiones de los últimos 7 días de todas las cuentas (hasta 150); solo con acceso local. |
 | `GET /api/sessions/:conta/:sessionId/terminal` | SSE de la conversación de una sesión del historial (mismo protocolo que la terminal); solo con acceso local. |
 | `GET /api/stats?day=AAAA-MM-DD` | Estadísticas de Mi día (tiempo por estado, proyectos, cuentas, horas, esperas, tokens y costo). |

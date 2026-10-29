@@ -66,7 +66,7 @@ export function officeIsEmpty(ctx: UiContext): boolean {
   const snap = store.snapshot;
   const connected = store.connection === 'open' || store.connection === 'mock';
   // No timelapse, um momento sem ninguém não é "abra o Claude Code (ou o Codex)".
-  return connected && !store.replaying && !!snap && snap.agents.length === 0 && snap.rooms.length === 0;
+  return connected && !store.replaying && !!snap && snap.agents.length === 0 && snap.rooms.length === 0 && !snap.reserve?.length;
 }
 
 export class EmptyState implements UiComponent {

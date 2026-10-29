@@ -371,6 +371,11 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
   store.on('connection', () => invalidate());
   onAccessChange(() => invalidate());
   world.onSelect((sel) => {
+    if (sel?.type === 'agent' && sel.id.startsWith('reserve:')) {
+      void castScreen.call(sel.id.slice('reserve:'.length));
+      world.select(null);
+      return;
+    }
     const prev = selection;
     selection = sel;
     // Clique no canvas (ou agente que saiu): a gaveta espera a janela do duplo clique antes de mexer na câmera.

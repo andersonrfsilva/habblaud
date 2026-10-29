@@ -4,6 +4,7 @@ import { mkdirSync, realpathSync, truncateSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ModSummary, OfficeSnapshot, PermissionRequestInfo, UpdateStatus } from '../../shared/types';
+import { CastLauncher } from '../cast/launcher';
 import { AccountsService } from '../accounts/service';
 import { setQuiet } from '../log';
 import { NameStore } from '../model/names';
@@ -92,6 +93,29 @@ function raw(base: string, path: string, opts: { method?: string; headers?: Reco
     req.end(opts.body);
   });
 }
+
+describe('rotas do auxiliar do elenco', () => {
+  it('exige acesso local e aceita uma chamada após o poll', async () => {
+    const launcher = new CastLauncher({
+      dataDir: '/tmp', member: () => ({ id: 'ana', name: 'Ana', kind: 'main', look: 'f', seed: 1, rooms: ['/a'] }),
+      agents: () => [], account: () => '/tmp', changed: () => {},
+    });
+    const env = await start({ terminal: true, castLauncher: launcher });
+    try {
+      const body = JSON.stringify({ room: '/a', mode: 'new' });
+      const post = (path: string, payload = '{}') => fetch(`${env.base}${path}`, { method: 'POST', headers: JSON_HEADERS, body: payload });
+      expect((await post('/api/cast/ana/start', body)).status).toBe(503);
+      expect((await raw(env.base, '/api/host/cast/poll', { method: 'POST', headers: { Host: 'habblaud.lan', ...JSON_HEADERS }, body: '{}' })).status).toBe(403);
+      expect((await post('/api/host/cast/poll')).status).toBe(200);
+      expect((await post('/api/cast/ana/start', body)).status).toBe(202);
+      expect((await post('/api/cast/ana/start', body)).status).toBe(409);
+      expect((await post('/api/agents/unknown/dismiss')).status).toBe(404);
+    } finally {
+      await env.close();
+      env.cleanup();
+    }
+  });
+});
 
 describe('API HTTP', () => {
   let env: Awaited<ReturnType<typeof start>>;

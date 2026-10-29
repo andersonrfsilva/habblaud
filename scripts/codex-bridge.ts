@@ -14,15 +14,19 @@
 // Também começa os agentes novos pedidos no escritório (com HABBLAUD_PTY=1 no Habblaud; anexos gravados em
 // ~/.habblaud/attachments/), lê os arquivos das entregas (só de pastas de projeto conhecidas, da pasta temporária e dos
 // anexos) e transcreve o ditado com o Whisper local (whisper-cli + ffmpeg + modelo; ver server/dictation/whisper.ts).
+// Também chama e dispensa personagens do elenco pelo omp em sessões tmux no host.
 // Arquivos e ditado usam rodadas com espera: o Habblaud só responde quando chega trabalho (ou a cada 20 s).
 // Ctrl+C para parar.
-import { createWriteStream, statSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { homedir } from 'node:os';
+import { promisify } from 'node:util';
+import { createWriteStream, realpathSync, statSync } from 'node:fs';
 import { lstat, mkdir, mkdtemp, readdir, rename, rm } from 'node:fs/promises';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { randomUUID } from 'node:crypto';
-import { isAbsolute, join, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isClaudeDir } from '../server/accounts/detect';
 import { createCodexQueueRunner, findCodexBin, THREAD_ID, type CodexQueueResult, type CodexQueueRunner } from '../server/messages/codex';
@@ -36,6 +40,8 @@ import { checkFile, insideKnownFolder, tempRoots } from '../server/deliveries/fi
 import { discoverClaudeDirs } from '../server/accounts/detect';
 import { HOST_WAIT_MS } from '../server/host-wait';
 import { readFileSync } from 'node:fs';
+import { ompBinFrom } from '../server/sources/omp/bin';
+import { findExecutable } from '../server/claude-bin';
 
 export const DEFAULT_PORT = 4747;
 /** Intervalo entre as rodadas. */
@@ -45,7 +51,7 @@ export const WAIT_ROUND_MIN_MS = 500;
 export const REFUSED_RETRY_MS = 60_000;
 const REQUEST_TIMEOUT_MS = 5_000;
 
-const USAGE = tr('Uso: npm run codex:bridge [-- opções]\n\nEntrega as mensagens do escritório às sessões do Codex quando o Habblaud roda no Docker (deixe rodando no computador).\n\nOpções:\n  --port <n>   porta do Habblaud (padrão: HABBLAUD_PORT ou {0})\n  --once       faz uma rodada só e sai\n  -h, --help   mostra esta ajuda\n\nBinário do Codex: HABBLAUD_CODEX_BIN ou `codex` do PATH.', [DEFAULT_PORT]);
+const USAGE = tr('Uso: npm run codex:bridge [-- opções]\n\nEntrega as mensagens do escritório às sessões do Codex quando o Habblaud roda no Docker (deixe rodando no computador).\n\nOpções:\n  --port <n>   porta do Habblaud (padrão: HABBLAUD_PORT ou {0})\n  --once       faz uma rodada só e sai\n  -h, --help   mostra esta ajuda\n\nBinário do Codex: HABBLAUD_CODEX_BIN ou `codex` do PATH.', [DEFAULT_PORT]) + '\n\n' + tr('Também chama e dispensa personagens do omp via tmux no host.');
 
 export interface BridgeMessage {
   id: string;
@@ -345,6 +351,59 @@ export async function spawnRound(
   return { state: 'ok', results };
 }
 
+export type CastRun = (file: string, args: string[]) => Promise<void>;
+const exec = promisify(execFile);
+const runCast: CastRun = async (file, args) => { await exec(file, args, { timeout: 10_000, windowsHide: true }); };
+
+/** O auxiliar valida cada pedido antes de usar o servidor tmux do usuário. */
+export async function castRound(post: Post, run: CastRun, log: (line: string) => void = () => {}, opts: { port: number; dataDir: string; omp?: string; tmux?: string }): Promise<RoundResult> {
+  const polled = await post('/api/host/cast/poll', {});
+  if (!polled) return { state: 'down' };
+  const jobs = rec(polled.json)?.jobs;
+  if (polled.status !== 200 || !Array.isArray(jobs)) return { state: 'refused', status: polled.status };
+  const results: BridgeResult[] = [];
+  for (const raw of jobs) {
+    const job = rec(raw);
+    const id = typeof job?.id === 'string' ? job.id : '';
+    if (!id) continue;
+    try {
+      if (!job || typeof job.cast !== 'string' || !/^[a-z0-9-]{1,40}$/.test(job.cast) || (job.op !== 'start' && job.op !== 'stop') || !opts.tmux) throw new Error(tr('pedido inválido'));
+      if (job.op === 'start') {
+        if (job.model !== undefined && (typeof job.model !== 'string' || job.model.startsWith('-') || !/^[^\s\x00-\x1f\x7f]{1,200}$/.test(job.model))) throw new Error(tr('pedido inválido'));
+        if (job.resume !== undefined && (typeof job.resume !== 'string' || !/^[0-9a-f][0-9a-f-]{7,199}$/i.test(job.resume))) throw new Error(tr('pedido inválido'));
+        if (job.prompt !== undefined && (typeof job.prompt !== 'string' || job.prompt.length > 8000 || /^\s*-/.test(job.prompt))) throw new Error(tr('pedido inválido'));
+      }
+      const name = `hb-${job.cast}`;
+      let exists = false;
+      try { await run(opts.tmux, ['has-session', '-t', `=${name}`]); exists = true; }
+      catch (err) { if (!err || typeof err !== 'object' || !('code' in err) || err.code !== 1) throw err; }
+      if (job.op === 'stop') {
+        if (exists) await run(opts.tmux, ['kill-session', '-t', `=${name}`]);
+      } else {
+        if (exists || !opts.omp || typeof job.folder !== 'string' || !isAbsolute(job.folder) || !isDir(job.folder) || typeof job.agentDir !== 'string' || !isAbsolute(job.agentDir) || !isDir(join(job.agentDir, 'sessions'))) throw new Error(tr('pedido inválido'));
+        if (job.instructionsFile !== undefined) {
+          if (typeof job.instructionsFile !== 'string' || !isAbsolute(job.instructionsFile)) throw new Error(tr('pedido inválido'));
+          const rel = relative(realpathSync(join(opts.dataDir, 'cast')), realpathSync(job.instructionsFile));
+          if (!rel || rel.startsWith('..') || isAbsolute(rel)) throw new Error(tr('pedido inválido'));
+        }
+        const args = ['new-session', '-d', '-s', name, '-c', job.folder, '-e', `HABBLAUD_CAST=${job.cast}`, '-e', `PI_CODING_AGENT_DIR=${job.agentDir}`, '-e', `HABBLAUD_PORT=${opts.port}`, '--', opts.omp];
+        if (typeof job.model === 'string') args.push('--model', job.model);
+        if (typeof job.instructionsFile === 'string') args.push('--append-system-prompt', job.instructionsFile);
+        if (typeof job.resume === 'string') args.push('--resume', job.resume);
+        if (typeof job.prompt === 'string' && job.prompt) args.push(job.prompt);
+        await run(opts.tmux, args);
+      }
+      results.push({ id, ok: true });
+    } catch (err) {
+      const error = err instanceof Error ? err.message.slice(0, 300) : tr('pedido inválido');
+      results.push({ id, ok: false, error });
+      log(error);
+    }
+  }
+  if (results.length) await post('/api/host/cast/ack', { results });
+  return { state: 'ok', results };
+}
+
 /**
  * Ditado: busca os áudios (POST /api/host/dictation/poll), transcreve cada um com o Whisper local e devolve o texto e
  * o idioma em /api/host/dictation/ack. O texto nunca vai para a tela. Nunca lança.
@@ -456,6 +515,7 @@ async function main(): Promise<void> {
   const open = createOpener();
   const claudeBin = runnableClaudeBin(process.env);
   const cli = claudeBin ? createCliRunner(claudeBin) : undefined;
+  const castOpts = { port: parsed.port, dataDir: process.env.HABBLAUD_DATA_DIR || join(homedir(), '.habblaud'), omp: ompBinFrom(process.env, homedir()), tmux: findExecutable('tmux', process.env, process.platform) };
   const post = httpPost(parsed.port);
   const download = httpAttachmentDownload(parsed.port);
   const log = (line: string) => console.log(`[codex-bridge] ${line}`);
@@ -489,6 +549,7 @@ async function main(): Promise<void> {
   let spawnRetryAt = 0;
   let spawned: RoundResult = { state: 'ok', results: [] };
   for (;;) {
+    const castResult = await castRound(post, runCast, log, castOpts);
     if (Date.now() >= spawnRetryAt) {
       spawned = await spawnRound(post, open, log, undefined, download, cli);
       if (spawned.state === 'refused') spawnRetryAt = Date.now() + REFUSED_RETRY_MS;
@@ -505,7 +566,7 @@ async function main(): Promise<void> {
     if (state !== last) log(state);
     last = state;
     if (parsed.once) {
-      process.exitCode = r.state === 'ok' && r.results.every((x) => x.ok) ? 0 : 1;
+      process.exitCode = r.state === 'ok' && r.results.every((x) => x.ok) && castResult.state === 'ok' && castResult.results.every((x) => x.ok) ? 0 : 1;
       return;
     }
     await new Promise((ok) => setTimeout(ok, POLL_MS));
