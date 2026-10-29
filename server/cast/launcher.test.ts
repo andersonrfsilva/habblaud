@@ -46,10 +46,16 @@ describe('CastLauncher', () => {
     agents.push({ ...agent, status: 'waiting' });
     time(300_000); launcher.tick();
     expect(launcher.poll()).toEqual([]);
+    agents[0].status = 'shell'; launcher.tick();
+    expect(launcher.poll()).toEqual([]);
+    agents[0].status = 'working'; launcher.tick();
+    expect(launcher.poll()).toEqual([]);
     agents[0].status = 'idle';
     setMember({ ...member, idleMinutes: 0 }); launcher.tick();
     expect(launcher.poll()).toEqual([]);
-    setMember(member); launcher.tick();
+    setMember(member); time(299_999); launcher.tick();
+    expect(launcher.poll()).toEqual([]);
+    time(300_000); launcher.tick();
     expect(launcher.poll()).toContainEqual(expect.objectContaining({ op: 'stop', cast: 'ana' }));
   });
 });
