@@ -11992,6 +11992,11 @@ button.ui-files__open { cursor: pointer; }
   width: min(560px, calc(100vw - 24px));
   max-height: min(90vh, 900px);
   overflow: auto;
+  /* Centro explícito na top layer, sem depender do estilo de :modal do navegador. */
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  height: fit-content;
   border: 1px solid var(--ui-line-strong);
   border-radius: 12px;
   padding: 14px 16px 16px;
