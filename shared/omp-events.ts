@@ -37,6 +37,8 @@ export interface OmpEvent {
   /** Caminho do arquivo .jsonl da sessão (ausente com --no-session). */
   sessionFile?: string;
   cwd?: string;
+  /** Membro do elenco pedido pela sessão omp. */
+  cast?: string;
   /** Quando aconteceu, em ms desde 1970, no relógio de quem mandou. */
   at: number;
   toolName?: string;
@@ -78,6 +80,7 @@ export function parseOmpEvent(raw: unknown): OmpEvent | undefined {
   if (toolName) out.toolName = toolName;
   if (toolCallId) out.toolCallId = toolCallId;
   if (typeof r.approved === 'boolean') out.approved = r.approved;
+  if ((r.event === 'session_start' || r.event === 'heartbeat') && typeof r.cast === 'string' && /^[a-z0-9-]{1,40}$/.test(r.cast)) out.cast = r.cast;
   if ((r.event === 'session_start' || r.event === 'heartbeat') && Array.isArray(r.models)) {
     const models = r.models.slice(0, MODELS_MAX).flatMap((m) => str(m, ID_MAX) ?? []);
     if (models.length) out.models = models;

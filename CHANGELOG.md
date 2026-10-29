@@ -12,6 +12,11 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Elenco:** crie personagens fixos para principais, advisors e subagentes, escolha salas e vista cada sessão pela
+  gaveta. No omp, `HABBLAUD_CAST=<id>` pede um membro. Personagem ocupado ou fora da sala gera sorteio; as salas
+  organizam a escolha, mas não restringem ferramentas. Personagens antigos das salas migram para `cast.json`, com
+  cópia de segurança em `names.json.pre-031`.
+
 - **Anexos no prompt:** o clipe no terminal e na gaveta aceita seleção, colagem e arraste de até cinco arquivos
   de 15 MiB, inclusive sem texto. Cada envio grava em `~/.habblaud/attachments/<UUID>/` (ou
   `HABBLAUD_ATTACHMENTS_DIR`) antes da entrega, sem escrever no projeto. Rascunhos e anexos ficam por agente;

@@ -135,7 +135,7 @@ function canaryOffice(): { rooms: RoomInfo[]; agents: AgentInfo[] } {
     agent(MAIN_ID, CANARY_ROOM, {
       ...common,
       name: 'CANARIONOMEEDITADO Silva',
-      custom: true,
+      cast: 'CANARIO-ELENCO',
       parts: { hair: '#e47aa8', hairStyle: 'afro' },
       account: '.claude-CANARIO-CONTA',
       sessionId: 'CANARIO-SESSAO-123',
@@ -253,7 +253,7 @@ describe('projeção: regras', () => {
       expect(LOOK_OF.get(a.name), a.name).toBe(a.look);
     }
     // Trocar o nome (editado) no escritório não muda nada no mundo.
-    const renamed = agents.map((a) => ({ ...a, name: 'Nome Real Da Pessoa', custom: true as const }));
+    const renamed = agents.map((a) => ({ ...a, name: 'Nome Real Da Pessoa', cast: 'x' as const }));
     expect(project(input(rooms, renamed), ids, NOW)).toEqual(u);
   });
 
@@ -289,7 +289,7 @@ describe('projeção: regras', () => {
     const wid = ids.agents.get('m1')!;
     expect(agentsOf(u1)[0].parts).toEqual(flattenAppearance(hash32(wid), undefined, 'm'));
     expect(Object.keys(agentsOf(u1)[0].parts)).toEqual([...PART_KEYS]);
-    const edited = project(input([room('/p/a')], [{ ...a, custom: true, parts: { skin: '#5a3623', topStyle: 'polo' } }]), ids, NOW);
+    const edited = project(input([room('/p/a')], [{ ...a, cast: 'x', parts: { skin: '#5a3623', topStyle: 'polo' } }]), ids, NOW);
     expect(agentsOf(edited)[0].parts).toEqual({ ...flattenAppearance(hash32(wid), undefined, 'm'), skin: '#5a3623', topStyle: 'polo' });
   });
 

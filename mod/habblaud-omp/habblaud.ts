@@ -42,6 +42,7 @@
 //    conversa de agora, fora do histórico, com o turno principal rodando). O ack sai na hora; o texto acumulado da
 //    resposta vai por POST /api/omp/aside (a cada 0,5 s com texto novo, ao menos a cada 1 s), e a resposta do servidor
 //    diz se a pergunta deve ser abortada (o usuário apertou Parar). Uma por vez; trocar de sessão aborta.
+// 7. Elenco: HABBLAUD_CAST escolhe o membro pedido pela sessão, informado no início e no batimento.
 //
 // Subagentes (ctx.agent.kind === 'sub'): o omp refaz as extensões para cada um; eles não mandam eventos nem
 // perguntam o inbox (o escritório já vê os subagentes pelo arquivo da sessão), mas as ferramentas deles passam pelo
@@ -555,6 +556,7 @@ export function create(pi: OmpApi, deps: Deps): void {
       models = undefined; // sem lista de modelos: o seletor da gaveta usa só o atual
     }
     if (models?.length) out.models = models;
+    if (env.HABBLAUD_CAST && /^[a-z0-9-]{1,40}$/.test(env.HABBLAUD_CAST)) out.cast = env.HABBLAUD_CAST;
     return out;
   }
 
@@ -585,7 +587,7 @@ export function create(pi: OmpApi, deps: Deps): void {
     if (closed) return;
     if (!heartbeat) {
       heartbeat = setInterval(() => {
-        if (sessionId) void emit('heartbeat', sessionId, { ...location(mainCtx), ...(models?.length ? { models } : {}), ...contextNow() });
+        if (sessionId) void emit('heartbeat', sessionId, { ...location(mainCtx), ...(models?.length ? { models } : {}), ...(env.HABBLAUD_CAST && /^[a-z0-9-]{1,40}$/.test(env.HABBLAUD_CAST) ? { cast: env.HABBLAUD_CAST } : {}), ...contextNow() });
       }, OMP_HEARTBEAT_MS);
       heartbeat.unref?.();
     }

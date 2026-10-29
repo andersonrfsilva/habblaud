@@ -620,23 +620,23 @@ ventana correcta.
   Desde el [celular con inicio de sesión](#celular-con-inicio-de-sesión-y-https-aprobar-solicitudes), solo con `messages` en `HABBLAUD_REMOTE_ALLOW`.
 - En el modo demostración, los agentes ficticios también reciben mensajes (de mentira).
 
-### Editar el personaje
+### Elenco de personajes
 
-Cada sesión llega con un nombre y una apariencia sorteados. Para fijar el personaje de un proyecto, abre los detalles
-del agente principal y haz clic en el lápiz junto al nombre (**Editar personaje**). En el editor:
+Abre **Elenco** en la barra superior para crear, editar o eliminar personajes fijos. Elige nombre, apariencia y tipo:
+principal, asesor o subagente. Para subagentes, indica tipos observados como `reviewer` o `Explore`.
 
-- **Nombre:** hasta 24 caracteres. No puede repetir el de alguien que está en la oficina ni el elegido para otro
-  proyecto.
-- **Sortear:** trae otra apariencia.
-- **Piezas:** piel, cabello, barba, ojos, parte de arriba, parte de abajo, zapatos y accesorio, con la vista previa al
-  lado.
-- **Guardar:** vale para el proyecto (la sala). La próxima sesión que se abra en él llega con ese personaje. Con dos
-  sesiones al mismo tiempo en la misma sala, la segunda recibe un personaje sorteado.
-- **Volver al sorteo:** deshace la elección.
+- **Salas permitidas:** elige las carpetas donde se puede usar el personaje; si no eliges ninguna, se permiten todas.
+  La sala principal, si se elige, debe estar entre ellas. Ofrece el personaje a la primera sesión principal sin
+  vínculo que llegue a la sala.
+- **Asignar personaje:** usa el lápiz en los detalles de un agente principal para elegir un miembro libre o crear uno
+  a partir del agente. **Volver al sorteo** elimina el vínculo. Si el miembro está ocupado o la sala no está
+  permitida, la sesión recibe un personaje sorteado.
+- En omp, `HABBLAUD_CAST=<id>` solicita un miembro para la sesión. El asesor y los subagentes usan miembros
+  compatibles con sus tipos. Las salas organizan la elección; no restringen herramientas ni acceso a archivos.
 
-La elección queda en `~/.habblaud/names.json` y se borra después de 60 días sin uso del proyecto. El editor tiene el
-mismo bloqueo que la terminal: el lápiz solo aparece con la terminal activada (sin `HABBLAUD_TERMINAL=0`) y el acceso
-local, es decir, con Habblaud accesible únicamente desde la propia computadora y abierto por `http://localhost`.
+El elenco se guarda en `~/.habblaud/cast.json`; los vínculos de sesión caducan tras 60 días sin uso. Los personajes
+antiguos de las salas migran automáticamente, con copia en `~/.habblaud/names.json.pre-031`. El elenco sigue el
+bloqueo de la terminal: acceso local y terminal activada, sin `HABBLAUD_TERMINAL=0`.
 
 ### Codex
 
@@ -1015,8 +1015,9 @@ mod/      o mod do Habblaud e os plugins de permissões e de mensagens (plugins 
 | `GET /api/snapshot` | Estado actual de la oficina. |
 | `GET /api/agents/:id` | Detalles de un agente, con hasta 200 actividades. |
 | `GET /api/agents/:id/terminal` | SSE de la terminal (eventos `init` y `append`); solo con acceso local. |
-| `PUT /api/agents/:id/character` | Editar el personaje: `{name, seed, parts}` guarda el nombre y la apariencia del agente principal como el personaje del proyecto (la sala); solo con acceso local. |
-| `DELETE /api/agents/:id/character` | "Volver al sorteo": borra el personaje del proyecto y el agente vuelve al nombre sorteado; solo con acceso local. |
+| `GET /api/cast`, `POST /api/cast` | Lista o crea miembros en `cast.json`; solo con acceso local. |
+| `PUT /api/cast/:id`, `DELETE /api/cast/:id` | Edita o elimina un miembro del elenco; solo con acceso local. |
+| `PUT /api/agents/:id/cast`, `DELETE /api/agents/:id/cast` | Asigna `{cast}` al agente principal o vuelve al sorteo. Las sesiones omp pueden solicitar un miembro con `HABBLAUD_CAST=<id>`. |
 | `GET /api/sessions/recent` | Historial: sesiones de los últimos 7 días de todas las cuentas (hasta 150); solo con acceso local. |
 | `GET /api/sessions/:conta/:sessionId/terminal` | SSE de la conversación de una sesión del historial (mismo protocolo que la terminal); solo con acceso local. |
 | `GET /api/stats?day=AAAA-MM-DD` | Estadísticas de Mi día (tiempo por estado, proyectos, cuentas, horas, esperas, tokens y costo). |
@@ -1161,10 +1162,9 @@ los pasa al contenedor.
   adjuntos se guardan en `~/.habblaud/attachments/` (carpeta 700, archivos 600). En Docker, quien inicia las sesiones
   es el auxiliar del host (`npm run codex:bridge`), que además solo lee los archivos de las entregas de carpetas de
   proyecto conocidas (las que Claude Code tiene en `<conta>/projects`), de la carpeta temporal y de los adjuntos.
-- **Editor de personajes, solo local:** guardar o volver al sorteo cambia la oficina y escribe en `names.json`, así
-  que sigue el mismo bloqueo que la terminal (bind local, `Host` local, nada de proxies ni túneles): sin él, el lápiz
-  no aparece y el servidor responde `403`. Los cambios exigen JSON y origen local. `HABBLAUD_TERMINAL=0` también lo
-  desactiva.
+- **Elenco, solo local:** crear, editar o asignar personajes escribe en `cast.json` y sigue el bloqueo de la terminal
+  (bind y `Host` locales, sin proxies ni túneles). Sin él, el servidor responde `403`. Los cambios exigen JSON y
+  origen local. `HABBLAUD_TERMINAL=0` también lo desactiva.
 - **Estadísticas de Mi día:** solo números agregados (tiempo por estado, conteos, tokens, costo) con los nombres de
   proyecto, cuenta y agente, guardados en `HABBLAUD_DATA_DIR/stats/` durante 30 días; nada de la conversación.
 - **Codex:** Habblaud lee solo las conversaciones (`sessions/`, `archived_sessions/`) y los bloqueos de las sesiones

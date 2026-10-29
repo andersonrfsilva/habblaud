@@ -120,6 +120,7 @@ interface Tracker {
   inOffice: boolean;
   /** Projeto dado por um evento (sessões sem arquivo ou ainda sem cabeçalho). */
   eventCwd?: string;
+  cast?: string;
   status: AgentStatus;
   /** Quando o status foi decidido (linha do arquivo ou evento): informação mais velha não o muda. */
   statusAt: number;
@@ -513,6 +514,7 @@ export class OmpSource implements AgentSource, OmpLive {
         account: t.acc.id,
         sessionId: t.sessionId,
         cwd: this.cwdOf(t)!,
+        cast: t.cast,
         role: MAIN_ROLE,
         startedAt: t.head?.header?.startedAt ?? t.state.firstAt ?? now,
         status: t.status,
@@ -528,6 +530,7 @@ export class OmpSource implements AgentSource, OmpLive {
         parentId: t.parentKey!,
         sessionId: t.head?.header?.id ?? t.name!,
         role: t.name ?? SUB_ROLE,
+        agentType: t.name ? this.trackers.get(t.parentKey!)?.state.subTypes.get(t.name) : undefined,
         background: false,
         startedAt: t.head?.header?.startedAt ?? t.state.firstAt ?? now,
       });
@@ -750,6 +753,10 @@ export class OmpSource implements AgentSource, OmpLive {
       }
     }
     t.extSeen = true;
+    if (ev.cast && ev.cast !== t.cast) {
+      t.cast = ev.cast;
+      if (t.inOffice) this.opts.office.requestCast(t.key, ev.cast);
+    }
     const ctxChanged = !!ev.context && (ev.context.tokens !== t.context?.tokens || ev.context.window !== t.context?.window);
     if (ctxChanged) t.context = ev.context;
     if ((ev.models && JSON.stringify(ev.models) !== JSON.stringify(t.models)) || ctxChanged) {

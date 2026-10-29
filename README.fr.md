@@ -620,22 +620,25 @@ son tour et attend la demande suivante, donner une nouvelle instruction ou corri
   Depuis le [téléphone avec connexion](#téléphone-avec-connexion-et-https-valider-les-demandes), seulement avec `messages` dans `HABBLAUD_REMOTE_ALLOW`.
 - En mode démonstration, les agents fictifs reçoivent aussi des messages (pour de faux).
 
-### Modifier le personnage
+### Distribution des personnages
 
-Chaque session arrive avec un nom et une apparence tirés au sort. Pour fixer le personnage d'un projet, ouvrez les
-détails de l'agent principal et cliquez sur le crayon à côté du nom (**Modifier le personnage**). Dans l'éditeur :
+Ouvrez **Distribution** dans la barre supérieure pour créer, modifier ou supprimer des personnages fixes. Choisissez
+un nom, une apparence et un type : principal, conseiller ou sous-agent. Pour les sous-agents, indiquez les types
+observés, comme `reviewer` ou `Explore`.
 
-- **Nom :** jusqu'à 24 caractères. Il ne peut pas reprendre celui de quelqu'un qui est dans le bureau ni celui choisi
-  pour un autre projet.
-- **Tirer au sort :** propose une autre apparence.
-- **Éléments :** peau, cheveux, barbe, yeux, haut, bas, chaussures et accessoire, avec l'aperçu à côté.
-- **Enregistrer :** s'applique au projet (la salle). La prochaine session ouverte dans ce projet arrive avec ce
-  personnage. Avec deux sessions en même temps dans la même salle, la seconde reçoit un personnage tiré au sort.
-- **Revenir au tirage au sort :** annule le choix.
+- **Salles autorisées :** choisissez les dossiers où le personnage peut être utilisé ; aucune sélection autorise
+  toutes les salles. La salle principale, si choisie, doit en faire partie. Elle propose le personnage à la première
+  session principale sans lien qui y arrive.
+- **Attribuer un personnage :** utilisez le crayon dans les détails d'un agent principal pour choisir un membre libre
+  ou en créer un à partir de l'agent. **Revenir au tirage au sort** supprime le lien. Si le membre est occupé ou la
+  salle non autorisée, la session reçoit un personnage tiré au sort.
+- Dans omp, `HABBLAUD_CAST=<id>` demande un membre pour la session. Le conseiller et les sous-agents utilisent des
+  membres correspondant à leurs types. Les salles organisent le choix ; elles ne limitent ni les outils ni les fichiers.
 
-Le choix est enregistré dans `~/.habblaud/names.json` et disparaît après 60 jours sans utilisation du projet. L'éditeur
-a le même verrou que le terminal : le crayon n'apparaît qu'avec le terminal activé (sans `HABBLAUD_TERMINAL=0`) et
-l'accès local, c'est-à-dire avec Habblaud accessible uniquement depuis l'ordinateur lui-même et ouvert via `http://localhost`.
+La distribution est conservée dans `~/.habblaud/cast.json` ; les liens de session expirent après 60 jours sans
+utilisation. Les anciens personnages des salles migrent automatiquement, avec une sauvegarde dans
+`~/.habblaud/names.json.pre-031`. La distribution suit le verrou du terminal : accès local et terminal activé, sans
+`HABBLAUD_TERMINAL=0`.
 
 ### Codex
 
@@ -1025,8 +1028,9 @@ mod/      o mod do Habblaud e os plugins de permissões e de mensagens (plugins 
 | `GET /api/snapshot` | État actuel du bureau. |
 | `GET /api/agents/:id` | Détails d'un agent, avec jusqu'à 200 activités. |
 | `GET /api/agents/:id/terminal` | SSE du terminal (événements `init` et `append`) ; en accès local uniquement. |
-| `PUT /api/agents/:id/character` | Modifier le personnage : `{name, seed, parts}` enregistre le nom et l'apparence de l'agent principal comme personnage du projet (la salle) ; en accès local uniquement. |
-| `DELETE /api/agents/:id/character` | « Revenir au tirage au sort » : supprime le personnage du projet et l'agent reprend le nom tiré au sort ; en accès local uniquement. |
+| `GET /api/cast`, `POST /api/cast` | Liste ou crée des membres dans `cast.json` ; accès local uniquement. |
+| `PUT /api/cast/:id`, `DELETE /api/cast/:id` | Modifie ou supprime un membre ; accès local uniquement. |
+| `PUT /api/agents/:id/cast`, `DELETE /api/agents/:id/cast` | Attribue `{cast}` à l'agent principal ou revient au tirage au sort. Les sessions omp peuvent demander un membre avec `HABBLAUD_CAST=<id>`. |
 | `GET /api/sessions/recent` | Historique : sessions des 7 derniers jours de tous les comptes (jusqu'à 150) ; en accès local uniquement. |
 | `GET /api/sessions/:conta/:sessionId/terminal` | SSE de la conversation d'une session de l'historique (même protocole que le terminal) ; en accès local uniquement. |
 | `GET /api/stats?day=AAAA-MM-DD` | Statistiques de Ma journée (temps par statut, projets, comptes, heures, attentes, tokens et coût). |
@@ -1177,10 +1181,9 @@ avec `no-new-privileges`. Les métadonnées des comptes (lettre, e-mail, organis
   c'est l'auxiliaire de l'hôte (`npm run codex:bridge`) qui lance les sessions ; il ne lit les fichiers des livraisons
   que dans les dossiers de projet connus (ceux que Claude Code a dans `<conta>/projects`), le dossier temporaire et les
   pièces jointes.
-- **Éditeur de personnage, en local uniquement :** enregistrer ou revenir au tirage au sort modifie le bureau et écrit
-  dans `names.json`, cela suit donc le même verrou que le terminal (bind local, `Host` local, pas de proxys ni de
-  tunnels) : sans lui, le crayon n'apparaît pas et le serveur répond `403`. Les modifications exigent du JSON et une
-  origine locale. `HABBLAUD_TERMINAL=0` le désactive aussi.
+- **Distribution, en local uniquement :** créer, modifier ou attribuer un personnage écrit dans `cast.json` et suit
+  le verrou du terminal (bind et `Host` locaux, sans proxys ni tunnels). Sans lui, le serveur répond `403`. Les
+  modifications exigent du JSON et une origine locale. `HABBLAUD_TERMINAL=0` la désactive aussi.
 - **Statistiques de Ma journée :** uniquement des chiffres agrégés (temps par statut, comptages, tokens, coût) avec les
   noms de projet, de compte et d'agent, conservés dans `HABBLAUD_DATA_DIR/stats/` pendant 30 jours — rien de la conversation.
 - **Codex :** Habblaud ne lit que les conversations (`sessions/`, `archived_sessions/`) et les verrous des sessions

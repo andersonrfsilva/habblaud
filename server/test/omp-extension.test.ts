@@ -344,6 +344,18 @@ describe('omp extension: mensagens', () => {
     await t.fire('session_shutdown', ctx);
   });
 
+  it.each([['ana', 'ana'], ['Ana!', undefined]])('HABBLAUD_CAST %s acompanha início e batimento', async (cast, expected) => {
+    vi.useFakeTimers();
+    const t = setup({ home: tmp.dir, env: { HABBLAUD_CAST: cast } });
+    const ctx = makeCtx();
+    t.fire('session_start', ctx);
+    await vi.advanceTimersByTimeAsync(10_500);
+    const events = t.habblaud.of('/api/omp/events').map((c) => c.body);
+    expect(events.find((e) => e?.event === 'session_start')?.cast).toBe(expected);
+    expect(events.find((e) => e?.event === 'heartbeat')?.cast).toBe(expected);
+    await t.fire('session_shutdown', ctx);
+  });
+
   it('o batimento leva projeto e arquivo: um Habblaud reiniciado acha a sessão ainda sem mensagens', async () => {
     vi.useFakeTimers();
     const t = setup({ home: tmp.dir });

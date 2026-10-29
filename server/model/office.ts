@@ -24,12 +24,13 @@ import type {
   UpdateStatus,
 } from '../../shared/types';
 import { SHELL_WAIT_TOOL, SPECIAL, type ShellOutcome } from '../../shared/activity';
-import { nameKey, type AppearanceParts } from '../../shared/appearance';
+import { nameKey } from '../../shared/appearance';
 import { DemoSimulator } from '../../shared/demo/simulator';
 import { describeGitHubEvent, githubEventKey, RoomEffects, type GitHubEvent } from '../../shared/github';
 import { hash32 } from '../../shared/hash';
 import { applyPermission } from '../permissions/registry';
-import type { NameStore, StoredCharacter } from './names';
+import type { NameStore } from './names';
+import { CastStore, type CastMember } from './cast';
 import { normalizeCwd, roomDisplayNames, SlotAllocator } from './rooms';
 import { tr } from '../../shared/i18n';
 import type { WorldMeta } from '../../shared/world/api';
@@ -54,6 +55,7 @@ const FEED_LIMIT = 200;
 
 export interface OfficeDeps {
   names: NameStore;
+  cast?: CastStore;
   /** Nome escolhido pelo usuário para a sala da pasta (model/room-aliases.ts), se houver. */
   roomAlias?: (path: string) => string | undefined;
   version: string;
@@ -110,6 +112,7 @@ export interface MainInput {
   sessionId: string;
   cwd: string;
   role: string;
+  cast?: string;
   startedAt: number;
   status: AgentStatus;
   waitingFor?: string;
@@ -120,6 +123,7 @@ export interface SubInput {
   parentId: string;
   sessionId: string;
   role: string;
+  agentType?: string;
   title?: string;
   background: boolean;
   startedAt: number;
@@ -148,14 +152,6 @@ export interface ShellDoneInput {
   command?: string;
 }
 
-/** Personagem escolhido no editor (já validado: ver shared/appearance.ts). */
-export interface CharacterInput {
-  name: string;
-  seed: number;
-  parts: AppearanceParts;
-}
-
-export type CharacterResult = { result: 'ok' } | { result: 'not-found' } | { result: 'conflict'; message: string };
 
 export interface CommitResult {
   snapshot: OfficeSnapshot;
@@ -223,9 +219,11 @@ export class Office {
   private effects = new RoomEffects();
   private seq = 0;
   private readonly now: () => number;
+  readonly cast: CastStore;
 
   constructor(private readonly deps: OfficeDeps) {
     this.now = deps.now ?? Date.now;
+    this.cast = deps.cast ?? new CastStore(null);
   }
 
   /** Avisado (síncrono) sempre que algo muda; o hub decide quando fazer commit(). */
@@ -325,14 +323,17 @@ export class Office {
     if (existing) {
       // Sessão que voltou durante o período de graça.
       delete existing.removeAt;
+      if (p.cast && p.cast !== this.cast.binding(p.sessionId)) {
+        this.applyCast(existing.info, this.castFor({ id: p.id, session: p.sessionId, room: existing.info.roomId, explicit: p.cast }));
+        this.castFallbackNotice(existing.info, p.cast);
+        this.markDirty();
+      }
       this.setStatus(p.id, p.status, p.waitingFor);
       return;
     }
     const roomId = normalizeCwd(p.cwd);
     this.ensureRoom(roomId, now);
-    const chosen = this.roomCharacter(roomId, p.id, p.sessionId);
-    // A mesma sessão retomada noutro processo (ex.: "Assumir aqui") mantém o nome, mesmo com o processo antigo
-    // ainda saindo do escritório.
+    const chosen = this.castFor({ id: p.id, session: p.sessionId, room: roomId, explicit: p.cast });
     const person = chosen ?? this.deps.names.assign(p.sessionId, this.takenNames(undefined, p.sessionId));
     const info: AgentInfo = {
       id: p.id,
@@ -354,13 +355,14 @@ export class Office {
     };
     if (p.provider && p.provider !== 'claude') info.provider = p.provider;
     if (chosen) {
-      info.custom = true;
+      info.cast = chosen.id;
       if (chosen.parts) info.parts = { ...chosen.parts };
     }
     if (p.status === 'waiting') info.waitingFor = p.waitingFor ?? tr('responder no terminal');
     const rec: AgentRecord = { info, history: [] };
     if (p.status === 'working') rec.turnStart = now;
     this.agents.set(p.id, rec);
+    this.castFallbackNotice(info, p.cast);
     const acc = this.deps.accountName(p.account);
     this.notice('arrive', p.id, 'info', tr('👋 {0} chegou em {1}{2}', [info.name, this.roomName(roomId), acc ? ` (${acc})` : '']), roomId);
     this.markDirty();
@@ -371,15 +373,12 @@ export class Office {
     const rec = this.agents.get(id);
     if (!rec || rec.info.sessionId === sessionId) return;
     const info = rec.info;
-    // Personagem do projeto: o nome escolhido não vira o nome sorteado da sessão nova, e a sessão nova vira a dona dele
-    // (se outro agente da sala salvou por último, o dono é ele e fica como está).
-    if (info.custom) {
-      const owner = this.deps.names.character(info.roomId)?.owner;
-      if (owner === undefined || owner === info.sessionId) this.deps.names.claimCharacter(info.roomId, sessionId);
-    } else {
-      this.deps.names.remember(sessionId, { name: info.name, look: info.look });
-    }
+    const bound = this.cast.binding(info.sessionId);
+    if (bound) this.cast.bind(sessionId, bound);
+    if (!info.cast) this.deps.names.remember(sessionId, { name: info.name, look: info.look });
     info.sessionId = sessionId;
+    this.applyCast(info, this.castFor({ id, session: sessionId, room: info.roomId }));
+    this.castFallbackNotice(info);
     info.tasks = [];
     info.stats = zeroStats();
     delete info.title;
@@ -591,7 +590,12 @@ export class Office {
     if (!rec || rec.info.kind !== 'main' || rec.info.roomId === roomId) return;
     this.ensureRoom(roomId, this.now());
     rec.info.roomId = roomId;
-    for (const sub of this.descendants(id)) sub.info.roomId = roomId;
+    this.applyCast(rec.info, this.castFor({ id, session: rec.info.sessionId, room: roomId }));
+    this.castFallbackNotice(rec.info);
+    for (const sub of this.descendants(id)) {
+      sub.info.roomId = roomId;
+      this.applyCast(sub.info, this.castFor({ id: sub.info.id, session: sub.info.sessionId, room: roomId, sub: true, role: sub.info.role, agentType: sub.info.agentType }));
+    }
     this.markDirty();
   }
 
@@ -606,7 +610,8 @@ export class Office {
       this.reactivateSub(p.id);
       return true;
     }
-    const person = this.deps.names.assign(p.id, this.takenNames());
+    const chosen = this.castFor({ id: p.id, session: p.sessionId, room: parent.info.roomId, role: p.role, agentType: p.agentType, sub: true });
+    const person = chosen ?? this.deps.names.assign(p.id, this.takenNames());
     const info: AgentInfo = {
       id: p.id,
       kind: 'sub',
@@ -624,9 +629,11 @@ export class Office {
       lastEventAt: p.startedAt,
       statusSince: now,
       stats: zeroStats(),
-      seed: hash32(p.id),
+      seed: chosen?.seed ?? hash32(p.id),
     };
+    if (chosen) { info.cast = chosen.id; if (chosen.parts) info.parts = { ...chosen.parts }; }
     if (parent.info.provider) info.provider = parent.info.provider;
+    if (p.agentType) info.agentType = p.agentType;
     if (p.title) info.title = p.title;
     if (p.background) info.background = true;
     this.agents.set(p.id, { info, history: [], turnStart: now });
@@ -829,99 +836,100 @@ export class Office {
     this.markDirty();
   }
 
-  // ---------------------------------------------------------------- personagem do projeto (editor)
+  // ---------------------------------------------------------------- elenco
 
-  /** Escolhe nome e aparência do agente principal `id` e grava como o personagem da sala dele. */
-  setCharacter(id: string, input: CharacterInput): CharacterResult {
-    const rec = this.editable(id);
-    if (!rec) return { result: 'not-found' };
-    const info = rec.info;
-    // Quem está saindo conta aqui: ao reabrir dentro do período de graça, ele volta com o nome dele.
-    const conflict = this.nameConflict(input.name, id, info.roomId, true);
-    if (conflict) return { result: 'conflict', message: conflict };
-    const before = info.name;
-    const parts = Object.keys(input.parts).length ? { ...input.parts } : undefined;
-    // Outro principal da sala que estava com o personagem continua com o nome atual, agora guardado como o da sessão
-    // dele: depois de um reinício, cada sessão volta quem era, e não com o personagem que esta salvou.
-    for (const r of this.agents.values()) {
-      const o = r.info;
-      if (o.id === id || o.kind !== 'main' || o.roomId !== info.roomId || !o.custom) continue;
-      this.deps.names.remember(o.sessionId, { name: o.name, look: o.look });
-      delete o.custom;
+  private castFor(p: { id: string; session: string; room: string; explicit?: string; sub?: boolean; role?: string; agentType?: string }): CastMember | undefined {
+    const free = (m: CastMember) => ![...this.agents.values()].some((r) => r.info.id !== p.id && r.removeAt === undefined && r.info.cast === m.id);
+    const allowed = (m: CastMember) => !m.rooms.length || m.rooms.includes(p.room);
+    if (p.sub) {
+      return this.cast.list().find((m) => allowed(m) && free(m) && (p.role === '__advisor' ? m.kind === 'advisor' : m.kind === 'sub' && !!p.agentType && m.match?.some((type) => type.toLowerCase() === p.agentType!.toLowerCase())));
     }
-    this.deps.names.setCharacter(info.roomId, { name: input.name, look: info.look, seed: input.seed, ...(parts ? { parts } : {}), owner: info.sessionId });
-    info.name = input.name;
-    info.seed = input.seed;
-    if (parts) info.parts = parts;
-    else delete info.parts;
-    info.custom = true;
-    const room = this.roomName(info.roomId);
-    const text = before === input.name ? tr('✏️ {0} mudou de visual em {1}', [input.name, room]) : tr('✏️ {0} agora é {1} em {2}', [before, input.name, room]);
-    this.notice('character', id, 'info', text, info.roomId, { dedupeMs: 0 });
-    this.markDirty();
-    return { result: 'ok' };
+    const wanted = p.explicit ?? this.cast.binding(p.session);
+    if (wanted) {
+      const member = this.cast.get(wanted);
+      if (member && p.explicit) this.cast.bind(p.session, member.id);
+      if (member && member.kind === 'main' && allowed(member) && free(member)) return member;
+      return undefined;
+    }
+    const member = this.cast.list().find((m) => m.kind === 'main' && m.home === p.room && allowed(m) && free(m)
+      && ![...this.agents.values()].some((r) => r.removeAt === undefined && r.info.kind === 'main' && r.info.sessionId !== p.session && this.cast.binding(r.info.sessionId) === m.id));
+    if (member) this.cast.bind(p.session, member.id);
+    return member;
   }
 
-  /**
-   * "Voltar ao sorteio": o agente volta ao nome da sessão e à seed do id; a sala só perde o personagem se ele for desta
-   * sessão (o que outra sessão da sala salvou depois continua dela).
-   */
-  resetCharacter(id: string): 'ok' | 'not-found' {
-    const rec = this.editable(id);
-    if (!rec) return 'not-found';
-    const info = rec.info;
-    const owner = this.deps.names.character(info.roomId)?.owner;
-    if (owner === undefined || owner === info.sessionId) this.deps.names.clearCharacter(info.roomId);
-    if (info.custom) {
-      const person = this.deps.names.assign(info.sessionId, this.takenNames(id));
-      info.name = person.name;
-      info.look = person.look;
-      info.seed = hash32(id);
-      delete info.parts;
-      delete info.custom;
+  private castFallbackNotice(info: AgentInfo, explicit?: string): void {
+    if (info.cast) return;
+    const id = explicit ?? this.cast.binding(info.sessionId);
+    const member = id ? this.cast.get(id) : undefined;
+    if (!member) return;
+    const room = this.roomName(info.roomId);
+    const occupied = [...this.agents.values()].find((r) => r.info.id !== info.id && r.removeAt === undefined && r.info.cast === member.id);
+    const text = member.rooms.length && !member.rooms.includes(info.roomId)
+      ? tr('{0} não trabalha em {1}; {2} assumiu a sessão', [member.name, room, info.name])
+      : tr('{0} está ocupado em {1}; {2} assumiu a sessão', [member.name, occupied ? this.roomName(occupied.info.roomId) : room, info.name]);
+    this.notice('character', info.id, 'info', text, info.roomId);
+  }
+
+  private applyCast(info: AgentInfo, member?: CastMember): void {
+    const person = member ?? this.deps.names.assign(info.kind === 'main' ? info.sessionId : info.id, this.takenNames(info.id));
+    info.name = person.name;
+    info.look = person.look;
+    info.seed = member?.seed ?? hash32(info.id);
+    if (member) info.cast = member.id;
+    else delete info.cast;
+    if (member?.parts) info.parts = { ...member.parts };
+    else delete info.parts;
+  }
+
+  requestCast(id: string, castId: string): void {
+    const rec = this.agents.get(id);
+    if (!rec || rec.info.kind !== 'main') return;
+    this.applyCast(rec.info, this.castFor({ id, session: rec.info.sessionId, room: rec.info.roomId, explicit: castId }));
+    this.castFallbackNotice(rec.info, castId);
+    this.markDirty();
+  }
+
+  putCast(member: CastMember): 'ok' | 'conflict' {
+    if ([...this.agents.values()].some((r) => r.info.cast !== member.id && nameKey(r.info.name) === nameKey(member.name))) return 'conflict';
+    if ((this.demoSnap?.agents ?? []).some((a) => nameKey(a.name) === nameKey(member.name))) return 'conflict';
+    if (!this.cast.put(member)) return 'conflict';
+    for (const r of this.agents.values()) {
+      if (r.info.cast !== member.id) continue;
+      const info = r.info;
+      const chosen = this.castFor({ id: info.id, session: info.sessionId, room: info.roomId, sub: info.kind === 'sub', role: info.role, agentType: info.agentType });
+      this.applyCast(info, chosen);
+      if (info.kind === 'main' && !chosen) this.castFallbackNotice(info);
     }
     this.markDirty();
     return 'ok';
   }
 
-  /** Agente principal real e presente (nem subagente, nem demo, nem saindo). */
-  private editable(id: string): AgentRecord | undefined {
+  deleteCast(id: string): boolean {
+    if (!this.cast.delete(id)) return false;
+    for (const r of this.agents.values()) if (r.info.cast === id) this.applyCast(r.info);
+    this.markDirty();
+    return true;
+  }
+
+  dress(id: string, castId: string): 'ok' | 'not-found' | 'conflict' | 'room' {
     const rec = this.agents.get(id);
-    return rec && rec.info.kind === 'main' && rec.removeAt === undefined ? rec : undefined;
+    const member = this.cast.get(castId);
+    if (!rec || rec.removeAt !== undefined || rec.info.kind !== 'main' || !member || member.kind !== 'main') return 'not-found';
+    if (member.rooms.length && !member.rooms.includes(rec.info.roomId)) return 'room';
+    if ([...this.agents.values()].some((r) => r.info.id !== id && r.removeAt === undefined && r.info.cast === castId)) return 'conflict';
+    this.cast.bind(rec.info.sessionId, castId);
+    this.applyCast(rec.info, member);
+    this.markDirty();
+    return 'ok';
   }
 
-  /**
-   * Personagem escolhido para a sala, se o nome dele estiver livre; quem o recebe vira a dona. Quem está saindo não
-   * conta: costuma ser a mesma sessão reaberta (pid novo) dentro do período de graça. Uma sessão que não é a dona e já
-   * tem nome guardado mantém o dela: depois de um reinício, a ordem de chegada não troca identidades nem muda o
-   * personagem de uma sessão no meio dela.
-   */
-  private roomCharacter(roomId: string, id: string, sessionId: string): StoredCharacter | undefined {
-    const c = this.deps.names.character(roomId);
-    if (!c) return undefined;
-    if (c.owner !== undefined && c.owner !== sessionId && this.deps.names.get(sessionId)) return undefined;
-    if (this.nameConflict(c.name, id, roomId)) return undefined;
-    this.deps.names.claimCharacter(roomId, sessionId);
-    return c;
-  }
-
-  /**
-   * Por que `name` não pode ser o personagem de `id` na sala `roomId` (undefined = pode). Quem está saindo só conta com
-   * `leaving`: na chegada costuma ser a mesma sessão reaberta; no editor, é alguém que pode voltar com esse nome.
-   */
-  private nameConflict(name: string, id: string, roomId: string, leaving = false): string | undefined {
-    const key = nameKey(name);
-    for (const r of this.agents.values()) {
-      if (r.info.id === id || (r.removeAt !== undefined && !leaving) || nameKey(r.info.name) !== key) continue;
-      return tr('{0} já está no escritório em {1}', [r.info.name, this.roomName(r.info.roomId)]);
-    }
-    for (const a of this.demoSnap?.agents ?? []) {
-      if (nameKey(a.name) === key) return tr('{0} já está no escritório em {1}', [a.name, this.roomName(a.roomId)]);
-    }
-    for (const [n, room] of this.deps.names.reservedNames(roomId)) {
-      if (nameKey(n) === key) return tr('{0} já é o personagem de {1}', [n, this.roomName(room)]);
-    }
-    return undefined;
+  undress(id: string): 'ok' | 'not-found' {
+    const rec = this.agents.get(id);
+    if (!rec || rec.removeAt !== undefined || rec.info.kind !== 'main') return 'not-found';
+    this.cast.unbind(rec.info.sessionId);
+    this.applyCast(rec.info);
+    this.markDirty();
+    return 'ok';
   }
 
   // ---------------------------------------------------------------- relógio
@@ -1052,7 +1060,7 @@ export class Office {
       used.add(r.info.name);
     }
     for (const a of this.demoSnap?.agents ?? []) used.add(a.name);
-    for (const n of this.deps.names.reservedNames().keys()) used.add(n);
+    for (const member of this.cast.list()) used.add(member.name);
     return used;
   }
 

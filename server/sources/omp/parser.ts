@@ -228,6 +228,8 @@ export interface OmpState {
   turnStartAt?: number;
   /** Chamadas de ferramenta sem resultado ainda (id → nome). */
   pending: Map<string, string>;
+  /** Tipos informados nas tarefas do pai, por nome do subagente. */
+  subTypes: Map<string, string>;
   /** Atividade atual (para não repetir "Pensando…"). */
   current?: { kind: Activity['kind']; at: number };
   /** Pastas/arquivos citados pelas últimas ferramentas (mais nova no fim), para a sala seguir o projeto (projectDir). */
@@ -277,7 +279,7 @@ export function projectDir(cwd: string, paths: readonly { path: string; dir: boo
 }
 
 export function createOmpState(head?: OmpHead): OmpState {
-  const s: OmpState = { tasks: [], stats: { toolCalls: 0, tokensIn: 0, tokensOut: 0, subagents: 0 }, pending: new Map(), paths: [] };
+  const s: OmpState = { tasks: [], stats: { toolCalls: 0, tokensIn: 0, tokensOut: 0, subagents: 0 }, pending: new Map(), subTypes: new Map(), paths: [] };
   if (head?.title) {
     s.title = head.title;
     s.titleExplicit = true;
@@ -516,7 +518,16 @@ class OmpLineParser {
       this.s.pending.set(id, name);
       if (this.s.pending.size > MAX_PENDING) this.s.pending.delete(this.s.pending.keys().next().value as string);
     }
-    if (name === 'task' && Array.isArray(args.tasks)) this.s.stats.subagents += args.tasks.length;
+    if (name === 'task' && Array.isArray(args.tasks)) {
+      this.s.stats.subagents += args.tasks.length;
+      for (const task of args.tasks) {
+        const item = rec(task);
+        const taskName = str(item?.name);
+        if (!taskName) continue;
+        this.s.subTypes.set(taskName, str(item?.agent) ?? 'task');
+        if (this.s.subTypes.size > 200) this.s.subTypes.delete(this.s.subTypes.keys().next().value as string);
+      }
+    }
     const paths = toolPaths(args);
     if (paths.length) this.s.paths = [...this.s.paths, ...paths].slice(-PATHS_WINDOW);
     const { desc, tool } = describeOmpTool(name, args);
