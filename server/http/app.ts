@@ -526,13 +526,17 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
     }
     const castStart = /^\/api\/cast\/([a-z0-9-]{1,40})\/start$/.exec(path);
     const castDismiss = /^\/api\/agents\/([^/]+)\/dismiss$/.exec(path);
-    if (path === '/api/cast/jobs' || castStart || castDismiss) {
+    if (path === '/api/cast/jobs' || path === '/api/cast/folders' || castStart || castDismiss) {
       const launcher = deps.castLauncher;
       // Mesma trava do terminal: local, ou a porta remota com login e `terminal` em HABBLAUD_REMOTE_ALLOW.
       if (!deps.terminal || !trusted(req, 'terminal') || !launcher) sendJson(res, 403, { error: denied(req, tr('o elenco só pode ser editado pelo próprio computador')) });
       else if (path === '/api/cast/jobs') {
         if (!isRead) methodNotAllowed(res, 'GET');
         else sendJson(res, 200, { jobs: launcher.jobs(), available: launcher.available() });
+      } else if (path === '/api/cast/folders') {
+        // Pastas recentes (histórico de sessões + salas) para chamar o personagem, mesmo com "Novo agente" desligado.
+        if (!isRead) methodNotAllowed(res, 'GET');
+        else (deps.spawnFolders ?? (async () => []))().then((folders) => sendJson(res, 200, { folders }), (err) => fail(res, err));
       } else if (method !== 'POST') methodNotAllowed(res, 'POST');
       else if (castDismiss) {
         let id: string;
@@ -541,9 +545,8 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
         if ('error' in result) sendJson(res, result.status, { error: result.error });
         else sendJson(res, 202, result);
       } else {
-        readJson(req).then(async (body) => {
-          const folders = (await deps.spawnFolders?.() ?? []).map((f) => f.path);
-          const result = launcher.start(castStart![1], body, folders);
+        readJson(req).then((body) => {
+          const result = launcher.start(castStart![1], body);
           if ('error' in result) sendJson(res, result.status, { error: result.error });
           else sendJson(res, 202, result);
         }).catch((err) => fail(res, err));

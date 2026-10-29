@@ -17,28 +17,36 @@ describe('CastLauncher', () => {
   it('rejects option-like prompts, models and invalid resume identifiers', () => {
     const { launcher, member: setMember } = setup();
     launcher.poll();
-    for (const prompt of ['-e x', ' --x']) expect(launcher.start('ana', { room: '/a', mode: 'new', prompt }, [])).toMatchObject({ status: 422 });
+    for (const prompt of ['-e x', ' --x']) expect(launcher.start('ana', { room: '/a', mode: 'new', prompt })).toMatchObject({ status: 422 });
     setMember({ ...member, model: '--no-session' });
-    expect(launcher.start('ana', { room: '/a', mode: 'new' }, [])).toMatchObject({ status: 422 });
+    expect(launcher.start('ana', { room: '/a', mode: 'new' })).toMatchObject({ status: 422 });
     setMember({ ...member, last: { '/a': '../../bad' } });
-    expect(launcher.start('ana', { room: '/a', mode: 'resume' }, [])).toMatchObject({ status: 422 });
+    expect(launcher.start('ana', { room: '/a', mode: 'resume' })).toMatchObject({ status: 422 });
   });
   it('requires host, room, previous session and a free member', () => {
     const { launcher, agents } = setup();
-    expect(launcher.start('ana', { room: '/a', mode: 'new' }, [])).toMatchObject({ status: 503 });
+    expect(launcher.start('ana', { room: '/a', mode: 'new' })).toMatchObject({ status: 503 });
     launcher.poll();
-    expect(launcher.start('ana', { room: '/a', mode: 'resume' }, [])).toMatchObject({ status: 422 });
-    expect(launcher.start('ana', { room: '/b', mode: 'new' }, [])).toMatchObject({ status: 422 });
+    expect(launcher.start('ana', { room: '/a', mode: 'resume' })).toMatchObject({ status: 422 });
+    expect(launcher.start('ana', { room: '/b', mode: 'new' })).toMatchObject({ status: 422 });
     agents.push(agent);
-    expect(launcher.start('ana', { room: '/a', mode: 'new' }, [])).toMatchObject({ status: 409 });
+    expect(launcher.start('ana', { room: '/a', mode: 'new' })).toMatchObject({ status: 409 });
     agents.pop();
-    expect(launcher.start('ana', { room: '/a', mode: 'new' }, [])).toHaveProperty('job');
-    expect(launcher.start('ana', { room: '/a', mode: 'new' }, [])).toMatchObject({ status: 409 });
+    expect(launcher.start('ana', { room: '/a/', mode: 'new' })).toHaveProperty('job');
+    expect(launcher.start('ana', { room: '/a', mode: 'new' })).toMatchObject({ status: 409 });
+  });
+  it('member without rooms accepts any absolute folder, even one not open in the office', () => {
+    const { launcher, member: setMember } = setup();
+    setMember({ ...member, rooms: [] });
+    launcher.poll();
+    expect(launcher.start('ana', { room: 'relativa', mode: 'new' })).toMatchObject({ status: 422 });
+    expect(launcher.start('ana', { room: '/nunca/aberta//', mode: 'new' })).toHaveProperty('job');
+    expect(launcher.poll()).toContainEqual(expect.objectContaining({ op: 'start', folder: '/nunca/aberta' }));
   });
   it('fails a start without a session and queues a stop', () => {
     const { launcher, time } = setup();
     launcher.poll();
-    const submitted = launcher.start('ana', { room: '/a', mode: 'new' }, []);
+    const submitted = launcher.start('ana', { room: '/a', mode: 'new' });
     if (!('job' in submitted)) throw new Error('start failed');
     launcher.poll(); launcher.ack({ results: [{ id: submitted.job.id, ok: true }] });
     time(60_000); launcher.tick();
@@ -49,7 +57,7 @@ describe('CastLauncher', () => {
     const { launcher, agents, time, member: setMember } = setup();
     expect(launcher.dismiss(agent)).toMatchObject({ status: 404 });
     launcher.poll();
-    const submitted = launcher.start('ana', { room: '/a', mode: 'new' }, []);
+    const submitted = launcher.start('ana', { room: '/a', mode: 'new' });
     if (!('job' in submitted)) throw new Error('start failed');
     launcher.poll(); launcher.ack({ results: [{ id: submitted.job.id, ok: true }] });
     agents.push({ ...agent, status: 'waiting' });

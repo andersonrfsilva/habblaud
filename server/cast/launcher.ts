@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import type { AgentInfo, CastJob, CastJobInfo, CastMember } from '../../shared/types';
 import { tr } from '../../shared/i18n';
 import { HOST_PRESENCE_MS, KEEP_MS, PROMPT_MAX, QUEUED_TIMEOUT_MS, SENT_TIMEOUT_MS } from '../spawn/spawn';
+import { normalizeCwd } from '../model/rooms';
 
 interface Entry { job: CastJob; info: CastJobInfo; at: number; started: number }
 interface Options {
@@ -29,13 +30,16 @@ export class CastLauncher {
     return active ? active.job.op === 'start' ? 'calling' : 'dismissing' : undefined;
   }
   jobs(): CastJobInfo[] { return [...this.entries.values()].map((e) => ({ ...e.info })); }
-  start(id: string, raw: unknown, folders: string[]): { job: CastJobInfo } | { status: number; error: string } {
+  start(id: string, raw: unknown): { job: CastJobInfo } | { status: number; error: string } {
     const member = this.opts.member(id);
     const body = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
     if (!member || member.kind !== 'main' || typeof body.room !== 'string' || (body.mode !== 'new' && body.mode !== 'resume') || (body.prompt !== undefined && (typeof body.prompt !== 'string' || body.prompt.length > PROMPT_MAX || /^\s*-/.test(body.prompt))) || (member.model !== undefined && member.model.startsWith('-'))) return { status: 422, error: tr('pedido inválido') };
     if (this.state(id) || this.opts.agents().some((a) => a.cast === id && a.status !== 'offline' && a.status !== 'done')) return { status: 409, error: tr('personagem ocupado') };
-    if (!(member.rooms.length ? member.rooms : folders).includes(body.room) || (body.mode === 'resume' && !member.last?.[body.room])) return { status: 422, error: tr('personagem não trabalha nesta sala') };
-    if (body.mode === 'resume' && !/^[0-9a-f][0-9a-f-]{7,199}$/i.test(member.last![body.room])) return { status: 422, error: tr('pedido inválido') };
+    // Sem salas no personagem vale qualquer pasta absoluta (o auxiliar confere se ela existe no host); com salas, só elas.
+    const room = normalizeCwd(body.room);
+    if (!isAbsolute(room) || room.length > 1024) return { status: 422, error: tr('informe a pasta do projeto (caminho absoluto)') };
+    if ((member.rooms.length && !member.rooms.includes(room)) || (body.mode === 'resume' && !member.last?.[room])) return { status: 422, error: tr('personagem não trabalha nesta sala') };
+    if (body.mode === 'resume' && !/^[0-9a-f][0-9a-f-]{7,199}$/i.test(member.last![room])) return { status: 422, error: tr('pedido inválido') };
     if (!this.available()) return { status: 503, error: tr('auxiliar do host desligado (npm run codex:bridge)') };
     const agentDir = this.opts.account(member.account);
     if (!agentDir) return { status: 422, error: tr('conta não encontrada') };
@@ -48,7 +52,7 @@ export class CastLauncher {
         writeFileSync(instructionsFile, member.instructions, { mode: 0o600 });
       } catch { return { status: 500, error: tr('não foi possível gravar as instruções') }; }
     }
-    const job: CastJob = { id: randomUUID(), op: 'start', cast: id, folder: body.room, agentDir, ...(member.model ? { model: member.model } : {}), ...(instructionsFile ? { instructionsFile } : {}), ...(body.mode === 'resume' ? { resume: member.last![body.room] } : {}), ...(body.prompt ? { prompt: body.prompt as string } : {}) };
+    const job: CastJob = { id: randomUUID(), op: 'start', cast: id, folder: room, agentDir, ...(member.model ? { model: member.model } : {}), ...(instructionsFile ? { instructionsFile } : {}), ...(body.mode === 'resume' ? { resume: member.last![room] } : {}), ...(body.prompt ? { prompt: body.prompt as string } : {}) };
     return { job: this.enqueue(job) };
   }
   dismiss(agent: AgentInfo | undefined): { job: CastJobInfo } | { status: number; error: string } {
