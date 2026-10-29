@@ -20,7 +20,7 @@ describe('CastStore', () => {
     loaded.load();
     expect(loaded.get('ana')).toEqual(member);
     for (const fields of [
-      { model: 'bad model' }, { model: 'x'.repeat(201) }, { instructions: 'x'.repeat(8001) },
+      { model: 'bad model' }, { model: '--no-session' }, { model: 'x'.repeat(201) }, { instructions: 'x'.repeat(8001) },
       { idleMinutes: 4 }, { idleMinutes: 1441 }, { idleMinutes: 5.5 }, { account: '' },
       { last: { '/a': '' } }, { kind: 'sub', home: undefined, model: 'model' },
     ]) expect(parseCastMember({ ...ana, ...fields })).toBeNull();

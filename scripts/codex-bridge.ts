@@ -368,6 +368,11 @@ export async function castRound(post: Post, run: CastRun, log: (line: string) =>
     if (!id) continue;
     try {
       if (!job || typeof job.cast !== 'string' || !/^[a-z0-9-]{1,40}$/.test(job.cast) || (job.op !== 'start' && job.op !== 'stop') || !opts.tmux) throw new Error(tr('pedido inválido'));
+      if (job.op === 'start') {
+        if (job.model !== undefined && (typeof job.model !== 'string' || job.model.startsWith('-') || !/^[^\s\x00-\x1f\x7f]{1,200}$/.test(job.model))) throw new Error(tr('pedido inválido'));
+        if (job.resume !== undefined && (typeof job.resume !== 'string' || !/^[0-9a-f][0-9a-f-]{7,199}$/i.test(job.resume))) throw new Error(tr('pedido inválido'));
+        if (job.prompt !== undefined && (typeof job.prompt !== 'string' || job.prompt.length > 8000 || /^\s*-/.test(job.prompt))) throw new Error(tr('pedido inválido'));
+      }
       const name = `hb-${job.cast}`;
       let exists = false;
       try { await run(opts.tmux, ['has-session', '-t', `=${name}`]); exists = true; }
@@ -376,9 +381,6 @@ export async function castRound(post: Post, run: CastRun, log: (line: string) =>
         if (exists) await run(opts.tmux, ['kill-session', '-t', `=${name}`]);
       } else {
         if (exists || !opts.omp || typeof job.folder !== 'string' || !isAbsolute(job.folder) || !isDir(job.folder) || typeof job.agentDir !== 'string' || !isAbsolute(job.agentDir) || !isDir(join(job.agentDir, 'sessions'))) throw new Error(tr('pedido inválido'));
-        if (job.model !== undefined && (typeof job.model !== 'string' || !/^[^\s\x00-\x1f\x7f]{1,200}$/.test(job.model))) throw new Error(tr('pedido inválido'));
-        if (job.resume !== undefined && (typeof job.resume !== 'string' || !job.resume || job.resume.length > 200)) throw new Error(tr('pedido inválido'));
-        if (job.prompt !== undefined && (typeof job.prompt !== 'string' || job.prompt.length > 8000)) throw new Error(tr('pedido inválido'));
         if (job.instructionsFile !== undefined) {
           if (typeof job.instructionsFile !== 'string' || !isAbsolute(job.instructionsFile)) throw new Error(tr('pedido inválido'));
           const rel = relative(realpathSync(join(opts.dataDir, 'cast')), realpathSync(job.instructionsFile));

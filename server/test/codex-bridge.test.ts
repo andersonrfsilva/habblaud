@@ -50,7 +50,7 @@ describe('rodada do elenco', () => {
     mkdirSync(castDir);
     const instructionsFile = join(castDir, 'ana.md');
     writeFileSync(instructionsFile, 'instruções');
-    const base = { id: 'one', op: 'start', cast: 'ana', folder: tmp.dir, agentDir: codexHome, model: 'provider/model', instructionsFile, resume: 'session', prompt: 'olá $(literal)' };
+    const base = { id: 'one', op: 'start', cast: 'ana', folder: tmp.dir, agentDir: codexHome, model: 'provider/model', instructionsFile, resume: '01a18526-af3e-72e1-8a15-121c40de7583', prompt: 'olá $(literal)' };
     const jobs = [base, { ...base, id: 'bad-id', cast: 'bad/id' }, { ...base, id: 'bad-folder', folder: join(tmp.dir, 'missing') }, { ...base, id: 'bad-file', instructionsFile: join(tmp.dir, 'outside') }];
     writeFileSync(join(tmp.dir, 'outside'), 'x');
     const ack: unknown[] = [];
@@ -65,8 +65,20 @@ describe('rodada do elenco', () => {
     };
     const result = await castRound(post, run, () => {}, { port: 12345, dataDir: tmp.dir, omp: '/bin/omp', tmux: '/bin/tmux' });
     expect(result.state).toBe('ok');
-    expect(calls).toContainEqual(['new-session', '-d', '-s', 'hb-ana', '-c', tmp.dir, '-e', 'HABBLAUD_CAST=ana', '-e', `PI_CODING_AGENT_DIR=${codexHome}`, '-e', 'HABBLAUD_PORT=12345', '--', '/bin/omp', '--model', 'provider/model', '--append-system-prompt', instructionsFile, '--resume', 'session', 'olá $(literal)']);
+    expect(calls).toContainEqual(['new-session', '-d', '-s', 'hb-ana', '-c', tmp.dir, '-e', 'HABBLAUD_CAST=ana', '-e', `PI_CODING_AGENT_DIR=${codexHome}`, '-e', 'HABBLAUD_PORT=12345', '--', '/bin/omp', '--model', 'provider/model', '--append-system-prompt', instructionsFile, '--resume', '01a18526-af3e-72e1-8a15-121c40de7583', 'olá $(literal)']);
     expect(ack).toEqual([{ results: [expect.objectContaining({ id: 'one', ok: true }), expect.objectContaining({ id: 'bad-id', ok: false }), expect.objectContaining({ id: 'bad-folder', ok: false }), expect.objectContaining({ id: 'bad-file', ok: false })] }]);
+  });
+  it('recusa opções em prompt, modelo ou sessão antes de executar qualquer comando', async () => {
+    const base = { op: 'start', cast: 'ana', folder: tmp.dir, agentDir: codexHome };
+    const jobs = [
+      { ...base, id: 'a', prompt: '-e x' }, { ...base, id: 'b', prompt: ' --x' },
+      { ...base, id: 'c', model: '--no-session' }, { ...base, id: 'd', resume: '../session' },
+    ];
+    const post: Post = async (path) => ({ status: 200, json: path.endsWith('/poll') ? { jobs } : {} });
+    const run = vi.fn(async () => {});
+    const result = await castRound(post, run, () => {}, { port: 12345, dataDir: tmp.dir, omp: '/bin/omp', tmux: '/bin/tmux' });
+    expect(result).toMatchObject({ state: 'ok', results: jobs.map(({ id }) => ({ id, ok: false })) });
+    expect(run).not.toHaveBeenCalled();
   });
   it('recusa start duplicado e aceita stop de sessão inexistente', async () => {
     const post: Post = async (path) => ({ status: 200, json: path.endsWith('/poll') ? { jobs: [{ id: 'a', op: 'start', cast: 'ana', folder: tmp.dir, agentDir: codexHome }, { id: 'b', op: 'stop', cast: 'bia' }] } : {} });

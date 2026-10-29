@@ -23,7 +23,7 @@ export function parseCastMember(raw: unknown): CastMember | null {
   const home = typeof v.home === 'string' ? normalizeCwd(v.home) : undefined;
   if (v.home !== undefined && (v.kind !== 'main' || !home || (v.home as string).length > 1024 || !rooms.includes(home))) return null;
   if (v.kind !== 'main' && [v.model, v.instructions, v.idleMinutes, v.account, v.last].some((x) => x !== undefined)) return null;
-  if (v.model !== undefined && (typeof v.model !== 'string' || !/^[^\s\x00-\x1f\x7f]{1,200}$/.test(v.model))) return null;
+  if (v.model !== undefined && (typeof v.model !== 'string' || v.model.startsWith('-') || !/^[^\s\x00-\x1f\x7f]{1,200}$/.test(v.model))) return null;
   if (v.instructions !== undefined && (typeof v.instructions !== 'string' || v.instructions.length > 8000)) return null;
   if (v.idleMinutes !== undefined && (typeof v.idleMinutes !== 'number' || !Number.isInteger(v.idleMinutes) || (v.idleMinutes !== 0 && (v.idleMinutes < 5 || v.idleMinutes > 1440)))) return null;
   if (v.account !== undefined && (typeof v.account !== 'string' || !v.account || v.account.length > 200)) return null;

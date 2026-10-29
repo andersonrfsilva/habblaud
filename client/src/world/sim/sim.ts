@@ -304,7 +304,7 @@ export class Sim {
         this.reserve.set(member.cast, ch);
       }
       ch.info.name = member.name;
-      ch.alpha = member.state === 'calling' || !!ch.step || !!ch.queue.length ? 1 : 0.45;
+      ch.alpha = member.state === 'calling' || !!ch.step || !!ch.queue.length ? 1 : 0.55;
       ch.bubbleText = member.state === 'calling' ? tr('chamando…') : null;
       ch.bubbleAt = now - 200;
       ch.bubbleUntil = now + 60_000;
@@ -646,7 +646,7 @@ export class Sim {
     if (this.visitor) this.runVisitor(this.visitor, dt, now);
     for (const ch of this.reserve.values()) {
       if (ch.step || ch.queue.length) this.runVisitor(ch, dt, now);
-      else { ch.setPose('sit'); ch.alpha = ch.bubbleText ? 1 : 0.45; }
+      else { ch.setPose('sit'); ch.alpha = ch.bubbleText ? 1 : 0.55; }
     }
     for (const [id, ch] of this.chars) {
       if (ch.gone) {

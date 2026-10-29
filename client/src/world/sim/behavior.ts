@@ -6,7 +6,7 @@ import type { SpotDef } from '../layout/types';
 import { foregroundWaiting } from './shell';
 
 export function reserveSeats(spots: readonly SpotDef[], free: (id: string) => boolean, lounge: string): SpotDef[] {
-  const order = ['sofa', 'armchair', 'beanbag'];
+  const order = ['beanbag', 'armchair', 'sofa'];
   return spots.filter((spot) => spot.areaId === lounge && order.includes(spot.kind) && free(spot.id))
     .sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
 }

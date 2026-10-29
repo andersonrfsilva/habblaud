@@ -14,6 +14,15 @@ function setup() {
 }
 
 describe('CastLauncher', () => {
+  it('rejects option-like prompts, models and invalid resume identifiers', () => {
+    const { launcher, member: setMember } = setup();
+    launcher.poll();
+    for (const prompt of ['-e x', ' --x']) expect(launcher.start('ana', { room: '/a', mode: 'new', prompt }, [])).toMatchObject({ status: 422 });
+    setMember({ ...member, model: '--no-session' });
+    expect(launcher.start('ana', { room: '/a', mode: 'new' }, [])).toMatchObject({ status: 422 });
+    setMember({ ...member, last: { '/a': '../../bad' } });
+    expect(launcher.start('ana', { room: '/a', mode: 'resume' }, [])).toMatchObject({ status: 422 });
+  });
   it('requires host, room, previous session and a free member', () => {
     const { launcher, agents } = setup();
     expect(launcher.start('ana', { room: '/a', mode: 'new' }, [])).toMatchObject({ status: 503 });

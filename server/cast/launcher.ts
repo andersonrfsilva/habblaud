@@ -32,9 +32,10 @@ export class CastLauncher {
   start(id: string, raw: unknown, folders: string[]): { job: CastJobInfo } | { status: number; error: string } {
     const member = this.opts.member(id);
     const body = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
-    if (!member || member.kind !== 'main' || typeof body.room !== 'string' || (body.mode !== 'new' && body.mode !== 'resume') || (body.prompt !== undefined && (typeof body.prompt !== 'string' || body.prompt.length > PROMPT_MAX))) return { status: 422, error: tr('pedido inválido') };
+    if (!member || member.kind !== 'main' || typeof body.room !== 'string' || (body.mode !== 'new' && body.mode !== 'resume') || (body.prompt !== undefined && (typeof body.prompt !== 'string' || body.prompt.length > PROMPT_MAX || /^\s*-/.test(body.prompt))) || (member.model !== undefined && member.model.startsWith('-'))) return { status: 422, error: tr('pedido inválido') };
     if (this.state(id) || this.opts.agents().some((a) => a.cast === id && a.status !== 'offline' && a.status !== 'done')) return { status: 409, error: tr('personagem ocupado') };
     if (!(member.rooms.length ? member.rooms : folders).includes(body.room) || (body.mode === 'resume' && !member.last?.[body.room])) return { status: 422, error: tr('personagem não trabalha nesta sala') };
+    if (body.mode === 'resume' && !/^[0-9a-f][0-9a-f-]{7,199}$/i.test(member.last![body.room])) return { status: 422, error: tr('pedido inválido') };
     if (!this.available()) return { status: 503, error: tr('auxiliar do host desligado (npm run codex:bridge)') };
     const agentDir = this.opts.account(member.account);
     if (!agentDir) return { status: 422, error: tr('conta não encontrada') };
