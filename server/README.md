@@ -64,6 +64,9 @@ festa) ou 10 min. Push só avisa. O mesmo CI visto de novo em 2 min não repete 
 
 ## API
 
+O auxiliar no host (`npm run codex:bridge`) abre sessões omp em `tmux` como `hb-<id>`. Para ver o TUI, use
+`tmux attach -t hb-<id>`. A unidade de exemplo `deploy/podman/habblaud-bridge.service` não é ativada automaticamente.
+
 | Rota | Descrição |
 | --- | --- |
 | `GET /api/stream` | SSE: eventos `snapshot`, `feed`, `notice` (ver `shared/types.ts`); ping a cada 15 s |
@@ -76,6 +79,10 @@ festa) ou 10 min. Push só avisa. O mesmo CI visto de novo em 2 min não repete 
 | `DELETE /api/cast/:id` | Apaga membro e vínculos; agentes voltam ao sorteio |
 | `PUT /api/agents/:id/cast` | `{cast}` veste um principal; 409 ocupado, 422 sala proibida |
 | `DELETE /api/agents/:id/cast` | Remove o vínculo e volta ao sorteio |
+| `POST /api/cast/:id/start` | `{room, mode: 'new' \| 'resume', prompt?}`: enfileira uma chamada; 202, 409, 422 ou 503 |
+| `POST /api/agents/:id/dismiss` | Enfileira a dispensa de uma sessão aberta pelo Habblaud |
+| `GET /api/cast/jobs` | `{jobs, available}`: estado das chamadas e presença do auxiliar |
+| `POST /api/host/cast/poll`, `/api/host/cast/ack` | Auxiliar busca e confirma chamadas e dispensas; somente acesso local |
 | `GET /api/sessions/recent` | `RecentSessionsResponse`: sessões dos últimos 7 dias de todas as contas (até 150); mesma trava do terminal |
 | `GET /api/sessions/:conta/:sessionId/terminal` | SSE da conversa de uma sessão do histórico (mesmo protocolo do terminal); mesma trava |
 | `GET /api/stats?day=AAAA-MM-DD&tz=<IANA>&source=real\|demo` | `DayStatsResponse` do "Meu dia" (ver abaixo); padrões: hoje, fuso do servidor, demo se ligado e o dia é hoje |
