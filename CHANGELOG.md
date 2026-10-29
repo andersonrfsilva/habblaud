@@ -12,6 +12,8 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Elenco:** personagens principais podem guardar modelo, instruções, conta e limite de ociosidade.
+
 - **Elenco:** crie personagens fixos para principais, advisors e subagentes, escolha salas e vista cada sessão pela
   gaveta. No omp, `HABBLAUD_CAST=<id>` pede um membro. Personagem ocupado ou fora da sala gera sorteio; as salas
   organizam a escolha, mas não restringem ferramentas. Personagens antigos das salas migram para `cast.json`, com

@@ -311,7 +311,7 @@ export class OfficeStore {
 
   async saveCast(body: Omit<CastMember, 'id'> | CastMember): Promise<string | undefined> {
     const id = 'id' in body ? body.id : undefined;
-    return this.castRequest(id ? `/api/cast/${encodeURIComponent(id)}` : '/api/cast', id ? 'PUT' : 'POST', { ...body, home: body.home ?? null, match: body.match ?? null });
+    return this.castRequest(id ? `/api/cast/${encodeURIComponent(id)}` : '/api/cast', id ? 'PUT' : 'POST', { ...body, home: body.home ?? null, match: body.match ?? null, model: body.model ?? null, instructions: body.instructions ?? null, idleMinutes: body.idleMinutes ?? null, account: body.account ?? null });
   }
 
   async deleteCast(id: string): Promise<string | undefined> {

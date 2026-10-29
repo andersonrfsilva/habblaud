@@ -95,6 +95,18 @@ export class CastScreen {
     home.append(h('option', { text: tr('Nenhuma'), attrs: { value: '' } }));
     for (const path of allFolders) home.append(h('option', { text: path, attrs: { value: path } }));
     home.value = member?.home ?? '';
+    const model = h('input', { type: 'text', attrs: { list: 'ui-cast-models', maxlength: '200' } });
+    model.value = member?.model ?? '';
+    const models = h('datalist', { attrs: { id: 'ui-cast-models' } });
+    for (const value of new Set((this.ctx.store.snapshot?.agents ?? []).flatMap((a) => a.models ?? []))) models.append(h('option', { attrs: { value } }));
+    const instructions = h('textarea', { attrs: { maxlength: '8000' } });
+    instructions.value = member?.instructions ?? '';
+    const idle = h('input', { type: 'number', attrs: { min: '0', max: '1440', step: '1' } });
+    idle.value = String(member?.idleMinutes ?? 30);
+    const account = h('select');
+    account.append(h('option', { text: tr('Padrão'), attrs: { value: '' } }));
+    for (const item of this.ctx.store.snapshot?.accounts ?? []) if (item.provider === 'omp') account.append(h('option', { text: item.name, attrs: { value: item.id } }));
+    account.value = member?.account ?? '';
     const error = h('p', { role: 'alert', class: 'ui-char__error' });
     const roll = h('button', { class: 'ui-btn', type: 'button', text: tr('Sortear'), on: { click: () => {
       seed = crypto.getRandomValues(new Uint32Array(1))[0];
@@ -110,7 +122,7 @@ export class CastScreen {
       const homeValue = kind.value === 'main' ? home.value : '';
       const problem = validateCast(name.value, allowed, homeValue, types);
       if (problem || !fields.value) { error.textContent = problem ?? tr('Aparência inválida.'); return; }
-      const body: Omit<CastMember, 'id'> = { name: name.value.trim(), look, seed, kind: kind.value as CastMember['kind'], rooms: allowed, parts: changedParts(base, fields.value), ...(kind.value === 'sub' ? { match: types } : {}), ...(homeValue ? { home: homeValue } : {}) };
+      const body: Omit<CastMember, 'id'> = { name: name.value.trim(), look, seed, kind: kind.value as CastMember['kind'], rooms: allowed, parts: changedParts(base, fields.value), ...(kind.value === 'sub' ? { match: types } : {}), ...(homeValue ? { home: homeValue } : {}), ...(kind.value === 'main' ? { ...(model.value ? { model: model.value } : {}), ...(instructions.value ? { instructions: instructions.value } : {}), idleMinutes: Number(idle.value), ...(account.value ? { account: account.value } : {}) } : {}) };
       save.disabled = true;
       const failure = await this.ctx.store.saveCast(member ? { ...body, id: member.id } : body);
       save.disabled = false;
@@ -123,6 +135,10 @@ export class CastScreen {
       h('label', {}, h('span', { text: tr('Tipo') }), kind),
       h('label', {}, h('span', { text: tr('Tipos de subagente (separados por vírgula)') }), match), suggestions,
       rooms, h('label', {}, h('span', { text: tr('Sala principal') }), home),
+      h('label', {}, h('span', { text: tr('Modelo') }), model), models,
+      h('label', {}, h('span', { text: tr('Instruções') }), instructions),
+      h('label', {}, h('span', { text: tr('Ociosidade em minutos (0 = nunca)') }), idle),
+      h('label', {}, h('span', { text: tr('Conta') }), account),
       h('label', {}, h('span', { text: tr('Aparência') }), lookSelect), fields.preview, roll, fields.groups, error,
       h('div', { class: 'ui-char__actions' }, save, cancel)));
   }

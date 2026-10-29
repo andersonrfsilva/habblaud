@@ -28,6 +28,11 @@ export interface CastMember {
   match?: string[];
   home?: string;
   rooms: string[];
+  model?: string;
+  instructions?: string;
+  idleMinutes?: number;
+  account?: string;
+  last?: Record<string, string>;
 }
 
 /**

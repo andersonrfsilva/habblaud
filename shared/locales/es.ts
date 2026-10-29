@@ -2,6 +2,10 @@
 // As lacunas {0}, {1}... (e as nomeadas, como {sala}) precisam aparecer na tradução, em qualquer ordem.
 // Chave ausente = o texto fica em PT. `npm run i18n:check` lista os textos sem tradução e as chaves que sobraram.
 export const ES: Readonly<Record<string, string>> = {
+  "Padrão": "Predeterminada",
+  "Instruções": "Instrucciones",
+  "Ociosidade em minutos (0 = nunca)": "Inactividad en minutos (0 = nunca)",
+  "Conta": "Cuenta",
   "Anexar arquivos": "Adjuntar archivos",
   "Remover anexo: {0}": "Eliminar adjunto: {0}",
   "Arquivo acima de 15 MiB: {0}": "El archivo supera los 15 MiB: {0}",

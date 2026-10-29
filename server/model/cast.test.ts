@@ -10,6 +10,22 @@ afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: tru
 const ana = { id: 'ana', name: 'Ana', look: 'f' as const, seed: 1, kind: 'main' as const, rooms: ['/a'], home: '/a' };
 
 describe('CastStore', () => {
+  it('persists main profiles and rejects invalid fields', () => {
+    const file = join(folder(), 'cast.json');
+    const member = { ...ana, model: 'provider/model', instructions: 'Teste', idleMinutes: 5, account: 'omp', last: { '/a': 'session' } };
+    const store = new CastStore(file);
+    expect(store.put(member)).toBe(true);
+    store.flush();
+    const loaded = new CastStore(file);
+    loaded.load();
+    expect(loaded.get('ana')).toEqual(member);
+    for (const fields of [
+      { model: 'bad model' }, { model: 'x'.repeat(201) }, { instructions: 'x'.repeat(8001) },
+      { idleMinutes: 4 }, { idleMinutes: 1441 }, { idleMinutes: 5.5 }, { account: '' },
+      { last: { '/a': '' } }, { kind: 'sub', home: undefined, model: 'model' },
+    ]) expect(parseCastMember({ ...ana, ...fields })).toBeNull();
+    expect(parseCastMember({ ...ana, idleMinutes: 0 })).not.toBeNull();
+  });
   it('migrates rooms and owners after backing up names', () => {
     const dir = folder();
     const names = JSON.stringify({ version: 1, names: {}, rooms: { '/a': { name: 'Ana', look: 'f', seed: 1, owner: 's', at: 100 } } });

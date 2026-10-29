@@ -353,6 +353,11 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
     if (data.match === null) delete old?.match;
     if (data.home === null) delete data.home;
     if (data.match === null) delete data.match;
+    for (const key of ['model', 'instructions', 'idleMinutes', 'account']) if (data[key] === null) {
+      if (old) delete (old as unknown as Record<string, unknown>)[key];
+      delete data[key];
+    }
+    if (data.kind !== undefined && data.kind !== 'main' && old) delete old.last;
     const member = parseCastMember({ ...old, ...data, id: id ?? office.cast.nextId(typeof data.name === 'string' ? data.name : '') });
     if (!member) throw new HttpError(400, tr('membro do elenco inválido'));
     if (office.putCast(member) === 'conflict') return sendJson(res, 409, { error: tr('nome já está em uso') });
