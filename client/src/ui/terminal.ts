@@ -14,7 +14,7 @@ import { MessageComposer } from './composer';
 import { OmpBar } from './omp-bar';
 import type { UiComponent, UiContext } from './context';
 import { copyText, h, iconButton, prefersReducedMotion, setAttr, setHidden, setText, setTitle, setVariant } from './dom';
-import { calendarDayDiff, formatClock, formatDateTime, formatDuration, formatElapsed, relativeTime } from './format';
+import { calendarDayDiff, formatClock, formatDateTime, formatDuration, formatElapsed, modelBadge, relativeTime } from './format';
 import { ICONS } from './icons';
 import { filesAvailable } from './files';
 import { maximizeButton, Movable } from './movable';
@@ -649,6 +649,8 @@ export class TerminalPanel implements UiComponent, TerminalControl {
   private frames: readonly string[] = SPINNER;
   private roleEl: HTMLElement;
   private roomEl: HTMLElement;
+  /** Modelo e raciocínio em uso ("Opus 5.5 M"), só no terminal de um agente vivo com modelo conhecido. */
+  private modelEl: HTMLElement;
   private reconnEl: HTMLElement;
   private findBtn: HTMLButtonElement;
   /** Botão do bate-papo paralelo (só agente do omp pronto para receber mensagens) e a janela lateral dele. */
@@ -697,6 +699,7 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     this.provEl = createProviderTag('ui-prov--xs');
     this.roleEl = h('span', { class: 'ui-role' });
     this.roomEl = h('span', { class: 'ui-term__room' });
+    this.modelEl = h('span', { class: 'ui-term__model', hidden: true });
     this.reconnEl = h('span', { class: 'ui-term__reconn', text: tr('reconectando…'), hidden: true, role: 'status' });
     this.findBtn = iconButton(ICONS.search, tr('Buscar na conversa ({0})', [findKey]), () => this.toggleSearch(), 'ui-icon-btn--sm ui-term__find');
     setAttr(this.findBtn, 'aria-expanded', 'false');
@@ -714,7 +717,7 @@ export class TerminalPanel implements UiComponent, TerminalControl {
       { class: 'ui-term__bar' },
       icon,
       this.kindEl,
-      h('div', { class: 'ui-term__who' }, this.accEl, this.nameEl, this.provEl, this.roleEl, this.roomEl),
+      h('div', { class: 'ui-term__who' }, this.accEl, this.nameEl, this.provEl, this.roleEl, this.modelEl, this.roomEl),
       this.reconnEl,
       this.findBtn,
       this.favStar,
@@ -951,6 +954,10 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     setText(this.roomEl, room ? tr('sala {0}', [room.name]) : '');
     setTitle(this.roomEl, room?.path ?? '');
     setHidden(this.roomEl, !room);
+    const badge = modelBadge(a?.model, a?.thinking);
+    setText(this.modelEl, badge);
+    setTitle(this.modelEl, a?.model ? (a.thinking ? tr('{0} · raciocínio {1}', [a.model, a.thinking]) : a.model) : '');
+    setHidden(this.modelEl, !badge);
     setAttr(this.el, 'aria-label', tr('Terminal de {0}', [name]));
     this.el.classList.toggle('is-gone', !live);
   }
@@ -968,6 +975,7 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     setText(this.roomEl, `${sessionProjectName(s)} · ${formatDateTime(s.firstAt ?? s.lastAt)}`);
     setTitle(this.roomEl, s.project ?? s.projectDir);
     setHidden(this.roomEl, false);
+    setHidden(this.modelEl, true);
     setAttr(this.el, 'aria-label', tr('Terminal da sessão {0}', [title]));
     this.el.classList.remove('is-gone');
   }

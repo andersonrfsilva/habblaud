@@ -15,6 +15,7 @@ import {
   normalizeSearch,
   permissionLabel,
   plural,
+  modelBadge,
   prettyModel,
   relativeTime,
   shortPath,
@@ -167,6 +168,13 @@ describe('textos', () => {
     expect(prettyModel('gpt-5')).toBe('GPT-5');
     expect(prettyModel('gpt-4o')).toBe('GPT-4o');
     expect(prettyModel(undefined)).toBe('—');
+  });
+  it('modelBadge: modelo curto sem o provedor e raciocínio abreviado', () => {
+    expect(modelBadge('anthropic/claude-opus-5-5', 'medium')).toBe('Opus 5.5 M');
+    expect(modelBadge('claude-opus-5-5', 'xhigh')).toBe('Opus 5.5 XH');
+    expect(modelBadge('openai-codex/gpt-6-astra', undefined)).toBe('GPT-6 Astra');
+    expect(modelBadge('gpt-5', 'novo')).toBe('GPT-5 novo');
+    expect(modelBadge(undefined, 'high')).toBe('');
   });
   it('permissionLabel traduz modos conhecidos', () => {
     expect(permissionLabel('acceptEdits')).toBe('Aceita edições');

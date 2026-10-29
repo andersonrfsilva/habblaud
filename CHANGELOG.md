@@ -12,6 +12,9 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Terminal:** o título mostra o modelo e o raciocínio em uso no omp, por exemplo `Opus 5.5 M`.
+- **Elenco:** a ficha escolhe o modelo numa lista agrupada por provedor (a mesma da gaveta), em vez de digitar.
+
 - **Elenco:** escolha pastas pelo navegador de diretórios e edite personagens em uma janela integrada ao escritório.
   O navegador usa a pasta pessoal ou as raízes absolutas em `HABBLAUD_CAST_ROOTS` (separadas por vírgulas).
 

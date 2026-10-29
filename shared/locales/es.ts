@@ -3556,4 +3556,7 @@ export const ES: Readonly<Record<string, string>> = {
   "Não foi possível abrir a pasta.": "No se pudo abrir la carpeta.",
   "Pastas": "Carpetas",
   "Nenhuma subpasta.": "Sin subcarpetas.",
+  "Padrão do omp": "Predeterminado de omp",
+  "provedor/modelo (vazio = padrão do omp)": "proveedor/modelo (vacío = predeterminado de omp)",
+  "{0} · raciocínio {1}": "{0} · razonamiento {1}",
 };

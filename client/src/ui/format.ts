@@ -233,6 +233,17 @@ export function prettyModel(model: string | undefined): string {
   return version ? `${family} ${version}` : family;
 }
 
+/** Raciocínio do omp abreviado para o título do terminal (OMP_THINKING_LEVELS). */
+const THINKING_SHORT: Record<string, string> = { off: 'off', minimal: 'Min', low: 'L', medium: 'M', high: 'H', xhigh: 'XH', max: 'Max' };
+
+/** "Opus 5.5 M": modelo curto (sem o `provedor/`) e o raciocínio abreviado; vazio sem modelo. */
+export function modelBadge(model: string | undefined, thinking: string | undefined): string {
+  if (!model) return '';
+  const name = prettyModel(model.slice(model.indexOf('/') + 1));
+  const level = thinking ? (THINKING_SHORT[thinking] ?? thinking) : '';
+  return level ? `${name} ${level}` : name;
+}
+
 const PROVIDER_LABELS: Record<string, string> = {
   anthropic: 'Anthropic',
   openai: 'OpenAI',

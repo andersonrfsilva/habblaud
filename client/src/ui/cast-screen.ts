@@ -10,6 +10,7 @@ import { ICONS } from './icons';
 import { createAvatar } from './avatar';
 import { FolderPicker, folderOptions } from './folder-picker';
 import { shortPath, spawnFolders, type FolderOption } from './spawn';
+import { modelGroups } from './format';
 
 const HOST_OFF = (): string => tr('auxiliar do host desligado (npm run codex:bridge)');
 const active = (jobs: readonly CastJobInfo[], cast: string): CastJobInfo | undefined =>
@@ -22,6 +23,8 @@ export class CastScreen {
   /** Pastas que o escritório conhece (histórico de sessões + salas), da mais recente para a mais antiga. */
   private folders: FolderOption[] = [];
   private readonly recentTypes = new Set<string>();
+  /** Modelos do omp vistos nas sessões (a extensão manda a lista no início e no batimento); ficam para a ficha. */
+  private readonly knownModels = new Set<string>();
 
   constructor(private readonly ctx: UiContext) {
     this.content = h('div', { class: 'ui-dialog__body ui-cast__content' });
@@ -30,6 +33,7 @@ export class CastScreen {
     ctx.root.addEventListener('habblaud:cast-create', (event) => void this.open((event as CustomEvent<AgentInfo>).detail));
     ctx.store.on('snapshot', (snapshot) => {
       for (const agent of snapshot.agents) {
+        for (const m of agent.models ?? []) this.knownModels.add(m);
         if (!agent.agentType) continue;
         this.recentTypes.delete(agent.agentType);
         this.recentTypes.add(agent.agentType);
@@ -207,10 +211,23 @@ export class CastScreen {
     rooms.set(folderOptions(this.folders, initialRooms, initialRooms), initialRooms);
     syncHome();
     home.value = member?.home ?? '';
-    const model = h('input', { class: 'ui-rename__input', type: 'text', attrs: { list: 'ui-cast-models', maxlength: '200' } });
-    model.value = member?.model ?? '';
-    const models = h('datalist', { attrs: { id: 'ui-cast-models' } });
-    for (const value of new Set((this.ctx.store.snapshot?.agents ?? []).flatMap((a) => a.models ?? []))) models.append(h('option', { attrs: { value } }));
+    // Com a lista de modelos do omp: seletor agrupado como o da gaveta; sem ela (nenhuma sessão com a extensão), texto.
+    const current = member?.model ?? '';
+    const known = [...this.knownModels];
+    let model: HTMLInputElement | HTMLSelectElement;
+    if (known.length) {
+      model = h('select', { class: 'ui-rename__input' });
+      model.append(h('option', { text: tr('Padrão do omp'), attrs: { value: '' } }));
+      if (current && !known.includes(current)) model.append(h('option', { text: current, attrs: { value: current } }));
+      for (const g of modelGroups(known, current)) {
+        const group = h('optgroup', { attrs: { label: g.label } });
+        group.append(...g.options.map((o) => h('option', { text: o.label, attrs: { value: o.value } })));
+        model.append(group);
+      }
+    } else {
+      model = h('input', { class: 'ui-rename__input', type: 'text', attrs: { maxlength: '200', placeholder: tr('provedor/modelo (vazio = padrão do omp)') } });
+    }
+    model.value = current;
     const instructions = h('textarea', { class: 'ui-rename__input ui-spawn__prompt', attrs: { maxlength: '8000' } });
     instructions.value = member?.instructions ?? '';
     const idle = h('input', { class: 'ui-rename__input', type: 'number', attrs: { min: '0', max: '1440', step: '1' } });
@@ -243,7 +260,7 @@ export class CastScreen {
     })() } });
     const cancel = h('button', { class: 'ui-btn', type: 'button', text: tr('Cancelar'), on: { click: () => this.showList() } });
     const group = (title: string, ...children: HTMLElement[]) => h('section', { class: 'ui-set-group' }, h('h3', { text: title }), ...children);
-    const execution = group(tr('Execução'), field(tr('Modelo'), model), models, field(tr('Instruções'), instructions),
+    const execution = group(tr('Execução'), field(tr('Modelo'), model), field(tr('Instruções'), instructions),
       field(tr('Ociosidade em minutos (0 = nunca)'), idle), field(tr('Conta'), account));
     const sub = group(tr('Subagente'), field(tr('Tipos de subagente (separados por vírgula)'), match), suggestions);
     const mainHome = field(tr('Sala principal'), home);

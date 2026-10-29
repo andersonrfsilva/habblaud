@@ -4785,6 +4785,21 @@
   color: var(--ui-muted);
 }
 
+.ui-term__model {
+  /* Num terminal estreito encolhe antes do nome do agente. */
+  flex: 0 4 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 1px 6px;
+  border: 1px solid var(--ui-line-strong);
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--ui-muted);
+  white-space: nowrap;
+}
+
 .ui-term.is-gone .ui-term__who {
   opacity: 0.6;
 }
