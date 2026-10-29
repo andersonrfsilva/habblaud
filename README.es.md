@@ -1017,10 +1017,10 @@ El auxiliar del host (`npm run codex:bridge`) abre omp en sesiones `hb-<id>`. Us
 | `GET /api/snapshot` | Estado actual de la oficina. |
 | `GET /api/agents/:id` | Detalles de un agente, con hasta 200 actividades. |
 | `GET /api/agents/:id/terminal` | SSE de la terminal (eventos `init` y `append`); solo con acceso local. |
-| `GET /api/cast`, `POST /api/cast` | Lista o crea miembros en `cast.json`; solo con acceso local. |
-| `PUT /api/cast/:id`, `DELETE /api/cast/:id` | Edita o elimina un miembro del elenco; solo con acceso local. |
-| `PUT /api/agents/:id/cast`, `DELETE /api/agents/:id/cast` | Asigna `{cast}` al agente principal o vuelve al sorteo. Las sesiones omp pueden solicitar un miembro con `HABBLAUD_CAST=<id>`. |
-| `POST /api/cast/:id/start`, `POST /api/agents/:id/dismiss`, `GET /api/cast/jobs` | Llama, despide o consulta sesiones del elenco; solo acceso local. |
+| `GET /api/cast`, `POST /api/cast` | Lista o crea miembros en `cast.json`; acceso local o por el puerto remoto tras iniciar sesión, con `terminal` en `HABBLAUD_REMOTE_ALLOW`. |
+| `PUT /api/cast/:id`, `DELETE /api/cast/:id` | Edita o elimina un miembro del elenco; acceso local o por el puerto remoto tras iniciar sesión, con `terminal` en `HABBLAUD_REMOTE_ALLOW`. |
+| `PUT /api/agents/:id/cast`, `DELETE /api/agents/:id/cast` | Asigna `{cast}` al agente principal o vuelve al sorteo. Las sesiones omp pueden solicitar un miembro con `HABBLAUD_CAST=<id>`; acceso local o por el puerto remoto tras iniciar sesión, con `terminal` en `HABBLAUD_REMOTE_ALLOW`. |
+| `POST /api/cast/:id/start`, `POST /api/agents/:id/dismiss`, `GET /api/cast/jobs` | Llama, despide o consulta sesiones del elenco; acceso local o por el puerto remoto tras iniciar sesión, con `terminal` en `HABBLAUD_REMOTE_ALLOW`. |
 | `POST /api/host/cast/poll`, `POST /api/host/cast/ack` | El auxiliar del host recoge y confirma las solicitudes del elenco. |
 | `GET /api/sessions/recent` | Historial: sesiones de los últimos 7 días de todas las cuentas (hasta 150); solo con acceso local. |
 | `GET /api/sessions/:conta/:sessionId/terminal` | SSE de la conversación de una sesión del historial (mismo protocolo que la terminal); solo con acceso local. |
@@ -1166,9 +1166,7 @@ los pasa al contenedor.
   adjuntos se guardan en `~/.habblaud/attachments/` (carpeta 700, archivos 600). En Docker, quien inicia las sesiones
   es el auxiliar del host (`npm run codex:bridge`), que además solo lee los archivos de las entregas de carpetas de
   proyecto conocidas (las que Claude Code tiene en `<conta>/projects`), de la carpeta temporal y de los adjuntos.
-- **Elenco, solo local:** crear, editar o asignar personajes escribe en `cast.json` y sigue el bloqueo de la terminal
-  (bind y `Host` locales, sin proxies ni túneles). Sin él, el servidor responde `403`. Los cambios exigen JSON y
-  origen local. `HABBLAUD_TERMINAL=0` también lo desactiva.
+- **Elenco, bloqueo del terminal:** crear, editar o asignar personajes escribe en `cast.json` y sigue el bloqueo del terminal: acceso local o por el puerto remoto tras iniciar sesión, con `terminal` en `HABBLAUD_REMOTE_ALLOW`. Sin él, el servidor responde `403`. Los cambios exigen JSON y origen local. `HABBLAUD_TERMINAL=0` también lo desactiva.
 - **Estadísticas de Mi día:** solo números agregados (tiempo por estado, conteos, tokens, costo) con los nombres de
   proyecto, cuenta y agente, guardados en `HABBLAUD_DATA_DIR/stats/` durante 30 días; nada de la conversación.
 - **Codex:** Habblaud lee solo las conversaciones (`sessions/`, `archived_sessions/`) y los bloqueos de las sesiones

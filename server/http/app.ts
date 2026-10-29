@@ -528,7 +528,8 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
     const castDismiss = /^\/api\/agents\/([^/]+)\/dismiss$/.exec(path);
     if (path === '/api/cast/jobs' || castStart || castDismiss) {
       const launcher = deps.castLauncher;
-      if (!deps.terminal || !trusted(req) || !launcher) sendJson(res, 403, { error: tr('o elenco só pode ser editado pelo próprio computador') });
+      // Mesma trava do terminal: local, ou a porta remota com login e `terminal` em HABBLAUD_REMOTE_ALLOW.
+      if (!deps.terminal || !trusted(req, 'terminal') || !launcher) sendJson(res, 403, { error: denied(req, tr('o elenco só pode ser editado pelo próprio computador')) });
       else if (path === '/api/cast/jobs') {
         if (!isRead) methodNotAllowed(res, 'GET');
         else sendJson(res, 200, { jobs: launcher.jobs(), available: launcher.available() });
@@ -554,7 +555,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
     if (path === '/api/cast' || castMatch || agentCastMatch) {
       const allow = agentCastMatch ? 'PUT, DELETE' : castMatch ? 'PUT, DELETE' : 'GET, POST';
       if (!allow.split(', ').includes(method)) methodNotAllowed(res, allow);
-      else if (!deps.terminal || !trusted(req)) sendJson(res, 403, { error: tr('o elenco só pode ser editado pelo próprio computador') });
+      else if (!deps.terminal || !trusted(req, 'terminal')) sendJson(res, 403, { error: denied(req, tr('o elenco só pode ser editado pelo próprio computador')) });
       else {
         let agentId: string | undefined;
         try { agentId = agentCastMatch ? decodeURIComponent(agentCastMatch[1]) : undefined; }

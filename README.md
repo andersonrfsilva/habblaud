@@ -607,7 +607,7 @@ main, advisor or subagent. For subagents, enter observed types such as `reviewer
 
 The cast is stored in `~/.habblaud/cast.json`; session bindings expire after 60 days without use. Old room characters
 migrate automatically, with a backup at `~/.habblaud/names.json.pre-031`. The cast uses the terminal safeguard:
-local access and the terminal enabled, without `HABBLAUD_TERMINAL=0`.
+local access, or the remote port after login when `terminal` is in `HABBLAUD_REMOTE_ALLOW`.
 
 ### Codex
 
@@ -984,10 +984,10 @@ The host helper (`npm run codex:bridge`) opens omp in `hb-<id>` sessions. Use `t
 | `GET /api/snapshot` | Current state of the office. |
 | `GET /api/agents/:id` | An agent's details, with up to 200 activities. |
 | `GET /api/agents/:id/terminal` | Terminal SSE (`init` and `append` events); local access only. |
-| `GET /api/cast`, `POST /api/cast` | List or create cast members in `cast.json`; local access only. |
-| `PUT /api/cast/:id`, `DELETE /api/cast/:id` | Edit or delete a cast member; local access only. |
-| `PUT /api/agents/:id/cast`, `DELETE /api/agents/:id/cast` | Dress the main agent with `{cast}`, or return to a random character. omp sessions can request a member with `HABBLAUD_CAST=<id>`. |
-| `POST /api/cast/:id/start`, `POST /api/agents/:id/dismiss`, `GET /api/cast/jobs` | Start, dismiss or track cast sessions; local access only. |
+| `GET /api/cast`, `POST /api/cast` | List or create cast members in `cast.json`; local access or the remote port after login when `terminal` is in `HABBLAUD_REMOTE_ALLOW`. |
+| `PUT /api/cast/:id`, `DELETE /api/cast/:id` | Edit or delete a cast member; local access or the remote port after login when `terminal` is in `HABBLAUD_REMOTE_ALLOW`. |
+| `PUT /api/agents/:id/cast`, `DELETE /api/agents/:id/cast` | Dress the main agent with `{cast}`, or return to a random character. omp sessions can request a member with `HABBLAUD_CAST=<id>`; local access or the remote port after login when `terminal` is in `HABBLAUD_REMOTE_ALLOW`. |
+| `POST /api/cast/:id/start`, `POST /api/agents/:id/dismiss`, `GET /api/cast/jobs` | Start, dismiss or track cast sessions; local access or the remote port after login when `terminal` is in `HABBLAUD_REMOTE_ALLOW`. |
 | `POST /api/host/cast/poll`, `POST /api/host/cast/ack` | The host helper fetches and acknowledges cast jobs. |
 | `GET /api/sessions/recent` | Session history: sessions from the last 7 days across all accounts (up to 150); local access only. |
 | `GET /api/sessions/:conta/:sessionId/terminal` | SSE of the conversation of a session from the history (same protocol as the terminal); local access only. |
@@ -1128,9 +1128,7 @@ metadata (letter, email, organization) is read on the host by `docker:up` and pa
   `~/.habblaud/attachments/` (folder 700, files 600). In Docker, whoever starts the sessions is the host helper
   (`npm run codex:bridge`), which also reads the delivery files only from known project folders (the ones Claude Code
   has in `<conta>/projects`), the temporary folder and the attachments.
-- **Cast, local only:** creating, editing or dressing characters writes to `cast.json` and follows the terminal
-  safeguard (local bind and `Host`, no proxies or tunnels). Without it the server returns `403`. Changes require JSON
-  and a local origin. `HABBLAUD_TERMINAL=0` turns it off too.
+- **Cast, terminal safeguard:** creating, editing or dressing characters writes to `cast.json` and follows the terminal safeguard: local access, or the remote port after login when `terminal` is in `HABBLAUD_REMOTE_ALLOW`. Without it the server returns `403`. Changes require JSON and a local origin. `HABBLAUD_TERMINAL=0` turns it off too.
 - **My day stats:** only aggregate numbers (time per status, counts, tokens, cost) with project,
   account and agent names, kept in `HABBLAUD_DATA_DIR/stats/` for 30 days — nothing from the conversation.
 - **Codex:** Habblaud only reads the conversations (`sessions/`, `archived_sessions/`) and the locks of the open sessions

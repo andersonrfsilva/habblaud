@@ -73,15 +73,15 @@ O auxiliar no host (`npm run codex:bridge`) abre sessões omp em `tmux` como `hb
 | `GET /api/snapshot` | `OfficeSnapshot` atual |
 | `GET /api/agents/:id` | `AgentDetail` (histórico de até 200 atividades) |
 | `GET /api/agents/:id/terminal` | SSE do terminal: eventos `init` e `append` (`TerminalMessage`); só com bind local (ver abaixo) |
-| `GET /api/cast` | `{members}` sem vínculos; acesso local |
-| `POST /api/cast` | Cria membro sem `id`; 201, 400 ou 409 |
-| `PUT /api/cast/:id` | Edita membro e atualiza os agentes que o vestem |
-| `DELETE /api/cast/:id` | Apaga membro e vínculos; agentes voltam ao sorteio |
-| `PUT /api/agents/:id/cast` | `{cast}` veste um principal; 409 ocupado, 422 sala proibida |
-| `DELETE /api/agents/:id/cast` | Remove o vínculo e volta ao sorteio |
-| `POST /api/cast/:id/start` | `{room, mode: 'new' \| 'resume', prompt?}`: enfileira uma chamada; 202, 409, 422 ou 503 |
-| `POST /api/agents/:id/dismiss` | Enfileira a dispensa de uma sessão aberta pelo Habblaud |
-| `GET /api/cast/jobs` | `{jobs, available}`: estado das chamadas e presença do auxiliar |
+| `GET /api/cast` | `{members}` sem vínculos; acesso local ou pela porta remota após login, com `terminal` em `HABBLAUD_REMOTE_ALLOW` |
+| `POST /api/cast` | Cria membro sem `id`; 201, 400 ou 409; mesma trava do terminal |
+| `PUT /api/cast/:id` | Edita membro e atualiza os agentes que o vestem; mesma trava do terminal |
+| `DELETE /api/cast/:id` | Apaga membro e vínculos; agentes voltam ao sorteio; mesma trava do terminal |
+| `PUT /api/agents/:id/cast` | `{cast}` veste um principal; 409 ocupado, 422 sala proibida; mesma trava do terminal |
+| `DELETE /api/agents/:id/cast` | Remove o vínculo e volta ao sorteio; mesma trava do terminal |
+| `POST /api/cast/:id/start` | `{room, mode: 'new' \| 'resume', prompt?}`: enfileira uma chamada; 202, 409, 422 ou 503; mesma trava do terminal |
+| `POST /api/agents/:id/dismiss` | Enfileira a dispensa de uma sessão aberta pelo Habblaud; mesma trava do terminal |
+| `GET /api/cast/jobs` | `{jobs, available}`: estado das chamadas e presença do auxiliar; mesma trava do terminal |
 | `POST /api/host/cast/poll`, `/api/host/cast/ack` | Auxiliar busca e confirma chamadas e dispensas; somente acesso local |
 | `GET /api/sessions/recent` | `RecentSessionsResponse`: sessões dos últimos 7 dias de todas as contas (até 150); mesma trava do terminal |
 | `GET /api/sessions/:conta/:sessionId/terminal` | SSE da conversa de uma sessão do histórico (mesmo protocolo do terminal); mesma trava |
@@ -378,9 +378,9 @@ O primeiro principal sem vínculo recebe o membro principal da sala; vínculos e
 omp têm prioridade. Membro ocupado ou fora da sala resulta em sorteio. Advisor do omp e subagentes pelos tipos
 observados usam membros compatíveis. As salas organizam a escolha do personagem: não restringem ferramentas.
 
-As rotas do elenco seguem a trava do terminal (bind e Host locais). A migração de `names.json` › `rooms` cria
-`cast.json` e preserva o original em `names.json.pre-031`. Para rollback, restaure essa cópia e remova `cast.json`;
-vínculos criados depois da migração serão perdidos.
+As rotas do elenco seguem a trava do terminal: acesso local ou pela porta remota após login, com `terminal`
+em `HABBLAUD_REMOTE_ALLOW`. A migração de `names.json` › `rooms` cria `cast.json` e preserva o original em
+`names.json.pre-031`. Para rollback, restaure essa cópia e remova `cast.json`; vínculos criados depois da migração serão perdidos.
 
 ## Codex
 

@@ -481,6 +481,20 @@ describe('porta remota', () => {
     expect((await request(s.localBase, '/api/pty')).status).toBe(200);
   });
 
+  it('elenco: pela porta remota só com `terminal` em HABBLAUD_REMOTE_ALLOW', async () => {
+    const member = { name: 'Ana', look: 'f', seed: 1, kind: 'main', rooms: [] };
+    const off = await start(['permissions']);
+    const offHeaders = { Cookie: await login(off.remoteBase), Host: 'localhost' };
+    expect((await request(off.remoteBase, '/api/cast', { headers: offHeaders })).status).toBe(403);
+    expect((await request(off.remoteBase, '/api/cast', { method: 'POST', body: member, headers: offHeaders })).status).toBe(403);
+    const on = await start(['terminal']);
+    const headers = { Cookie: await login(on.remoteBase), Host: 'localhost' };
+    expect((await request(on.remoteBase, '/api/cast', { method: 'POST', body: member, headers })).status).toBe(201);
+    expect(JSON.parse((await request(on.remoteBase, '/api/cast', { headers })).body).members.map((m: { name: string }) => m.name)).toEqual(['Ana']);
+    // Sem login a porta remota continua fechada.
+    expect((await request(on.remoteBase, '/api/cast', { headers: { Host: 'localhost' } })).status).toBe(401);
+  });
+
   it('Habblaud World: nenhuma rota pela porta do celular, nem logado com tudo liberado e Host imitando localhost', async () => {
     const s = await start(['permissions', 'messages', 'terminal', 'spawn']);
     const cookie = await login(s.remoteBase);

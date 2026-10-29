@@ -34,7 +34,8 @@ export class CharacterEditor {
   open(id: string): void { if (id !== this.agentId) this.close(); this.agentId = id; }
   render(a: AgentInfo, live: boolean): void {
     const store = this.ctx.store;
-    const allowed = canEditCharacter(a, { live, terminal: !!store.snapshot?.meta.terminal, local: access().local, replaying: store.replaying, mock: store.mock });
+    // Mesma trava do servidor: local, ou celular logado com `terminal` liberado no acesso remoto.
+    const allowed = canEditCharacter(a, { live, terminal: !!store.snapshot?.meta.terminal, local: access().local || access().terminal, replaying: store.replaying, mock: store.mock });
     setHidden(this.button, !allowed);
     if (this.editing && !allowed) this.close();
     setHidden(this.reset, !a.cast);
