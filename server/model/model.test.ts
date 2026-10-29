@@ -502,6 +502,20 @@ describe('Office: elenco', () => {
     expect(office.get('a')?.cast).toBe('ana');
   });
 
+  it('cria a partir do agente: o nome dele não conflita e ele já veste o personagem', () => {
+    const { office, now } = makeOffice();
+    office.addMain(main('a', 's1', '/p/api', now()));
+    office.addMain(main('b', 's2', '/p/api', now()));
+    const nome = office.get('a')!.name;
+    const membro = { id: 'x', name: nome, look: 'f', seed: 1, kind: 'main', rooms: [] } as const;
+    // Sem `from`, o agente que usa o nome bloqueia; com `from` de outro agente também.
+    expect(office.putCast({ ...membro, rooms: [] })).toBe('conflict');
+    expect(office.putCast({ ...membro, rooms: [] }, 'b')).toBe('conflict');
+    expect(office.putCast({ ...membro, rooms: [] }, 'a')).toBe('ok');
+    expect(office.get('a')).toMatchObject({ cast: 'x', name: nome });
+    expect(office.cast.binding('s1')).toBe('x');
+  });
+
   it('não entrega o membro da sala quando outra sessão presente mantém vínculo fora dela', () => {
     const { office, now } = makeOffice();
     office.cast.put({ ...ana, rooms: [...ana.rooms] });

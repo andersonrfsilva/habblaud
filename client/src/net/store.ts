@@ -325,9 +325,10 @@ export class OfficeStore {
     return this.castRequest(`/api/agents/${encodeURIComponent(id)}/dismiss`, 'POST', {});
   }
 
-  async saveCast(body: Omit<CastMember, 'id'> | CastMember): Promise<string | undefined> {
+  /** `from`: criar a partir deste agente (ele veste o personagem novo; o nome dele não conta como em uso). */
+  async saveCast(body: Omit<CastMember, 'id'> | CastMember, from?: string): Promise<string | undefined> {
     const id = 'id' in body ? body.id : undefined;
-    return this.castRequest(id ? `/api/cast/${encodeURIComponent(id)}` : '/api/cast', id ? 'PUT' : 'POST', { ...body, home: body.home ?? null, match: body.match ?? null, model: body.model ?? null, instructions: body.instructions ?? null, idleMinutes: body.idleMinutes ?? null, account: body.account ?? null });
+    return this.castRequest(id ? `/api/cast/${encodeURIComponent(id)}` : '/api/cast', id ? 'PUT' : 'POST', { ...body, home: body.home ?? null, match: body.match ?? null, model: body.model ?? null, instructions: body.instructions ?? null, idleMinutes: body.idleMinutes ?? null, account: body.account ?? null, ...(from ? { from } : {}) });
   }
 
   async deleteCast(id: string): Promise<string | undefined> {

@@ -363,9 +363,11 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       delete data[key];
     }
     if (data.kind !== undefined && data.kind !== 'main' && old) delete old.last;
+    // "Criar a partir deste agente": o nome dele não conta como conflito e ele já veste o personagem criado.
+    const from = method === 'POST' && typeof data.from === 'string' ? data.from : undefined;
     const member = parseCastMember({ ...old, ...data, id: id ?? office.cast.nextId(typeof data.name === 'string' ? data.name : '') });
     if (!member) throw new HttpError(400, tr('membro do elenco inválido'));
-    if (office.putCast(member) === 'conflict') return sendJson(res, 409, { error: tr('nome já está em uso') });
+    if (office.putCast(member, from) === 'conflict') return sendJson(res, 409, { error: tr('nome já está em uso') });
     return sendJson(res, method === 'POST' ? 201 : 200, { member });
   };
 

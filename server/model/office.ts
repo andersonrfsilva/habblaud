@@ -903,8 +903,9 @@ export class Office {
     this.markDirty();
   }
 
-  putCast(member: CastMember): 'ok' | 'conflict' {
-    if ([...this.agents.values()].some((r) => r.info.cast !== member.id && nameKey(r.info.name) === nameKey(member.name))) return 'conflict';
+  /** Grava o membro; `from` (criar a partir de um agente principal): o nome dele não conflita e ele passa a vestir o membro. */
+  putCast(member: CastMember, from?: string): 'ok' | 'conflict' {
+    if ([...this.agents.values()].some((r) => r.info.id !== from && r.info.cast !== member.id && nameKey(r.info.name) === nameKey(member.name))) return 'conflict';
     if ((this.demoSnap?.agents ?? []).some((a) => nameKey(a.name) === nameKey(member.name))) return 'conflict';
     if (!this.cast.put(member)) return 'conflict';
     for (const r of this.agents.values()) {
@@ -914,6 +915,7 @@ export class Office {
       this.applyCast(info, chosen);
       if (info.kind === 'main' && !chosen) this.castFallbackNotice(info);
     }
+    if (from) this.dress(from, member.id);
     this.markDirty();
     return 'ok';
   }

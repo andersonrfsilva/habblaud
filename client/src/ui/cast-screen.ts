@@ -253,7 +253,7 @@ export class CastScreen {
       if (problem || !fields.value) { error.textContent = problem ?? tr('Aparência inválida.'); return; }
       const body: Omit<CastMember, 'id'> = { name: name.value.trim(), look, seed, kind: kind.value as CastMember['kind'], rooms: allowed, parts: changedParts(base, fields.value), ...(kind.value === 'sub' ? { match: types } : {}), ...(homeValue ? { home: homeValue } : {}), ...(kind.value === 'main' ? { ...(model.value ? { model: model.value } : {}), ...(instructions.value ? { instructions: instructions.value } : {}), idleMinutes: Number(idle.value), ...(account.value ? { account: account.value } : {}) } : {}) };
       save.disabled = true;
-      const failure = await this.ctx.store.saveCast(member ? { ...body, id: member.id } : body);
+      const failure = await this.ctx.store.saveCast(member ? { ...body, id: member.id } : body, member ? undefined : agent?.id);
       save.disabled = false;
       if (failure) { error.textContent = failure; return; }
       await this.open();
