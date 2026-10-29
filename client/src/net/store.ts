@@ -4,7 +4,7 @@
 // SSE segue conectado por baixo, com os snapshots ao vivo guardados até o stopReplay().
 // Também cuida da reconexão: quando o navegador desiste do stream (EventSource fechado após erro HTTP,
 // ex.: servidor reiniciando atrás de um proxy), tenta de novo com espera crescente.
-import type { Activity, AgentDetail, AgentInfo, CastMember, FeedItem, Notice, OfficeSnapshot, OmpControl, OutboxMessage, PermissionDecision, PermissionRequestInfo, RoomInfo } from '../../../shared/types';
+import type { Activity, AgentDetail, AgentInfo, CastJobInfo, CastMember, FeedItem, Notice, OfficeSnapshot, OmpControl, OutboxMessage, PermissionDecision, PermissionRequestInfo, RoomInfo } from '../../../shared/types';
 import type { AsideTopic } from '../../../shared/asides';
 import { DemoSimulator } from '../../../shared/demo/simulator';
 import { tr } from '../../../shared/i18n';
@@ -307,6 +307,22 @@ export class OfficeStore {
     } catch {
       return { error: tr('Sem conexão com o Habblaud.') };
     }
+  }
+
+  async castJobs(): Promise<{ jobs: CastJobInfo[]; available: boolean }> {
+    try {
+      const response = await fetch('/api/cast/jobs');
+      if (response.ok) return await response.json() as { jobs: CastJobInfo[]; available: boolean };
+    } catch { /* O auxiliar não está acessível. */ }
+    return { jobs: [], available: false };
+  }
+
+  async startCast(id: string, room: string, mode: 'new' | 'resume', prompt: string): Promise<string | undefined> {
+    return this.castRequest(`/api/cast/${encodeURIComponent(id)}/start`, 'POST', { room, mode, prompt });
+  }
+
+  async dismissCast(id: string): Promise<string | undefined> {
+    return this.castRequest(`/api/agents/${encodeURIComponent(id)}/dismiss`, 'POST', {});
   }
 
   async saveCast(body: Omit<CastMember, 'id'> | CastMember): Promise<string | undefined> {

@@ -228,6 +228,10 @@ class AgentView {
   private statusSince: HTMLElement;
   private followBtn: HTMLButtonElement;
   private filesBtn: HTMLButtonElement;
+  private dismissBtn: HTMLButtonElement;
+  private dismissMsg: HTMLElement;
+  private dismissConfirm = false;
+  private dismissTimer: ReturnType<typeof setTimeout> | null = null;
   private termBtn: HTMLButtonElement;
   private termLabel: HTMLElement;
   /** Por que o terminal não abre: no celular não há hover para ler o title, então o toque mostra o motivo aqui. */
@@ -333,11 +337,24 @@ class AgentView {
     centerBtn.innerHTML = ICONS.center;
     centerBtn.append(h('span', { text: tr('Centralizar') }));
     this.filesBtn = filesButton(tr('Ver e baixar os arquivos da pasta da sala deste agente'), () => this.last && this.ctx.openFiles?.(this.last.roomId));
+    this.dismissMsg = h('span', { role: 'status' });
+    this.dismissBtn = h('button', { class: 'ui-btn ui-btn--danger', type: 'button', text: tr('Dispensar'), hidden: true, on: { click: () => {
+      if (!this.dismissConfirm) {
+        this.dismissConfirm = true;
+        this.dismissBtn.textContent = tr('Confirmar?');
+        this.dismissTimer = setTimeout(() => { this.dismissConfirm = false; this.dismissBtn.textContent = tr('Dispensar'); }, 4000);
+        return;
+      }
+      clearTimeout(this.dismissTimer ?? undefined);
+      this.dismissConfirm = false;
+      this.dismissBtn.disabled = true;
+      void ctx.store.dismissCast(this.id).then((error) => { this.dismissMsg.textContent = error ?? ''; this.dismissBtn.disabled = false; this.dismissBtn.textContent = tr('Dispensar'); });
+    } } });
     const statusRow = h(
       'div',
       { class: 'ui-status' },
       h('span', { class: 'ui-status__label' }, this.dot, this.statusText, this.statusSince),
-      h('span', { class: 'ui-status__actions' }, this.followBtn, centerBtn, this.filesBtn),
+      h('span', { class: 'ui-status__actions' }, this.followBtn, centerBtn, this.filesBtn, this.dismissBtn, this.dismissMsg),
     );
 
     // Terminal: a conversa da sessão como o Claude Code mostra, ao vivo (só com acesso local).
@@ -472,6 +489,10 @@ class AgentView {
 
   open(id: string): void {
     if (this.id === id) return;
+    clearTimeout(this.dismissTimer ?? undefined);
+    this.dismissConfirm = false;
+    this.dismissBtn.textContent = tr('Dispensar');
+    this.dismissMsg.textContent = '';
     this.character.open(id);
     this.id = id;
     this.last = null;
@@ -578,6 +599,7 @@ class AgentView {
     setText(this.name, a.name);
     this.character.render(a, !!live);
     setHidden(this.filesBtn, !filesAvailable(this.ctx) || !live);
+    setHidden(this.dismissBtn, !live?.castOpened || this.ctx.store.replaying);
     setText(this.role, roleLabel(a));
     setVariant(this.role, 'ui-role--', a.kind);
     setText(this.title, a.title ?? '');

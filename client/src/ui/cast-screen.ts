@@ -51,13 +51,79 @@ export class CastScreen {
   private showList(): void {
     const add = h('button', { class: 'ui-btn ui-btn--primary', type: 'button', text: tr('Criar personagem'), on: { click: () => this.edit() } });
     const list = h('div', { class: 'ui-cast__list' });
+    const calls: Array<{ member: CastMember; button: HTMLButtonElement }> = [];
+    const reason = h('p', { role: 'status' });
     for (const member of this.members) {
       const label = member.kind === 'main' ? tr('Principal') : member.kind === 'advisor' ? tr('Advisor') : tr('Subagente');
       const edit = h('button', { class: 'ui-btn', type: 'button', text: tr('Editar'), on: { click: () => this.edit(member) } });
+      const call = member.kind === 'main' ? h('button', { class: 'ui-btn', type: 'button', text: tr('Chamar'), on: { click: () => void this.call(member.id) } }) : null;
+      if (call) { call.disabled = true; calls.push({ member, button: call }); }
       const del = h('button', { class: 'ui-btn', type: 'button', text: tr('Apagar'), on: { click: () => void this.remove(member) } });
-      list.append(h('div', { class: 'ui-cast__row' }, h('span', { text: `${member.name} — ${label}` }), edit, del));
+      list.append(h('div', { class: 'ui-cast__row' }, h('span', { text: `${member.name} — ${label}` }), ...(call ? [call] : []), edit, del));
     }
-    this.content.replaceChildren(add, list);
+    this.content.replaceChildren(add, reason, list);
+    const watch = async () => {
+      if (!this.el.open || !this.content.contains(list)) return;
+      const jobs = await this.ctx.store.castJobs();
+      if (!this.el.open || !this.content.contains(list)) return;
+      reason.textContent = jobs.available ? '' : tr('auxiliar do host desligado (npm run codex:bridge)');
+      for (const { member, button } of calls) {
+        const busy = jobs.jobs.some((job) => job.cast === member.id && (job.status === 'queued' || job.status === 'sent' || job.status === 'waiting'));
+        button.disabled = !jobs.available || busy || !!this.ctx.store.snapshot?.agents.some((a) => a.cast === member.id && a.status !== 'offline');
+        button.textContent = busy ? tr('chamando…') : tr('Chamar');
+      }
+      setTimeout(() => void watch(), 2000);
+    };
+    void watch();
+  }
+
+  async call(id: string): Promise<void> {
+    if (!this.el.open) this.el.showModal();
+    const [list, jobs] = await Promise.all([this.ctx.store.castList(), this.ctx.store.castJobs()]);
+    if ('error' in list) { this.content.replaceChildren(h('p', { role: 'alert', text: list.error })); return; }
+    const member = list.members.find((m) => m.id === id && m.kind === 'main');
+    if (!member) return;
+    const folders = member.rooms.length ? member.rooms : spawnFolders(this.ctx.store.snapshot);
+    if (!member.rooms.length) {
+      try {
+        const response = await fetch('/api/spawn/folders');
+        if (response.ok) for (const folder of ((await response.json()) as { folders?: FolderOption[] }).folders ?? []) if (!folders.includes(folder.path)) folders.push(folder.path);
+      } catch { /* As salas abertas continuam disponíveis. */ }
+    }
+    folders.sort((a, b) => Number(b === member.home) - Number(a === member.home));
+    const room = h('select');
+    for (const path of folders) room.append(h('option', { text: path, attrs: { value: path } }));
+    const mode = h('select');
+    const resume = h('option', { text: tr('Continuar'), attrs: { value: 'resume' } });
+    mode.append(resume, h('option', { text: tr('Nova'), attrs: { value: 'new' } }));
+    const refresh = () => { resume.disabled = !member.last?.[room.value]; if (resume.disabled) mode.value = 'new'; };
+    room.addEventListener('change', refresh); refresh();
+    const prompt = h('textarea', { attrs: { maxlength: '8000' } });
+    const error = h('p', { role: 'alert' });
+    const calling = jobs.jobs.find((job) => job.cast === id && (job.status === 'queued' || job.status === 'sent' || job.status === 'waiting'));
+    const start = h('button', { class: 'ui-btn ui-btn--primary', type: 'button', text: calling ? tr('chamando…') : tr('Chamar'), on: { click: () => void (async () => {
+      start.disabled = true;
+      const failure = await this.ctx.store.startCast(id, room.value, mode.value === 'resume' ? 'resume' : 'new', prompt.value);
+      if (failure) { error.textContent = failure; start.disabled = false; return; }
+      start.textContent = tr('chamando…');
+    })() } });
+    start.disabled = !jobs.available || !!calling || !folders.length;
+    if (!jobs.available) error.textContent = tr('auxiliar do host desligado (npm run codex:bridge)');
+    else if (!calling) error.textContent = jobs.jobs.filter((job) => job.cast === id && job.status === 'failed').at(-1)?.error ?? '';
+    const back = h('button', { class: 'ui-btn', type: 'button', text: tr('Voltar'), on: { click: () => void this.open() } });
+    this.content.replaceChildren(h('h3', { text: member.name }), h('label', {}, h('span', { text: tr('Sala') }), room), h('label', {}, h('span', { text: tr('Sessão') }), mode), h('label', {}, h('span', { text: tr('Pedido opcional') }), prompt), error, start, back);
+    const watch = async () => {
+      if (!this.el.open || !this.content.contains(start)) return;
+      const latest = await this.ctx.store.castJobs();
+      if (!this.el.open || !this.content.contains(start)) return;
+      const active = latest.jobs.find((job) => job.cast === id && (job.status === 'queued' || job.status === 'sent' || job.status === 'waiting'));
+      const failed = latest.jobs.filter((job) => job.cast === id && job.status === 'failed').at(-1);
+      start.disabled = !latest.available || !!active || !folders.length;
+      start.textContent = active ? tr('chamando…') : tr('Chamar');
+      error.textContent = !latest.available ? tr('auxiliar do host desligado (npm run codex:bridge)') : failed?.error ?? '';
+      setTimeout(() => void watch(), 2000);
+    };
+    setTimeout(() => void watch(), 2000);
   }
 
   private async remove(member: CastMember): Promise<void> {
