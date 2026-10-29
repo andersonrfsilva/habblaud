@@ -2,6 +2,7 @@
 // As lacunas {0}, {1}... (e as nomeadas, como {sala}) precisam aparecer na tradução, em qualquer ordem.
 // Chave ausente = o texto fica em PT. `npm run i18n:check` lista os textos sem tradução e as chaves que sobraram.
 export const ES: Readonly<Record<string, string>> = {
+  "Também chama e dispensa personagens do omp via tmux no host.": "También llama y despide personajes de omp mediante tmux en el host.",
   "auxiliar do host desligado (npm run codex:bridge)": "el auxiliar del host está desconectado (npm run codex:bridge)",
   "conta não encontrada": "cuenta no encontrada",
   "não foi possível gravar as instruções": "no se pudieron guardar las instrucciones",
