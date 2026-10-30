@@ -18,6 +18,7 @@ import {
   parseInbox,
   portOf,
   reasonText,
+  sideQuestion,
   type Deps,
   type OmpApi,
   type OmpContext,
@@ -877,7 +878,8 @@ describe('omp extension: pergunta paralela', () => {
     const r = rig({ items: [{ ...REQ, index: 3 }] });
     r.t.fire('session_start', r.ctx);
     await vi.advanceTimersByTimeAsync(50);
-    expect(r.runs[0]).toMatchObject({ promptText: 'o que faz?', conversationKey: 'hb:t-1:3', dedupeReply: false });
+    expect(r.runs[0]).toMatchObject({ promptText: sideQuestion('o que faz?'), conversationKey: 'hb:t-1:3', dedupeReply: false });
+    expect(r.runs[0].promptText).toContain('NEVER use tools');
     expect(r.runs[0]).not.toHaveProperty('maxTokens');
     expect(r.runs[0]).not.toHaveProperty('tools');
     expect(r.runs[0].signal).toBeInstanceOf(AbortSignal);
@@ -899,7 +901,7 @@ describe('omp extension: pergunta paralela', () => {
     expect(h[0]).toEqual({ role: 'user', content: [{ type: 'text', text: 'um' }], attribution: 'agent', timestamp: 1 });
     expect(h[1]).toMatchObject({ role: 'assistant', content: [{ type: 'text', text: 'r1' }], api: 'anthropic-messages', provider: 'anthropic', model: 'sonnet', stopReason: 'stop', timestamp: 2 });
     expect(h[1].usage).toMatchObject({ totalTokens: 0, cost: { total: 0 } });
-    expect(withModel.runs[0].promptText).toBe('o que faz?');
+    expect(withModel.runs[0].promptText).toBe(sideQuestion('o que faz?'));
     withModel.turn.resolve({ replyText: '' });
     await vi.advanceTimersByTimeAsync(50);
     await withModel.t.fire('session_shutdown', withModel.ctx);
@@ -910,7 +912,7 @@ describe('omp extension: pergunta paralela', () => {
     expect(noApi.runs[0].history).toBeUndefined();
     expect(noApi.runs[0].promptText).toContain('Pergunta anterior: um\nResposta: r1');
     expect(noApi.runs[0].promptText).toContain('Pergunta anterior: dois');
-    expect(noApi.runs[0].promptText.endsWith('Pergunta: o que faz?')).toBe(true);
+    expect(noApi.runs[0].promptText.endsWith('Pergunta: o que faz?\n</btw>')).toBe(true);
     noApi.turn.resolve({ replyText: '' });
     await vi.advanceTimersByTimeAsync(50);
     await noApi.t.fire('session_shutdown', noApi.ctx);
@@ -941,6 +943,32 @@ describe('omp extension: pergunta paralela', () => {
     await vi.advanceTimersByTimeAsync(50);
     expect(r.posts().at(-1)).toMatchObject({ state: 'failed', error: 'Active model changed during ephemeral turn; retry.' });
     await r.t.fire('session_shutdown', r.ctx);
+  });
+
+  it('resposta vazia (o modelo só chamou uma ferramenta) tenta de novo; vazia duas vezes vira failed, nunca complete em branco', async () => {
+    const replies = ['', 'agora sim'];
+    const r = rig();
+    r.ctx.runEphemeralTurn = async (opts) => {
+      r.runs.push(opts);
+      return { replyText: replies.shift() ?? '' };
+    };
+    r.t.fire('session_start', r.ctx);
+    await vi.advanceTimersByTimeAsync(50);
+    expect(r.runs).toHaveLength(2);
+    expect(r.posts().at(-1)).toMatchObject({ state: 'complete', text: 'agora sim' });
+    await r.t.fire('session_shutdown', r.ctx);
+
+    const empty = rig();
+    empty.ctx.runEphemeralTurn = async (opts) => {
+      empty.runs.push(opts);
+      return { replyText: '  ' };
+    };
+    empty.t.fire('session_start', empty.ctx);
+    await vi.advanceTimersByTimeAsync(50);
+    expect(empty.runs).toHaveLength(2);
+    expect(empty.posts().some((b) => b?.state === 'complete')).toBe(false);
+    expect(empty.posts().at(-1)).toMatchObject({ state: 'failed', error: expect.stringContaining('sem texto') });
+    await empty.t.fire('session_shutdown', empty.ctx);
   });
 
   it('sem runEphemeralTurn no contexto: ack ok: false com o motivo e nada vai a /api/omp/aside', async () => {

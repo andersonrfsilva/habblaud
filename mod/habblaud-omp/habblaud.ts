@@ -313,6 +313,11 @@ export function reasonText(raw: unknown, fallback: string): string {
   return line.length > MAX_REASON ? `${line.slice(0, MAX_REASON - 1)}…` : line;
 }
 
+/** A pergunta paralela na moldura do /btw do omp (sem o "brevemente": o escritório mostra respostas longas). */
+export function sideQuestion(question: string): string {
+  return `<btw>\nEphemeral side question for current interactive session.\nAnswer directly in text, using the conversation context already provided.\nNEVER use tools.\nNEVER ask follow-up questions.\nQuestion:\n${question}\n</btw>`;
+}
+
 /** O prazo do modo de decisão: com UI, a espera do Habblaud; sem UI, o prazo do omp para o handler menos a folga. */
 export function decisionTimeoutMs(hasUI: boolean, env: NodeJS.ProcessEnv): number {
   if (hasUI) return DECISION_UI_MS;
@@ -787,17 +792,28 @@ export function create(pi: OmpApi, deps: Deps): void {
       }
 
       try {
-        const { replyText } = await ctx.runEphemeralTurn({
-          promptText,
-          history,
-          conversationKey: `hb:${req.topicId}:${req.index}`,
-          dedupeReply: false,
-          onTextDelta: (d) => {
-            if (text.length < ASIDE_ANSWER_MAX) text += d;
-          },
-          signal: controller.signal,
-        });
-        text = replyText || text;
+        // Mesma moldura do /btw do omp: o turno efêmero leva as ferramentas da sessão e, sem ela, o modelo às vezes só
+        // chama uma ferramenta; o omp descarta a chamada e devolve replyText vazio (resposta em branco no escritório).
+        // Vazia mesmo assim: tenta mais uma vez antes de desistir com um motivo.
+        for (let attempt = 1; ; attempt++) {
+          text = '';
+          const { replyText } = await ctx.runEphemeralTurn({
+            promptText: sideQuestion(promptText),
+            history,
+            conversationKey: `hb:${req.topicId}:${req.index}`,
+            dedupeReply: false,
+            onTextDelta: (d) => {
+              if (text.length < ASIDE_ANSWER_MAX) text += d;
+            },
+            signal: controller.signal,
+          });
+          text = replyText || text;
+          if (text.trim()) break;
+          if (attempt >= 2) {
+            await post('failed', 'o modelo respondeu sem texto (tentou usar uma ferramenta); pergunte de novo');
+            return;
+          }
+        }
         await post('complete');
       } catch (err) {
         if (controller.signal.aborted) await post('cancelled');

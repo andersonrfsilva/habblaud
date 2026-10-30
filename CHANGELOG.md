@@ -147,6 +147,10 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Pergunta paralela não volta mais em branco:** a pergunta ia ao omp sem a moldura do `/btw`, e o modelo às vezes
+  só chamava uma ferramenta; o omp descartava a chamada e a resposta chegava vazia. Agora vai com a mesma moldura
+  ("nunca use ferramentas"); se ainda vier vazia, a extensão tenta de novo uma vez e, vazia de novo, mostra o motivo.
+
 - **Troca de modelo do omp pela gaveta não cai mais no primeiro da lista:** cada atualização do omp recriava a lista
   e reescrevia o seletor; com a lista aberta, a escolha voltava para o primeiro modelo (e o navegador podia enviá-lo
   ao fechar a lista). Agora a lista só é recriada quando as opções mudam, e o modelo e o raciocínio mostrados só
