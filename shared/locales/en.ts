@@ -3525,7 +3525,7 @@ export const EN: Readonly<Record<string, string>> = {
   "Feminino": "Female",
   "Masculino": "Male",
   "Aparência inválida.": "Invalid appearance.",
-  "Tipos de subagente (separados por vírgula)": "Subagent types (comma-separated)",
+  "Tipos de subagente (separados por vírgula; vazio = qualquer)": "Subagent types (comma-separated; empty = any)",
   "Sala principal": "Home room",
   "Vestir personagem": "Dress character",
   "Criar a partir deste agente": "Create from this agent",

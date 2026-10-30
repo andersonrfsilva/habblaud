@@ -849,7 +849,12 @@ export class Office {
     const free = (m: CastMember) => !(this.deps.castLauncher?.()?.state(m.id) && !(p.explicit === m.id && this.deps.castLauncher?.()?.state(m.id) === 'calling')) && ![...this.agents.values()].some((r) => r.info.id !== p.id && r.removeAt === undefined && r.info.cast === m.id);
     const allowed = (m: CastMember) => !m.rooms.length || m.rooms.includes(p.room);
     if (p.sub) {
-      return this.cast.list().find((m) => allowed(m) && free(m) && (p.role === '__advisor' ? m.kind === 'advisor' : m.kind === 'sub' && !!p.agentType && m.match?.some((type) => type.toLowerCase() === p.agentType!.toLowerCase())));
+      const usable = this.cast.list().filter((m) => allowed(m) && free(m));
+      if (p.role === '__advisor') return usable.find((m) => m.kind === 'advisor');
+      const type = p.agentType?.toLowerCase();
+      // Tipo listado vence; sem tipos, o personagem serve a qualquer subagente (como salas vazias = qualquer sala).
+      return usable.find((m) => m.kind === 'sub' && !!type && !!m.match?.some((t) => t.toLowerCase() === type))
+        ?? usable.find((m) => m.kind === 'sub' && !m.match?.length);
     }
     const wanted = p.explicit ?? this.cast.binding(p.session);
     if (wanted) {

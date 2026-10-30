@@ -569,4 +569,20 @@ describe('Office: elenco', () => {
     expect(office.get('r2')?.cast).toBeUndefined();
     expect(office.get('r2')?.name).not.toBe('Revisor');
   });
+
+  it('subagente sem tipos serve a qualquer subagente, depois dos que listam o tipo', () => {
+    const { office, now } = makeOffice();
+    office.cast.put({ id: 'linus', name: 'Linus', look: 'm', seed: 5, kind: 'sub', match: [], rooms: [] });
+    office.cast.put({ id: 'reviewer', name: 'Revisor', look: 'm', seed: 4, kind: 'sub', match: ['reviewer'], rooms: [] });
+    office.addMain(main('a', 's1', '/p/api', now()));
+    office.addSub({ id: 'r1', parentId: 'a', sessionId: 's1', role: 'r1', agentType: 'reviewer', background: false, startedAt: now() });
+    office.addSub({ id: 't1', parentId: 'a', sessionId: 's1', role: 't1', agentType: 'task', background: false, startedAt: now() });
+    office.addSub({ id: 'x1', parentId: 'a', sessionId: 's1', role: 'x1', background: false, startedAt: now() });
+    expect(office.get('r1')?.cast).toBe('reviewer');
+    expect(office.get('t1')?.cast).toBe('linus');
+    // Os dois personagens ocupados: o terceiro sorteia; o advisor nunca usa um personagem de subagente.
+    expect(office.get('x1')?.cast).toBeUndefined();
+    office.addSub({ id: 'adv', parentId: 'a', sessionId: 's1', role: '__advisor', background: false, startedAt: now() });
+    expect(office.get('adv')?.cast).toBeUndefined();
+  });
 });

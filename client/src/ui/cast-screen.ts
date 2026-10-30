@@ -262,7 +262,7 @@ export class CastScreen {
     const group = (title: string, ...children: HTMLElement[]) => h('section', { class: 'ui-set-group' }, h('h3', { text: title }), ...children);
     const execution = group(tr('Execução'), field(tr('Modelo'), model), field(tr('Instruções'), instructions),
       field(tr('Ociosidade em minutos (0 = nunca)'), idle), field(tr('Conta'), account));
-    const sub = group(tr('Subagente'), field(tr('Tipos de subagente (separados por vírgula)'), match), suggestions);
+    const sub = group(tr('Subagente'), field(tr('Tipos de subagente (separados por vírgula; vazio = qualquer)'), match), suggestions);
     const mainHome = field(tr('Sala principal'), home);
     const syncKind = () => {
       execution.hidden = kind.value !== 'main';
