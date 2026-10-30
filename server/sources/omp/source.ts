@@ -52,6 +52,8 @@ export const SCAN_MS = 3_000;
 const REOPEN_GAP_MS = 1_000;
 /** Tracker fechado e fora do escritório é esquecido depois disto (a memória do fechamento evita voltar sozinho). */
 const TOMBSTONE_MS = 15 * 60_000;
+/** Subagente sem escrever, parado numa ferramenta sem resultado, continua presente até isto (o bash do omp vai até 1 h). */
+const SUB_QUIET_MS = 2 * 60 * 60_000;
 /** Resultados guardados ao ler um arquivo antes de o agente entrar no escritório. */
 const BACKLOG_MAX = 400;
 /** Cada leitura do FileTail traz até 8 MiB; este teto protege o boot de um arquivo gigante. */
@@ -431,15 +433,19 @@ export class OmpSource implements AgentSource, OmpLive {
       seen.add(key);
       let t = this.trackers.get(key);
       const live = parent.acc.liveness.isLive(f, now);
+      // Subagente parado numa ferramenta longa (`wait`, bash de 1 h) não escreve no arquivo: passa do PRESENT_MS sem
+      // ter saído. Com o pai vivo (batimento), ele fica enquanto a última ferramenta seguir sem resultado.
+      const quiet = !live && this.beatRecent(parent, now) && now - f.mtimeMs <= SUB_QUIET_MS;
       if (!t) {
-        if (!live) continue;
+        if (!live && !quiet) continue;
         t = this.newTracker(parent.acc, 'sub', parent.sessionId, f.name, parent.key);
         t.path = f.path;
         this.trackers.set(key, t);
       }
-      t.fileLive = live;
       try {
+        t.fileLive = live || quiet;
         this.pump(t, now, boot);
+        if (quiet) t.fileLive = !t.state.exited && t.state.turnOpen === true && t.state.pending.size > 0;
         this.reconcile(t, now);
       } catch (err) {
         log.warnOnce(`omp-sub:${key}:${errMsg(err)}`, tr('omp: subagente {0}: {1}', [key, errMsg(err)]));

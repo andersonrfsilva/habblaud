@@ -188,6 +188,31 @@ describe('fonte do omp: presença pelo arquivo', () => {
     expect(c.agent()!.status).toBe('working');
   });
 
+  it('subagente parado numa ferramenta longa (sem escrever) fica enquanto o pai bate; sem batimento, sai com o pai', () => {
+    const c = setup();
+    const path = c.path();
+    c.session(path, [L.model(c), L.user(c, 'Delegue'), L.tool(c, 'toolu_w', 'wait', {})]);
+    c.source.boot();
+    c.event({ event: 'session_start', sessionFile: path });
+    const subPath = path.replace(/\.jsonl$/, '') + `${join('/', 'Fix086.jsonl')}`;
+    c.session(subPath, [L.model(c), L.user(c, 'Rode a fila'), L.tool(c, 'toolu_b', 'bash', { command: 'longo' }), L.tool(c, 'toolu_sw', 'wait', {})], { id: '01a20000-0000-7000-8000-0000000000bb', parent: path });
+    c.poll();
+    expect(c.agent(`${KEY}:Fix086`)?.status).toBe('working');
+    // 25 min sem escrever (passa do PRESENT_MS), com o pai batendo a cada 20 s: continua no escritório.
+    for (let i = 0; i < 75; i++) {
+      c.advance(20_000);
+      c.event({ event: 'heartbeat' });
+      c.poll();
+    }
+    expect(c.agent(`${KEY}:Fix086`)?.status).toBe('working');
+    // Sem batimento do pai (omp morto): o pai sai e leva o subagente.
+    c.advance(60_000);
+    c.poll();
+    c.advance(30_000);
+    c.poll();
+    expect(c.agent(`${KEY}:Fix086`)).toBeUndefined();
+  });
+
   it('título do slot mudou no lugar (linha 1 reescrita): relê sem duplicar e passa a usar o título', () => {
     const c = setup();
     const path = c.path();
