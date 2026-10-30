@@ -513,6 +513,9 @@ async function main(): Promise<void> {
     return;
   }
   if (parsed.onlyCast) {
+    // No pod o auxiliar roda pelo próprio omp como Bun (BUN_BE_BUN=1): sem apagar, o tmux e o omp dos personagens
+    // herdariam a variável e o omp viraria o CLI do Bun, saindo na hora.
+    delete process.env.BUN_BE_BUN;
     process.on('SIGTERM', () => process.exit(0));
     const post = httpPost(parsed.port);
     const castOpts = { port: parsed.port, dataDir: process.env.HABBLAUD_DATA_DIR || join(homedir(), '.habblaud'), omp: ompBinFrom(process.env, homedir()), tmux: findExecutable('tmux', process.env, process.platform) };
