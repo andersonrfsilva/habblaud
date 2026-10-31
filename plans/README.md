@@ -55,6 +55,10 @@ conditions e atualize sua linha ao terminar.
 | 031  | Elenco de personagens fixos (principais, advisor, subagentes por tipo) com salas permitidas; ocupado = sorteio; salas só organizam | P2 | L | — | DONE (branch `advisor/031-elenco`, `5a2e258`..`ba8bf49`, mesclado no branch `rpg` em `2ff0e3d` (worktree `../habblaud-rpg`); fora de `producao`. Revisão: 188 arquivos / 2283 testes, typecheck, i18n estrito e build ok; smoke de migração e API refeito pelo revisor. Desvios autorizados: montagem da tela em `client/src/ui/index.ts`; fixtures `custom`→`cast` só em `shared/world/projection.test.ts`. `HABBLAUD_CAST` de ponta a ponta não provado com omp real: a extensão instalada é a de produção) |
 | 032  | Chamar (Continuar/Nova) e dispensar personagens do elenco: omp no host via auxiliar + tmux `hb-<id>`, perfil (modelo, instruções), ociosidade; reserva apagada no lounge | P2 | L | 031 | DONE (branch `advisor/032-chamar-dispensar`, `514a1ef`..`5676f9a`, mesclado em `rpg` em `023c71d`. Revisão: 190 arquivos / 2296 testes (1 falha intermitente não identificada em 1 de 4 rodadas), typecheck, i18n estrito e build ok. Prova com omp real: Nova, Dispensar, Continuar (mesmo `sessionId`), 409, auxiliar ausente e reserva no lounge nos dois prédios; ociosidade só por teste com relógio falso. Desvios autorizados: `office.ts`; `-e HABBLAUD_PORT` no tmux; prompt/modelo com `-` inicial recusados; reserva em pufe→poltrona→sofá a 0,55; cartão "escritório vazio" some com reserva. Unidade `deploy/podman/habblaud-bridge.service` não ativada) |
 
+Em 2026-10-31 o branch `rpg` (elenco 031/032 e o que veio depois) foi promovido a `producao` por fast-forward
+(`759c0f9`): o standalone (`~/apps/habblaud` no branch `producao`) e os cinco tenants rodam essa versão. As notas
+"fora de `producao`" acima valem até essa data.
+
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 
 ## Dependency notes
