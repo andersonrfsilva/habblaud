@@ -3521,6 +3521,7 @@ export const FR: Readonly<Record<string, string>> = {
   "Retomar animações": "Reprendre les animations",
   "Erro ao carregar o elenco.": "Impossible de charger la distribution.",
   "Elenco": "Distribution",
+  "Elenco: personagens, chamar e dispensar": "Distribution : personnages, appeler et congédier",
   "Advisor": "Conseiller",
   "Editar": "Modifier",
   "Apagar": "Supprimer",

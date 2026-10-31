@@ -3504,6 +3504,7 @@ export const EN: Readonly<Record<string, string>> = {
   "Retomar animações": "Resume animations",
   "Erro ao carregar o elenco.": "Could not load the cast.",
   "Elenco": "Cast",
+  "Elenco: personagens, chamar e dispensar": "Cast: characters, call and dismiss",
   "Advisor": "Advisor",
   "Editar": "Edit",
   "Apagar": "Delete",

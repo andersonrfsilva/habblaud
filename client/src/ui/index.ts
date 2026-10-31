@@ -15,7 +15,8 @@ import type { PanelName, TerminalRouter, UiComponent, UiContext } from './contex
 import { DayLauncher } from './daystats-launcher';
 import { CastScreen } from './cast-screen';
 import { RoomRenamer } from './roomrename';
-import { h } from './dom';
+import { h, iconButton } from './dom';
+import { ICONS } from './icons';
 import { Drawer } from './drawer';
 import { FeedPanel } from './feed';
 import { HelpDialog } from './help';
@@ -252,7 +253,7 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
   settings = new SettingsPopover(ctx, notifier, sound, worldDialog);
   const castScreen = new CastScreen(ctx);
   root.append(castScreen.el);
-  topbar.addPanelButton(h('button', { class: 'ui-btn', type: 'button', text: tr('Elenco'), on: { click: () => void castScreen.open() } }));
+  topbar.addPanelButton(iconButton(ICONS.cast, tr('Elenco: personagens, chamar e dispensar'), () => void castScreen.open()));
   const popups = new WorldPopups(ctx, hw, { openWorld: (screen) => worldDialog.show(screen, topbar.worldBtn), panelOpen: () => settings.isOpen || worldDialog.isOpen });
   // Chip "🏙️ no mundo" / "⏸ pausado" na barra do topo (conta aprovada; nunca pela porta do celular).
   const worldChip = new WorldChip(ctx, hw, () => worldDialog.show('home'), (n) => toasts.push(n));
