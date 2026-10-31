@@ -10,6 +10,10 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Corrigido
+
+- **Elenco:** personagens do host usam Moli como navegador headless, inclusive após reiniciar o auxiliar.
+
 ### Adicionado
 
 - **Elenco:** o auxiliar aceita `--only-cast` para atender apenas personagens, sem iniciar os outros serviços.

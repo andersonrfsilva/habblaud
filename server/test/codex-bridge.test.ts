@@ -48,6 +48,7 @@ afterEach(async () => {
 
 describe('rodada do elenco', () => {
   it('executa tmux sem shell, com porta e argumentos literais, e recusa pedidos inválidos', async () => {
+    for (const key of ['PUPPETEER_EXECUTABLE_PATH', 'MOLI_BIN', 'MOLI_CHROME_HEADED']) vi.stubEnv(key, undefined);
     const castDir = join(tmp.dir, 'cast');
     mkdirSync(castDir);
     const instructionsFile = join(castDir, 'ana.md');
@@ -69,6 +70,23 @@ describe('rodada do elenco', () => {
     expect(result.state).toBe('ok');
     expect(calls).toContainEqual(['new-session', '-d', '-s', 'hb-ana', '-c', tmp.dir, '-e', 'HABBLAUD_CAST=ana', '-e', `PI_CODING_AGENT_DIR=${codexHome}`, '-e', 'HABBLAUD_PORT=12345', '--', '/bin/omp', '--model', 'provider/model', '--append-system-prompt', instructionsFile, '--resume', '01a18526-af3e-72e1-8a15-121c40de7583', 'olá $(literal)']);
     expect(ack).toEqual([{ results: [expect.objectContaining({ id: 'one', ok: true }), expect.objectContaining({ id: 'bad-id', ok: false }), expect.objectContaining({ id: 'bad-folder', ok: false }), expect.objectContaining({ id: 'bad-file', ok: false })] }]);
+  });
+  it.each([undefined, 'relative/moli-chrome', '/abs/moli-chrome'])('passa apenas caminhos absolutos do navegador (%s)', async (value) => {
+    vi.stubEnv('PUPPETEER_EXECUTABLE_PATH', value);
+    vi.stubEnv('MOLI_BIN', '/abs/moli');
+    vi.stubEnv('MOLI_CHROME_HEADED', 'relative/chromium');
+    const post: Post = async (path) => ({ status: 200, json: path.endsWith('/poll') ? { jobs: [{ id: 'a', op: 'start', cast: 'ana', folder: tmp.dir, agentDir: codexHome }] } : {} });
+    const calls: string[][] = [];
+    await castRound(post, async (_file, args) => {
+      calls.push(args);
+      if (args[0] === 'has-session') throw Object.assign(new Error('not found'), { code: 1 });
+    }, () => {}, { port: 12345, dataDir: tmp.dir, omp: '/bin/omp', tmux: '/bin/tmux' });
+    const args = calls.find((call) => call[0] === 'new-session')!;
+    const separator = args.indexOf('--');
+    expect(args.slice(0, separator)).toContain('MOLI_BIN=/abs/moli');
+    expect(args).not.toContain('MOLI_CHROME_HEADED=relative/chromium');
+    if (value?.startsWith('/')) expect(args.slice(0, separator)).toContain(`PUPPETEER_EXECUTABLE_PATH=${value}`);
+    else expect(args.some((arg) => arg.startsWith('PUPPETEER_EXECUTABLE_PATH='))).toBe(false);
   });
   it('recusa opções em prompt, modelo ou sessão antes de executar qualquer comando', async () => {
     const base = { op: 'start', cast: 'ana', folder: tmp.dir, agentDir: codexHome };

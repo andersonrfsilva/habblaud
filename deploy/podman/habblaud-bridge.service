@@ -5,6 +5,8 @@ After=habblaud.service
 [Service]
 WorkingDirectory=%h/apps/habblaud
 Environment=HABBLAUD_OMP_BIN=%h/.local/bin/omp
+# Moli usa modo headless; o wrapper recorre ao Chromium no modo com janela.
+Environment=PUPPETEER_EXECUTABLE_PATH=%h/.local/bin/moli-chrome
 ExecStart=/usr/bin/env npm run codex:bridge
 Restart=on-failure
 # O servidor tmux dos personagens (hb-*) nasce dentro deste serviço: com o padrão (control-group), parar ou reiniciar
