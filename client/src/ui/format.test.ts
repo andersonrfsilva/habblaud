@@ -16,6 +16,7 @@ import {
   permissionLabel,
   plural,
   modelBadge,
+  modelVendor,
   prettyModel,
   relativeTime,
   shortPath,
@@ -175,6 +176,15 @@ describe('textos', () => {
     expect(modelBadge('openai-codex/gpt-6-astra', undefined)).toBe('GPT-6 Astra');
     expect(modelBadge('gpt-5', 'novo')).toBe('GPT-5 novo');
     expect(modelBadge(undefined, 'high')).toBe('');
+  });
+  it('modelVendor: quem fez o modelo, com ou sem provedor; desconhecido volta ao chip da conta', () => {
+    expect(modelVendor('anthropic/claude-opus-5-5')).toBe('anthropic');
+    expect(modelVendor('claude-fable-5-1')).toBe('anthropic');
+    expect(modelVendor('openai-codex/gpt-6.1-terra')).toBe('openai');
+    expect(modelVendor('o3-mini')).toBe('openai');
+    expect(modelVendor('google-antigravity/gemini-3.8-flash')).toBe('google');
+    expect(modelVendor('typesafe/jev-latest')).toBeUndefined();
+    expect(modelVendor(undefined)).toBeUndefined();
   });
   it('permissionLabel traduz modos conhecidos', () => {
     expect(permissionLabel('acceptEdits')).toBe('Aceita edições');

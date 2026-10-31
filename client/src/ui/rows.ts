@@ -9,7 +9,7 @@ import {
   createActivityLine,
   createRoleBadge,
   createStatusDot,
-  updateAccountChip,
+  updateAgentChip,
   updateActivityLine,
   updateRoleBadge,
   updateShellActivityLine,
@@ -73,7 +73,7 @@ export function updateAgentRow(
   updateAvatar(r.avatar, agent, r.size);
   setStyleVar(row, '--acc', account?.color ?? '#8b98b3');
   setText(r.name, agent.name);
-  updateAccountChip(r.chip, account, agent.account, agent.provider);
+  updateAgentChip(r.chip, agent, account);
   updateRoleBadge(r.role, agent);
   const title = agent.title?.trim() ?? '';
   setText(r.task, title);

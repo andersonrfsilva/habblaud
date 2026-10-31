@@ -382,6 +382,24 @@
   --step: 3px;
 }
 
+/* Selo do modelo em uso (chip do agente): logotipo de pixel de quem fez o modelo, na cor da marca. */
+.ui-acc-chip[data-model] {
+  color: #fff;
+}
+.ui-acc-chip[data-model='anthropic'] {
+  background: #c96442;
+}
+.ui-acc-chip[data-model='openai'] {
+  background: #10a37f;
+}
+.ui-acc-chip[data-model='google'] {
+  background: #3f7de8;
+}
+.ui-acc-chip[data-model] .ui-px-icon {
+  width: 70%;
+  height: 70%;
+}
+
 /* Selo de texto "Codex" ao lado do nome da conta (fonte do sistema: na Pixelify o "C" parece "O"). */
 .ui-prov {
   display: inline-flex;

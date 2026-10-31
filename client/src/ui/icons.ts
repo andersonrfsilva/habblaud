@@ -344,6 +344,10 @@ export const ICONS = {
   office: pixelIcon(['..######..', '..#.##.#..', '..######..', '..#.##.#..', '..######..', '..#.##.#..', '..##..##..', '..##..##..', '##########']),
   /** Elenco: três pessoas (a do meio na frente). */
   cast: pixelIcon(['....##....', '.##.##.##.', '.##....##.', '....##....', '.#.####.#.', '###.##.###', '###.##.###', '...####...', '...####...']),
+  /** Selo do modelo em uso (chip do agente): Anthropic (asterisco), OpenAI (anel), Google Gemini (estrela de 4 pontas). */
+  vendorAnthropic: pixelIcon(['...#...', '.#.#.#.', '..###..', '###.###', '..###..', '.#.#.#.', '...#...']),
+  vendorOpenai: pixelIcon(['..###..', '.#...#.', '#..#..#', '#.###.#', '#..#..#', '.#...#.', '..###..']),
+  vendorGoogle: pixelIcon(['...#...', '...#...', '..###..', '#######', '..###..', '...#...', '...#...']),
 } as const;
 
 export type IconKey = keyof typeof ICONS;

@@ -249,7 +249,9 @@ export class Sidebar implements UiComponent {
     setTitle(r.count, plural(present, tr('agente'), tr('agentes')));
     setTitle(r.head, tr('{0}\nClique para ver a sala', [g.room.path]));
     setAttr(r.head, 'aria-label', tr('Sala {0}, {1}', [g.room.name, plural(present, tr('agente'), tr('agentes'))]));
-    r.accs.sync(g.accounts.map((id) => this.ctx.account(id) ?? id));
+    // Uma conta só: o chip dela em toda sala não diz nada (cada agente já mostra o selo do modelo em uso).
+    const several = (this.ctx.store.snapshot?.accounts.length ?? 0) > 1;
+    r.accs.sync(several ? g.accounts.map((id) => this.ctx.account(id) ?? id) : []);
     const selected = sel?.type === 'room' && sel.id === g.room.id;
     r.head.classList.toggle('is-selected', selected);
     setAttr(r.head, 'aria-current', selected ? 'true' : null);

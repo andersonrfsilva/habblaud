@@ -244,6 +244,17 @@ export function modelBadge(model: string | undefined, thinking: string | undefin
   return level ? `${name} ${level}` : name;
 }
 
+export type ModelVendor = 'anthropic' | 'openai' | 'google';
+
+/** Quem fez o modelo, pelo id (com ou sem `provedor/`); undefined = desconhecido (o chip volta a ser o da conta). */
+export function modelVendor(model: string | undefined): ModelVendor | undefined {
+  const id = (model ?? '').toLowerCase().slice((model ?? '').indexOf('/') + 1);
+  if (/claude|opus|sonnet|haiku|fable/.test(id)) return 'anthropic';
+  if (/^(gpt|o\d|codex)|chatgpt/.test(id)) return 'openai';
+  if (/gemini|gemma/.test(id)) return 'google';
+  return undefined;
+}
+
 const PROVIDER_LABELS: Record<string, string> = {
   anthropic: 'Anthropic',
   openai: 'OpenAI',

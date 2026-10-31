@@ -61,6 +61,7 @@ import {
   createProviderTag,
   createStatusDot,
   updateAccountChip,
+  updateAgentChip,
   updateProgress,
   updateProviderTag,
   updateStatusDot,
@@ -605,7 +606,7 @@ class AgentView {
     setText(this.title, a.title ?? '');
     setHidden(this.title, !a.title);
     setTitle(this.title, a.title ?? '');
-    updateAccountChip(this.accChip, account, a.account, a.provider);
+    updateAgentChip(this.accChip, a, account);
     setText(this.accName, account?.name ?? a.account);
     updateProviderTag(this.accProv, provider, account?.name ?? '');
     // E-mail (Claude Code) ou, no Codex (sem e-mail), o plano.

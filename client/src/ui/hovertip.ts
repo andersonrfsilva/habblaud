@@ -9,7 +9,7 @@ import {
   createActivityLine,
   createProviderTag,
   createStatusDot,
-  updateAccountChip,
+  updateAgentChip,
   updateActivityLine,
   updateProviderTag,
   updateShellActivityLine,
@@ -90,7 +90,7 @@ export class HoverTip implements UiComponent {
       return;
     }
     setText(this.name, a.name);
-    updateAccountChip(this.chip, this.ctx.account(a.account), a.account, a.provider);
+    updateAgentChip(this.chip, a, this.ctx.account(a.account));
     updateProviderTag(this.prov, providerOf(a));
     // Esperando um shell: o que ele espera (com o tempo correndo) e o que anda fazendo enquanto isso.
     const now = this.ctx.now();

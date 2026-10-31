@@ -2,7 +2,8 @@
 // de progresso.
 import type { AccountInfo, Activity, AgentInfo, AgentStatus, Provider } from '../../../shared/types';
 import { h, setAttr, setHidden, setStyleVar, setText, setTitle, setVariant } from './dom';
-import { WORDMARK } from './icons';
+import { ICONS, WORDMARK } from './icons';
+import { modelBadge, modelVendor, type ModelVendor } from './format';
 import { shellDoneKind, shellLine, shellStage, statusLabel, type ShellWait } from './model';
 import { accountChipLabel, accountProvider, fallbackShort, PROVIDER_NAME, showsProviderTag } from './provider';
 import { tr } from '../../../shared/i18n';
@@ -18,10 +19,30 @@ export function createAccountChip(size: 'sm' | 'md' | 'lg' = 'sm'): HTMLElement 
 /** `provider` = dica para quando a conta não está no snapshot (ex.: a sessão do histórico diz de que ferramenta é). */
 export function updateAccountChip(chip: HTMLElement, account: AccountInfo | undefined, fallbackId = '', provider?: Provider): void {
   const p = accountProvider(account, fallbackId, provider);
+  setAttr(chip, 'data-model', null);
   setText(chip, account?.short ?? fallbackShort(fallbackId, p));
   setStyleVar(chip, '--acc', account?.color ?? '#8b98b3');
   setAttr(chip, 'data-provider', p === 'claude' ? null : p);
   const label = accountChipLabel(account, fallbackId, p);
+  setTitle(chip, label);
+  setAttr(chip, 'aria-label', label);
+}
+
+const VENDOR_ICON: Record<ModelVendor, string> = { anthropic: ICONS.vendorAnthropic, openai: ICONS.vendorOpenai, google: ICONS.vendorGoogle };
+
+/**
+ * Chip do agente: o selo de quem fez o modelo em uso (Anthropic, OpenAI, Google), com a conta na dica; modelo
+ * desconhecido ou ausente: o chip da conta.
+ */
+export function updateAgentChip(chip: HTMLElement, agent: Pick<AgentInfo, 'account' | 'provider' | 'model' | 'thinking'>, account: AccountInfo | undefined): void {
+  const vendor = modelVendor(agent.model);
+  if (!vendor) return updateAccountChip(chip, account, agent.account, agent.provider);
+  if (chip.dataset.model !== vendor) {
+    chip.innerHTML = VENDOR_ICON[vendor];
+    chip.dataset.model = vendor;
+  }
+  setAttr(chip, 'data-provider', null);
+  const label = `${modelBadge(agent.model, agent.thinking)} · ${accountChipLabel(account, agent.account, accountProvider(account, agent.account, agent.provider))}`;
   setTitle(chip, label);
   setAttr(chip, 'aria-label', label);
 }

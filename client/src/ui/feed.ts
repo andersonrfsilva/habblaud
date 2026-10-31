@@ -8,7 +8,7 @@ import { formatClock } from './format';
 import { ICONS } from './icons';
 import { shellDoneKind } from './model';
 import { officeIsEmpty } from './overlays';
-import { createAccountChip, updateAccountChip } from './widgets';
+import { createAccountChip, updateAccountChip, updateAgentChip } from './widgets';
 import { tr } from '../../../shared/i18n';
 
 const VISIBLE = 50;
@@ -220,7 +220,10 @@ export class FeedPanel implements UiComponent {
     if (m) updateAvatar(avatar, m, 'xs');
     setText(who, f.agentName);
     const acc = this.accountOf(f);
-    updateAccountChip(chip, acc ? this.ctx.account(acc) : undefined, acc ?? '');
+    // Agente presente com modelo conhecido: o selo do modelo; senão, a conta.
+    const live = this.ctx.agent(f.agentId);
+    if (live && acc) updateAgentChip(chip, live, this.ctx.account(acc));
+    else updateAccountChip(chip, acc ? this.ctx.account(acc) : undefined, acc ?? '');
     setHidden(chip, !acc);
     setText(room, f.roomName);
     setText(icon, f.activity.icon);
