@@ -5,7 +5,7 @@ import type { UiComponent, UiContext } from './context';
 import { moveAgent, orderAgents } from './agentorder';
 import { moveRoom, orderRooms } from './roomorder';
 import { h, iconButton, KeyedList, setAttr, setHidden, setStyleVar, setText, setTitle } from './dom';
-import { plural, shortPath } from './format';
+import { plural } from './format';
 import { ICONS } from './icons';
 import { groupRooms, type AgentNode, type RoomGroup } from './model';
 import { officeIsEmpty } from './overlays';
@@ -17,7 +17,6 @@ interface RoomRefs {
   head: HTMLButtonElement;
   name: HTMLElement;
   count: HTMLElement;
-  path: HTMLElement;
   accs: KeyedList<AccountInfo | string>;
   tasks: HTMLElement;
   tasksBar: HTMLElement;
@@ -199,7 +198,6 @@ export class Sidebar implements UiComponent {
     const name = h('span', { class: 'ui-room__name' });
     const count = h('span', { class: 'ui-room__count' });
     const accsEl = h('span', { class: 'ui-room__accs' });
-    const path = h('span', { class: 'ui-room__path' });
     const tasksBar = createProgress(tr('Progresso das tarefas da sala'));
     const tasksText = h('span', { class: 'ui-room__tasks-text' });
     const tasks = h('span', { class: 'ui-room__tasks' }, tasksBar, tasksText);
@@ -209,7 +207,6 @@ export class Sidebar implements UiComponent {
       { class: 'ui-room__head', type: 'button' },
       swatch,
       h('span', { class: 'ui-room__line' }, name, count, accsEl),
-      path,
       tasks,
     );
     head.addEventListener('click', () => this.ctx.select({ type: 'room', id: g.room.id }, { focus: true }));
@@ -239,7 +236,7 @@ export class Sidebar implements UiComponent {
       create: (n) => this.createNode(n),
       update: (el, n) => this.updateNode(el, n),
     });
-    this.roomRefs.set(section, { head, name, count, path, accs, tasks, tasksBar, tasksText, nodes });
+    this.roomRefs.set(section, { head, name, count, accs, tasks, tasksBar, tasksText, nodes });
     return section;
   }
 
@@ -250,7 +247,6 @@ export class Sidebar implements UiComponent {
     const present = g.agents.filter((a) => a.status !== 'offline').length;
     setText(r.count, String(present));
     setTitle(r.count, plural(present, tr('agente'), tr('agentes')));
-    setText(r.path, shortPath(g.room.path));
     setTitle(r.head, tr('{0}\nClique para ver a sala', [g.room.path]));
     setAttr(r.head, 'aria-label', tr('Sala {0}, {1}', [g.room.name, plural(present, tr('agente'), tr('agentes'))]));
     r.accs.sync(g.accounts.map((id) => this.ctx.account(id) ?? id));

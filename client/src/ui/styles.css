@@ -1726,14 +1726,6 @@
   flex: none;
 }
 
-.ui-room__path {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 11px;
-  color: var(--ui-faint);
-}
-
 .ui-room__tasks {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
