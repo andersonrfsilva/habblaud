@@ -1,5 +1,5 @@
 // Gestão do elenco: membros existem independentemente das sessões presentes.
-import type { AgentInfo, CastJobInfo, CastMember } from '../../../shared/types';
+import { CAST_IDLE_MINUTES, type AgentInfo, type CastJobInfo, type CastMember } from '../../../shared/types';
 import { tr } from '../../../shared/i18n';
 import { appearanceFromSeed } from '../art';
 import { AppearanceFields } from './appearance-fields';
@@ -243,7 +243,7 @@ export class CastScreen {
     const instructions = h('textarea', { class: 'ui-rename__input ui-spawn__prompt', attrs: { maxlength: '8000' } });
     instructions.value = member?.instructions ?? '';
     const idle = h('input', { class: 'ui-rename__input', type: 'number', attrs: { min: '0', max: '1440', step: '1' } });
-    idle.value = String(member?.idleMinutes ?? 30);
+    idle.value = String(member?.idleMinutes ?? CAST_IDLE_MINUTES);
     const account = h('select', { class: 'ui-rename__input' });
     account.append(h('option', { text: tr('Padrão'), attrs: { value: '' } }));
     for (const item of this.ctx.store.snapshot?.accounts ?? []) if (item.provider === 'omp') account.append(h('option', { text: item.name, attrs: { value: item.id } }));

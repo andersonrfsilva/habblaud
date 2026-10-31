@@ -30,10 +30,14 @@ export interface CastMember {
   rooms: string[];
   model?: string;
   instructions?: string;
+  /** Minutos parado até ser dispensado; ausente = CAST_IDLE_MINUTES; 0 = nunca. */
   idleMinutes?: number;
   account?: string;
   last?: Record<string, string>;
 }
+
+/** Ociosidade padrão de um personagem do elenco aberto pelo Habblaud. */
+export const CAST_IDLE_MINUTES = 120;
 
 export type CastJob =
   | { id: string; op: 'start'; cast: string; folder: string; agentDir: string; model?: string; instructionsFile?: string; resume?: string; prompt?: string }

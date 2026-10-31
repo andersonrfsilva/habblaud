@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
-import type { AgentInfo, CastJob, CastJobInfo, CastMember } from '../../shared/types';
+import { CAST_IDLE_MINUTES, type AgentInfo, type CastJob, type CastJobInfo, type CastMember } from '../../shared/types';
 import { tr } from '../../shared/i18n';
 import { HOST_PRESENCE_MS, KEEP_MS, PROMPT_MAX, QUEUED_TIMEOUT_MS, SENT_TIMEOUT_MS } from '../spawn/spawn';
 import { normalizeCwd } from '../model/rooms';
@@ -124,7 +124,7 @@ export class CastLauncher {
         if (!this.state(cast)) { this.opened.delete(cast); this.opts.changed(); }
         continue;
       }
-      const idle = this.opts.member(cast)?.idleMinutes ?? 30;
+      const idle = this.opts.member(cast)?.idleMinutes ?? CAST_IDLE_MINUTES;
       if (idle && agent.status === 'idle' && now - agent.statusSince >= idle * 60_000 && !this.state(cast)) {
         this.dismiss(agent);
         this.opts.idle?.(agent);

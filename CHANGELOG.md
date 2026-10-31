@@ -20,7 +20,8 @@ do meio (0.**3**.0).
   O navegador usa a pasta pessoal ou as raízes absolutas em `HABBLAUD_CAST_ROOTS` (separadas por vírgulas).
 
 - **Elenco:** personagens principais podem guardar modelo, instruções, conta e limite de ociosidade. Chame ou dispense
-  sessões omp pelo auxiliar do host; personagens livres descansam no lounge do escritório.
+  sessões omp pelo auxiliar do host; personagens livres descansam no lounge do escritório. Sem limite na ficha, o
+  personagem é dispensado depois de 2 h parado.
 - **Elenco pelo celular:** com `terminal` em `HABBLAUD_REMOTE_ALLOW`, o elenco pode ser editado, chamado e dispensado
   pela porta remota (com login).
 
