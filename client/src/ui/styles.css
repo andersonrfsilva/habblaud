@@ -4299,6 +4299,11 @@
     display: none;
   }
 
+  /* Câmera (visão geral; o + e o − já saem abaixo de 1140 px): no celular o zoom é na pinça. */
+  .ui-topbar__right .ui-btn-group:first-child {
+    display: none;
+  }
+
   .ui-brand__name {
     font-size: 18px;
   }
