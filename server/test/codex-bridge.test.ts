@@ -88,6 +88,12 @@ describe('rodada do elenco', () => {
     const result = await castRound(post, run, () => {}, { port: 12345, dataDir: tmp.dir, omp: '/bin/omp', tmux: '/bin/tmux' });
     expect(result).toMatchObject({ state: 'ok', results: [{ id: 'a', ok: false }, { id: 'b', ok: true }] });
   });
+  it('manda junto do pedido as sessões hb-* abertas (o servidor reconstrói o Dispensar depois de reiniciar)', async () => {
+    const bodies: unknown[] = [];
+    const post: Post = async (path, body) => { bodies.push({ path, body }); return { status: 200, json: path.endsWith('/poll') ? { jobs: [] } : {} }; };
+    await castRound(post, async () => {}, () => {}, { port: 12345, dataDir: tmp.dir, tmux: '/bin/tmux', list: async () => ['melissa', 'giovana'] });
+    expect(bodies[0]).toEqual({ path: '/api/host/cast/poll', body: { open: ['melissa', 'giovana'] } });
+  });
 });
 
 /** Office + Hub + rotas de verdade, com um agente do Codex e o registro das mensagens SEM o modo Node (como no Docker). */

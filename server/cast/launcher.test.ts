@@ -75,4 +75,21 @@ describe('CastLauncher', () => {
     time(300_000); launcher.tick();
     expect(launcher.poll()).toContainEqual(expect.objectContaining({ op: 'stop', cast: 'ana' }));
   });
+  it('depois de reiniciar, a lista de sessões abertas do auxiliar volta a permitir Dispensar; sessão fechada por fora some', () => {
+    const { launcher, agents } = setup();
+    agents.push({ ...agent, status: 'working' });
+    // Servidor recém-reiniciado: não lembra quem abriu.
+    expect(launcher.isOpened('ana')).toBe(false);
+    launcher.poll({ open: ['ana', '../x', 42] });
+    expect(launcher.isOpened('ana')).toBe(true);
+    expect(launcher.isOpened('../x')).toBe(false);
+    expect(launcher.dismiss(agent)).toHaveProperty('job');
+    // Rodada sem `open` (auxiliar antigo) não mexe; lista sem ela (tmux fechado por fora) esquece.
+    const fresh = setup();
+    fresh.launcher.poll({ open: ['ana'] });
+    fresh.launcher.poll({});
+    expect(fresh.launcher.isOpened('ana')).toBe(true);
+    fresh.launcher.poll({ open: [] });
+    expect(fresh.launcher.isOpened('ana')).toBe(false);
+  });
 });

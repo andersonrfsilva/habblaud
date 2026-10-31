@@ -68,8 +68,17 @@ export class CastLauncher {
     this.opts.changed();
     return { ...info };
   }
-  poll(): CastJob[] {
+  /** `raw.open`: personagens com sessão `hb-<id>` aberta no host (o auxiliar manda a cada rodada). Reconstrói quem pode
+   * ser dispensado depois de o servidor reiniciar, e esquece quem fechou a sessão por fora. */
+  poll(raw?: unknown): CastJob[] {
     this.hostSeen = this.now();
+    const open = raw && typeof raw === 'object' && 'open' in raw && Array.isArray(raw.open) ? raw.open.filter((c): c is string => typeof c === 'string' && /^[a-z0-9-]{1,40}$/.test(c)) : undefined;
+    if (open) {
+      let changed = false;
+      for (const cast of open) if (!this.opened.has(cast) && this.opts.member(cast)) { this.opened.set(cast, this.now()); changed = true; }
+      for (const cast of [...this.opened.keys()]) if (!open.includes(cast) && !this.state(cast)) { this.opened.delete(cast); changed = true; }
+      if (changed) this.opts.changed();
+    }
     const jobs: CastJob[] = [];
     for (const e of this.entries.values()) if (e.info.status === 'queued') { e.info.status = 'sent'; e.at = this.now(); jobs.push(e.job); }
     if (jobs.length) this.opts.changed();

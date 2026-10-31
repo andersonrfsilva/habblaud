@@ -766,8 +766,10 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       if (method !== 'POST') methodNotAllowed(res, 'POST');
       else if (!launcher) sendJson(res, 403, { error: tr('desligado') });
       else if (!trusted(req) || (!deps.inDocker && !isLoopbackAddress(req.socket.remoteAddress))) sendJson(res, 403, { error: denied(req, tr('só o auxiliar do próprio computador')) });
-      else if (path === '/api/host/cast/poll') { req.resume(); sendJson(res, 200, { jobs: launcher.poll() }); }
-      else readJson(req).then((body) => { launcher.ack(body); sendJson(res, 200, { ok: true }); }).catch((err) => fail(res, err));
+      else readJson(req).then((body) => {
+        if (path === '/api/host/cast/poll') sendJson(res, 200, { jobs: launcher.poll(body) });
+        else { launcher.ack(body); sendJson(res, 200, { ok: true }); }
+      }).catch((err) => fail(res, err));
       return true;
     }
     if (path === '/api/host/spawn/poll' || path === '/api/host/spawn/ack') {

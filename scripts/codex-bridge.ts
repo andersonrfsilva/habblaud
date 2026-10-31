@@ -358,9 +358,21 @@ export type CastRun = (file: string, args: string[]) => Promise<void>;
 const exec = promisify(execFile);
 const runCast: CastRun = async (file, args) => { await exec(file, args, { timeout: 10_000, windowsHide: true }); };
 
+/** Personagens com sessão tmux `hb-<id>` aberta agora (sem servidor tmux: nenhum). */
+export async function openCasts(tmux: string | undefined): Promise<string[]> {
+  if (!tmux) return [];
+  try {
+    const { stdout } = await exec(tmux, ['list-sessions', '-F', '#{session_name}'], { timeout: 10_000, windowsHide: true });
+    return stdout.split('\n').map((s) => /^hb-([a-z0-9-]{1,40})$/.exec(s.trim())?.[1]).filter((s): s is string => !!s);
+  } catch {
+    return [];
+  }
+}
+
 /** O auxiliar valida cada pedido antes de usar o servidor tmux do usuário. */
-export async function castRound(post: Post, run: CastRun, log: (line: string) => void = () => {}, opts: { port: number; dataDir: string; omp?: string; tmux?: string }): Promise<RoundResult> {
-  const polled = await post('/api/host/cast/poll', {});
+export async function castRound(post: Post, run: CastRun, log: (line: string) => void = () => {}, opts: { port: number; dataDir: string; omp?: string; tmux?: string; list?: () => Promise<string[]> }): Promise<RoundResult> {
+  // As sessões abertas vão junto: o servidor reconstrói quem pode ser dispensado depois de reiniciar.
+  const polled = await post('/api/host/cast/poll', opts.list ? { open: await opts.list() } : {});
   if (!polled) return { state: 'down' };
   const jobs = rec(polled.json)?.jobs;
   if (polled.status !== 200 || !Array.isArray(jobs)) return { state: 'refused', status: polled.status };
@@ -518,7 +530,8 @@ async function main(): Promise<void> {
     delete process.env.BUN_BE_BUN;
     process.on('SIGTERM', () => process.exit(0));
     const post = httpPost(parsed.port);
-    const castOpts = { port: parsed.port, dataDir: process.env.HABBLAUD_DATA_DIR || join(homedir(), '.habblaud'), omp: ompBinFrom(process.env, homedir()), tmux: findExecutable('tmux', process.env, process.platform) };
+    const tmuxBin = findExecutable('tmux', process.env, process.platform);
+    const castOpts = { port: parsed.port, dataDir: process.env.HABBLAUD_DATA_DIR || join(homedir(), '.habblaud'), omp: ompBinFrom(process.env, homedir()), tmux: tmuxBin, list: () => openCasts(tmuxBin) };
     const log = (line: string) => console.log(`[codex-bridge] ${line}`);
     let last = '';
     for (;;) {
@@ -543,7 +556,8 @@ async function main(): Promise<void> {
   const open = createOpener();
   const claudeBin = runnableClaudeBin(process.env);
   const cli = claudeBin ? createCliRunner(claudeBin) : undefined;
-  const castOpts = { port: parsed.port, dataDir: process.env.HABBLAUD_DATA_DIR || join(homedir(), '.habblaud'), omp: ompBinFrom(process.env, homedir()), tmux: findExecutable('tmux', process.env, process.platform) };
+  const tmuxBin = findExecutable('tmux', process.env, process.platform);
+  const castOpts = { port: parsed.port, dataDir: process.env.HABBLAUD_DATA_DIR || join(homedir(), '.habblaud'), omp: ompBinFrom(process.env, homedir()), tmux: tmuxBin, list: () => openCasts(tmuxBin) };
   const post = httpPost(parsed.port);
   const download = httpAttachmentDownload(parsed.port);
   const log = (line: string) => console.log(`[codex-bridge] ${line}`);
