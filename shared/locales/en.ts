@@ -3547,6 +3547,7 @@ export const EN: Readonly<Record<string, string>> = {
   "Tipos de subagente inválidos.": "Invalid subagent types.",
   "Escolha no máximo 50 salas.": "Choose at most 50 rooms.",
   "personagem ocupado": "character is busy",
+  "limite de {0} personagens trabalhando ao mesmo tempo: dispense um antes de chamar outro": "limit of {0} characters working at once: dismiss one before calling another",
   "personagem não trabalha nesta sala": "character does not work in this room",
   "membro do elenco inválido": "invalid cast member",
   "membro do elenco não encontrado": "cast member not found",

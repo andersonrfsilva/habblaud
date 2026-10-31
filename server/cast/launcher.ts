@@ -15,6 +15,8 @@ interface Options {
   changed(): void;
   idle?(agent: AgentInfo): void;
   now?: () => number;
+  /** Máximo de personagens abertos ao mesmo tempo (as "salas" de um tenant); ausente = sem limite. */
+  max?: number;
 }
 
 export class CastLauncher {
@@ -35,6 +37,7 @@ export class CastLauncher {
     const body = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
     if (!member || member.kind !== 'main' || typeof body.room !== 'string' || (body.mode !== 'new' && body.mode !== 'resume') || (body.prompt !== undefined && (typeof body.prompt !== 'string' || body.prompt.length > PROMPT_MAX || /^\s*-/.test(body.prompt))) || (member.model !== undefined && member.model.startsWith('-'))) return { status: 422, error: tr('pedido inválido') };
     if (this.state(id) || this.opts.agents().some((a) => a.cast === id && a.status !== 'offline' && a.status !== 'done')) return { status: 409, error: tr('personagem ocupado') };
+    if (this.opts.max !== undefined && this.openCount() >= this.opts.max) return { status: 409, error: tr('limite de {0} personagens trabalhando ao mesmo tempo: dispense um antes de chamar outro', [this.opts.max]) };
     // Sem salas no personagem vale qualquer pasta absoluta (o auxiliar confere se ela existe no host); com salas, só elas.
     const room = normalizeCwd(body.room);
     if (!isAbsolute(room) || room.length > 1024) return { status: 422, error: tr('informe a pasta do projeto (caminho absoluto)') };
@@ -66,6 +69,12 @@ export class CastLauncher {
     const active = this.state(agent.cast);
     if (active) return { status: 409, error: tr('personagem ocupado') };
     return { job: this.enqueue({ id: randomUUID(), op: 'stop', cast: agent.cast }) };
+  }
+  /** Abertos agora pelo Habblaud (sessão hb-* ou chamada em andamento); quem já está sendo dispensado não conta. */
+  private openCount(): number {
+    const casts = new Set([...this.opened.keys()].filter((c) => this.state(c) !== 'dismissing'));
+    for (const e of this.entries.values()) if (e.job.op === 'start' && (e.info.status === 'queued' || e.info.status === 'sent' || e.info.status === 'waiting')) casts.add(e.job.cast);
+    return casts.size;
   }
   private enqueue(job: CastJob): CastJobInfo {
     const now = this.now();

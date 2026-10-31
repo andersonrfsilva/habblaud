@@ -102,4 +102,23 @@ describe('CastLauncher', () => {
     expect(launcher.start('ana', { room: '/a', mode: 'resume', session: sid, account: '.omp' })).toHaveProperty('job');
     expect(launcher.poll()).toContainEqual(expect.objectContaining({ op: 'start', cast: 'ana', folder: '/a', resume: sid }));
   });
+  it('limite de abertos (salas do tenant): chamada em andamento e sessão aberta contam; quem está sendo dispensado não', () => {
+    const agents: AgentInfo[] = [];
+    const launcher = new CastLauncher({ dataDir: '/tmp', member: () => member, agents: () => agents, account: () => '/tmp', changed: () => {}, now: () => 0, max: 1 });
+    launcher.poll();
+    const first = launcher.start('ana', { room: '/a', mode: 'new' });
+    expect(first).toHaveProperty('job');
+    expect(launcher.start('bia', { room: '/a', mode: 'new' })).toMatchObject({ status: 409, error: expect.stringContaining('limite de 1') });
+    launcher.poll();
+    launcher.ack({ results: [{ id: (first as { job: { id: string } }).job.id, ok: true }] });
+    agents.push({ ...agent, status: 'working' });
+    launcher.tick();
+    expect(launcher.start('bia', { room: '/a', mode: 'new' })).toMatchObject({ status: 409 });
+    expect(launcher.dismiss(agents[0])).toHaveProperty('job');
+    expect(launcher.start('bia', { room: '/a', mode: 'new' })).toHaveProperty('job');
+    // Depois de reiniciar, as sessões hb-* que o auxiliar informa contam.
+    const fresh = new CastLauncher({ dataDir: '/tmp', member: () => member, agents: () => [], account: () => '/tmp', changed: () => {}, now: () => 0, max: 2 });
+    fresh.poll({ open: ['ana', 'bia'] });
+    expect(fresh.start('caio', { room: '/a', mode: 'new' })).toMatchObject({ status: 409 });
+  });
 });

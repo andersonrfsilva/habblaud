@@ -79,7 +79,7 @@ O auxiliar no host (`npm run codex:bridge`) abre sessões omp em `tmux` como `hb
 | `DELETE /api/cast/:id` | Apaga membro e vínculos; agentes voltam ao sorteio; mesma trava do terminal |
 | `PUT /api/agents/:id/cast` | `{cast}` veste um principal; 409 ocupado, 422 sala proibida; mesma trava do terminal |
 | `DELETE /api/agents/:id/cast` | Remove o vínculo e volta ao sorteio; mesma trava do terminal |
-| `POST /api/cast/:id/start` | `{room, mode: 'new' \| 'resume', prompt?}`: enfileira uma chamada; 202, 409, 422 ou 503; mesma trava do terminal |
+| `POST /api/cast/:id/start` | `{room, mode: 'new' \| 'resume', prompt?}`: enfileira uma chamada; 202, 409 (ocupado ou limite de `HABBLAUD_CAST_MAX` personagens abertos), 422 ou 503; mesma trava do terminal |
 | `POST /api/agents/:id/dismiss` | Enfileira a dispensa de uma sessão aberta pelo Habblaud; mesma trava do terminal |
 | `GET /api/cast/jobs` | `{jobs, available}`: estado das chamadas e presença do auxiliar; mesma trava do terminal |
 | `GET /api/cast/dirs?path=<absoluto>` | `{path, parent?, dirs}`: subpastas nas raízes de `HABBLAUD_CAST_ROOTS` (separadas por vírgulas) ou na pasta pessoal; mesma trava do terminal |
@@ -378,6 +378,10 @@ tem `id`, `name`, `look`, `seed`, `kind` (`main`, `advisor` ou `sub`), `rooms` e
 O primeiro principal sem vínculo recebe o membro principal da sala; vínculos e `HABBLAUD_CAST=<id>` no ambiente do
 omp têm prioridade. Membro ocupado ou fora da sala resulta em sorteio. Advisor do omp e subagentes pelos tipos
 observados usam membros compatíveis. As salas organizam a escolha do personagem: não restringem ferramentas.
+`HABBLAUD_CAST_MAX` (1 a 50; ausente = sem limite) limita quantos personagens o Habblaud mantém abertos ao mesmo
+tempo: sessões `hb-*` e chamadas em andamento contam, quem está sendo dispensado não. No `omp-tenant` vale o número
+de salas do usuário.
+
 
 As rotas do elenco seguem a trava do terminal: acesso local ou pela porta remota após login, com `terminal`
 em `HABBLAUD_REMOTE_ALLOW`. A migração de `names.json` › `rooms` cria `cast.json` e preserva o original em

@@ -158,6 +158,7 @@ const castLauncher = config.terminal ? new CastLauncher({
   },
   changed: () => office.markDirty(),
   idle: (agent) => office.castIdle(agent),
+  ...(config.castMax ? { max: config.castMax } : {}),
 }) : undefined;
 late.castLauncher = castLauncher;
 // Fontes de agentes, uma por ferramenta (sources/source.ts): a do Claude Code e, depois dela, a do Codex (quando há
