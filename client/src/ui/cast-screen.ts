@@ -3,7 +3,7 @@ import { CAST_IDLE_MINUTES, type AgentInfo, type CastJobInfo, type CastMember } 
 import { tr } from '../../../shared/i18n';
 import { appearanceFromSeed } from '../art';
 import { AppearanceFields } from './appearance-fields';
-import { changedParts, validateCast } from './character-model';
+import { castGroups, changedParts, validateCast } from './character-model';
 import type { UiContext } from './context';
 import { h, iconButton } from './dom';
 import { ICONS } from './icons';
@@ -65,8 +65,12 @@ export class CastScreen {
     const list = h('div', { class: 'ui-cast__list' });
     const calls: Array<{ member: CastMember; button: HTMLButtonElement | null; status: HTMLElement }> = [];
     const reason = h('p', { class: 'ui-rename__hint', role: 'status' });
-    for (const member of this.members) {
-      const label = member.kind === 'main' ? tr('Principal') : member.kind === 'advisor' ? tr('Advisor') : tr('Subagente');
+    // Agrupado por tipo: principais, advisors e subagentes (um título antes do primeiro de cada grupo).
+    const groups = castGroups(this.members);
+    const heading: Record<CastMember['kind'], string> = { main: tr('Principais'), advisor: tr('Advisors'), sub: tr('Subagentes') };
+    for (const member of groups.flatMap((g) => g.members)) {
+      const group = groups.find((g) => g.members[0] === member);
+      if (group) list.append(h('h3', { class: 'ui-cast__group', text: `${heading[group.kind]} · ${group.members.length}` }));
       const where = member.rooms.length ? member.rooms.map((p) => shortPath(p)).join(', ') : tr('qualquer sala');
       const edit = h('button', { class: 'ui-btn ui-btn--sm', type: 'button', text: tr('Editar'), on: { click: () => this.edit(member) } });
       // Na reserva: Chamar. Trabalhando numa sessão que o Habblaud abriu: Dispensar (a mesma ação da gaveta).
@@ -82,7 +86,7 @@ export class CastScreen {
       calls.push({ member, button: call, status });
       const del = h('button', { class: 'ui-btn ui-btn--sm', type: 'button', text: tr('Apagar'), on: { click: () => void this.remove(member) } });
       list.append(h('div', { class: 'ui-cast__row' }, createAvatar({ ...member, kind: member.kind === 'sub' ? 'sub' : 'main' }, 'sm'),
-        h('div', { class: 'ui-cast__who' }, h('strong', { text: member.name }), h('small', { text: `${label} · ${where}` }), status),
+        h('div', { class: 'ui-cast__who' }, h('strong', { text: member.name }), h('small', { text: member.kind === 'sub' && member.match?.length ? `${member.match.join(', ')} · ${where}` : where }), status),
         h('div', { class: 'ui-cast__row-actions' }, call, edit, del)));
     }
     this.content.replaceChildren(add, reason, list);

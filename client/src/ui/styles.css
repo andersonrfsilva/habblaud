@@ -12064,6 +12064,14 @@ button.ui-files__open { cursor: pointer; }
 /* O corpo da casa (.ui-dialog__body) é uma grade de 2 colunas (Ajuda); o elenco é uma coluna só, em toda a largura. */
 .ui-cast .ui-cast__content { grid-template-columns: minmax(0, 1fr); gap: 12px; }
 .ui-cast__list { display: grid; gap: 8px; }
+.ui-cast__group {
+  margin: 8px 0 0;
+  font: 600 11.5px var(--font-ui);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ui-muted);
+}
+.ui-cast__group:first-child { margin-top: 0; }
 .ui-cast__row {
   display: flex;
   align-items: center;

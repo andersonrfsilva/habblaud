@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ACCESSORIES, BOTTOM_STYLES, FACIAL_HAIR, HAIR_STYLES, PART_KEYS, TOP_STYLES } from '../../../shared/appearance';
 import { appearanceFromSeed } from '../art/character/appearance';
-import { canEditCharacter, castUnavailable, changedParts, EDITOR_GROUPS, rowVisible, styleLabel, validateCast } from './character-model';
+import { canEditCharacter, castGroups, castUnavailable, changedParts, EDITOR_GROUPS, rowVisible, styleLabel, validateCast } from './character-model';
 import type { AgentInfo, CastMember } from '../../../shared/types';
 
 const OPEN = { live: true, terminal: true, local: true, replaying: false, mock: false };
@@ -84,5 +84,11 @@ describe('regras do elenco', () => {
     expect(validateCast('', [], '', [])).toBeDefined();
     expect(validateCast('Ana', ['/a'], '/b', [])).toBeDefined();
     expect(validateCast('Ana', [], '', Array(21).fill('task'))).toBeDefined();
+  });
+  it('agrupa por tipo (principais, advisors, subagentes) e ordena por nome; grupo vazio some', () => {
+    const m = (name: string, kind: CastMember['kind']): CastMember => ({ id: name, name, look: 'f', seed: 1, kind, rooms: [] });
+    const groups = castGroups([m('Zeca', 'sub'), m('Gandalf', 'advisor'), m('Pedro', 'main'), m('Ana', 'main'), m('Bill', 'sub')]);
+    expect(groups.map((g) => [g.kind, g.members.map((x) => x.name)])).toEqual([['main', ['Ana', 'Pedro']], ['advisor', ['Gandalf']], ['sub', ['Bill', 'Zeca']]]);
+    expect(castGroups([m('Ana', 'main')]).map((g) => g.kind)).toEqual(['main']);
   });
 });

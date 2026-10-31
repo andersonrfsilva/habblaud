@@ -118,3 +118,11 @@ export function validateCast(name: string, rooms: string[], home: string, match:
   if (rooms.length > 50) return tr('Escolha no máximo 50 salas.');
   return undefined;
 }
+
+const CAST_ORDER: readonly CastMember['kind'][] = ['main', 'advisor', 'sub'];
+
+/** Elenco agrupado por tipo (principais, advisors, subagentes), por nome dentro do grupo; grupos vazios saem. */
+export function castGroups(members: readonly CastMember[]): Array<{ kind: CastMember['kind']; members: CastMember[] }> {
+  return CAST_ORDER.map((kind) => ({ kind, members: members.filter((m) => m.kind === kind).sort((a, b) => a.name.localeCompare(b.name)) }))
+    .filter((g) => g.members.length > 0);
+}

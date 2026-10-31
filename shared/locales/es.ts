@@ -868,6 +868,8 @@ export const ES: Readonly<Record<string, string>> = {
   "Chamando {0}…": "Llamando a {0}…",
   "Chamar {0} do elenco já nesta conversa": "Llamar a {0} del elenco directo a esta conversación",
   "Elenco:": "Elenco:",
+  "Principais": "Principales",
+  "Advisors": "Asesores",
   "Painel lateral ( [ )": "Barra lateral ( [ )",
   "Feed de atividade ( ] )": "Feed de actividad ( ] )",
   "Timelapse: reproduzir o dia (L)": "Timelapse: reproducir el día (L)",
