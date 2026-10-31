@@ -914,6 +914,37 @@
   color: #c9b6ff;
 }
 
+/* Agentes e trabalhando: botões que abrem a lista de agentes (ui/agent-picker.ts). */
+.ui-counter--pick {
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.ui-counter--pick:hover,
+.ui-counter--pick.is-on,
+.ui-counter--waiting.is-on {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.ui-picker {
+  width: 360px;
+  padding-bottom: 8px;
+}
+.ui-picker__list {
+  margin: 0;
+  padding: 0 6px;
+  list-style: none;
+  display: grid;
+  gap: 2px;
+}
+.ui-picker__empty {
+  margin: 0;
+  padding: 4px 16px 10px;
+  color: var(--ui-muted);
+}
+
 .ui-counter--waiting {
   transition:
     background-color 0.2s,

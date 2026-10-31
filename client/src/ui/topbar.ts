@@ -1,13 +1,14 @@
 // Barra superior: marca, conexão, contadores, uso por conta e botões de controle.
 import { access } from '../net/access';
+import { AgentPicker, type PickerKind } from './agent-picker';
 import { SpawnPanel } from './spawn';
 import type { UiComponent, UiContext } from './context';
 import { h, iconButton, setAttr, setHidden, setText, setTitle, setVariant } from './dom';
 import { formatDuration, formatInt } from './format';
 import { FALLBACK_MARK, ICONS } from './icons';
-import { computeCounters, shellLine, shellWaitIn, shellWaitingAgents, waitingAgents, type Counters } from './model';
+import { computeCounters, shellLine, shellWaitIn, shellWaitingAgents, type Counters } from './model';
 import { TIMELAPSE_ICONS } from './timelapse-icons';
-import { focusPermission, nextPermissionAgent, permissionAgents } from './permission';
+import { permissionAgents } from './permission';
 import { UsageCards } from './usage';
 import { VersionChip } from './version';
 import { wordmark } from './widgets';
@@ -38,6 +39,8 @@ export class TopBar implements UiComponent {
   private status: HTMLElement;
   private counters = new Map<keyof Counters, CounterRefs>();
   private shellsBtn: HTMLButtonElement;
+  /** Lista de agentes aberta pelos contadores (agentes, trabalhando, precisam de você). */
+  private picker: AgentPicker;
   /** Próximo agente do botão de shells (cliques seguidos passam por todos, do que espera há mais tempo). */
   private shellCursor = 0;
   private usage: UsageCards;
@@ -76,13 +79,19 @@ export class TopBar implements UiComponent {
         // Em telas pequenas o rótulo some e fica a mão levantada.
         const icon = h('span', { class: 'ui-counter__icon', attrs: { 'aria-hidden': 'true' } });
         icon.innerHTML = ICONS.hand;
-        el = h('button', { class: 'ui-counter ui-counter--waiting', type: 'button', title: tr('{0}. Clique para ir até o primeiro.', [c.hint]), on: { click: () => this.focusFirstWaiting() } }, icon, value, label);
+        el = h('button', { class: 'ui-counter ui-counter--waiting', type: 'button', attrs: { 'aria-haspopup': 'dialog' }, on: { click: () => this.picker.toggle('waiting', el) } }, icon, value, label);
+      } else if (c.key === 'agents' || c.key === 'working') {
+        // Agentes e trabalhando: abrem a lista para escolher o agente ou abrir o terminal dele.
+        const kind: PickerKind = c.key;
+        el = h('button', { class: `ui-counter ui-counter--${c.key} ui-counter--pick`, type: 'button', title: tr('{0}. Clique para ver a lista.', [c.hint]), attrs: { 'aria-haspopup': 'dialog' }, on: { click: () => this.picker.toggle(kind, el) } }, value, label);
       } else {
         el = h('div', { class: `ui-counter ui-counter--${c.key}`, title: c.hint }, value, label);
       }
       this.counters.set(c.key, { el, value, label });
       counterWrap.append(el);
     }
+    this.picker = new AgentPicker(ctx);
+    ctx.root.append(this.picker.el);
 
     // "⏳ N shells": entre os subagentes e o "precisa de você"; some quando não há shells rodando.
     {
@@ -212,10 +221,11 @@ export class TopBar implements UiComponent {
     setTitle(
       waiting,
       answerable
-        ? tr('{0}. {1} para responder por aqui: clique para ir até {2} (P).', [WAITING_HINT, answerable === 1 ? tr('1 pedido (permissão ou pergunta) dá') : tr('{0} pedidos (permissões ou perguntas) dão', [answerable]), answerable === 1 ? tr('ele') : tr('cada um')])
-        : tr('{0}. Clique para ir até o primeiro.', [WAITING_HINT]),
+        ? tr('{0}. {1} para responder por aqui (P vai direto). Clique para ver a lista.', [WAITING_HINT, answerable === 1 ? tr('1 pedido (permissão ou pergunta) dá') : tr('{0} pedidos (permissões ou perguntas) dão', [answerable])])
+        : tr('{0}. Clique para ver a lista.', [WAITING_HINT]),
     );
     this.renderShells(c.shells, now);
+    this.picker.render();
 
     this.usage.render();
     this.version.render();
@@ -258,15 +268,5 @@ export class TopBar implements UiComponent {
     if (sel?.type === 'agent' && agents[i].id === sel.id) i = (i + 1) % agents.length;
     this.shellCursor = i + 1;
     this.ctx.select({ type: 'agent', id: agents[i].id }, { focus: true });
-  }
-
-  private focusFirstWaiting(): void {
-    // Quem tem pedido para responder pelo escritório vem antes (cliques seguidos passam por todos).
-    const agents = this.ctx.store.snapshot?.agents ?? [];
-    const sel = this.ctx.selection();
-    const next = nextPermissionAgent(agents, sel?.type === 'agent' ? sel.id : undefined);
-    if (next) return focusPermission(this.ctx, next.id);
-    const first = waitingAgents(agents)[0];
-    if (first) this.ctx.select({ type: 'agent', id: first.id }, { focus: true });
   }
 }
