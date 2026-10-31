@@ -37,7 +37,7 @@ export class CastLauncher {
     const body = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
     if (!member || member.kind !== 'main' || typeof body.room !== 'string' || (body.mode !== 'new' && body.mode !== 'resume') || (body.prompt !== undefined && (typeof body.prompt !== 'string' || body.prompt.length > PROMPT_MAX || /^\s*-/.test(body.prompt))) || (member.model !== undefined && member.model.startsWith('-'))) return { status: 422, error: tr('pedido inválido') };
     if (this.state(id) || this.opts.agents().some((a) => a.cast === id && a.status !== 'offline' && a.status !== 'done')) return { status: 409, error: tr('personagem ocupado') };
-    if (this.opts.max !== undefined && this.openCount() >= this.opts.max) return { status: 409, error: tr('limite de {0} personagens trabalhando ao mesmo tempo: dispense um antes de chamar outro', [this.opts.max]) };
+    if (this.opts.max !== undefined && this.openCount() >= this.opts.max) return { status: 409, error: this.opts.max === 1 ? tr('só 1 personagem trabalha por vez: dispense o atual antes de chamar outro') : tr('limite de {0} personagens trabalhando ao mesmo tempo: dispense um antes de chamar outro', [this.opts.max]) };
     // Sem salas no personagem vale qualquer pasta absoluta (o auxiliar confere se ela existe no host); com salas, só elas.
     const room = normalizeCwd(body.room);
     if (!isAbsolute(room) || room.length > 1024) return { status: 422, error: tr('informe a pasta do projeto (caminho absoluto)') };

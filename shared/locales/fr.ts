@@ -3565,6 +3565,7 @@ export const FR: Readonly<Record<string, string>> = {
   "Escolha no máximo 50 salas.": "Choisissez au maximum 50 salles.",
   "personagem ocupado": "personnage occupé",
   "limite de {0} personagens trabalhando ao mesmo tempo: dispense um antes de chamar outro": "limite de {0} personnages au travail en même temps : congédiez-en un avant d'en appeler un autre",
+  "só 1 personagem trabalha por vez: dispense o atual antes de chamar outro": "un seul personnage travaille à la fois : congédiez l'actuel avant d'en appeler un autre",
   "personagem não trabalha nesta sala": "le personnage ne travaille pas dans cette salle",
   "membro do elenco inválido": "membre de la distribution invalide",
   "membro do elenco não encontrado": "membre de la distribution introuvable",

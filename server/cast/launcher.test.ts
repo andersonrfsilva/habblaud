@@ -108,7 +108,7 @@ describe('CastLauncher', () => {
     launcher.poll();
     const first = launcher.start('ana', { room: '/a', mode: 'new' });
     expect(first).toHaveProperty('job');
-    expect(launcher.start('bia', { room: '/a', mode: 'new' })).toMatchObject({ status: 409, error: expect.stringContaining('limite de 1') });
+    expect(launcher.start('bia', { room: '/a', mode: 'new' })).toMatchObject({ status: 409, error: expect.stringContaining('só 1 personagem') });
     launcher.poll();
     launcher.ack({ results: [{ id: (first as { job: { id: string } }).job.id, ok: true }] });
     agents.push({ ...agent, status: 'working' });

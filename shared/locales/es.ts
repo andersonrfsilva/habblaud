@@ -3549,6 +3549,7 @@ export const ES: Readonly<Record<string, string>> = {
   "Escolha no máximo 50 salas.": "Elige como máximo 50 salas.",
   "personagem ocupado": "personaje ocupado",
   "limite de {0} personagens trabalhando ao mesmo tempo: dispense um antes de chamar outro": "límite de {0} personajes trabajando a la vez: despide a uno antes de llamar a otro",
+  "só 1 personagem trabalha por vez: dispense o atual antes de chamar outro": "solo 1 personaje trabaja a la vez: despide al actual antes de llamar a otro",
   "personagem não trabalha nesta sala": "el personaje no trabaja en esta sala",
   "membro do elenco inválido": "miembro del elenco inválido",
   "membro do elenco não encontrado": "miembro del elenco no encontrado",
