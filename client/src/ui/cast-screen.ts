@@ -69,7 +69,14 @@ export class CastScreen {
       const label = member.kind === 'main' ? tr('Principal') : member.kind === 'advisor' ? tr('Advisor') : tr('Subagente');
       const where = member.rooms.length ? member.rooms.map((p) => shortPath(p)).join(', ') : tr('qualquer sala');
       const edit = h('button', { class: 'ui-btn ui-btn--sm', type: 'button', text: tr('Editar'), on: { click: () => this.edit(member) } });
-      const call = member.kind === 'main' ? h('button', { class: 'ui-btn ui-btn--sm ui-btn--primary', type: 'button', text: tr('Chamar'), on: { click: () => void this.call(member.id) } }) : null;
+      // Na reserva: Chamar. Trabalhando numa sessão que o Habblaud abriu: Dispensar (a mesma ação da gaveta).
+      const call = member.kind === 'main' ? h('button', { class: 'ui-btn ui-btn--sm ui-btn--primary', type: 'button', text: tr('Chamar'), on: { click: () => {
+        const agentId = call?.dataset.dismiss;
+        if (!agentId) return void this.call(member.id);
+        if (!confirm(tr('Dispensar {0}? A sessão do omp fecha; a conversa fica guardada para Continuar.', [member.name]))) return;
+        call!.disabled = true;
+        void this.ctx.store.dismissCast(agentId).then((error) => { if (error) reason.textContent = error; });
+      } } }) : null;
       const status = h('small', { text: tr('Na reserva') });
       if (call) call.disabled = true;
       calls.push({ member, button: call, status });
@@ -88,8 +95,13 @@ export class CastScreen {
         const busy = !!active(jobs.jobs, member.id);
         const agent = this.ctx.store.snapshot?.agents.find((a) => a.cast === member.id && a.status !== 'offline');
         if (button) {
-          button.disabled = !jobs.available || busy || !!agent;
-          button.textContent = busy ? tr('chamando…') : tr('Chamar');
+          // Só a sessão aberta pelo Habblaud pode ser dispensada; a aberta no terminal só mostra que está trabalhando.
+          const dismissable = !!agent?.castOpened;
+          if (dismissable) button.dataset.dismiss = agent.id;
+          else delete button.dataset.dismiss;
+          button.disabled = busy || (agent ? !dismissable : !jobs.available);
+          button.textContent = busy ? tr('chamando…') : dismissable ? tr('Dispensar') : agent ? tr('Trabalhando') : tr('Chamar');
+          button.classList.toggle('ui-btn--primary', !agent);
         }
         status.textContent = busy ? tr('chamando…') : agent ? tr('Trabalhando em {0}', [shortPath(agent.roomId)]) : tr('Na reserva');
       }

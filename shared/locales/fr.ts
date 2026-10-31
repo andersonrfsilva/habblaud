@@ -3522,6 +3522,7 @@ export const FR: Readonly<Record<string, string>> = {
   "Erro ao carregar o elenco.": "Impossible de charger la distribution.",
   "Elenco": "Distribution",
   "Elenco: personagens, chamar e dispensar": "Distribution : personnages, appeler et congédier",
+  "Dispensar {0}? A sessão do omp fecha; a conversa fica guardada para Continuar.": "Congédier {0} ? La session omp se ferme ; la conversation est conservée pour Reprendre.",
   "Advisor": "Conseiller",
   "Editar": "Modifier",
   "Apagar": "Supprimer",

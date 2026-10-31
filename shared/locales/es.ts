@@ -3506,6 +3506,7 @@ export const ES: Readonly<Record<string, string>> = {
   "Erro ao carregar o elenco.": "No se pudo cargar el elenco.",
   "Elenco": "Elenco",
   "Elenco: personagens, chamar e dispensar": "Elenco: personajes, llamar y despedir",
+  "Dispensar {0}? A sessão do omp fecha; a conversa fica guardada para Continuar.": "¿Despedir a {0}? La sesión de omp se cierra; la conversación queda guardada para Continuar.",
   "Advisor": "Asesor",
   "Editar": "Editar",
   "Apagar": "Eliminar",

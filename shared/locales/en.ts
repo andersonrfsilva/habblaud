@@ -3505,6 +3505,7 @@ export const EN: Readonly<Record<string, string>> = {
   "Erro ao carregar o elenco.": "Could not load the cast.",
   "Elenco": "Cast",
   "Elenco: personagens, chamar e dispensar": "Cast: characters, call and dismiss",
+  "Dispensar {0}? A sessão do omp fecha; a conversa fica guardada para Continuar.": "Dismiss {0}? The omp session closes; the conversation is kept for Resume.",
   "Advisor": "Advisor",
   "Editar": "Edit",
   "Apagar": "Delete",
