@@ -317,8 +317,9 @@ export class OfficeStore {
     return { jobs: [], available: false };
   }
 
-  async startCast(id: string, room: string, mode: 'new' | 'resume', prompt: string): Promise<string | undefined> {
-    return this.castRequest(`/api/cast/${encodeURIComponent(id)}/start`, 'POST', { room, mode, prompt });
+  /** `from`: retomar uma conversa escolhida no histórico (sessão e conta dela), em vez da última do personagem. */
+  async startCast(id: string, room: string, mode: 'new' | 'resume', prompt: string, from?: { session: string; account: string }): Promise<string | undefined> {
+    return this.castRequest(`/api/cast/${encodeURIComponent(id)}/start`, 'POST', { room, mode, ...(prompt ? { prompt } : {}), ...(from ?? {}) });
   }
 
   async dismissCast(id: string): Promise<string | undefined> {

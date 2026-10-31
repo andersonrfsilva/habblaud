@@ -6492,6 +6492,17 @@ a.ui-md__link:hover {
   font-size: 11.5px;
 }
 
+.ui-hist__menu-label {
+  align-self: center;
+  color: var(--ui-muted);
+  font-size: 11.5px;
+}
+.ui-hist__cast {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .ui-hist__text {
   display: flex;
   flex-direction: column;

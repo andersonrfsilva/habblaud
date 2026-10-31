@@ -92,4 +92,14 @@ describe('CastLauncher', () => {
     fresh.launcher.poll({ open: [] });
     expect(fresh.launcher.isOpened('ana')).toBe(false);
   });
+  it('retoma uma conversa escolhida no histórico (session), mesmo sem last do personagem; só no modo resume', () => {
+    const { launcher } = setup();
+    launcher.poll();
+    const sid = '01a17ce2-c30b-7021-a3bf-8d10a45dc21b';
+    expect(launcher.start('ana', { room: '/a', mode: 'new', session: sid })).toMatchObject({ status: 422 });
+    expect(launcher.start('ana', { room: '/a', mode: 'resume', session: '../x' })).toMatchObject({ status: 422 });
+    expect(launcher.start('ana', { room: '/b', mode: 'resume', session: sid })).toMatchObject({ status: 422 });
+    expect(launcher.start('ana', { room: '/a', mode: 'resume', session: sid, account: '.omp' })).toHaveProperty('job');
+    expect(launcher.poll()).toContainEqual(expect.objectContaining({ op: 'start', cast: 'ana', folder: '/a', resume: sid }));
+  });
 });

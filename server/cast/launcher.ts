@@ -38,10 +38,16 @@ export class CastLauncher {
     // Sem salas no personagem vale qualquer pasta absoluta (o auxiliar confere se ela existe no host); com salas, só elas.
     const room = normalizeCwd(body.room);
     if (!isAbsolute(room) || room.length > 1024) return { status: 422, error: tr('informe a pasta do projeto (caminho absoluto)') };
-    if ((member.rooms.length && !member.rooms.includes(room)) || (body.mode === 'resume' && !member.last?.[room])) return { status: 422, error: tr('personagem não trabalha nesta sala') };
-    if (body.mode === 'resume' && !/^[0-9a-f][0-9a-f-]{7,199}$/i.test(member.last![room])) return { status: 422, error: tr('pedido inválido') };
+    // `session`: retomar uma conversa escolhida no histórico (pode ser de outro agente); sem ele, a última do personagem na sala.
+    const explicit = body.session !== undefined;
+    if (explicit && (body.mode !== 'resume' || typeof body.session !== 'string')) return { status: 422, error: tr('pedido inválido') };
+    if ((member.rooms.length && !member.rooms.includes(room)) || (body.mode === 'resume' && !explicit && !member.last?.[room])) return { status: 422, error: tr('personagem não trabalha nesta sala') };
+    const resume = body.mode === 'resume' ? (explicit ? body.session as string : member.last![room]) : undefined;
+    if (resume !== undefined && !/^[0-9a-f][0-9a-f-]{7,199}$/i.test(resume)) return { status: 422, error: tr('pedido inválido') };
     if (!this.available()) return { status: 503, error: tr('auxiliar do host desligado (npm run codex:bridge)') };
-    const agentDir = this.opts.account(member.account);
+    // A conversa mora na conta em que foi gravada: `account` do histórico vence a do personagem.
+    if (body.account !== undefined && typeof body.account !== 'string') return { status: 422, error: tr('pedido inválido') };
+    const agentDir = this.opts.account((body.account as string | undefined) ?? member.account);
     if (!agentDir) return { status: 422, error: tr('conta não encontrada') };
     let instructionsFile: string | undefined;
     if (member.instructions) {
@@ -52,7 +58,7 @@ export class CastLauncher {
         writeFileSync(instructionsFile, member.instructions, { mode: 0o600 });
       } catch { return { status: 500, error: tr('não foi possível gravar as instruções') }; }
     }
-    const job: CastJob = { id: randomUUID(), op: 'start', cast: id, folder: room, agentDir, ...(member.model ? { model: member.model } : {}), ...(instructionsFile ? { instructionsFile } : {}), ...(body.mode === 'resume' ? { resume: member.last![room] } : {}), ...(body.prompt ? { prompt: body.prompt as string } : {}) };
+    const job: CastJob = { id: randomUUID(), op: 'start', cast: id, folder: room, agentDir, ...(member.model ? { model: member.model } : {}), ...(instructionsFile ? { instructionsFile } : {}), ...(resume ? { resume } : {}), ...(body.prompt ? { prompt: body.prompt as string } : {}) };
     return { job: this.enqueue(job) };
   }
   dismiss(agent: AgentInfo | undefined): { job: CastJobInfo } | { status: number; error: string } {

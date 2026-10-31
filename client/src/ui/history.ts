@@ -16,6 +16,7 @@ import { PROVIDER_NAME, providerOf } from './provider';
 import { parseRecentSessions } from './recent-sessions';
 import { sessionProjectName, TERMINAL_UNAVAILABLE_HINT, type TerminalControl } from './terminal';
 import { createAccountChip, updateAccountChip } from './widgets';
+import { createAvatar } from './avatar';
 import { intlLocale, isNeutralBrand, tr } from '../../../shared/i18n';
 
 export const HISTORY_URL = '/api/sessions/recent';
@@ -343,24 +344,22 @@ export class HistoryPopover implements UiComponent {
     const open = row.querySelector('.ui-hist__menu');
     if (open) return open.remove();
     const targets = resumeTargets(this.ctx.store.snapshot?.agents ?? []);
-    const menu = h(
-      'div',
-      { class: 'ui-hist__menu', role: 'group', attrs: { 'aria-label': tr('Retomar em qual agente') } },
-      ...targets.map((a) =>
-        h('button', {
-          class: 'ui-btn ui-btn--sm',
-          type: 'button',
-          text: a.name,
-          on: {
-            click: () => {
-              this.hide();
-              this.terminal.resumeIn(a.id, s);
-            },
-          },
-        }),
-      ),
-    );
-    if (!targets.length) menu.append(h('span', { class: 'ui-hist__menu-empty', text: tr('Nenhum agente do omp livre agora.') }));
+    // Personagens do elenco na reserva: o auxiliar abre o omp com eles já retomando esta conversa, na pasta dela.
+    const reserve = s.project ? (this.ctx.store.snapshot?.reserve ?? []).filter((m) => m.state === 'idle') : [];
+    const agentBtn = (a: AgentInfo) => h('button', { class: 'ui-btn ui-btn--sm', type: 'button', text: a.name, on: { click: () => { this.hide(); this.terminal.resumeIn(a.id, s); } } });
+    const castBtn = (m: (typeof reserve)[number]) => h('button', {
+      class: 'ui-btn ui-btn--sm ui-hist__cast',
+      type: 'button',
+      title: tr('Chamar {0} do elenco já nesta conversa', [m.name]),
+      on: { click: () => void (async () => {
+        this.hide();
+        const error = await this.ctx.store.startCast(m.cast, s.project!, 'resume', '', { session: s.sessionId, account: s.account });
+        this.ctx.announce(error ?? tr('Chamando {0}…', [m.name]));
+      })() },
+    }, createAvatar({ seed: m.seed, look: m.look, kind: 'main', parts: m.parts }, 'xs'), h('span', { text: m.name }));
+    const menu = h('div', { class: 'ui-hist__menu', role: 'group', attrs: { 'aria-label': tr('Retomar em qual agente') } }, ...targets.map(agentBtn));
+    if (reserve.length) menu.append(h('span', { class: 'ui-hist__menu-label', text: tr('Elenco:') }), ...reserve.map(castBtn));
+    if (!targets.length && !reserve.length) menu.append(h('span', { class: 'ui-hist__menu-empty', text: tr('Nenhum agente do omp livre agora.') }));
     row.append(menu);
   }
 
