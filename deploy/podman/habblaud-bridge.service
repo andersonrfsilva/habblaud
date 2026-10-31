@@ -7,6 +7,9 @@ WorkingDirectory=%h/apps/habblaud
 Environment=HABBLAUD_OMP_BIN=%h/.local/bin/omp
 ExecStart=/usr/bin/env npm run codex:bridge
 Restart=on-failure
+# O servidor tmux dos personagens (hb-*) nasce dentro deste serviço: com o padrão (control-group), parar ou reiniciar
+# o auxiliar mataria todas as sessões do omp abertas pelo elenco. Só o processo do auxiliar sai; o tmux fica.
+KillMode=process
 
 [Install]
 WantedBy=default.target
