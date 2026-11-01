@@ -45,12 +45,7 @@ export function composerMode(agent: AgentInfo | undefined, env: ComposerEnv): Co
 }
 
 /** Dica embaixo da caixa (gaveta): como a mensagem entra na sessão. */
-export function composerTip(provider: Provider = 'claude', deliverAs: OmpDeliverAs = 'aside'): string {
-  if (provider === 'omp') {
-    if (deliverAs === 'followUp') return tr('Enfileirar: com o omp ocupado, espera o turno terminar. Livre, inicia um turno. Anexos e busca da extensão podem atrasar a entrega.');
-    if (deliverAs === 'steer') return tr('Mudar direção: atua no próximo ponto possível e pode pular ferramentas pendentes. Não desfaz alterações nem garante cancelar operações iniciadas. Anexos e busca da extensão podem atrasar a entrega.');
-    return tr('Acrescentar agora: com o omp ocupado, entra no próximo limite de etapa sem interromper o lote atual, exceto esperas interruptíveis. Livre, inicia um turno. Anexos e busca da extensão podem atrasar a entrega.');
-  }
+export function composerTip(provider: Provider = 'claude'): string {
   return provider === 'codex'
     ? tr('Entra na fila da sessão e vira o próximo prompt quando o Codex terminar o que está fazendo. Enter manda; Shift+Enter quebra a linha.')
     : tr('Entra na sessão como se você tivesse digitado. Enter manda; Shift+Enter quebra a linha.');

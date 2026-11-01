@@ -142,7 +142,7 @@ export class MessageComposer {
     });
     this.hint = h('p', { class: 'ui-msg__hint', hidden: true });
     this.status = h('p', { class: 'ui-msg__status', role: 'status', hidden: true, attrs: { 'aria-live': 'polite' } });
-    this.tip = h('p', { class: 'ui-msg__tip', text: composerTip() });
+    this.tip = term ? null : h('p', { class: 'ui-msg__tip', text: composerTip() });
     this.attachmentList = h('div', { class: 'ui-msg__attachments', hidden: true });
     this.attachmentStatus = h('p', { class: 'ui-msg__status is-error', role: 'status', hidden: true, attrs: { 'aria-live': 'polite' } });
     this.el = h('div', { class: `ui-msg ui-msg--${variant}` }, this.hint, this.row, this.files, this.attachmentList, this.attachmentStatus, this.dictStatus, this.status, this.tip);
@@ -213,8 +213,8 @@ export class MessageComposer {
     // Na gaveta, a dica do plugin entra no lugar da caixa; no terminal ela já está no lugar do texto.
     setHidden(this.row, !term && !ready);
     if (this.tip) {
-      setHidden(this.tip, !ready || (term && this.provider !== 'omp'));
-      setText(this.tip, composerTip(this.provider, this.ctx.prefs.ompDeliverAs));
+      setHidden(this.tip, !ready);
+      setText(this.tip, composerTip(this.provider));
     }
     setHidden(this.hint, term || mode.kind !== 'hint');
     setText(this.hint, mode.kind === 'hint' ? mode.text : '');
