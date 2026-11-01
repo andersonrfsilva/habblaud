@@ -347,6 +347,34 @@ describe('MessageRegistry: agentes do omp', () => {
     return ctx;
   }
 
+  it('valida e transporta modos OMP, preservando followUp quando omitido e isolamento de sessão', () => {
+    const { registry } = setupOmp();
+    registry.inbox({ session: OMP_SESSION });
+    for (const deliverAs of [null, [], {}, '', 'invalid', 1, false]) {
+      expect(() => registry.send({ agentId: OMP_A, text: 'oi', deliverAs })).toThrow(/deliverAs/);
+    }
+    const modes = ['aside', 'followUp', 'steer', undefined] as const;
+    const ids = modes.map((deliverAs) => {
+      const result = registry.send({ agentId: OMP_A, text: 'oi', ...(deliverAs ? { deliverAs } : {}) });
+      const id = sent(result);
+      expect(registry.get(id)?.deliverAs).toBe(deliverAs ?? 'followUp');
+      return id;
+    });
+    expect(registry.inbox({ session: '0199b0c0-5678-7abc-8def-0123456789ab' })).toEqual([]);
+    expect(registry.inbox({ session: OMP_SESSION })).toEqual(ids.map((id, i) => ({ id, text: 'oi', deliverAs: modes[i] ?? 'followUp' })));
+  });
+
+  it('recusa modo explícito para Claude e Codex antes de consumir anexos', async () => {
+    const attachments = attachmentStore();
+    const { registry, office } = setupOmp({ attachments, writeAttachments: async () => ({ paths: ['/tmp/nota.txt'] }) });
+    office.addMain({ id: 'codex', provider: 'codex', account: '.codex', sessionId: 'thread', cwd: '/p', role: 'main', startedAt: 0, status: 'idle' });
+    const id = (await uploadAttachment(attachments)).id;
+    for (const agentId of [MAIN, 'codex']) {
+      expect(() => registry.send({ agentId, text: '', attachments: [id], deliverAs: 'aside' })).toThrow(/deliverAs/);
+    }
+    expect(attachments.take([id], 5, 'messages')).toHaveLength(1);
+  });
+
   it('sem a extensão conectada: unavailable com o motivo do omp (omp:install)', () => {
     const { registry } = setupOmp();
     expect(registry.send({ agentId: OMP_A, text: 'oi' })).toEqual({ error: 'unavailable', reason: expect.stringMatching(/npm run omp:install/) });
@@ -368,7 +396,7 @@ describe('MessageRegistry: agentes do omp', () => {
     expect(registry.inbox({ session: SESSION })).toEqual([]);
     expect(registry.inbox({ session: 'thread-codex' })).toEqual([]);
     const got = registry.inbox({ session: OMP_SESSION });
-    expect(got).toEqual([{ id: idA, text: 'rode os testes' }]);
+    expect(got).toEqual([{ id: idA, text: 'rode os testes', deliverAs: 'followUp' }]);
     expect(registry.get(idA)?.status).toBe('sent');
     expect(registry.get(idB)?.status).toBe('queued');
 
@@ -501,7 +529,7 @@ describe('MessageRegistry: agentes do omp', () => {
       expect(registry.get(id)?.status).toBe('sent');
       const msg = sent(registry.send({ agentId: OMP_A, text: 'oi' }));
       expect(registry.discard(msg)).toBe(false);
-      expect(registry.inbox({ session: OMP_SESSION })).toEqual([{ id: msg, text: 'oi' }]);
+      expect(registry.inbox({ session: OMP_SESSION })).toEqual([{ id: msg, text: 'oi', deliverAs: 'followUp' }]);
       expect(registry.discard('m-nao')).toBe(false);
     });
 
@@ -570,7 +598,7 @@ describe('MessageRegistry: anexos', () => {
     const { registry, office } = setup({ attachments, writeAttachments: () => promise });
     office.addMain({ id: 'omp', provider: 'omp', account: '.omp', sessionId: 'omp-session', cwd: '/p', role: 'main', startedAt: 0, status: 'idle' });
     registry.inbox({ session: 'omp-session' });
-    const attachment = sent(registry.send({ agentId: 'omp', text: '', attachments: [await uploaded(attachments)] }));
+    const attachment = sent(registry.send({ agentId: 'omp', text: '', attachments: [await uploaded(attachments)], deliverAs: 'steer' }));
     const later = sent(registry.send({ agentId: 'omp', text: 'depois do anexo' }));
     const stop = sent(registry.control({ agentId: 'omp', stop: true }));
     const request = { topicId: 'topic', turnId: 'turn', index: 0, question: 'estado?', history: [] };
@@ -586,6 +614,8 @@ describe('MessageRegistry: anexos', () => {
     const inbox = registry.inbox({ session: 'omp-session' });
     expect(inbox.map((message) => message.id)).toEqual([attachment, later]);
     expect(inbox[0].text).toContain('/tmp/nota.txt');
+    expect(inbox[0].deliverAs).toBe('steer');
+    expect(inbox[1].deliverAs).toBe('followUp');
     expect(inbox[1].text).toBe('depois do anexo');
   });
 

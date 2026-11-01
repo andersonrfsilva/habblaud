@@ -581,9 +581,8 @@ and waits for the next request, give a new instruction or correct its course, wi
   and batches being prepared. Uploads stream to disk: `<attachmentsRoot>/.pending/` directly, or
   `<config.dataDir>/attachments-pending/` on Docker's persistent `/data` volume, not `/tmp`. The host helper
   downloads descriptors sequentially into its own `.pending/` and promotes complete batches by local rename.
-- The box shows the status: **queued** (the session fetches messages every 2 seconds), **delivered** or **not
-  delivered**, with the reason. With the agent busy, the message waits and goes in when it finishes its turn, like a
-  prompt typed while the agent is working.
+- The box shows the status: **queued**, **delivered** or **not delivered**, with the reason. Delivered means the
+  runtime accepted the message, not that the model read it or finished work. Delivery timing depends on the provider.
 - The plugin runs inside each session and only talks to Habblaud at `127.0.0.1`. Without it (or in a session opened before
   the install: use `/reload-plugins`), an install hint shows up in place of the box. Subagents don't receive
   messages.
@@ -658,9 +657,12 @@ ones stand out).
   changes at the start and end of each turn and, if the process dies, the character leaves within 30 seconds. This also
   covers the session opened by `/new` or `/resume`, and one reopened with `omp --resume`/`--restore` (which only writes
   to the file again at the next message).
-- **Sending messages:** the **Send message** box works for omp with the extension installed. With the agent idle, the
-  message starts a new turn; while it's working, it goes in as a follow-up right after the current turn, without interrupting
-  what it's doing.
+- **Sending messages:** the **Send message** box works for omp with the extension installed. An idle agent starts a turn
+  in any mode. While it works, **Add now** (`aside`, the default) enters at the next step boundary without cutting the
+  current tool batch; interruptible `wait`/`vibe_wait` calls are an exception. **Queue** (`followUp`) waits for the turn
+  to finish. **Change direction** (`steer`) can skip pending tools; it cannot undo changes or guarantee cancellation of
+  an operation already started. Uploads and extension polling (currently up to 5 seconds while busy) add delay. The
+  choice stays in memory per agent until reload. This main-history `aside` is not the separate ephemeral aside chat.
 - **Model and reasoning:** with the extension installed, the drawer's Model and Reasoning selectors change the live session (`pi.setModel` / `setThinkingLevel`); from the phone, only with `messages` in `HABBLAUD_REMOTE_ALLOW`.
 - **Questions (`ask`):** with the extension, the questions the agent asks with the `ask` tool also open in the office's
   **Question for you** card (from the phone, with `permissions` in `HABBLAUD_REMOTE_ALLOW`). The first answer wins:

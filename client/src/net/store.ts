@@ -6,6 +6,7 @@
 // ex.: servidor reiniciando atrás de um proxy), tenta de novo com espera crescente.
 import type { Activity, AgentDetail, AgentInfo, CastJobInfo, CastMember, FeedItem, Notice, OfficeSnapshot, OmpControl, OutboxMessage, PermissionDecision, PermissionRequestInfo, RoomInfo } from '../../../shared/types';
 import type { AsideTopic } from '../../../shared/asides';
+import type { OmpDeliverAs } from '../../../shared/messages';
 import { DemoSimulator } from '../../../shared/demo/simulator';
 import { tr } from '../../../shared/i18n';
 
@@ -363,9 +364,9 @@ export class OfficeStore {
    * (agente que não recebe mensagens, fila cheia, acesso que não é local...). Sem conexão com o servidor: lança.
    * No ?mock=1 a entrega é fictícia (o simulador põe a atividade no agente).
    */
-  async sendMessage(agentId: string, text: string, attachments?: string[]): Promise<{ message: OutboxMessage } | { error: string; attachmentsExpired?: boolean }> {
-    if (this.mock) return this.mockSend(agentId, text);
-    const res = await fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId, text, ...(attachments?.length ? { attachments } : {}) }) });
+  async sendMessage(agentId: string, text: string, attachments?: string[], deliverAs?: OmpDeliverAs): Promise<{ message: OutboxMessage } | { error: string; attachmentsExpired?: boolean }> {
+    if (this.mock) return this.mockSend(agentId, text, deliverAs);
+    const res = await fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId, text, ...(attachments?.length ? { attachments } : {}), ...(deliverAs ? { deliverAs } : {}) }) });
     let body: unknown;
     try {
       body = await res.json();
@@ -457,12 +458,12 @@ export class OfficeStore {
   private mockOutbox = new Map<string, OutboxMessage>();
   private mockSeq = 0;
 
-  private mockSend(agentId: string, text: string): { message: OutboxMessage } | { error: string } {
+  private mockSend(agentId: string, text: string, deliverAs?: OmpDeliverAs): { message: OutboxMessage } | { error: string } {
     const a = this.agent(agentId);
     if (!a) return { error: tr('agente desconhecido: ele já saiu do escritório?') };
     if (!a.canMessage || a.kind !== 'main' || a.status === 'offline') return { error: tr('este agente não recebe mensagens agora') };
     const now = Date.now();
-    const msg: OutboxMessage = { id: `mock-${now.toString(36)}-${++this.mockSeq}`, agentId, status: 'queued', createdAt: now, updatedAt: now };
+    const msg: OutboxMessage = { id: `mock-${now.toString(36)}-${++this.mockSeq}`, agentId, status: 'queued', createdAt: now, updatedAt: now, ...(a.provider === 'omp' ? { deliverAs: deliverAs ?? 'followUp' } : {}) };
     this.mockOutbox.set(msg.id, msg);
     setTimeout(() => {
       const sim = this.mockSim;

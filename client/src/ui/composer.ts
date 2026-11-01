@@ -5,7 +5,7 @@
 // (GET /api/messages/:id) até ela se resolver. As teclas digitadas aqui não disparam os atalhos globais. O rascunho de
 // cada agente fica guardado (só na memória) ao trocar de agente. O microfone (ui/dictation.ts, Whisper local no Mac)
 // põe o texto ditado no cursor; aparece quando o ditado funciona daqui. A lógica pura está em ui/composer-model.ts.
-import { MESSAGE_MAX } from '../../../shared/messages';
+import { MESSAGE_MAX, type OmpDeliverAs } from '../../../shared/messages';
 import type { AgentInfo, OutboxMessage, Provider } from '../../../shared/types';
 import {
   canSend,
@@ -47,6 +47,7 @@ export class MessageComposer {
   private mode: ComposerMode = { kind: 'off', text: '' };
   /** Rascunho por agente: é ele que manda no conteúdo da caixa. */
   private drafts = new Map<string, string>();
+  private deliveryModes = new Map<string, OmpDeliverAs>();
   /** Último envio de cada agente (a linha de situação). */
   private states = new Map<string, SendState>();
   /** Ferramenta de cada agente que recebeu mensagem (o texto da entrega e do prazo muda no Codex). */
@@ -70,6 +71,8 @@ export class MessageComposer {
   private box: HTMLTextAreaElement;
   private sendBtn: HTMLButtonElement;
   private hint: HTMLElement;
+  private deliveryLabel: HTMLElement;
+  private deliverySelect: HTMLSelectElement;
   private tip: HTMLElement | null;
   private status: HTMLElement;
   private dictate: DictationButton;
@@ -142,10 +145,20 @@ export class MessageComposer {
     });
     this.hint = h('p', { class: 'ui-msg__hint', hidden: true });
     this.status = h('p', { class: 'ui-msg__status', role: 'status', hidden: true, attrs: { 'aria-live': 'polite' } });
-    this.tip = term ? null : h('p', { class: 'ui-msg__tip', text: composerTip() });
+    this.deliverySelect = h('select', { attrs: { 'aria-label': tr('Modo de envio') } },
+      h('option', { text: tr('Acrescentar agora'), attrs: { value: 'aside' } }),
+      h('option', { text: tr('Enfileirar'), attrs: { value: 'followUp' } }),
+      h('option', { text: tr('Mudar direção'), attrs: { value: 'steer' } }));
+    this.deliverySelect.addEventListener('change', () => {
+      this.deliveryModes.set(this.agentId, this.deliverySelect.value as OmpDeliverAs);
+      this.ctx.invalidate();
+    });
+    this.deliverySelect.addEventListener('keydown', (e) => e.stopPropagation());
+    this.deliveryLabel = h('label', {}, tr('Modo de envio'), ' ', this.deliverySelect);
+    this.tip = h('p', { class: 'ui-msg__tip', text: composerTip() });
     this.attachmentList = h('div', { class: 'ui-msg__attachments', hidden: true });
     this.attachmentStatus = h('p', { class: 'ui-msg__status is-error', role: 'status', hidden: true, attrs: { 'aria-live': 'polite' } });
-    this.el = h('div', { class: `ui-msg ui-msg--${variant}` }, this.hint, this.row, this.files, this.attachmentList, this.attachmentStatus, this.dictStatus, this.status, this.tip);
+    this.el = h('div', { class: `ui-msg ui-msg--${variant}` }, this.hint, this.row, this.deliveryLabel, this.files, this.attachmentList, this.attachmentStatus, this.dictStatus, this.status, this.tip);
     this.box.addEventListener('paste', (event) => {
       const data = event.clipboardData;
       if (this.mode.kind !== 'ready' || !data) return;
@@ -202,6 +215,8 @@ export class MessageComposer {
     setTitle(this.box, ready ? '' : mode.text);
     this.row.classList.toggle('is-disabled', !ready);
     setHidden(this.sendBtn, !ready);
+    setHidden(this.deliveryLabel, !ready || this.provider !== 'omp');
+    this.deliverySelect.value = this.deliveryModes.get(key) ?? 'aside';
     // Consulta em cache (30 s): o Mac pode instalar o Whisper ou parar o auxiliar com a página aberta.
     void dictationAvailable().then((ok) => {
       if (ok === this.canDictate) return;
@@ -213,8 +228,8 @@ export class MessageComposer {
     // Na gaveta, a dica do plugin entra no lugar da caixa; no terminal ela já está no lugar do texto.
     setHidden(this.row, !term && !ready);
     if (this.tip) {
-      setHidden(this.tip, !ready);
-      setText(this.tip, composerTip(this.provider));
+      setHidden(this.tip, !ready || (term && this.provider !== 'omp'));
+      setText(this.tip, composerTip(this.provider, this.deliveryModes.get(key)));
     }
     setHidden(this.hint, term || mode.kind !== 'hint');
     setText(this.hint, mode.kind === 'hint' ? mode.text : '');
@@ -342,16 +357,18 @@ export class MessageComposer {
 
   private async send(): Promise<void> {
     const agentId = this.agentId;
+    const provider = this.provider;
+    const deliverAs = provider === 'omp' ? (this.deliveryModes.get(agentId) ?? 'aside') : undefined;
     const raw = this.box.value;
     const batch = this.attachments.capture(agentId);
     if (this.destroyed || this.mode.kind !== 'ready' || !canSend(raw, batch.length) || this.states.get(agentId)?.phase === 'sending') return;
-    this.providers.set(agentId, this.provider);
-    this.setState(agentId, { phase: 'sending', at: Date.now() });
+    this.providers.set(agentId, provider);
+    this.setState(agentId, { phase: 'sending', deliverAs, at: Date.now() });
     let r: { message: OutboxMessage } | { error: string; attachmentsExpired?: boolean };
     try {
       const ids = await this.attachments.upload(batch, (file) => this.ctx.store.uploadMessageAttachment(file));
       if (this.destroyed) return;
-      r = await this.ctx.store.sendMessage(agentId, messageText(raw), ids);
+      r = await this.ctx.store.sendMessage(agentId, messageText(raw), ids, deliverAs);
     } catch (error) {
       r = { error: error instanceof Error ? error.message : OFFLINE_ERROR };
     }
@@ -359,7 +376,7 @@ export class MessageComposer {
     if ('error' in r) {
       // Recusada: o texto continua na caixa para tentar de novo.
       if (r.attachmentsExpired) this.attachments.invalidate(batch);
-      this.setState(agentId, { phase: 'rejected', error: r.error, at: Date.now() });
+      this.setState(agentId, { phase: 'rejected', error: r.error, deliverAs, at: Date.now() });
       return;
     }
     this.attachments.accepted(agentId, batch);
@@ -374,7 +391,7 @@ export class MessageComposer {
       }
     }
     const m = r.message;
-    this.setState(agentId, { phase: m.status, id: m.id, error: m.error, at: Date.now() });
+    this.setState(agentId, { phase: m.status, id: m.id, error: m.error, deliverAs: m.deliverAs ?? deliverAs, at: Date.now() });
     if (!isSettled(m.status)) this.poll(agentId, m.id, Date.now());
   }
 
@@ -391,11 +408,11 @@ export class MessageComposer {
       const cur = this.states.get(agentId);
       if (this.destroyed || cur?.id !== id) return;
       const now = Date.now();
-      if (m === null) return this.setState(agentId, { phase: 'failed', id, error: LOST_ERROR, at: now });
-      if (m && (m.status !== cur.phase || m.error !== cur.error)) this.setState(agentId, { phase: m.status, id, error: m.error, at: now });
+      if (m === null) return this.setState(agentId, { ...cur, phase: 'failed', error: LOST_ERROR, at: now });
+      if (m && (m.status !== cur.phase || m.error !== cur.error || (m.deliverAs !== undefined && m.deliverAs !== cur.deliverAs))) this.setState(agentId, { phase: m.status, id, error: m.error, deliverAs: m.deliverAs ?? cur.deliverAs, at: now });
       if (m && isSettled(m.status)) return;
       const elapsed = now - since;
-      if (elapsed >= POLL_LIMIT_MS) return this.setState(agentId, { phase: 'failed', id, error: timeoutError(this.providers.get(agentId)), at: now });
+      if (elapsed >= POLL_LIMIT_MS) return this.setState(agentId, { ...cur, phase: 'failed', error: timeoutError(this.providers.get(agentId)), at: now });
       this.schedulePoll(step, pollDelay(elapsed));
     };
     this.schedulePoll(step, pollDelay(0));

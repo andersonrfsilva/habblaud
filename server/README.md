@@ -355,10 +355,17 @@ o plugin `habblaud-mensagens` da sessão o busca (`POST /api/mod/inbox`, a cada 
 - **fila:** até 5 mensagens em aberto por agente (429) e 20.000 caracteres por mensagem; o texto vai como foi digitado,
   nunca aparece nas respostas para a página nem no log, e é descartado quando a mensagem se resolve;
 - **estados:** `queued` → `sent` (o plugin buscou) → `delivered` ou `failed`. `queued` sem ser buscada em 60 s, `sent`
-  sem confirmação em 30 s ou agente que saiu = `failed`, com o motivo. `delivered` = entrou na sessão ou na fila dela
-  (com o agente ocupado, entra quando ele terminar o turno). Resolvidas ficam 10 min para o `GET`;
+  sem confirmação em 30 s ou agente que saiu = `failed`, com o motivo. `delivered` significa aceitação pelo runtime,
+  não leitura pelo modelo nem conclusão do trabalho. Resolvidas ficam 10 min para o `GET`;
 - entregue: atividade ✉️ "Mensagem pelo Habblaud" no agente (o detalhe mascarado e cortado); agentes do demo recebem
   mensagens fictícias, entregues em ~1 s, sem sessão real.
+
+No `POST /api/messages`, `deliverAs` é opcional e aceito somente para OMP: `aside`, `followUp` ou `steer`.
+Omissão preserva `followUp` para clientes antigos. Com OMP livre, qualquer modo inicia um turno; ocupado, `aside`
+entra no próximo limite de etapa sem cortar o lote comum de ferramentas, salvo esperas interruptíveis `wait`/`vibe_wait`;
+`followUp` espera o fim do turno; `steer` pode pular ferramentas pendentes, mas não desfaz alterações nem garante
+cancelar operação iniciada. Upload e polling da extensão, atualmente de até 5 s quando ocupada, acrescentam latência.
+O `aside` da mensagem principal não é o chat paralelo efêmero de `/api/asides`. O status retorna o modo aceito.
 
 As rotas (`messages/http.ts`) seguem a trava do terminal e mais uma chave: `ServerConfig.messages` = terminal ligado e
 `HABBLAUD_MENSAGENS` não desligado (`0`, `false`, `off`, `no`). Desligado ou `Host` que não é local → 403 em todas.

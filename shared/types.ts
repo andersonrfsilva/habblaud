@@ -7,6 +7,7 @@
 import type { AsideRequest } from './asides';
 import type { AppearanceParts } from './appearance';
 import type { WorldMeta } from './world/api';
+import type { OmpDeliverAs } from './messages';
 
 /** Descritor privado de upload; bytes são buscados pela rota autorizada do job. */
 export interface AttachmentDescriptor {
@@ -840,6 +841,8 @@ export interface OutboxMessage {
   /** AgentInfo.id do destinatário (sempre um principal). */
   agentId: string;
   status: OutboxStatus;
+  /** Modo aceito para mensagem textual OMP. */
+  deliverAs?: OmpDeliverAs;
   error?: string;
   createdAt: number;
   /** Última mudança de status. */
@@ -888,6 +891,8 @@ export interface InboxMessage {
   id: string;
   /** O texto como foi digitado: o plugin o manda à sessão como se você o tivesse digitado. Vazio quando há `control`. */
   text: string;
+  /** Modo de entrega para mensagem textual OMP. */
+  deliverAs?: OmpDeliverAs;
   control?: OmpControl;
   /** Pergunta do bate-papo paralelo para a extensão do omp: sem texto e sem atividade no feed. */
   aside?: AsideRequest;

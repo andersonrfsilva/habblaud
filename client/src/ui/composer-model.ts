@@ -2,9 +2,8 @@
 // por que não), o que a tecla Enter faz, a linha de situação de cada envio e o ritmo da consulta da entrega.
 // No Codex a mensagem entra na fila da sessão (`codex queue`) e vira prompt quando ela fica ociosa: "Entregue" diz
 // isso; sem quem entregue (no Docker, o auxiliar do host), a dica é a do `npm run codex:bridge`. No omp a extensão do
-// Habblaud busca as mensagens como o plugin do Claude Code e as entrega como continuação (`followUp`): o agente ocupado
-// termina o turno antes; a dica de instalação é a do `npm run omp:install`.
-import { MESSAGE_MAX, MESSAGE_ATTACHMENTS_MAX, MESSAGE_ATTACHMENT_MAX_BYTES } from '../../../shared/messages';
+// Habblaud busca as mensagens e as entrega conforme o modo escolhido; a dica de instalação é a do `npm run omp:install`.
+import { MESSAGE_MAX, MESSAGE_ATTACHMENTS_MAX, MESSAGE_ATTACHMENT_MAX_BYTES, type OmpDeliverAs } from '../../../shared/messages';
 import type { AgentInfo, OutboxStatus, Provider } from '../../../shared/types';
 import { isNeutralBrand, tr } from '../../../shared/i18n';
 
@@ -46,8 +45,12 @@ export function composerMode(agent: AgentInfo | undefined, env: ComposerEnv): Co
 }
 
 /** Dica embaixo da caixa (gaveta): como a mensagem entra na sessão. */
-export function composerTip(provider: Provider = 'claude'): string {
-  if (provider === 'omp') return tr('Entra na sessão como continuação: se o omp estiver no meio de um turno, vira o próximo prompt quando ele terminar. Enter manda; Shift+Enter quebra a linha.');
+export function composerTip(provider: Provider = 'claude', deliverAs: OmpDeliverAs = 'aside'): string {
+  if (provider === 'omp') {
+    if (deliverAs === 'followUp') return tr('Enfileirar: com o omp ocupado, espera o turno terminar. Livre, inicia um turno. Anexos e busca da extensão podem atrasar a entrega.');
+    if (deliverAs === 'steer') return tr('Mudar direção: atua no próximo ponto possível e pode pular ferramentas pendentes. Não desfaz alterações nem garante cancelar operações iniciadas. Anexos e busca da extensão podem atrasar a entrega.');
+    return tr('Acrescentar agora: com o omp ocupado, entra no próximo limite de etapa sem interromper o lote atual, exceto esperas interruptíveis. Livre, inicia um turno. Anexos e busca da extensão podem atrasar a entrega.');
+  }
   return provider === 'codex'
     ? tr('Entra na fila da sessão e vira o próximo prompt quando o Codex terminar o que está fazendo. Enter manda; Shift+Enter quebra a linha.')
     : tr('Entra na sessão como se você tivesse digitado. Enter manda; Shift+Enter quebra a linha.');
@@ -79,6 +82,7 @@ export interface SendState {
   /** Id da mensagem no servidor (depois do 201). */
   id?: string;
   error?: string;
+  deliverAs?: OmpDeliverAs;
   /** Última mudança (epoch ms, relógio da página). */
   at: number;
 }
@@ -102,10 +106,13 @@ export function sendStatusText(s: SendState | undefined, now: number, provider: 
     case 'sent':
       return tr('Entregando à sessão…');
     case 'delivered':
-      // Entregue = entrou na sessão ou na fila dela (com o agente ocupado, só entra quando ele terminar o turno). No
-      // Codex é sempre a fila: o dono da sessão a consulta a cada ~10 s e só a usa com a sessão ociosa.
+      // Entrega ao runtime não confirma leitura pelo modelo nem conclusão do trabalho.
       if (now - s.at >= DELIVERED_SHOW_MS) return '';
-      if (provider === 'omp') return tr('Entregue ✓ (como continuação: se o omp estiver ocupado, entra quando ele terminar o turno)');
+      if (provider === 'omp') {
+        if (s.deliverAs === 'aside') return tr('Aceita pelo runtime ✓: se ocupado, acrescenta no próximo limite de etapa; não confirma leitura nem conclusão.');
+        if (s.deliverAs === 'steer') return tr('Aceita pelo runtime ✓: se ocupado, muda direção no próximo ponto possível; não confirma leitura nem conclusão.');
+        return tr('Aceita pelo runtime ✓: se ocupado, continua após o turno atual; não confirma leitura nem conclusão.');
+      }
       return codex
         ? tr('Entregue ✓ na fila da sessão: entra quando o Codex terminar o que está fazendo (até ~10 s)')
         : tr('Entregue ✓ (se o agente estiver ocupado, entra quando ele terminar)');

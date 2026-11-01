@@ -203,6 +203,31 @@ describe('trava das rotas', () => {
 });
 
 describe('rotas', () => {
+  it('valida deliverAs e transporta o modo OMP no status e na sessão correta', async () => {
+    srv = await serveMessages();
+    const omp = 'omp:1';
+    const session = 'omp-session';
+    srv.office.addMain({ id: omp, provider: 'omp', account: '.omp', sessionId: session, cwd: '/p', role: 'main', startedAt: 0, status: 'idle' });
+    await post(srv, '/api/mod/inbox', { session });
+    for (const deliverAs of [null, [], {}, '', 'invalid', 1, false]) {
+      expect((await post(srv, '/api/messages', { agentId: omp, text: 'oi', deliverAs })).status).toBe(400);
+    }
+    expect((await post(srv, '/api/messages', { agentId: MAIN, text: 'oi', deliverAs: 'aside' })).status).toBe(400);
+    const ids: string[] = [];
+    for (const deliverAs of ['aside', 'followUp', 'steer', undefined]) {
+      const response = await post(srv, '/api/messages', { agentId: omp, text: 'oi', ...(deliverAs ? { deliverAs } : {}) });
+      expect(response.status).toBe(201);
+      expect(response.json).toMatchObject({ deliverAs: deliverAs ?? 'followUp' });
+      const id = (response.json as OutboxMessage).id;
+      ids.push(id);
+      expect((await request(srv.base, `/api/messages/${id}`)).json).toMatchObject({ deliverAs: deliverAs ?? 'followUp' });
+    }
+    expect((await post(srv, '/api/mod/inbox', { session: SESSION })).json).toEqual({ messages: [] });
+    expect((await post(srv, '/api/mod/inbox', { session })).json).toEqual({
+      messages: ids.map((id, i) => ({ id, text: 'oi', deliverAs: ['aside', 'followUp', 'steer', 'followUp'][i] })),
+    });
+  });
+
   it('400 (corpo inválido, vazio, longo demais), 404 (agente ou mensagem desconhecidos), 405, 409 e 429', async () => {
     srv = await serveMessages();
     for (const body of [{}, '{quebrado', { agentId: MAIN }, { agentId: MAIN, text: '   ' }, { agentId: MAIN, text: 'x'.repeat(20_001) }]) {

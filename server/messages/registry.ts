@@ -19,7 +19,7 @@
 // o auxiliar visto há até PRESENCE_MS). `delivered` = entrou na fila da sessão (entra quando ela ficar ociosa).
 import { randomBytes } from 'node:crypto';
 import { truncate } from '../../shared/activity';
-import { describeMessage, MESSAGE_MAX, MESSAGE_ATTACHMENTS_MAX, OMP_THINKING_LEVELS } from '../../shared/messages';
+import { describeMessage, MESSAGE_MAX, MESSAGE_ATTACHMENTS_MAX, OMP_DELIVERY_MODES, OMP_THINKING_LEVELS, type OmpDeliverAs } from '../../shared/messages';
 import { OMP_COMMANDS, OMP_SESSION_ID } from '../../shared/omp-events';
 import type { AsideRequest } from '../../shared/asides';
 import type { Activity, AgentInfo, InboxMessage, OmpControl, OutboxMessage } from '../../shared/types';
@@ -179,17 +179,18 @@ function unavailableReason(a: AgentInfo, reachable: boolean): string | undefined
   return undefined;
 }
 
-/** Corpo de POST /api/messages: `{agentId, text}`. O texto não é alterado (nem aparado). */
-export function parseSend(raw: unknown): { agentId: string; text: string; attachments?: string[] } {
+/** Corpo de POST /api/messages: `{agentId, text, deliverAs?}`. O texto não é alterado (nem aparado). */
+export function parseSend(raw: unknown): { agentId: string; text: string; attachments?: string[]; deliverAs?: OmpDeliverAs } {
   const r = rec(raw);
   const agentId = shortStr(r?.agentId, ID_MAX);
   if (!r || !agentId || typeof r.text !== 'string') throw new InvalidRequest('esperado {agentId, text}');
+  if (r.deliverAs !== undefined && (typeof r.deliverAs !== 'string' || !(OMP_DELIVERY_MODES as readonly string[]).includes(r.deliverAs))) throw new InvalidRequest('deliverAs inválido');
   if (r.attachments !== undefined && (!Array.isArray(r.attachments) || r.attachments.some((id) => typeof id !== 'string') || new Set(r.attachments).size !== r.attachments.length)) throw new InvalidRequest(tr('anexos inválidos'));
   const attachments = r.attachments as string[] | undefined;
   if (attachments && attachments.length > MESSAGE_ATTACHMENTS_MAX) throw new InvalidRequest(tr('no máximo {0} anexos por pedido', [MESSAGE_ATTACHMENTS_MAX]));
   if (!r.text.trim() && !attachments?.length) throw new InvalidRequest(tr('a mensagem está vazia'));
   if (r.text.length > MAX_TEXT) throw new InvalidRequest(tr('a mensagem passa de 20.000 caracteres'));
-  return { agentId, text: r.text, attachments };
+  return { agentId, text: r.text, attachments, deliverAs: r.deliverAs as OmpDeliverAs | undefined };
 }
 
 /**
@@ -318,11 +319,12 @@ export class MessageRegistry {
    * (too-many). Corpo inválido: lança InvalidRequest.
    */
   send(raw: unknown): SendResult {
-    const { agentId, text, attachments } = parseSend(raw);
+    const { agentId, text, attachments, deliverAs } = parseSend(raw);
     const real = this.opts.office.get(agentId);
     const demo = real ? undefined : this.opts.demoAgent?.(agentId);
     const agent = real ?? demo;
     if (!agent) return { error: 'not-found' };
+    if (deliverAs !== undefined && agent.provider !== 'omp') throw new InvalidRequest('deliverAs só é aceito para OMP');
     const reason = unavailableReason(agent, real ? this.canMessage(agentId) : demo!.canMessage === true);
     if (reason) return { error: 'unavailable', reason };
     if (this.openCount(agentId) >= MAX_OPEN) return { error: 'too-many' };
@@ -332,6 +334,7 @@ export class MessageRegistry {
     if ('error' in files) throw new InvalidRequest(files.error, files.attachmentsExpired);
 
     const entry = this.entry(agentId, agent.sessionId, { text, activity: describeMessage(text) });
+    if (agent.provider === 'omp') entry.msg.deliverAs = deliverAs ?? 'followUp';
     if (demo) entry.demo = true;
     else if (real?.provider === 'codex') entry.codex = true;
     this.messages.set(entry.msg.id, entry);
@@ -473,7 +476,7 @@ export class MessageRegistry {
       this.setStatus(e, 'sent', now);
       e.session = session;
       e.sentAt = now;
-      out.push({ id: e.msg.id, text: e.text, ...(e.control ? { control: e.control } : {}), ...(e.aside ? { aside: e.aside } : {}) });
+      out.push({ id: e.msg.id, text: e.text, ...(e.msg.deliverAs ? { deliverAs: e.msg.deliverAs } : {}), ...(e.control ? { control: e.control } : {}), ...(e.aside ? { aside: e.aside } : {}) });
     }
     return out;
   }

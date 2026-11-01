@@ -1,7 +1,8 @@
 // Rotas das mensagens pelo escritório. A trava (recurso ligado + Host local) já foi conferida em http/app.ts; o
 // guard (http/guard.ts) já exigiu JSON e Origin local nos POST (contra CSRF).
 //
-//   POST /api/messages          (página)  {agentId, text}: 201 OutboxMessage (queued) | 400 | 404 | 409 | 429
+//   POST /api/messages          (página)  {agentId, text, attachments?, deliverAs?}: 201 OutboxMessage (queued) | 400 | 404 | 409 | 429
+//                                         deliverAs: aside | followUp | steer, somente OMP; omitido = followUp no OMP
 //   POST /api/messages/control  (página)  {agentId, model?, thinking?} (só omp): mesmas respostas de POST /api/messages
 //   GET  /api/messages/:id      (página)  situação da mensagem: 200 OutboxMessage | 404
 //   POST /api/mod/inbox         (plugin)  {session, account?}: 200 {messages: InboxMessage[]} (e marca a presença)

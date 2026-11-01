@@ -16,6 +16,10 @@ const DETAIL_MAX = 300;
 /** Níveis de raciocínio (thinking) do omp, do menor ao maior. */
 export const OMP_THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
 
+/** Modos de entrega de mensagens ao histórico principal do OMP. */
+export const OMP_DELIVERY_MODES = ['aside', 'followUp', 'steer'] as const;
+export type OmpDeliverAs = (typeof OMP_DELIVERY_MODES)[number];
+
 /**
  * Atividade "Mensagem pelo Habblaud" de uma mensagem entregue à sessão (entrou nela ou na fila dela: não quer dizer
  * que o agente já leu).

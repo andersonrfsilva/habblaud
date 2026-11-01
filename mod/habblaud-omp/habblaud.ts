@@ -13,8 +13,8 @@
 //    fila, um de cada vez (a ordem importa), sem acumular quando o Habblaud trava.
 // 2. Mensagens: laço inbox → entrega → ack com as rotas existentes (POST /api/mod/inbox e /api/mod/inbox/ack,
 //    `session` = id da sessão do omp). A pergunta também marca a presença da caixa de mensagem no escritório. Cada
-//    mensagem entra por pi.sendUserMessage: com o agente no meio de um turno, como {deliverAs: 'followUp'} (depois
-//    dele, sem interromper as ferramentas); livre, SEM deliverAs, que no omp 18.12 inicia um turno novo (com
+//    mensagem entra por pi.sendUserMessage: com o agente ocupado, usa o modo pedido (ou 'followUp' se omitido);
+//    livre, SEM deliverAs, que no omp 18.12 inicia um turno novo (com
 //    deliverAs 'followUp' e o agente livre o omp só enfileira e a mensagem esperaria o próximo pedido). Perguntas a cada 2 s à toa, 5 s com o agente ocupado (a presença vale 10 s no
 //    servidor), 30 s com o Habblaud fora do ar, sem as mensagens ligadas (403) ou respondendo qualquer coisa que
 //    não seja 2xx.
@@ -54,6 +54,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { OMP_COMMANDS, OMP_HEARTBEAT_MS, OMP_SESSION_ID, type OmpCommand, type OmpEvent, type OmpEventKind } from '../../shared/omp-events';
 import { ASIDE_ANSWER_MAX, ASIDE_HEARTBEAT_MS, ASIDE_PROGRESS_MS, clipAnswer, type AsideProgress, type AsideRequest } from '../../shared/asides';
+import type { OmpDeliverAs } from '../../shared/messages';
 
 export const DEFAULT_PORT = 4747;
 /** Quanto esperar o Habblaud responder (qualquer rota). */
@@ -184,7 +185,7 @@ export interface ToolDefinition {
 
 export interface OmpApi {
   on(event: string, handler: (event: Rec, ctx: OmpContext) => unknown): void;
-  sendUserMessage(text: string, options?: { deliverAs?: 'followUp' }): void;
+  sendUserMessage(text: string, options?: { deliverAs?: OmpDeliverAs }): void;
   /** Troca o modelo da sessão; o omp devolve false quando não há credencial para ele. */
   setModel?(model: unknown): Promise<boolean> | boolean;
   setThinkingLevel?(level: string): void;
@@ -250,6 +251,7 @@ export function allowedModels(models: string[], env: NodeJS.ProcessEnv): string[
 export interface InboxMessage {
   id: string;
   text: string;
+  deliverAs?: unknown;
   /** Troca de modelo e/ou raciocínio, um comando do omp, STOP ou /resume (POST /api/messages/control): sem texto. */
   control?: { model?: string; thinking?: string; command?: string; stop?: boolean; resume?: string };
   /** Pergunta do bate-papo paralelo (a janela lateral do terminal do Habblaud): sem texto; a extensão a inicia e confirma na hora. */
@@ -282,6 +284,7 @@ export function parseInbox(text: string): InboxMessage[] | undefined {
     const m = item as Rec;
     if (typeof m.id !== 'string' || !m.id) continue;
     const msg: InboxMessage = { id: m.id, text: typeof m.text === 'string' ? m.text : '' };
+    if ('deliverAs' in m) msg.deliverAs = m.deliverAs;
     const a = m.aside && typeof m.aside === 'object' && !Array.isArray(m.aside) ? (m.aside as Rec) : undefined;
     if (a && typeof a.topicId === 'string' && typeof a.turnId === 'string' && typeof a.question === 'string' && typeof a.index === 'number' && Array.isArray(a.history)) {
       const history = a.history.flatMap((h: unknown) => {
@@ -700,7 +703,7 @@ export function create(pi: OmpApi, deps: Deps): void {
 
   /**
    * Entrega cada mensagem, na ordem. Nunca lança. A primeira, com o agente livre, inicia um turno; o que vier depois
-   * (da mesma rodada ou com o agente ocupado) entra como continuação, depois do turno atual. Item de uma sessão que
+   * (da mesma rodada ou com o agente ocupado) usa o modo pedido. Item de uma sessão que
    * já não é a atual vira falha, sem entrega.
    */
   async function deliver(session: string, messages: readonly InboxMessage[]): Promise<AckResult[]> {
@@ -713,11 +716,13 @@ export function create(pi: OmpApi, deps: Deps): void {
       if (m.aside) return startAside(m.id, m.aside);
       if (m.control) return applyControl(m.id, m.control);
       if (!m.text.trim()) return { id: m.id, ok: false, error: 'mensagem vazia' };
+      const mode = m.deliverAs === undefined ? 'followUp' : m.deliverAs;
+      if (mode !== 'aside' && mode !== 'followUp' && mode !== 'steer') return { id: m.id, ok: false, error: 'modo de entrega inválido' };
       try {
         if (idle) {
           pi.sendUserMessage(m.text);
           idle = false;
-        } else pi.sendUserMessage(m.text, { deliverAs: 'followUp' });
+        } else pi.sendUserMessage(m.text, { deliverAs: mode });
         return { id: m.id, ok: true };
       } catch (err) {
         return { id: m.id, ok: false, error: reasonText(err, 'falha ao entregar a mensagem') };

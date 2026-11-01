@@ -491,6 +491,49 @@ describe('omp extension: mensagens', () => {
     expect(t.sent).toEqual([{ text: 'oi', options: { deliverAs: 'followUp' } }]);
   });
 
+  it.each(['aside', 'followUp', 'steer'] as const)('modo %s inicia turno livre sem opções e é aplicado quando ocupado', async (mode) => {
+    for (const idle of [true, false]) {
+      const abort = vi.fn();
+      const t = setup({ home: tmp.dir, answer: inbox([{ id: 'm1', text: 'oi', deliverAs: mode }]) });
+      const ctx = { ...makeCtx({ idle }), abort };
+      t.fire('session_start', ctx);
+      await vi.waitFor(() => expect(t.habblaud.of('/api/mod/inbox/ack')).toHaveLength(1));
+      await t.fire('session_shutdown', ctx);
+      expect(t.sent).toEqual([{ text: 'oi', options: idle ? undefined : { deliverAs: mode } }]);
+      expect(t.habblaud.of('/api/mod/inbox/ack')[0].body?.results).toEqual([{ id: 'm1', ok: true }]);
+      expect(abort).not.toHaveBeenCalled();
+    }
+  });
+
+  it('lote misto rejeita modos inválidos e entrega os seguintes com seus modos', async () => {
+    const t = setup({ home: tmp.dir, answer: inbox([
+      { id: 'bad1', text: 'inválido', deliverAs: null },
+      { id: 'm1', text: 'primeira', deliverAs: 'steer' },
+      { id: 'bad2', text: 'inválido', deliverAs: 'outro' },
+      { id: 'm2', text: 'segunda', deliverAs: 'aside' },
+      { id: 'm3', text: 'terceira' },
+      { id: 'm4', text: 'quarta', deliverAs: 'steer' },
+    ]) });
+    const ctx = makeCtx();
+    t.fire('session_start', ctx);
+    await vi.waitFor(() => expect(t.habblaud.of('/api/mod/inbox/ack')).toHaveLength(1));
+    await t.fire('session_shutdown', ctx);
+    expect(t.sent).toEqual([
+      { text: 'primeira', options: undefined },
+      { text: 'segunda', options: { deliverAs: 'aside' } },
+      { text: 'terceira', options: { deliverAs: 'followUp' } },
+      { text: 'quarta', options: { deliverAs: 'steer' } },
+    ]);
+    expect(t.habblaud.of('/api/mod/inbox/ack')[0].body?.results).toEqual([
+      { id: 'bad1', ok: false, error: 'modo de entrega inválido' },
+      { id: 'm1', ok: true },
+      { id: 'bad2', ok: false, error: 'modo de entrega inválido' },
+      { id: 'm2', ok: true },
+      { id: 'm3', ok: true },
+      { id: 'm4', ok: true },
+    ]);
+  });
+
   it('texto vazio e erro na entrega viram falha com motivo; as outras seguem', async () => {
     const handlers = new Map<string, Handler>();
     const pi: OmpApi = {
