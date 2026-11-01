@@ -661,8 +661,9 @@ ones stand out).
   in any mode. While it works, **Add now** (`aside`, the default) enters at the next step boundary without cutting the
   current tool batch; interruptible `wait`/`vibe_wait` calls are an exception. **Queue** (`followUp`) waits for the turn
   to finish. **Change direction** (`steer`) can skip pending tools; it cannot undo changes or guarantee cancellation of
-  an operation already started. Uploads and extension polling (currently up to 5 seconds while busy) add delay. The
-  choice stays in memory per agent until reload. This main-history `aside` is not the separate ephemeral aside chat.
+  an operation already started. Uploads and extension polling (currently up to 5 seconds while busy) add delay. Pick
+  the mode in **Settings › Messages to omp**; it applies to every omp agent and is saved in the browser. This
+  main-history `aside` is not the separate ephemeral aside chat.
 - **Model and reasoning:** with the extension installed, the drawer's Model and Reasoning selectors change the live session (`pi.setModel` / `setThinkingLevel`); from the phone, only with `messages` in `HABBLAUD_REMOTE_ALLOW`.
 - **Questions (`ask`):** with the extension, the questions the agent asks with the `ask` tool also open in the office's
   **Question for you** card (from the phone, with `permissions` in `HABBLAUD_REMOTE_ALLOW`). The first answer wins:

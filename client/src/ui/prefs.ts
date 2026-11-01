@@ -3,6 +3,7 @@
 import { DEFAULT_SOUND_SETTINGS, sanitizeSoundSettings, type SoundSettings } from '../audio/scheduler';
 import type { CoreLayout, DaylightMode, WorldOptions } from '../world/api';
 import { DEFAULT_WORLD_OPTIONS } from '../world/api';
+import { OMP_DELIVERY_MODES, type OmpDeliverAs } from '../../../shared/messages';
 
 export const PREFS_KEY = 'habblaud:prefs';
 
@@ -29,6 +30,8 @@ export interface UiPrefs {
   hiddenAccounts: string[];
   /** Habblaud World: aviso quando o primeiro visitante entra no seu prédio (a cada conexão). Ligado por padrão. */
   worldVisitNotify: boolean;
+  /** Como a mensagem ao omp ocupado entra no trabalho (vale para todos os agentes do omp). */
+  ompDeliverAs: OmpDeliverAs;
 }
 
 export const DEFAULT_PREFS: UiPrefs = {
@@ -46,6 +49,7 @@ export const DEFAULT_PREFS: UiPrefs = {
   feedOpen: true,
   hiddenAccounts: [],
   worldVisitNotify: true,
+  ompDeliverAs: 'aside',
 };
 
 type StorageLike = Pick<Storage, 'getItem' | 'setItem'>;
@@ -74,6 +78,7 @@ export function sanitizePrefs(raw: unknown): UiPrefs {
     feedOpen: bool(o.feedOpen, d.feedOpen),
     hiddenAccounts: Array.isArray(o.hiddenAccounts) ? o.hiddenAccounts.filter((x): x is string => typeof x === 'string').slice(0, 20) : [],
     worldVisitNotify: bool(o.worldVisitNotify, d.worldVisitNotify),
+    ompDeliverAs: oneOf(o.ompDeliverAs, OMP_DELIVERY_MODES, d.ompDeliverAs),
   };
 }
 

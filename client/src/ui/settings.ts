@@ -52,7 +52,7 @@ export function switchRow(label: string, hintText: string, onToggle: () => void)
   return { row, btn, hint };
 }
 
-export function segmented<T extends string>(label: string, options: readonly [T, string][], onPick: (v: T) => void): { row: HTMLElement; group: HTMLElement; set(v: T): void } {
+export function segmented<T extends string>(label: string, options: readonly [T, string][], onPick: (v: T) => void): { row: HTMLElement; set(v: T): void } {
   const group = h('div', { class: 'ui-seg', role: 'radiogroup', attrs: { 'aria-label': label } });
   const buttons = options.map(([value, text]) => {
     const b = h('button', { class: 'ui-seg__opt', type: 'button', role: 'radio', text, attrs: { 'aria-checked': 'false' } });
@@ -73,7 +73,6 @@ export function segmented<T extends string>(label: string, options: readonly [T,
   const row = h('div', { class: 'ui-set ui-set--stack' }, h('span', { class: 'ui-set__label', text: label }), group);
   return {
     row,
-    group,
     set(v: T) {
       options.forEach(([value], i) => {
         const on = value === v;
@@ -93,6 +92,7 @@ export class SettingsPopover implements UiComponent {
   private theme: ReturnType<typeof segmented<UiPrefs['theme']>>;
   private coreLayout: ReturnType<typeof segmented<UiPrefs['coreLayout']>>;
   private language: ReturnType<typeof segmented<LanguageChoice>>;
+  private ompDeliverAs: ReturnType<typeof segmented<UiPrefs['ompDeliverAs']>>;
   private soundGroup: SoundSettingsGroup;
   private demoGroup: HTMLElement;
   /** Só na página do celular (porta remota com login): sair deste aparelho. */
@@ -171,6 +171,18 @@ export class SettingsPopover implements UiComponent {
     this.coreLayout.row.append(
       h('span', { class: 'ui-set__hint', text: tr('Compactas: só a recepção e um lounge com copa, sem banheiros, deixando mais espaço para as salas de projeto. A página recarrega.') }),
     );
+    this.ompDeliverAs = segmented<UiPrefs['ompDeliverAs']>(
+      tr('Modo de envio'),
+      [
+        ['aside', tr('Acrescentar agora')],
+        ['followUp', tr('Enfileirar')],
+        ['steer', tr('Mudar direção')],
+      ],
+      (v) => ctx.updatePrefs({ ompDeliverAs: v }),
+    );
+    this.ompDeliverAs.row.append(
+      h('span', { class: 'ui-set__hint', text: tr('Vale para todos os agentes do omp, quando a mensagem chega com ele trabalhando; parado, qualquer modo começa na hora. Sessões abertas antes de atualizar a extensão do Habblaud sempre enfileiram.') }),
+    );
     this.soundGroup = new SoundSettingsGroup(ctx, sound);
 
     // Nomes dos idiomas sempre na própria língua, para quem não entende o idioma atual achar o seu.
@@ -245,6 +257,7 @@ export class SettingsPopover implements UiComponent {
         h('h3', { text: tr('Avisos') }),
         sw('browserNotifications', tr('Notificações do navegador'), tr('Avisa quando alguém precisa de você e a aba está em segundo plano.'), () => void this.toggleNotifications()),
       ),
+      h('div', { class: 'ui-set-group' }, h('h3', { text: tr('Mensagens ao omp') }), this.ompDeliverAs.row),
       this.soundGroup.el,
       h('div', { class: 'ui-set-group' }, h('h3', { text: tr('Idioma') }), this.language.row),
       this.demoGroup,
@@ -322,6 +335,7 @@ export class SettingsPopover implements UiComponent {
     this.daylight.set(p.daylight);
     this.theme.set(p.theme);
     this.coreLayout.set(p.coreLayout);
+    this.ompDeliverAs.set(p.ompDeliverAs);
     this.language.set(savedLanguage());
     this.soundGroup.render();
     setHidden(this.demoGroup, this.ctx.store.mock || access().remote);

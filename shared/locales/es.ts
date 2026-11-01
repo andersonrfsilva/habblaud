@@ -115,6 +115,8 @@ export const ES: Readonly<Record<string, string>> = {
   "Acrescentar agora": "Añadir ahora",
   "Enfileirar": "Encolar",
   "Mudar direção": "Cambiar dirección",
+  "Mensagens ao omp": "Mensajes a omp",
+  "Vale para todos os agentes do omp, quando a mensagem chega com ele trabalhando; parado, qualquer modo começa na hora. Sessões abertas antes de atualizar a extensão do Habblaud sempre enfileiram.": "Vale para todos los agentes de omp cuando el mensaje llega mientras trabaja; si está parado, cualquier modo empieza enseguida. Las sesiones abiertas antes de actualizar la extensión de Habblaud siempre encolan.",
   "Na fila: esperando a extensão do omp buscar a mensagem…": "En cola: esperando a que la extensión de omp recoja el mensaje…",
   "sem notícia da entrega: confira no omp": "sin noticias de la entrega: compruébalo en omp",
   "Para mandar mensagens daqui: npm run mod:install (plugin habblaud-mensagens)": "Para enviar mensajes desde aquí: npm run mod:install (plugin habblaud-mensagens)",

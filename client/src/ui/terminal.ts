@@ -787,8 +787,6 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     this.status = h('p', { class: 'ui-term__status' }, this.glyph, this.statusText, this.statusTime);
     // Esc na caixa devolve o foco à conversa (o próximo fecha o terminal).
     this.composer = new MessageComposer(ctx, 'terminal', { onEscape: () => this.focusLog() });
-    // Modos de envio na barra do omp, antes dos comandos (o CSS os separa com um divisor).
-    this.ompBar.el.insertBefore(this.composer.deliveryGroup, this.ompBar.el.lastElementChild);
     // /resume que deu certo: a conversa retomada é outro agente (ids por sessão); o terminal passa para ela.
     this.ompBar.onResumed = (id) => this.open(id);
 

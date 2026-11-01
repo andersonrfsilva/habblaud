@@ -5,7 +5,7 @@
 // (GET /api/messages/:id) até ela se resolver. As teclas digitadas aqui não disparam os atalhos globais. O rascunho de
 // cada agente fica guardado (só na memória) ao trocar de agente. O microfone (ui/dictation.ts, Whisper local no Mac)
 // põe o texto ditado no cursor; aparece quando o ditado funciona daqui. A lógica pura está em ui/composer-model.ts.
-import { MESSAGE_MAX, type OmpDeliverAs } from '../../../shared/messages';
+import { MESSAGE_MAX } from '../../../shared/messages';
 import type { AgentInfo, OutboxMessage, Provider } from '../../../shared/types';
 import {
   canSend,
@@ -32,7 +32,6 @@ import { h, iconButton, setAttr, setHidden, setText, setTitle } from './dom';
 import { access } from '../net/access';
 import { tr } from '../../../shared/i18n';
 import { formatBytes } from './spawn';
-import { segmented } from './settings';
 
 export type ComposerVariant = 'drawer' | 'terminal';
 
@@ -48,7 +47,6 @@ export class MessageComposer {
   private mode: ComposerMode = { kind: 'off', text: '' };
   /** Rascunho por agente: é ele que manda no conteúdo da caixa. */
   private drafts = new Map<string, string>();
-  private deliveryModes = new Map<string, OmpDeliverAs>();
   /** Último envio de cada agente (a linha de situação). */
   private states = new Map<string, SendState>();
   /** Ferramenta de cada agente que recebeu mensagem (o texto da entrega e do prazo muda no Codex). */
@@ -72,9 +70,6 @@ export class MessageComposer {
   private box: HTMLTextAreaElement;
   private sendBtn: HTMLButtonElement;
   private hint: HTMLElement;
-  /** Modos de envio do omp: três botões exclusivos. No terminal, o TerminalPanel os põe na barra do omp. */
-  readonly deliveryGroup: HTMLElement;
-  private deliveryPick: (mode: OmpDeliverAs) => void;
   private tip: HTMLElement | null;
   private status: HTMLElement;
   private dictate: DictationButton;
@@ -147,21 +142,10 @@ export class MessageComposer {
     });
     this.hint = h('p', { class: 'ui-msg__hint', hidden: true });
     this.status = h('p', { class: 'ui-msg__status', role: 'status', hidden: true, attrs: { 'aria-live': 'polite' } });
-    const modes = segmented<OmpDeliverAs>(
-      tr('Modo de envio'),
-      [['aside', tr('Acrescentar agora')], ['followUp', tr('Enfileirar')], ['steer', tr('Mudar direção')]],
-      (mode) => {
-        this.deliveryModes.set(this.agentId, mode);
-        this.ctx.invalidate();
-      },
-    );
-    this.deliveryGroup = modes.group;
-    this.deliveryGroup.classList.add('ui-msg__modes');
-    this.deliveryPick = modes.set;
     this.tip = h('p', { class: 'ui-msg__tip', text: composerTip() });
     this.attachmentList = h('div', { class: 'ui-msg__attachments', hidden: true });
     this.attachmentStatus = h('p', { class: 'ui-msg__status is-error', role: 'status', hidden: true, attrs: { 'aria-live': 'polite' } });
-    this.el = h('div', { class: `ui-msg ui-msg--${variant}` }, this.hint, this.row, ...(term ? [] : [this.deliveryGroup]), this.files, this.attachmentList, this.attachmentStatus, this.dictStatus, this.status, this.tip);
+    this.el = h('div', { class: `ui-msg ui-msg--${variant}` }, this.hint, this.row, this.files, this.attachmentList, this.attachmentStatus, this.dictStatus, this.status, this.tip);
     this.box.addEventListener('paste', (event) => {
       const data = event.clipboardData;
       if (this.mode.kind !== 'ready' || !data) return;
@@ -218,8 +202,6 @@ export class MessageComposer {
     setTitle(this.box, ready ? '' : mode.text);
     this.row.classList.toggle('is-disabled', !ready);
     setHidden(this.sendBtn, !ready);
-    setHidden(this.deliveryGroup, !ready || this.provider !== 'omp');
-    this.deliveryPick(this.deliveryModes.get(key) ?? 'aside');
     // Consulta em cache (30 s): o Mac pode instalar o Whisper ou parar o auxiliar com a página aberta.
     void dictationAvailable().then((ok) => {
       if (ok === this.canDictate) return;
@@ -232,7 +214,7 @@ export class MessageComposer {
     setHidden(this.row, !term && !ready);
     if (this.tip) {
       setHidden(this.tip, !ready || (term && this.provider !== 'omp'));
-      setText(this.tip, composerTip(this.provider, this.deliveryModes.get(key)));
+      setText(this.tip, composerTip(this.provider, this.ctx.prefs.ompDeliverAs));
     }
     setHidden(this.hint, term || mode.kind !== 'hint');
     setText(this.hint, mode.kind === 'hint' ? mode.text : '');
@@ -361,7 +343,8 @@ export class MessageComposer {
   private async send(): Promise<void> {
     const agentId = this.agentId;
     const provider = this.provider;
-    const deliverAs = provider === 'omp' ? (this.deliveryModes.get(agentId) ?? 'aside') : undefined;
+    // Modo global (Configurações), lido no envio: trocar durante o upload não muda este envio.
+    const deliverAs = provider === 'omp' ? this.ctx.prefs.ompDeliverAs : undefined;
     const raw = this.box.value;
     const batch = this.attachments.capture(agentId);
     if (this.destroyed || this.mode.kind !== 'ready' || !canSend(raw, batch.length) || this.states.get(agentId)?.phase === 'sending') return;

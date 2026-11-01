@@ -5332,27 +5332,6 @@ button.ui-term__think:hover,
   border-color: rgba(255, 107, 107, 0.75);
 }
 
-/* Modos de envio (ui/composer.ts) na barra do omp: compactos e separados dos comandos por um divisor. */
-.ui-term__omp .ui-msg__modes {
-  grid-auto-columns: auto;
-  margin-left: auto;
-  padding: 1px;
-  border-radius: 5px;
-}
-
-.ui-term__omp .ui-msg__modes .ui-seg__opt {
-  height: 18px;
-  padding: 0 7px;
-  border-radius: 4px;
-  font: 11.5px/1 var(--font-mono);
-}
-
-.ui-term__omp .ui-msg__modes + .ui-term__cmds {
-  margin-left: 0;
-  padding-left: 10px;
-  border-left: 1px solid var(--ui-line-strong);
-}
-
 .ui-term__cmd.ui-btn:disabled {
   opacity: 0.45;
   cursor: default;
@@ -5527,10 +5506,6 @@ button.ui-term__think:hover,
 
 .ui-msg__send:disabled {
   opacity: 0.45;
-}
-
-.ui-msg--drawer .ui-msg__modes {
-  margin-top: 6px;
 }
 
 /* Microfone da caixa de mensagem: só o ícone; gravando, mostra o tempo. */
