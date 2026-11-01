@@ -2319,7 +2319,6 @@ export const FR: Readonly<Record<string, string>> = {
   "Assumindo…": "Prise de contrôle…",
 
   // client/src/ui/termtabs.ts
-  "Agentes do projeto (arraste para reordenar)": "Agents du projet (glissez pour réorganiser)",
   "Encerrar esta sessão": "Fermer cette session",
   "encerrar?": "fermer ?",
   "Clique de novo para encerrar a sessão (a conversa fica salva)": "Cliquez à nouveau pour fermer la session (la conversation reste enregistrée)",

@@ -805,7 +805,6 @@ export const ES: Readonly<Record<string, string>> = {
   "↓ Ir para o fim": "↓ Ir al final",
 
   // client/src/ui/termtabs.ts
-  "Agentes do projeto (arraste para reordenar)": "Agentes del proyecto (arrastra para reordenar)",
   "Encerrar esta sessão": "Cerrar esta sesión",
   "encerrar?": "¿cerrar?",
   "Clique de novo para encerrar a sessão (a conversa fica salva)": "Haz clic de nuevo para cerrar la sesión (la conversación queda guardada)",

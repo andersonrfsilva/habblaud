@@ -1,6 +1,6 @@
-// Abas da janela de terminal: os agentes principais presentes no mesmo projeto (sala) do agente aberto.
+// Abas da janela de terminal: os agentes principais presentes no escritório.
 // Clicar numa aba troca a janela para o terminal daquele agente (interativo ou ao vivo). Arrastar uma aba
-// muda a ordem (a mesma da lista lateral; ver ui/agentorder.ts). Ao lado do nome, o começo do que o agente está
+// muda a ordem das abas, guardada separadamente da lista lateral. Ao lado do nome, o começo do que o agente está
 // fazendo; o X encerra a sessão (pede um segundo clique) e só aparece com o terminal interativo ligado.
 import type { AgentInfo } from '../../../shared/types';
 import type { UiContext } from './context';
@@ -13,6 +13,7 @@ import { tr } from '../../../shared/i18n';
 
 /** Quanto tempo o X fica pedindo confirmação. */
 const CONFIRM_MS = 3000;
+const TAB_ORDER = ':terminal-tabs';
 
 /** O que mostrar ao lado do nome: a atividade de quem trabalha ou espera; o título da conversa de quem está parado. */
 function doingOf(a: AgentInfo): string {
@@ -24,7 +25,6 @@ export class TermTabs {
   readonly el: HTMLElement;
   private list: KeyedList<AgentInfo>;
   private current: string | null = null;
-  private roomId: string | null = null;
   private peers: AgentInfo[] = [];
   /** Aba cujo X espera o segundo clique. */
   private confirming: string | null = null;
@@ -33,7 +33,7 @@ export class TermTabs {
   private dragging: string | null = null;
 
   constructor(private ctx: UiContext) {
-    this.el = h('div', { class: 'ui-ttabs', role: 'tablist', hidden: true, attrs: { 'aria-label': tr('Agentes do projeto (arraste para reordenar)') } });
+    this.el = h('div', { class: 'ui-ttabs', role: 'tablist', hidden: true, attrs: { 'aria-label': tr('Agentes') } });
     this.list = new KeyedList<AgentInfo>(this.el, {
       animate: false,
       key: (a) => a.id,
@@ -96,13 +96,12 @@ ${doing}` : ''}${live ? tr(' (interativo)') : ''}`);
   render(agentId: string | null): void {
     this.current = agentId;
     const agent = agentId ? this.ctx.agent(agentId) : undefined;
-    this.roomId = agent?.roomId ?? null;
     const peers = agent
       ? (this.ctx.store.snapshot?.agents ?? [])
-          .filter((a) => a.kind === 'main' && a.roomId === agent.roomId && a.status !== 'offline' && !a.id.startsWith('demo:'))
+          .filter((a) => a.kind === 'main' && a.status !== 'offline' && !a.id.startsWith('demo:'))
           .sort((x, y) => x.startedAt - y.startedAt || x.id.localeCompare(y.id))
       : [];
-    this.peers = agent ? orderAgents(agent.roomId, peers, (a) => a.sessionId) : [];
+    this.peers = agent ? orderAgents(TAB_ORDER, peers, (a) => a.sessionId) : [];
     // Uma aba só não ajuda: some.
     setHidden(this.el, this.peers.length < 2);
     this.list.sync(this.peers.length < 2 ? [] : this.peers);
@@ -183,9 +182,8 @@ ${doing}` : ''}${live ? tr(' (interativo)') : ''}`);
     for (const el of this.el.querySelectorAll('.is-drop-before, .is-drop-after')) el.classList.remove('is-drop-before', 'is-drop-after');
   }
 
-  /** Põe `from` antes (ou depois) de `to` e guarda a ordem do projeto. */
+  /** Põe `from` antes (ou depois) de `to` e guarda a ordem das abas. */
   private move(from: string, to: string, after: boolean): void {
-    if (!this.roomId) return;
-    if (moveAgent(this.roomId, this.peers, (a) => a.id, (a) => a.sessionId, from, to, after)) this.ctx.invalidate();
+    if (moveAgent(TAB_ORDER, this.peers, (a) => a.id, (a) => a.sessionId, from, to, after)) this.ctx.invalidate();
   }
 }
