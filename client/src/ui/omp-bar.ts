@@ -69,7 +69,8 @@ export class OmpBar {
   private fill: HTMLElement;
   private label: HTMLElement;
   private buttons: HTMLElement;
-  private statusEl: HTMLElement;
+  /** Aviso dos comandos (/new, /shake, /resume...): o TerminalPanel o põe na linha de estado da sessão. */
+  readonly statusEl: HTMLElement;
   private stopBtn: HTMLButtonElement;
   /** Olho do advisor: fica na barra de cima do terminal, ao lado da estrela (o TerminalPanel o coloca lá). */
   readonly eyeBtn: HTMLButtonElement;
@@ -111,7 +112,7 @@ export class OmpBar {
       }),
     );
     this.statusEl = h('span', { class: 'ui-term__cmd-status', role: 'status', hidden: true });
-    this.el = h('div', { class: 'ui-term__omp', hidden: true }, this.meter, this.statusEl, this.buttons);
+    this.el = h('div', { class: 'ui-term__omp', hidden: true }, this.meter, this.buttons);
   }
 
   /** `ready`: a caixa de mensagem do agente está pronta (a extensão do omp está conectada). */

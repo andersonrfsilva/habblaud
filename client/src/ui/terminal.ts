@@ -784,7 +784,7 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     this.glyph = h('span', { class: 'ui-term__glyph', attrs: { 'aria-hidden': 'true' } });
     this.statusText = h('span', { class: 'ui-term__status-text' });
     this.statusTime = h('span', { class: 'ui-term__status-time' });
-    this.status = h('p', { class: 'ui-term__status' }, this.glyph, this.statusText, this.statusTime);
+    this.status = h('p', { class: 'ui-term__status' }, this.glyph, this.statusText, this.statusTime, this.ompBar.statusEl);
     // Esc na caixa devolve o foco à conversa (o próximo fecha o terminal).
     this.composer = new MessageComposer(ctx, 'terminal', { onEscape: () => this.focusLog(), statusTarget: this.status });
     // /resume que deu certo: a conversa retomada é outro agente (ids por sessão); o terminal passa para ela.
