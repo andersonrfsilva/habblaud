@@ -52,7 +52,7 @@ export function switchRow(label: string, hintText: string, onToggle: () => void)
   return { row, btn, hint };
 }
 
-export function segmented<T extends string>(label: string, options: readonly [T, string][], onPick: (v: T) => void): { row: HTMLElement; set(v: T): void } {
+export function segmented<T extends string>(label: string, options: readonly [T, string][], onPick: (v: T) => void): { row: HTMLElement; group: HTMLElement; set(v: T): void } {
   const group = h('div', { class: 'ui-seg', role: 'radiogroup', attrs: { 'aria-label': label } });
   const buttons = options.map(([value, text]) => {
     const b = h('button', { class: 'ui-seg__opt', type: 'button', role: 'radio', text, attrs: { 'aria-checked': 'false' } });
@@ -73,6 +73,7 @@ export function segmented<T extends string>(label: string, options: readonly [T,
   const row = h('div', { class: 'ui-set ui-set--stack' }, h('span', { class: 'ui-set__label', text: label }), group);
   return {
     row,
+    group,
     set(v: T) {
       options.forEach(([value], i) => {
         const on = value === v;

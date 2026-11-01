@@ -32,6 +32,7 @@ import { h, iconButton, setAttr, setHidden, setText, setTitle } from './dom';
 import { access } from '../net/access';
 import { tr } from '../../../shared/i18n';
 import { formatBytes } from './spawn';
+import { segmented } from './settings';
 
 export type ComposerVariant = 'drawer' | 'terminal';
 
@@ -71,8 +72,9 @@ export class MessageComposer {
   private box: HTMLTextAreaElement;
   private sendBtn: HTMLButtonElement;
   private hint: HTMLElement;
-  private deliveryLabel: HTMLElement;
-  private deliverySelect: HTMLSelectElement;
+  /** Modos de envio do omp: três botões exclusivos. No terminal, o TerminalPanel os põe na barra do omp. */
+  readonly deliveryGroup: HTMLElement;
+  private deliveryPick: (mode: OmpDeliverAs) => void;
   private tip: HTMLElement | null;
   private status: HTMLElement;
   private dictate: DictationButton;
@@ -145,20 +147,21 @@ export class MessageComposer {
     });
     this.hint = h('p', { class: 'ui-msg__hint', hidden: true });
     this.status = h('p', { class: 'ui-msg__status', role: 'status', hidden: true, attrs: { 'aria-live': 'polite' } });
-    this.deliverySelect = h('select', { attrs: { 'aria-label': tr('Modo de envio') } },
-      h('option', { text: tr('Acrescentar agora'), attrs: { value: 'aside' } }),
-      h('option', { text: tr('Enfileirar'), attrs: { value: 'followUp' } }),
-      h('option', { text: tr('Mudar direção'), attrs: { value: 'steer' } }));
-    this.deliverySelect.addEventListener('change', () => {
-      this.deliveryModes.set(this.agentId, this.deliverySelect.value as OmpDeliverAs);
-      this.ctx.invalidate();
-    });
-    this.deliverySelect.addEventListener('keydown', (e) => e.stopPropagation());
-    this.deliveryLabel = h('label', {}, tr('Modo de envio'), ' ', this.deliverySelect);
+    const modes = segmented<OmpDeliverAs>(
+      tr('Modo de envio'),
+      [['aside', tr('Acrescentar agora')], ['followUp', tr('Enfileirar')], ['steer', tr('Mudar direção')]],
+      (mode) => {
+        this.deliveryModes.set(this.agentId, mode);
+        this.ctx.invalidate();
+      },
+    );
+    this.deliveryGroup = modes.group;
+    this.deliveryGroup.classList.add('ui-msg__modes');
+    this.deliveryPick = modes.set;
     this.tip = h('p', { class: 'ui-msg__tip', text: composerTip() });
     this.attachmentList = h('div', { class: 'ui-msg__attachments', hidden: true });
     this.attachmentStatus = h('p', { class: 'ui-msg__status is-error', role: 'status', hidden: true, attrs: { 'aria-live': 'polite' } });
-    this.el = h('div', { class: `ui-msg ui-msg--${variant}` }, this.hint, this.row, this.deliveryLabel, this.files, this.attachmentList, this.attachmentStatus, this.dictStatus, this.status, this.tip);
+    this.el = h('div', { class: `ui-msg ui-msg--${variant}` }, this.hint, this.row, ...(term ? [] : [this.deliveryGroup]), this.files, this.attachmentList, this.attachmentStatus, this.dictStatus, this.status, this.tip);
     this.box.addEventListener('paste', (event) => {
       const data = event.clipboardData;
       if (this.mode.kind !== 'ready' || !data) return;
@@ -215,8 +218,8 @@ export class MessageComposer {
     setTitle(this.box, ready ? '' : mode.text);
     this.row.classList.toggle('is-disabled', !ready);
     setHidden(this.sendBtn, !ready);
-    setHidden(this.deliveryLabel, !ready || this.provider !== 'omp');
-    this.deliverySelect.value = this.deliveryModes.get(key) ?? 'aside';
+    setHidden(this.deliveryGroup, !ready || this.provider !== 'omp');
+    this.deliveryPick(this.deliveryModes.get(key) ?? 'aside');
     // Consulta em cache (30 s): o Mac pode instalar o Whisper ou parar o auxiliar com a página aberta.
     void dictationAvailable().then((ok) => {
       if (ok === this.canDictate) return;
