@@ -11,7 +11,7 @@
 //   `session_exit` (saída limpa; crash não grava nada) e `tool_execution_start`; o resto é ignorado.
 // Nada aqui lê o conteúdo para outra coisa além de atividade (mascarada e cortada, como as outras fontes).
 import type { Activity, AgentStats, TaskItem } from '../../../shared/types';
-import { describePrompt, describeTool, maskSecrets, SPECIAL, truncate, type ActivityDescription } from '../../../shared/activity';
+import { describePrompt, describeShellJob, describeTool, maskSecrets, SPECIAL, truncate, type ActivityDescription } from '../../../shared/activity';
 import { tr } from '../../../shared/i18n';
 import type { ParsedActivity } from '../transcript';
 
@@ -193,7 +193,7 @@ export function describeOmpTool(rawName: string, rawInput: unknown): { desc: Act
       return { desc, tool: 'Agent' };
     }
     case 'wait':
-      return { desc: { kind: 'delegate', icon: '⏳', text: tr('Esperando os subagentes') }, tool: 'wait' };
+      return { desc: describeOmpWait(new Map()), tool: 'wait' };
     case 'ask': {
       // O omp pergunta no terminal: a pergunta aparece, a resposta não vem pelo escritório (sem `questions`).
       const questions = Array.isArray(input.questions) ? input.questions : input.question !== undefined ? [{ question: input.question }] : [];
@@ -203,6 +203,27 @@ export function describeOmpTool(rawName: string, rawInput: unknown): { desc: Act
     default:
       return { desc: describeTool(name || 'ferramenta', input), tool: name || 'ferramenta' };
   }
+}
+
+/** Job em segundo plano do omp: comando (`bash` devolvido como `bg_N`) ou subagente (`task`). */
+export interface OmpJob {
+  type: 'bash' | 'task';
+  label: string;
+}
+
+const MAX_JOBS = 64;
+
+/** O que o `wait` espera, pelos jobs ainda abertos: subagentes, comandos ou os dois. */
+export function describeOmpWait(jobs: ReadonlyMap<string, OmpJob>): ActivityDescription {
+  const all = [...jobs.values()];
+  const tasks = all.filter((j) => j.type === 'task');
+  const shells = all.filter((j) => j.type === 'bash');
+  if (tasks.length && shells.length) return { kind: 'delegate', icon: '⏳', text: tr('Esperando {0} subagente(s) e {1} comando(s)', [tasks.length, shells.length]) };
+  if (tasks.length === 1) return { kind: 'delegate', icon: '⏳', text: tr('Esperando o subagente {0}', [tasks[0]!.label]) };
+  if (tasks.length) return { kind: 'delegate', icon: '⏳', text: tr('Esperando {0} subagentes', [tasks.length]) };
+  if (shells.length === 1) return { kind: 'wait', icon: '⏳', text: tr('Esperando o comando: {0}', [shells[0]!.label]) };
+  if (shells.length) return { kind: 'wait', icon: '⏳', text: tr('Esperando {0} comandos em segundo plano', [shells.length]) };
+  return { kind: 'wait', icon: '⏳', text: tr('Aguardando atividade em segundo plano') };
 }
 
 // ------------------------------------------------------------------ estado
@@ -226,8 +247,10 @@ export interface OmpState {
   lastAt?: number;
   /** Quando o turno atual começou (para "Concluiu em X"). */
   turnStartAt?: number;
-  /** Chamadas de ferramenta sem resultado ainda (id → nome). */
-  pending: Map<string, string>;
+  /** Chamadas de ferramenta sem resultado ainda (id → nome e, no bash, o rótulo do comando). */
+  pending: Map<string, { name: string; label?: string }>;
+  /** Jobs em segundo plano ainda abertos (id do job → tipo e rótulo), para o `wait` dizer o que espera. */
+  jobs: Map<string, OmpJob>;
   /** Tipos informados nas tarefas do pai, por nome do subagente. */
   subTypes: Map<string, string>;
   /** Atividade atual (para não repetir "Pensando…"). */
@@ -279,7 +302,7 @@ export function projectDir(cwd: string, paths: readonly { path: string; dir: boo
 }
 
 export function createOmpState(head?: OmpHead): OmpState {
-  const s: OmpState = { tasks: [], stats: { toolCalls: 0, tokensIn: 0, tokensOut: 0, subagents: 0 }, pending: new Map(), subTypes: new Map(), paths: [] };
+  const s: OmpState = { tasks: [], stats: { toolCalls: 0, tokensIn: 0, tokensOut: 0, subagents: 0 }, pending: new Map(), jobs: new Map(), subTypes: new Map(), paths: [] };
   if (head?.title) {
     s.title = head.title;
     s.titleExplicit = true;
@@ -402,8 +425,13 @@ class OmpLineParser {
           this.s.exited = true;
           this.s.turnOpen = false;
           this.s.pending.clear();
+          this.s.jobs.clear();
           this.out.signals.push({ type: 'exit' });
         }
+        return;
+      case 'custom_message':
+        // Entrega automática de jobs que terminaram (`details.jobs[].jobId`).
+        if (this.j.customType === 'async-result') this.settleJobs(rec(this.j.details)?.jobs);
         return;
       default:
         return;
@@ -515,7 +543,7 @@ class OmpLineParser {
     this.s.stats.toolCalls++;
     this.out.changed = true;
     if (id) {
-      this.s.pending.set(id, name);
+      this.s.pending.set(id, name === 'bash' ? { name, label: describeShellJob('Bash', { command: args.command, description: args.i }).label } : { name });
       if (this.s.pending.size > MAX_PENDING) this.s.pending.delete(this.s.pending.keys().next().value as string);
     }
     if (name === 'task' && Array.isArray(args.tasks)) {
@@ -530,17 +558,50 @@ class OmpLineParser {
     }
     const paths = toolPaths(args);
     if (paths.length) this.s.paths = [...this.s.paths, ...paths].slice(-PATHS_WINDOW);
-    const { desc, tool } = describeOmpTool(name, args);
+    const { desc, tool } = name === 'wait' ? { desc: describeOmpWait(this.s.jobs), tool: 'wait' } : describeOmpTool(name, args);
     this.push(desc, { key: id ?? this.key(), tool, callId: id });
   }
 
   private toolResult(m: Rec): void {
     const id = str(m.toolCallId);
-    const name = str(m.toolName) ?? (id ? this.s.pending.get(id) : undefined) ?? 'ferramenta';
+    const call = id ? this.s.pending.get(id) : undefined;
+    const name = str(m.toolName) ?? call?.name ?? 'ferramenta';
     if (id) this.s.pending.delete(id);
+    const details = rec(m.details);
+    if (name === 'wait') this.settleJobs(details?.jobs);
+    else if (name === 'bash') {
+      // Comando que foi para o segundo plano (pedido async ou movido no meio): `details.async` traz o id do job.
+      const async = rec(details?.async);
+      const job = str(async?.jobId);
+      if (job && async?.state === 'running') this.openJob(job, { type: 'bash', label: call?.label ?? tr('Comando no terminal') });
+    } else if (name === 'task' && m.isError !== true && rec(details?.async)?.state === 'running') {
+      // Subagentes em segundo plano: um item de `details.progress` por subagente (`id` = nome do job); um task que
+      // terminou sem ir para o segundo plano não traz `async` em execução, e itens já encerrados não contam.
+      const progress = Array.isArray(details?.progress) ? details.progress : [];
+      for (const raw of progress) {
+        const p = rec(raw);
+        const job = str(p?.id);
+        if (job && (p?.status === undefined || p.status === 'pending' || p.status === 'running')) this.openJob(job, { type: 'task', label: job });
+      }
+    }
     if (m.isError !== true) return;
     const { tool } = describeOmpTool(name, {});
     this.push(SPECIAL.error(tool, firstLine(textOf(m.content))), { key: `${id ?? this.key()}:e`, tool, current: false });
+  }
+
+  private openJob(id: string, job: OmpJob): void {
+    this.s.jobs.set(id, job);
+    if (this.s.jobs.size > MAX_JOBS) this.s.jobs.delete(this.s.jobs.keys().next().value as string);
+  }
+
+  /** Fecha os jobs que o omp informou como encerrados (`wait` usa `id`; a entrega automática, `jobId`). */
+  private settleJobs(raw: unknown): void {
+    if (!Array.isArray(raw)) return;
+    for (const item of raw) {
+      const job = rec(item);
+      const id = str(job?.jobId) ?? str(job?.id);
+      if (id && job?.status !== 'running') this.s.jobs.delete(id);
+    }
   }
 }
 

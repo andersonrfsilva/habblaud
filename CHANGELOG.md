@@ -12,6 +12,9 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Terminal:** avisos de envio, ditado e anexos aparecem junto ao estado da sessão, acima da caixa de mensagem.
+- **omp:** a espera (`wait`) diz o que aguarda: o comando em segundo plano, o subagente pelo nome ou os dois, em vez
+  de sempre "Esperando os subagentes".
 - **Elenco:** personagens do host usam Moli como navegador headless, inclusive após reiniciar o auxiliar.
 
 ### Adicionado

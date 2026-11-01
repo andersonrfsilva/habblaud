@@ -125,7 +125,7 @@ describe('ferramentas do omp', () => {
     expect(byTool('Agent')).toMatchObject({ kind: 'delegate' });
     expect(byTool('eval')).toMatchObject({ kind: 'run' });
     expect(byTool('ask')).toMatchObject({ kind: 'ask' });
-    expect(byTool('wait')).toMatchObject({ kind: 'delegate' });
+    expect(byTool('wait')).toMatchObject({ kind: 'wait', text: 'Aguardando atividade em segundo plano' });
   });
 
   it('ask não leva perguntas respondíveis (o omp pergunta no terminal)', () => {
@@ -141,6 +141,24 @@ describe('ferramentas do omp', () => {
     const line = JSON.stringify({ type: 'message', message: { role: 'assistant', content: [{ type: 'toolCall', id: 't', name: 'task', arguments: { tasks: [{ name: 'Review', agent: 'reviewer' }, { name: 'Default' }] } }], stopReason: 'toolUse' } });
     parseOmpLine(state, line, { idPrefix: 'omp:t', now: 1 });
     expect([...state.subTypes]).toEqual([['Review', 'reviewer'], ['Default', 'task']]);
+  });
+
+  it('wait diz se espera comando, subagente ou os dois (jobs abertos e fechados pelo omp)', () => {
+    const state = createOmpState();
+    const feed = (j: unknown) => parseOmpLine(state, JSON.stringify(j), { idPrefix: 'omp:t', now: 1 }).activities.map((a) => a.activity.text);
+    const call = (id: string, name: string, args: unknown = {}) => feed({ type: 'message', message: { role: 'assistant', content: [{ type: 'toolCall', id, name, arguments: args }], stopReason: 'toolUse' } });
+    const result = (id: string, toolName: string, details: unknown) => feed({ type: 'message', message: { role: 'toolResult', toolCallId: id, toolName, content: [], details } });
+    call('b', 'bash', { command: 'npm test', i: 'Rodando a suíte' });
+    result('b', 'bash', { async: { state: 'running', jobId: 'bg_1', type: 'bash' } });
+    expect(call('w1', 'wait')).toEqual(['Esperando o comando: Rodando a suíte']);
+    call('t', 'task', { tasks: [{ name: 'A' }, { name: 'B' }] });
+    result('t', 'task', { async: { state: 'running', jobId: 'A', type: 'task' }, progress: [{ id: 'A', status: 'pending' }, { id: 'B', status: 'running' }, { id: 'C', status: 'completed' }] });
+    result('s', 'task', { progress: [{ id: 'Sync', status: 'completed' }] });
+    expect(call('w2', 'wait')).toEqual(['Esperando 2 subagente(s) e 1 comando(s)']);
+    result('w2', 'wait', { jobs: [{ id: 'bg_1', type: 'bash', status: 'completed' }, { id: 'B', type: 'task', status: 'running' }] });
+    expect(call('w3', 'wait')).toEqual(['Esperando 2 subagentes']);
+    feed({ type: 'custom_message', customType: 'async-result', details: { jobs: [{ jobId: 'A', type: 'task', status: 'completed' }] } });
+    expect(call('w4', 'wait')).toEqual(['Esperando o subagente B']);
   });
 
   it('title_change atualiza o título e sinaliza', () => {

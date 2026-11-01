@@ -41,7 +41,7 @@ import { detectOmpAccounts, OMP_SESSIONS_DIR } from './accounts';
 import { LivenessCache, OmpIndex, readOmpHead, statFile, subagentsOf, type OmpFile } from './files';
 import type { OmpLive } from './live';
 import { createOmpTerminalParser } from './terminal';
-import { createOmpState, describeOmpTool, parseOmpLine, projectDir, type OmpLineResult, type OmpState } from './parser';
+import { createOmpState, describeOmpTool, describeOmpWait, parseOmpLine, projectDir, type OmpLineResult, type OmpState } from './parser';
 import { ompBinFrom, runOmpUsage, type RunOmpUsage } from './bin';
 import { ompProviderOf, parseOmpProviders, parseOmpUsage } from './usage';
 import type { OmpHead } from './parser';
@@ -844,7 +844,8 @@ export class OmpSource implements AgentSource, OmpLive {
     if (!t.inOffice) return;
     const id = `${t.key}#${ev.toolCallId ?? `ev${now}`}`;
     if (ev.toolCallId && t.state.pending.has(ev.toolCallId)) return; // o arquivo já trouxe a chamada
-    const { desc, tool } = describeOmpTool(ev.toolName ?? 'ferramenta', {});
+    const name = ev.toolName ?? 'ferramenta';
+    const { desc, tool } = name === 'wait' ? { desc: describeOmpWait(t.state.jobs), tool: 'wait' } : describeOmpTool(name, {});
     this.opts.office.addActivity(t.key, toActivity(id, now, desc, tool), true, { feed: true });
   }
 }

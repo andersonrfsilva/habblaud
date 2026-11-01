@@ -38,6 +38,8 @@ export type ComposerVariant = 'drawer' | 'terminal';
 export interface ComposerOptions {
   /** Esc dentro da caixa: para onde vai o foco (padrão: só sai da caixa). */
   onEscape?: () => void;
+  /** Onde mostrar avisos no terminal, junto ao estado da sessão. */
+  statusTarget?: HTMLElement;
 }
 
 export class MessageComposer {
@@ -122,7 +124,7 @@ export class MessageComposer {
       },
       term ? '↵' : tr('Enviar'),
     );
-    this.dictStatus = h('p', { class: 'ui-msg__status ui-msg__dictation', role: 'status', hidden: true, attrs: { 'aria-live': 'polite' } });
+    this.dictStatus = h(term ? 'span' : 'p', { class: 'ui-msg__status ui-msg__dictation', role: 'status', hidden: true, attrs: { 'aria-live': 'polite' } });
     this.dictate = new DictationButton(
       (t) => this.insertDictated(t.text),
       (text, error) => this.sayDictation(text, error),
@@ -141,11 +143,13 @@ export class MessageComposer {
       }
     });
     this.hint = h('p', { class: 'ui-msg__hint', hidden: true });
-    this.status = h('p', { class: 'ui-msg__status', role: 'status', hidden: true, attrs: { 'aria-live': 'polite' } });
+    this.status = h(term ? 'span' : 'p', { class: 'ui-msg__status', role: 'status', hidden: true, attrs: { 'aria-live': 'polite' } });
     this.tip = term ? null : h('p', { class: 'ui-msg__tip', text: composerTip() });
     this.attachmentList = h('div', { class: 'ui-msg__attachments', hidden: true });
-    this.attachmentStatus = h('p', { class: 'ui-msg__status is-error', role: 'status', hidden: true, attrs: { 'aria-live': 'polite' } });
-    this.el = h('div', { class: `ui-msg ui-msg--${variant}` }, this.hint, this.row, this.files, this.attachmentList, this.attachmentStatus, this.dictStatus, this.status, this.tip);
+    this.attachmentStatus = h(term ? 'span' : 'p', { class: 'ui-msg__status is-error', role: 'status', hidden: true, attrs: { 'aria-live': 'polite' } });
+    const messages = [this.attachmentStatus, this.dictStatus, this.status];
+    this.el = h('div', { class: `ui-msg ui-msg--${variant}` }, this.hint, this.row, this.files, this.attachmentList, ...(opts.statusTarget ? [] : messages), this.tip);
+    opts.statusTarget?.append(...messages);
     this.box.addEventListener('paste', (event) => {
       const data = event.clipboardData;
       if (this.mode.kind !== 'ready' || !data) return;

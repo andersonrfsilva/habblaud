@@ -5350,6 +5350,7 @@ button.ui-term__think:hover,
   display: flex;
   align-items: baseline;
   gap: 1ch;
+  flex-wrap: wrap;
   min-width: 0;
   padding: 0 4px 8px;
   color: var(--term-dim);
@@ -5676,6 +5677,11 @@ button.ui-term__think:hover,
 
 .ui-msg--terminal .ui-msg__status {
   padding: 0 4px;
+  font: 11.5px/1.4 var(--font-mono);
+}
+
+.ui-term__status > .ui-msg__status {
+  margin-top: 0;
   font: 11.5px/1.4 var(--font-mono);
 }
 
