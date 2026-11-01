@@ -44,7 +44,7 @@ export function composerMode(agent: AgentInfo | undefined, env: ComposerEnv): Co
   return { kind: 'ready' };
 }
 
-/** Dica embaixo da caixa (gaveta): como a mensagem entra na sessão. */
+/** Dica embaixo da caixa (gaveta, Claude Code e Codex): como a mensagem entra na sessão. */
 export function composerTip(provider: Provider = 'claude'): string {
   return provider === 'codex'
     ? tr('Entra na fila da sessão e vira o próximo prompt quando o Codex terminar o que está fazendo. Enter manda; Shift+Enter quebra a linha.')

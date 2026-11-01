@@ -213,7 +213,8 @@ export class MessageComposer {
     // Na gaveta, a dica do plugin entra no lugar da caixa; no terminal ela já está no lugar do texto.
     setHidden(this.row, !term && !ready);
     if (this.tip) {
-      setHidden(this.tip, !ready);
+      // omp: o modo de envio (Configurações) decide como a mensagem entra; a dica genérica não vale.
+      setHidden(this.tip, !ready || this.provider === 'omp');
       setText(this.tip, composerTip(this.provider));
     }
     setHidden(this.hint, term || mode.kind !== 'hint');
