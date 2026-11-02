@@ -4,4 +4,23 @@
     <string name="server_url">URL do servidor</string>
     <string name="user">Usuário</string>
     <string name="password">Senha</string>
+    <string name="http_warning">Esta conexão não usa HTTPS. A segurança depende do Tailscale estar ligado neste celular. O app só confere se há alguma VPN ligada, não qual é. Com o Tailscale desligado, senha e sessão podem ir para outra máquina.</string>
+    <string name="accept_risk">Entendo e aceito o risco para esta origem</string>
+    <string name="invalid_url">URL inválida ou não permitida. Use HTTPS ou um IPv4 Tailscale autorizado, sem caminho, consulta ou fragmento.</string>
+    <string name="vpn_required">Conecte o Tailscale para usar esta conexão.</string>
+    <string name="redirect_error">O servidor tentou redirecionar a requisição. Redirecionamentos não são permitidos.</string>
+    <string name="login_error">Login inválido ou sessão expirada.</string>
+    <string name="forbidden">Recurso bloqueado pelo servidor.</string>
+    <string name="rate_limited">Muitas tentativas. Aguarde antes de tentar novamente. Retry-After: %1$s</string>
+    <string name="http_error">O servidor retornou HTTP %1$d.</string>
+    <string name="network_error">Não foi possível conectar ao servidor.</string>
+    <string name="storage_error">Não foi possível acessar o armazenamento seguro.</string>
+    <string name="login">Entrar</string>
+    <string name="logout">Sair</string>
+    <string name="connected">Conectado a %1$s</string>
+    <string name="logout_unconfirmed">Sessão local apagada. Não foi possível confirmar a revogação no servidor.</string>
+    <string name="change_server">Trocar servidor?</string>
+    <string name="change_warning">A troca apaga os dados locais da origem anterior, incluindo rascunhos não enviados.</string>
+    <string name="confirm">Confirmar</string>
+    <string name="cancel">Cancelar</string>
 </resources>
