@@ -16,8 +16,17 @@ import java.net.URLEncoder
     val entries: List<TerminalEntry> = emptyList(), val truncated: Boolean = false,
     val reduced: Boolean = false, val terminalAllowed: Boolean = false,
     val connection: String = "connecting", val error: String? = null,
-    val messagesAllowed: Boolean = false, val messageGuard: Boolean = false
+    val messagesAllowed: Boolean = false, val messageGuard: Boolean = false, val permissionsAllowed: Boolean = false,
+    val readingError: String? = null
 )
+
+internal fun ReadingState.streamFailure(status: Int?, conversation: Boolean): ReadingState {
+    val reason = when (status) { -1 -> "oversize"; 403 -> "forbidden"; 404 -> "missing"; else -> "network" }
+    return if (conversation) copy(readingError = reason) else copy(connection = "offline", error = reason)
+}
+
+internal fun ReadingState.conversationConnected(): ReadingState =
+    copy(readingError = if (readingError == "network") null else readingError)
 
 class ReadingController(private val api: HabblaudApi, private val store: LocalStateStore, private val scope: CoroutineScope, private val unauthorized: () -> Unit) {
     private val repository = SessionRepository(api)
@@ -53,12 +62,12 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                         delay(maxOf(retry, retryAfterMillis((e as? ApiException)?.retryAfter))); retry = (retry * 2).coerceAtMost(30000)
                     }
                 }
-                mutable.value = mutable.value.copy(terminalAllowed = repository.terminalAllowed, messagesAllowed = repository.messagesAllowed, messageGuard = repository.messageGuard)
+                mutable.value = mutable.value.copy(terminalAllowed = repository.terminalAllowed, messagesAllowed = repository.messagesAllowed, messageGuard = repository.messageGuard, permissionsAllowed = repository.permissionsAllowed)
                 if (!restoreLoaded) { restore = store.lastSession()?.takeIf { it.origin == api.origin }; restoreLoaded = true }
                 streams.stream("/api/stream").collect { event ->
                     when (event) {
                         is StreamEvent.Connected -> mutable.value = mutable.value.copy(connection = "connected", error = if (mutable.value.error == "network") null else mutable.value.error)
-                        is StreamEvent.Failure -> failure(event)
+                        is StreamEvent.Failure -> failure(event, conversation = false)
                         is StreamEvent.Data -> if (event.type == "snapshot") {
                             val sessions = repository.snapshot(event.data)
                             val selected = mutable.value.selected
@@ -72,22 +81,17 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         }
         mutable.value.selected?.let { open(it) }
     }
-    fun stop() { active = false; generation++; stateJob?.cancel(); conversationJob?.cancel(); messages.stop(); api.cancelCalls(); mutable.value = mutable.value.copy(connection = "offline") }
-    fun close() { generation++; conversationJob?.cancel(); messages.close(); restore = null; scope.launch { store.setLastSession(null) }; mutable.value = mutable.value.copy(selected = null, entries = emptyList(), error = null) }
+    fun stop() { active = false; generation++; stateJob?.cancel(); conversationJob?.cancel(); messages.stop(); api.cancelCalls(); mutable.value = mutable.value.copy(connection = "offline", readingError = if (mutable.value.selected != null && mutable.value.readingError == null) "network" else mutable.value.readingError) }
+    fun close() { generation++; conversationJob?.cancel(); messages.close(); restore = null; scope.launch { store.setLastSession(null) }; mutable.value = mutable.value.copy(selected = null, entries = emptyList(), error = null, readingError = null) }
     private fun changed() { close(); mutable.value = mutable.value.copy(error = "changed") }
-    private fun failure(event: StreamEvent.Failure) {
+    private fun failure(event: StreamEvent.Failure, conversation: Boolean) {
         if (event.status == 401) { unauthorized(); return }
-        mutable.value = mutable.value.copy(connection = "offline", error = when (event.status) {
-            -1 -> "oversize"
-            403 -> "forbidden"
-            404 -> "missing"
-            else -> "network"
-        })
+        mutable.value = mutable.value.streamFailure(event.status, conversation)
     }
     fun open(item: SessionItem) {
         generation++; val token = generation
         conversationJob?.cancel()
-        mutable.value = mutable.value.copy(selected = item, entries = emptyList(), truncated = false, reduced = false, error = null)
+        mutable.value = mutable.value.copy(selected = item, entries = emptyList(), truncated = false, reduced = false, error = null, readingError = null)
         messages.open(item.key)
         if (!active || !repository.terminalAllowed) return
         val path = if (item.agentId != null) "/api/agents/${encode(item.agentId)}/terminal" else "/api/sessions/${encode(item.key.account)}/${encode(item.key.sessionId)}/terminal"
@@ -98,8 +102,8 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
             streams.stream(path).collect { event ->
                 if (token != generation) return@collect
                 when (event) {
-                    is StreamEvent.Connected -> awaitingInit = true
-                    is StreamEvent.Failure -> failure(event)
+                    is StreamEvent.Connected -> { awaitingInit = true; mutable.value = mutable.value.conversationConnected() }
+                    is StreamEvent.Failure -> failure(event, conversation = true)
                     is StreamEvent.Data -> try {
                         if (event.type == "init") {
                             if (initialized && !awaitingInit) { changed(); return@collect }
@@ -110,7 +114,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                             conversation.append(wireJson.parseToJsonElement(event.data).jsonArray.mapNotNull { (it as? kotlinx.serialization.json.JsonObject)?.let(TerminalEntry::parse) })
                         }
                         mutable.value = mutable.value.copy(entries = conversation.snapshot(), truncated = conversation.truncated, reduced = conversation.reduced)
-                    } catch (_: Exception) { mutable.value = mutable.value.copy(error = "oversize"); conversationJob?.cancel() }
+                    } catch (_: Exception) { mutable.value = mutable.value.copy(readingError = "oversize"); conversationJob?.cancel() }
                 }
             }
         }

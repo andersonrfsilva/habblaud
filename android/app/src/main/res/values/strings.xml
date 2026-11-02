@@ -70,4 +70,21 @@
     <string name="attachment_remove">Remover</string>
     <string name="attachment_error">Não foi possível selecionar ou enviar os arquivos. Verifique acesso, nome e limite de 1 byte a 15 MiB por arquivo; máximo de 5.</string>
     <string name="attachments_expired">Os anexos podem ter expirado. Prepare novamente com um novo envio explícito.</string>
+    <string name="permissions_blocked">Respostas a pedidos bloqueadas pelo servidor.</string>
+    <string name="permission_deadline">Prazo: %1$s</string>
+    <string name="permission_other">Outra resposta</string>
+    <string name="permission_interrupt">Interromper o agente ao recusar</string>
+    <string name="permission_reason">Motivo da recusa (opcional)</string>
+    <string name="permission_expired">Pedido expirado. Responda no terminal.</string>
+    <string name="permission_answers">Responda cada pergunta com opções válidas ou texto livre.</string>
+    <string name="permission_unknown">Resposta não confirmada. Confira o pedido antes de agir novamente.</string>
+    <string name="permission_answer">Responder</string>
+    <string name="permission_allow">Permitir</string>
+    <string name="permission_deny">Recusar</string>
+    <string name="permission_terminal">Terminal</string>
+    <string name="stop_omp">Solicitar interrupção</string>
+    <string name="stop_pending">Interrupção na fila; aguardando confirmação.</string>
+    <string name="stop_ack">Controle confirmado pela sessão. O efeito não é garantido.</string>
+    <string name="stop_failed">A entrega do controle falhou.</string>
+    <string name="stop_unknown">Interrupção não confirmada. Confira a sessão; o pedido não será reenviado.</string>
 </resources>

@@ -40,6 +40,14 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
     }
     val state by controller.state.collectAsStateWithLifecycle()
     val composer by controller.messages.state.collectAsStateWithLifecycle()
+    var permissionSession by remember { mutableStateOf<SessionItem?>(null) }
+    val permissionLive = permissionSession?.let { requested -> state.sessions.find { it.key == requested.key && it.permissionId == requested.permissionId } }
+    LaunchedEffect(permissionSession, permissionLive, state.connection) {
+        if (permissionSession != null && permissionLive == null && state.connection == "connected") permissionSession = null
+    }
+    permissionSession?.let { requested ->
+        PermissionSheet(api, permissionLive ?: requested, state.permissionsAllowed, state.connection == "connected", onUnauthorized) { permissionSession = null }
+    }
     var pickerKey by remember { mutableStateOf<SessionKey?>(null) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (pickerKey == controller.messages.state.value.key) controller.messages.select(uris)
@@ -66,7 +74,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                         Column(Modifier.padding(12.dp)) {
                             Text(session.title, style = MaterialTheme.typography.titleMedium)
                             Text(listOfNotNull(session.project, session.key.provider, session.status, session.activity).joinToString(" · "))
-                            if (session.permission) Text(stringResource(R.string.permission_pending), color = MaterialTheme.colorScheme.error)
+                            if (session.permission) TextButton(onClick = { permissionSession = session }) { Text(stringResource(R.string.permission_pending), color = MaterialTheme.colorScheme.error) }
                         }
                     }
                 }
@@ -77,8 +85,12 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                 Text(selected.title, style = MaterialTheme.typography.titleMedium)
             }
             Text(listOfNotNull(selected.project, selected.key.provider, selected.status, selected.activity).joinToString(" · "))
+            if (selected.permission) TextButton(onClick = { permissionSession = selected }) { Text(stringResource(R.string.permission_pending)) }
             if (selected.agentId == null) Text(stringResource(R.string.history_read_only))
             if (!state.terminalAllowed) Text(stringResource(R.string.terminal_blocked))
+            state.readingError?.let { error ->
+                Text(stringResource(when (error) { "forbidden" -> R.string.terminal_blocked; "missing" -> R.string.reading_missing; "oversize" -> R.string.reading_oversize; else -> R.string.reading_offline }), color = MaterialTheme.colorScheme.error)
+            }
             if (state.truncated) Text(stringResource(R.string.window_truncated))
             if (state.reduced) Text(stringResource(R.string.window_reduced))
             val results = state.entries.filter { it.kind == "result" }.groupBy { it.toolUseId }
@@ -106,6 +118,15 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                 else if (!state.messageGuard) Text(stringResource(R.string.message_guard_required))
                 else if (agentId != null && !selected.canMessage) Text(stringResource(R.string.message_unavailable))
                 if (selected.key.provider == "omp") {
+                    Button(onClick = { controller.messages.interrupt(agentId!!) }, enabled = enabled && !composer.loading && composer.control?.status !in setOf("queued", "sent", "unknown")) { Text(stringResource(R.string.stop_omp)) }
+                    composer.control?.let { control -> Text(stringResource(when (control.status) {
+                        "queued", "sent" -> R.string.stop_pending
+                        "delivered" -> R.string.stop_ack
+                        "failed" -> R.string.stop_failed
+                        else -> R.string.stop_unknown
+                    })) }
+                    (composer.control?.error ?: composer.controlError)?.takeIf { it != "unknown" && it != "failed" }?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    if (composer.controlError == "failed") Text(stringResource(R.string.stop_failed), color = MaterialTheme.colorScheme.error)
                     var expanded by remember { mutableStateOf(false) }
                     var showWarning by remember { mutableStateOf(false) }
                     val modes = listOf("aside" to R.string.mode_aside, "followUp" to R.string.mode_follow_up, "steer" to R.string.mode_steer)

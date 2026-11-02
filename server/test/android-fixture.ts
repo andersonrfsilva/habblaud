@@ -3,6 +3,7 @@ import { appendFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
+import { OMP_SESSION_ID } from '../../shared/omp-events';
 import { AccountsService } from '../accounts/service';
 import { createApiHandler } from '../http/app';
 import { createRequestGuard } from '../http/guard';
@@ -92,6 +93,15 @@ export async function startAndroidFixture(root: string, args: string[]): Promise
   const attachments = new AttachmentStore({ dir: stagingDir, now: () => Date.now() + attachmentTimeOffset });
   const messages = new MessageRegistry({ office, attachments, presenceMs: Number.MAX_SAFE_INTEGER, writeAttachments: async files => ({ paths: await writeAttachments(deliveredDir, randomUUID(), files) }) });
   const permissions = new PermissionRegistry({ office, viewers: () => 1, answerLater: () => true, orphanMs: 300_000 });
+  const permissionResults: Record<string, unknown> = {};
+  const waitForPermission = (id: string): void => {
+    const wait = permissions.wait(id, 25_000);
+    if (!wait) return;
+    void wait.result.then(outcome => {
+      if (outcome.status === 'pending') waitForPermission(id);
+      else permissionResults[id] = outcome;
+    });
+  };
   late.messages = messages;
   late.permissions = permissions;
   messages.start();
@@ -174,15 +184,72 @@ export async function startAndroidFixture(root: string, args: string[]): Promise
     hub.stop();
     throw error;
   }
+  const localAcks: Array<{ id: string; ok: boolean }> = [];
+  const localServer = http.createServer((req, res) => {
+    const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+    if (guard(req, res)) return;
+    if (!['/api/mod/inbox', '/api/mod/inbox/ack', '/api/omp/events'].includes(url.pathname) &&
+        url.pathname !== '/api/permissions' && !url.pathname.startsWith('/api/permissions/')) {
+      res.writeHead(404).end();
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/mod/inbox/ack') {
+      let body = '';
+      req.on('data', (chunk: Buffer) => {
+        if (body.length <= 65_536) body += chunk.toString();
+      });
+      res.once('finish', () => {
+        if (res.statusCode !== 200 || body.length > 65_536) return;
+        try {
+          const parsed = JSON.parse(body) as { results?: unknown };
+          if (!Array.isArray(parsed.results)) return;
+          for (const result of parsed.results) {
+            if (result && typeof result.id === 'string' && typeof result.ok === 'boolean' &&
+                messages.get(result.id)?.status === (result.ok ? 'delivered' : 'failed')) {
+              localAcks.push({ id: result.id, ok: result.ok });
+            }
+          }
+        } catch {
+          // The real handler rejects malformed JSON.
+        }
+      });
+    }
+    if (!api(req, res, url)) res.writeHead(404).end();
+  });
+  const localListening = Promise.withResolvers<void>();
+  localServer.once('error', localListening.reject);
+  localServer.listen(0, '127.0.0.1', () => { localServer.off('error', localListening.reject); localListening.resolve(); });
+  try {
+    await localListening.promise;
+  } catch (error) {
+    server.closeAllConnections();
+    server.close();
+    messages.stop();
+    permissions.stop();
+    terminals.stop();
+    hub.stop();
+    throw error;
+  }
+  const localAddress = localServer.address();
+  if (!localAddress || typeof localAddress === 'string') throw new Error('Local fixture listener has no port');
   const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
   input.on('line', line => {
     try {
       const [command, agentId, kind] = line.trim().split(/\s+/);
       let result: unknown;
-      if (command === 'stats') result = { sse: hub.size, terminal: terminals.size, posts, lastHeaders };
+      if (command === 'stats') result = { sse: hub.size, terminal: terminals.size, posts, lastHeaders, permissionResults, localAcks };
       else if (command === 'drop-next-response') { drop = true; result = { ok: true }; }
       else if (command === 'expire-attachments') { attachmentTimeOffset += ATTACHMENT_TTL_MS + 1; result = { ok: true }; }
       else if (command === 'stop-streams') { terminals.stop(); hub.stop(); hub.start(); result = { ok: true }; }
+      else if (command === 'bind-omp') {
+        if (!agentId || !OMP_SESSION_ID.test(agentId) || kind) throw new Error('Expected bind-omp <sessionId>');
+        const agent = office.get('fixture:omp');
+        if (!agent) throw new Error('Unknown OMP agent');
+        paths.set(agent.id, seed(agentId, 'omp'));
+        office.switchSession(agent.id, agentId);
+        messages.inbox({ session: agentId, account: agent.account });
+        result = { ok: true, agentId: agent.id, sessionId: agentId };
+      }
       else if (command === 'clear') {
         const agent = office.get(agentId);
         if (!agent) throw new Error('Unknown agent');
@@ -196,14 +263,15 @@ export async function startAndroidFixture(root: string, args: string[]): Promise
         if (!agent) throw new Error('Unknown agent');
         const inbox = messages.inbox({ session: agent.sessionId, account: agent.account });
         messages.ack({ session: agent.sessionId, results: inbox.map(item => ({ id: item.id, ok: command === 'deliver', error: command === 'fail' ? 'Fixture rejection' : undefined })) });
-        result = { ok: true, ids: inbox.map(item => item.id) };
+        result = { ok: true, ids: inbox.map(item => item.id), controls: inbox.filter(item => item.control).map(item => ({ id: item.id, control: item.control })) };
       } else if (command === 'permission') {
         const agent = office.get(agentId);
         if (!agent) throw new Error('Unknown agent');
         if (!['bash', 'question-single', 'question-multi'].includes(kind)) throw new Error('Unknown permission type');
         const question = kind !== 'bash';
-        const registered = permissions.register({ session_id: agent.sessionId, ...(agent.provider === 'omp' ? { provider: 'omp' } : {}), tool_name: question ? 'AskUserQuestion' : agent.provider === 'omp' ? 'bash' : 'Bash', tool_input: question ? { questions: [{ question: 'Escolha fictícia?', header: 'Fixture', multiSelect: kind === 'question-multi', options: [{ label: 'Primeira', description: 'Opção fictícia' }, { label: 'Segunda', description: 'Opção fictícia' }] }] } : { command: 'echo fixture' } });
+        const registered = permissions.register({ session_id: agent.sessionId, ...(agent.provider === 'omp' ? { provider: 'omp' } : {}), tool_name: question ? 'AskUserQuestion' : agent.provider === 'omp' ? 'bash' : 'Bash', tool_input: question ? { questions: [{ question: 'Escolha fictícia?', header: 'Fixture', multiSelect: kind === 'question-multi', options: [{ label: 'Primeira', description: 'Opção fictícia' }, { label: 'Segunda', description: 'Opção fictícia' }] }] } : { command: 'echo fixture' }, ...(!question && agent.provider === 'claude' ? { permission_suggestions: [{ type: 'addRules', behavior: 'allow', destination: 'session', rules: [{ toolName: 'Bash', ruleContent: 'echo fixture' }] }] } : {}) });
         if ('skip' in registered) throw new Error(registered.skip);
+        waitForPermission(registered.id);
         result = { ok: true, id: registered.id };
       } else throw new Error('Unknown command');
       process.stdout.write(`${JSON.stringify(result)}\n`);
@@ -219,11 +287,13 @@ export async function startAndroidFixture(root: string, args: string[]): Promise
     permissions.stop();
     terminals.stop();
     hub.stop();
+    localServer.closeAllConnections();
+    localServer.close();
     server.closeAllConnections();
     server.close(() => { rmSync(root, { recursive: true, force: true }); });
   };
   process.once('SIGINT', close);
   process.once('SIGTERM', close);
   input.once('close', close);
-  process.stdout.write(`${JSON.stringify({ ready: true, url: `http://127.0.0.1:${port}`, user: 'android-test', password: 'android-test', home: root, stagingDir, deliveredDir, agents: AGENTS.map(agent => agent.id) })}\n`);
+  process.stdout.write(`${JSON.stringify({ ready: true, url: `http://127.0.0.1:${port}`, localUrl: `http://127.0.0.1:${localAddress.port}`, user: 'android-test', password: 'android-test', home: root, stagingDir, deliveredDir, agents: AGENTS.map(agent => agent.id) })}\n`);
 }

@@ -21,7 +21,7 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.add
 import okhttp3.RequestBody
 
-data class ComposerState(val key: SessionKey? = null, val draft: MessageDraft = MessageDraft(), val operation: MessageOperation? = null, val loading: Boolean = false, val sending: Boolean = false, val error: String? = null, val progress: String? = null, val unavailable: Set<String> = emptySet())
+data class ComposerState(val key: SessionKey? = null, val draft: MessageDraft = MessageDraft(), val operation: MessageOperation? = null, val control: MessageOperation? = null, val controlError: String? = null, val loading: Boolean = false, val sending: Boolean = false, val error: String? = null, val progress: String? = null, val unavailable: Set<String> = emptySet())
 
 class MessageController(
     private val request: suspend (String, String?) -> String,
@@ -43,6 +43,8 @@ class MessageController(
     private val drafts = mutableMapOf<SessionKey, MessageDraft>()
     private val sending = mutableSetOf<SessionKey>()
     private var poll: Job? = null
+    private var controlPoll: Job? = null
+    private val controlling = mutableSetOf<SessionKey>()
     private var visible = false
     private var generation = 0
     private val uploadJobs = mutableMapOf<SessionKey, Job>()
@@ -58,11 +60,12 @@ class MessageController(
     }
 
     fun start() { visible = true; state.value.key?.let { open(it) } }
-    fun stop() { visible = false; poll?.cancel(); poll = null; uploadJobs.values.toList().forEach { it.cancel() } }
+    fun stop() { visible = false; poll?.cancel(); controlPoll?.cancel(); poll = null; uploadJobs.values.toList().forEach { it.cancel() } }
     fun open(key: SessionKey) {
         generation++
         val token = generation
         poll?.cancel()
+        controlPoll?.cancel()
         mutable.value = ComposerState(key = key, draft = drafts[key] ?: MessageDraft(), loading = true, sending = key in sending)
         scope.launch {
             try {
@@ -80,8 +83,8 @@ class MessageController(
                 val draft = saved.draft.also { drafts[key] = it }
                 val unavailable = withContext(Dispatchers.IO) { draft.attachments.filter { attachments != null && ((!attachments.persisted(it) && it.uri !in transientUris) || !attachments.available(it)) }.map { it.uri }.toSet() }
                 if (token != generation) return@launch
-                mutable.value = mutable.value.copy(draft = draft, operation = saved.operation, loading = false, unavailable = unavailable)
-                if (visible) poll(key, saved.operation)
+                mutable.value = mutable.value.copy(draft = draft, operation = saved.operation, control = saved.control, loading = false, unavailable = unavailable)
+                if (visible) { poll(key, saved.operation); pollControl(key, saved.control) }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 if (token == generation) mutable.value = mutable.value.copy(loading = false, error = "storage")
@@ -89,7 +92,7 @@ class MessageController(
         }
     }
     fun dismissConfirmation() { mutable.value = mutable.value.copy(error = null) }
-    fun close() { generation++; poll?.cancel(); mutable.value = ComposerState() }
+    fun close() { generation++; poll?.cancel(); controlPoll?.cancel(); mutable.value = ComposerState() }
     fun edit(text: String = state.value.draft.text, mode: String = state.value.draft.mode, files: List<Attachment> = state.value.draft.attachments) {
         val key = state.value.key ?: return
         if (state.value.loading || text.length > 20000 || mode !in setOf("aside", "followUp", "steer")) return
@@ -233,6 +236,66 @@ class MessageController(
         }
         uploadJobs[key] = job
         job.start()
+    }
+    fun interrupt(agentId: String) {
+        val current = state.value
+        val key = current.key ?: return
+        if (key.provider != "omp" || !visible || current.loading || key in controlling || !eligible(key, agentId) || current.control?.status in setOf("queued", "sent", "unknown")) return
+        controlling.add(key)
+        scope.launch {
+            var dispatched = false
+            var marked = false
+            val previous = current.control
+            try {
+                store.updateMessage(key) { it.copy(control = MessageOperation()) }
+                marked = true
+                if (!visible || !eligible(key, agentId)) {
+                    store.updateMessage(key) { it.copy(control = previous) }
+                    return@launch
+                }
+                if (state.value.key == key) mutable.value = state.value.copy(control = MessageOperation(), controlError = null)
+                val body = buildJsonObject { put("agentId", agentId); put("stop", true); put("expectedSessionId", key.sessionId) }
+                dispatched = true
+                val response = wireJson.parseToJsonElement(request("/api/messages/control", body.toString())).jsonObject
+                val op = MessageOperation(requireNotNull(response.string("id")), requireNotNull(response.string("status")))
+                withContext(NonCancellable) { store.updateMessage(key) { it.copy(control = op) } }
+                if (state.value.key == key) mutable.value = state.value.copy(control = op)
+                if (visible && state.value.key == key) pollControl(key, op)
+            } catch (e: Exception) {
+                val definite = e is ApiException && e.status in 400..499
+                if (marked && (!dispatched || definite)) withContext(NonCancellable) { store.updateMessage(key) { it.copy(control = previous) } }
+                if (state.value.key == key) mutable.value = state.value.copy(control = if (dispatched && !definite) MessageOperation() else previous, controlError = if (dispatched && !definite) "unknown" else "failed")
+                if (e is ApiException && e.code == "session_changed") changed() else if (e is ApiException && e.status == 401) unauthorized()
+                if (e is CancellationException) throw e
+            } finally { controlling.remove(key) }
+        }
+    }
+    private fun pollControl(key: SessionKey, operation: MessageOperation?) {
+        controlPoll?.cancel()
+        if (!visible || operation?.id == null || operation.status in setOf("delivered", "failed", "unknown")) return
+        controlPoll = scope.launch {
+            var op: MessageOperation = operation
+            while (visible && state.value.key == key) {
+                delay(2000)
+                try {
+                    val id = op.id ?: break
+                    val response = wireJson.parseToJsonElement(request("/api/messages/${URLEncoder.encode(id, "UTF-8").replace("+", "%20")}", null)).jsonObject
+                    op = op.copy(status = requireNotNull(response.string("status")), error = response.string("error"))
+                    store.updateMessage(key) { if (it.control?.id == id) it.copy(control = op) else it }
+                    if (state.value.key == key) mutable.value = state.value.copy(control = op, controlError = response.string("error"))
+                    if (op.status in setOf("delivered", "failed")) break
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    if (e is ApiException && e.status == 401) { unauthorized(); break }
+                    if (e is ApiException && e.status == 404) {
+                        op = op.copy(status = "unknown")
+                        store.updateMessage(key) { if (it.control?.id == op.id) it.copy(control = op) else it }
+                        if (state.value.key == key) mutable.value = state.value.copy(control = op)
+                        break
+                    }
+                }
+            }
+        }
     }
     private fun poll(key: SessionKey, operation: MessageOperation?) {
         poll?.cancel()

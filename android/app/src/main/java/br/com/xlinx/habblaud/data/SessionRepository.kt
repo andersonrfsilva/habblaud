@@ -12,12 +12,15 @@ class SessionRepository(private val api: HabblaudApi) {
         private set
     var messageGuard = false
         private set
+    var permissionsAllowed = false
+        private set
 
     suspend fun refresh() {
         val access = wireJson.parseToJsonElement(api.access()).jsonObject
         terminalAllowed = access.flag("terminal")
         messagesAllowed = access.flag("messages")
         messageGuard = access.flag("messageSessionGuard")
+        permissionsAllowed = access.flag("permissions")
         recent = if (terminalAllowed) {
             try {
                 wireJson.parseToJsonElement(api.request("/api/sessions/recent")).jsonObject.objects("sessions").mapNotNull { item(it, null) }
@@ -46,6 +49,7 @@ class SessionRepository(private val api: HabblaudApi) {
         val key = SessionKey(api.origin, o.string("provider") ?: "claude", account, id)
         val agent = o.string("id") ?: o.string("agentId")
         val activity = (o["activity"] as? JsonObject)?.let { it.string("summary") ?: it.string("text") ?: it.string("description") }
-        return SessionItem(key, agent, o.string("title") ?: o.string("name") ?: id, project ?: o.string("project"), o.string("status"), activity, o["permission"] is JsonObject, o.string("name"), o.flag("canMessage"))
+        val permission = o["permission"] as? JsonObject
+        return SessionItem(key, agent, o.string("title") ?: o.string("name") ?: id, project ?: o.string("project"), o.string("status"), activity, permission != null, o.string("name"), o.flag("canMessage"), permission?.string("id"))
     }
 }

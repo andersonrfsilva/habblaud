@@ -13,8 +13,8 @@ private val Context.rateState by preferencesDataStore(name = "login_rate")
 
 data class ConnectionSettings(val origin: String, val consent: Boolean)
 data class MessageDraft(val text: String = "", val mode: String = "aside", val revision: Long = 0, val attachments: List<Attachment> = emptyList())
-data class MessageOperation(val id: String? = null, val status: String = "unknown", val revision: Long = 0)
-data class MessageLocalState(val draft: MessageDraft = MessageDraft(), val operation: MessageOperation? = null)
+data class MessageOperation(val id: String? = null, val status: String = "unknown", val revision: Long = 0, val error: String? = null)
+data class MessageLocalState(val draft: MessageDraft = MessageDraft(), val operation: MessageOperation? = null, val control: MessageOperation? = null)
 interface MessageStore {
     suspend fun message(key: SessionKey): MessageLocalState
     suspend fun updateMessage(key: SessionKey, update: (MessageLocalState) -> MessageLocalState): MessageLocalState
@@ -29,7 +29,8 @@ private fun decodeMessage(value: String?): MessageLocalState {
     } } ?: emptyList()
     val draft = MessageDraft(json.optString("text", ""), json.optString("mode", "aside"), json.optLong("revision", 0), attachments)
     val op = json.optJSONObject("operation")?.let { MessageOperation(it.optString("id").ifEmpty { null }, it.optString("status", "unknown"), it.optLong("revision", 0)) }
-    return MessageLocalState(draft, op)
+    val control = json.optJSONObject("control")?.let { MessageOperation(it.optString("id").ifEmpty { null }, it.optString("status", "unknown"), it.optLong("revision", 0), it.optString("error").ifEmpty { null }) }
+    return MessageLocalState(draft, op, control)
 }
 private fun encodeMessage(state: MessageLocalState): String {
     val json = org.json.JSONObject().put("text", state.draft.text).put("mode", state.draft.mode).put("revision", state.draft.revision)
@@ -37,6 +38,7 @@ private fun encodeMessage(state: MessageLocalState): String {
         array.put(org.json.JSONObject().put("uri", attachment.uri).put("name", attachment.name).put("mime", attachment.mime).put("size", attachment.size ?: org.json.JSONObject.NULL).put("persistent", attachment.persistent))
     } })
     state.operation?.let { json.put("operation", org.json.JSONObject().put("id", it.id).put("status", it.status).put("revision", it.revision)) }
+    state.control?.let { json.put("control", org.json.JSONObject().put("id", it.id).put("status", it.status).put("revision", it.revision).put("error", it.error)) }
     return json.toString()
 }
 
