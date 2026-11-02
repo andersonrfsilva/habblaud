@@ -15,6 +15,8 @@ EMULATOR_PID=
 SIZE=
 DENSITY=
 FONT=
+TEST_A=habblaud-exemplo.txt
+TEST_B="habblaud-${TMP##*.}-b.txt"
 
 cleanup() {
     local status=$?
@@ -25,7 +27,21 @@ cleanup() {
         if [[ "$FONT" == null || -z "$FONT" ]]; then "$ADB" -s "$SERIAL" shell settings delete system font_scale; else "$ADB" -s "$SERIAL" shell settings put system font_scale "$FONT"; fi
         "$ADB" -s "$SERIAL" reverse --remove tcp:14748
         "$ADB" -s "$SERIAL" reverse --remove tcp:14749
-        "$ADB" -s "$SERIAL" shell rm -f /sdcard/Download/habblaud-exemplo.txt
+        "$ADB" -s "$SERIAL" shell rm -f "/sdcard/Download/$TEST_A" "/sdcard/Download/$TEST_B"
+    fi
+    if (( status != 0 )) && [[ -n "$FIXTURE_PID" ]] && kill -0 "$FIXTURE_PID" 2>/dev/null; then
+        printf 'stats\n' >&3
+        sleep 1
+        python3 - "$TMP/fixture.log" <<'PY' >&2
+import json, pathlib, sys
+lines = pathlib.Path(sys.argv[1]).read_text().splitlines()
+ready = next((json.loads(line) for line in lines if line.startswith('{"ready":true')), None)
+if ready:
+    for key in ('stagingDir', 'deliveredDir'):
+        root = pathlib.Path(ready[key])
+        files = {str(p.relative_to(root)): p.read_bytes() for p in root.rglob('*') if p.is_file()} if root.exists() else {}
+        print(f'{key}: {files}')
+PY
     fi
     [[ -z "$FIXTURE_PID" ]] || kill "$FIXTURE_PID" 2>/dev/null
     [[ -z "$READONLY_PID" ]] || kill "$READONLY_PID" 2>/dev/null
@@ -136,6 +152,74 @@ fill_login() {
     tap 'Senha'; adb shell input text "$2"; adb shell input keyevent 4
     tap 'Entrar'
 }
+fixture_check() {
+    local expected_messages=$1 expected_uploads=$2 expected_files=$3
+    for _ in $(seq 1 30); do
+        printf 'stats\n' >&3
+        sleep 1
+        if python3 - "$TMP/fixture.log" "$TMP" "$expected_messages" "$expected_uploads" "$expected_files" "$TEST_A" "$TEST_B" <<'PY'
+import json, pathlib, sys
+log, temporary, messages, uploads, expected_files, first, second = sys.argv[1:]
+lines = pathlib.Path(log).read_text().splitlines()
+records = [json.loads(line) for line in lines if line.startswith('{')]
+ready = next(item for item in records if item.get('ready'))
+stats = next((item for item in reversed(records) if 'posts' in item), {})
+posts = stats.get('posts', {})
+if posts.get('/api/messages', 0) != int(messages) or posts.get('/api/messages/attachments', 0) != int(uploads):
+    raise SystemExit(1)
+requests = stats.get('messageRequests', [])
+expected_requests = [
+    ('Primeira linha ficticia\nSegunda linha ficticia', 0),
+    ('caso-a\nsegunda-linha', 1),
+    ('caso-b\nsegunda-linha', 0),
+    ('caso-c\nsegunda-linha', 1),
+][:int(messages)]
+if len(requests) != len(expected_requests) or any(
+    item.get('status') != 201 or item.get('text') != text or item.get('attachments') != count
+    or item.get('expectedSessionId') != '00000000-0000-4000-8000-000000000001'
+    for item, (text, count) in zip(requests, expected_requests)
+):
+    raise SystemExit(1)
+delivered = pathlib.Path(ready['deliveredDir'])
+staging = pathlib.Path(ready['stagingDir'])
+actual = {p.name: p.read_bytes() for p in delivered.rglob('*') if p.is_file()} if delivered.exists() else {}
+expected = {name: (pathlib.Path(temporary) / name).read_bytes() for name in (first, second)[:int(expected_files)]}
+if actual != expected or (staging.exists() and any(p.is_file() for p in staging.rglob('*'))):
+    raise SystemExit(1)
+print(f"fixture stats: {json.dumps(posts, sort_keys=True)}; respostas: {[item['status'] for item in requests]}; staging: vazio; entregues: {actual}")
+PY
+        then return; fi
+    done
+    echo "Fixture não atingiu o estado esperado: mensagens=$expected_messages uploads=$expected_uploads arquivos=$expected_files" >&2
+    return 1
+}
+select_test_file() {
+    tap 'Anexar arquivos (até 5)'
+    tap "$1"
+    wait_text 'Anexar arquivos (até 5)'
+    wait_text "$1"
+}
+type_test_message() {
+    tap Mensagem
+    adb shell input text "$1"
+    adb shell input keyevent KEYCODE_ENTER
+    adb shell input text segunda-linha
+    adb shell input keyevent 4
+}
+wait_draft_cleared() {
+    for _ in $(seq 1 20); do
+        dump
+        if python3 - "$TMP/window.xml" "$1" <<'PY'
+import sys, xml.etree.ElementTree as ET
+root = ET.parse(sys.argv[1]).getroot()
+raise SystemExit(any(sys.argv[2] in (node.get('text') or '') for node in root.iter('node') if node.get('class') == 'android.widget.EditText'))
+PY
+        then return; fi
+        sleep 1
+    done
+    echo "Rascunho não foi limpo após envio: $1" >&2
+    return 1
+}
 
 reset_app
 shot conexao-vazia
@@ -178,12 +262,34 @@ shot estado-envio
 printf 'Documento fictício para o teste visual.\n' >"$TMP/habblaud-exemplo.txt"
 adb push "$TMP/habblaud-exemplo.txt" /sdcard/Download/habblaud-exemplo.txt >/dev/null
 adb shell am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/Download/habblaud-exemplo.txt >/dev/null
-tap 'Anexar arquivos (até 5)'
-wait_text 'habblaud-exemplo.txt'
-tap 'habblaud-exemplo.txt'
-wait_text 'habblaud-exemplo.txt'
+select_test_file "$TEST_A"
 shot anexos-selecionados
 tap Remover
+printf 'Arquivo B ficticio\n' >"$TMP/$TEST_B"
+adb push "$TMP/$TEST_B" "/sdcard/Download/$TEST_B" >/dev/null
+adb shell am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file:///sdcard/Download/$TEST_B" >/dev/null
+fixture_check 1 0 0
+type_test_message caso-a
+select_test_file "$TEST_A"
+tap Enviar
+fixture_check 2 1 1
+wait_draft_cleared caso-a
+type_test_message caso-b
+select_test_file "$TEST_A"
+tap Remover
+tap Enviar
+fixture_check 3 1 1
+wait_draft_cleared caso-b
+type_test_message caso-c
+select_test_file "$TEST_A"
+select_test_file "$TEST_B"
+tap Remover
+wait_text "$TEST_B"
+dump
+if coords "$TEST_A" >/dev/null; then echo 'O primeiro anexo não foi removido.' >&2; exit 1; fi
+tap Enviar
+fixture_check 4 2 2
+wait_draft_cleared caso-c
 for _ in $(seq 1 18); do adb shell input swipe 500 500 500 1850 150; done
 printf 'append fixture:claude\n' >&3
 wait_text '1'

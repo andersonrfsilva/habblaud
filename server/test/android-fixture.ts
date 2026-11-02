@@ -136,12 +136,25 @@ export async function startAndroidFixture(root: string, args: string[]): Promise
   const gate = createRemoteGate({ config: { user: 'android-test', passwordHash }, sessions, secure: false });
   const guard = createRequestGuard({ allowedHosts: new Set() });
   const posts: Record<string, number> = { '/api/messages': 0 };
+  const messageRequests: Array<{ status: number; text?: string; attachments: number; expectedSessionId?: string }> = [];
   let lastHeaders: Record<string, string | null> = {};
   let drop = false;
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
     lastHeaders = { origin: req.headers.origin ?? null, referer: req.headers.referer ?? null, host: req.headers.host ?? null, 'content-type': req.headers['content-type'] ?? null };
     if (req.method === 'POST') posts[url.pathname] = (posts[url.pathname] ?? 0) + 1;
+    if (req.method === 'POST' && url.pathname === '/api/messages') {
+      let body = '';
+      req.on('data', (chunk: Buffer) => { if (body.length <= 131_072) body += chunk.toString(); });
+      res.once('finish', () => {
+        try {
+          const value = JSON.parse(body) as { text?: string; attachments?: unknown; expectedSessionId?: string };
+          messageRequests.push({ status: res.statusCode, text: value.text, attachments: Array.isArray(value.attachments) ? value.attachments.length : 0, expectedSessionId: value.expectedSessionId });
+        } catch {
+          messageRequests.push({ status: res.statusCode, attachments: 0 });
+        }
+      });
+    }
     if (req.method === 'POST') {
       const end = res.end.bind(res);
       res.end = ((...args: Parameters<typeof res.end>) => {
@@ -250,7 +263,7 @@ export async function startAndroidFixture(root: string, args: string[]): Promise
     try {
       const [command, agentId, kind] = line.trim().split(/\s+/);
       let result: unknown;
-      if (command === 'stats') result = { sse: hub.size, terminal: terminals.size, posts, lastHeaders, permissionResults, localAcks };
+      if (command === 'stats') result = { sse: hub.size, terminal: terminals.size, posts, messageRequests, lastHeaders, permissionResults, localAcks };
       else if (command === 'drop-next-response') { drop = true; result = { ok: true }; }
       else if (command === 'expire-attachments') { attachmentTimeOffset += ATTACHMENT_TTL_MS + 1; result = { ok: true }; }
       else if (command === 'stop-streams') { terminals.stop(); hub.stop(); hub.start(); result = { ok: true }; }
