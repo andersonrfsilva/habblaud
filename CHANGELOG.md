@@ -20,8 +20,10 @@ do meio (0.**3**.0).
 ### Adicionado
 
 - **Android:** cliente nativo para login remoto, lista de sessões e conversa, envio com anexos, aprovações e
-  interrupção omp, conforme as permissões do servidor. HTTP exige consentimento e rede VPN para o IPv4 confirmado
-  na faixa `100.64.0.0/10`; o aplicativo não identifica qual VPN está ativa.
+  interrupção omp, conforme as permissões do servidor. Acompanha o tema claro ou escuro do sistema e mostra Markdown
+  selecionável nas mensagens. HTTP exige consentimento e rede VPN para o IPv4 confirmado na faixa `100.64.0.0/10`; o
+  aplicativo não identifica qual VPN está ativa. Mensagens, anexos e interrupção precisam do servidor deste fork: o
+  upstream só atende leitura e aprovações.
 - **Proteção de sessão:** mensagens e controles aceitam `expectedSessionId` e recusam troca de sessão com
   `409` e `code: 'session_changed'`. `/api/access` anuncia `messageSessionGuard` quando mensagens estão autorizadas.
 
@@ -137,6 +139,23 @@ do meio (0.**3**.0).
   aparecem o título e o "… +N linhas", que abre num clique (a busca abre sozinha o trecho achado). Saída de até 2
   linhas curtas continua à vista, e a saída com erro mostra as 6 primeiras linhas. A conversa fica cerca de 60% mais
   curta.
+- **Modo de envio ao omp:** em **Configurações › Mensagens ao omp**, escolha como a mensagem entra com o agente
+  trabalhando: **Acrescentar agora** (`aside`, o padrão), **Enfileirar** (`followUp`) ou **Mudar direção** (`steer`).
+  Vale para todos os agentes do omp e fica guardado no navegador. Sessões abertas antes de atualizar a extensão sempre
+  enfileiram.
+- **Abas do terminal com todos os agentes:** as abas da janela de terminal mostram todos os agentes principais do
+  escritório, não só os da sala do agente aberto. A ordem das abas é guardada separada da lista lateral.
+- **Contadores do topo:** clicar em "trabalhando" ou "precisam de você" abre a lista desses agentes, para selecionar
+  um ou abrir o terminal dele.
+- **Olho do advisor no omp:** o olho em pixel art na barra de cima do terminal liga e desliga o advisor da sessão
+  (`/advisor on` e `/advisor off`). O Habblaud não lê o estado real: o olho mostra o último comando enviado.
+- **Custo das sessões do omp:** a gaveta soma `usage.cost.total` do omp ao custo da sessão.
+- **Terminal:** tabelas de Markdown viram tabela de verdade (cabeçalho, alinhamento e Markdown nas células), e links
+  das respostas abrem numa aba nova; endereços soltos também viram link.
+- **Elenco:** `HABBLAUD_CAST_MAX` (1 a 50) limita quantos personagens ficam abertos ao mesmo tempo; sem a variável,
+  não há limite. A lista do elenco agrupa principais, advisors e subagentes, e o **Retomar em…** do histórico também
+  oferece os personagens livres do elenco. Personagens na reserva leem um livro ou mexem no celular.
+- **Entregas:** cada entrega mostra o avatar e o nome do agente da sessão, mesmo depois que ele saiu do escritório.
 
 ### Alterado
 
@@ -158,6 +177,12 @@ do meio (0.**3**.0).
 - **Página com Content-Security-Policy:** o servidor passa a mandar uma CSP junto com a página (só em produção, não no
   `npm run dev`). Scripts só rodam se vierem do próprio Habblaud, e a página não pode ser embutida em outro site. É uma
   barreira extra caso algum texto de agente chegue à tela como HTML. Nada muda no uso.
+- **Chip do agente:** mostra o selo do modelo em uso no lugar da letra da conta.
+- **Lista lateral:** a sala mostra só o nome; o caminho fica na dica.
+- **Arquivos:** a janela fecha só pelo X ou pelo Esc, nunca por clique fora dela.
+- **Terminal:** ao abrir, maximizar ou restaurar, o foco vai para a caixa de mensagem. No celular, a janela sobe com
+  o teclado virtual.
+- **Celular:** a barra do topo não mostra mais os botões de câmera.
 
 ### Corrigido
 
@@ -226,6 +251,10 @@ do meio (0.**3**.0).
 - **Histórico do agente do omp com atividades repetidas:** quando o omp trocava o título da sessão, o Habblaud relia o
   transcript e copiava de novo as atividades já conhecidas para o histórico do agente, que enchia de repetidas e mostrava
   uma linha do tempo mais curta. Agora cada atividade entra uma vez só.
+- **omp: subagente parado numa ferramenta longa** (`wait`, bash de até 1 h) não escreve no arquivo e saía do
+  escritório. Agora ele fica enquanto a última ferramenta segue sem resultado e o agente principal continua batendo.
+- **Acesso remoto:** se a lista de sessões encerradas estiver ilegível quando o servidor sobe, os logins emitidos
+  antes disso deixam de valer (falha fechada), em vez de aceitar tokens que talvez tenham sido revogados.
 
 ## [1.0.3] - 2026-10-16
 

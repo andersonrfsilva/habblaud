@@ -349,7 +349,7 @@ atende só parte do aplicativo. Login, lista de sessões, recentes, conversas e 
 funcionam, conforme `HABBLAUD_REMOTE_ALLOW` e os recursos ligados no servidor. Mensagens ficam bloqueadas no aplicativo,
 porque o upstream não anuncia `messageSessionGuard` nem confere `expectedSessionId`. Anexos
 (`POST /api/messages/attachments`), interrupção (`POST /api/messages/control`) e sessões omp não existem no upstream.
-Para usar todos os recursos, rode o servidor deste repositório.
+Para usar todos os recursos, rode o servidor incluído no HabblaudX.
 
 Recentes cobre até 150 sessões dos últimos 7 dias. A conversa começa com até 500 entradas dos aproximadamente 4 MiB
 finais; pode haver conteúdo anterior não carregado. A janela local também é limitada. Sessões encerradas ficam somente
@@ -728,6 +728,8 @@ principal, advisor ou subagente. Para subagentes, informe os tipos observados, c
   recebe um personagem sorteado.
 - No omp, `HABBLAUD_CAST=<id>` pede um membro para a sessão. O advisor e os subagentes vestem membros compatíveis
   com seus tipos. As salas organizam a escolha do personagem; elas não limitam ferramentas nem acesso a arquivos.
+- `HABBLAUD_CAST_MAX` (1 a 50; ausente = sem limite) limita quantos personagens o Habblaud mantém abertos ao mesmo
+  tempo. Sessões `hb-*` abertas e chamadas em andamento contam; personagens sendo dispensados não.
 
 O elenco fica em `~/.habblaud/cast.json`; vínculos de sessão expiram após 60 dias sem uso. Os personagens antigos
 das salas migram automaticamente, com cópia de segurança em `~/.habblaud/names.json.pre-031`. O elenco segue a trava
@@ -782,9 +784,14 @@ destaque).
   muda no início e no fim de cada turno e, se o processo morrer, o personagem sai em até 30 segundos. Vale também para a
   sessão aberta por `/new` ou `/resume` e para a reaberta com `omp --resume`/`--restore` (que só volta a gravar no
   arquivo na próxima mensagem).
-- **Mandar mensagens:** a caixa **Mandar mensagem** funciona para o omp com a extensão instalada. Com o agente à toa, a
-  mensagem começa um turno novo; trabalhando, entra como continuação logo depois do turno atual, sem interromper o que
-  ele está fazendo.
+- **Mandar mensagens:** a caixa **Mandar mensagem** funciona para o omp com a extensão instalada. Com o agente à toa,
+  qualquer modo começa um turno novo. Com ele trabalhando, **Acrescentar agora** (`aside`, o padrão) entra no próximo
+  limite de passo sem cortar o lote de ferramentas em andamento; chamadas interrompíveis de `wait`/`vibe_wait` são a
+  exceção. **Enfileirar** (`followUp`) espera o fim do turno. **Mudar direção** (`steer`) pode pular ferramentas
+  pendentes; não desfaz alterações nem garante o cancelamento de uma operação já iniciada. Uploads e a consulta da
+  extensão (hoje até 5 segundos com o agente ocupado) somam atraso. Escolha o modo em **Configurações › Mensagens ao
+  omp**; vale para todos os agentes do omp e fica guardado no navegador. Esse `aside` no histórico principal não é o
+  bate-papo paralelo efêmero.
 - **Modelo e raciocínio:** com a extensão instalada, os seletores Modelo e Raciocínio da gaveta trocam a sessão ao vivo (`pi.setModel` / `setThinkingLevel`); pelo celular, só com `messages` em `HABBLAUD_REMOTE_ALLOW`.
 - **Perguntas (`ask`):** com a extensão, as perguntas que o agente faz pela ferramenta `ask` abrem também no cartão
   **Pergunta para você** do escritório (pelo celular, com `permissions` em `HABBLAUD_REMOTE_ALLOW`). Vale a primeira
