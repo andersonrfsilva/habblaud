@@ -81,14 +81,15 @@ class VpnTunnelInstrumentedTest {
             } == true
             while (!routeReady() && System.nanoTime() < routeDeadline) Thread.sleep(50)
             assertTrue("VPN route not published", routeReady())
-            DatagramSocket().use { probe ->
-                vpnNetwork.bindSocket(probe)
-                val packet = DatagramPacket(byteArrayOf(0), 1, target, 14749)
-                val probeDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
-                while (vpn.readinessPacket.count != 0L && System.nanoTime() < probeDeadline) {
-                    probe.send(packet)
-                    vpn.readinessPacket.await(100, TimeUnit.MILLISECONDS)
+            val packet = DatagramPacket(byteArrayOf(0), 1, target, 14749)
+            val probeDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+            while (vpn.readinessPacket.count != 0L && System.nanoTime() < probeDeadline) {
+                try {
+                    DatagramSocket().use { probe -> vpnNetwork.bindSocket(probe); probe.send(packet) }
+                } catch (_: java.net.SocketException) {
+                    // A rota publicada pode anteceder a instalação da regra de acesso pelo netd.
                 }
+                vpn.readinessPacket.await(100, TimeUnit.MILLISECONDS)
             }
             assertEquals("VPN dataplane not ready", 0L, vpn.readinessPacket.count)
             VpnGuard(instrumentation.targetContext).use { guard ->

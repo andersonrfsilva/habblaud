@@ -79,6 +79,19 @@ class FixtureUiInstrumentedTest {
         assertEquals(ConnectionSettings(vpnOrigin, false, null), LocalStateStore(context).connection())
     }
 
+    @Test fun systemBackReturnsToSessionsThenExits() {
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        await(R.string.message_text)
+        fun pressBack() {
+            InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("input keyevent KEYCODE_BACK").close()
+        }
+        pressBack()
+        await(R.string.open_sessions)
+        compose.onNodeWithText(text(R.string.open_sessions)).assertIsDisplayed()
+        pressBack()
+        compose.waitUntil(15_000) { scenario?.state == androidx.lifecycle.Lifecycle.State.DESTROYED }
+    }
+
     @Test fun imeDraftSurvivesRecreationRotationAndLargeFont() {
         scenario = ActivityScenario.launch(MainActivity::class.java)
         await(R.string.message_text)
@@ -202,6 +215,11 @@ class FixtureUiInstrumentedTest {
         compose.waitUntil(15_000) {
             compose.onAllNodes(hasText("echo fixture", substring = true)).fetchSemanticsNodes().isNotEmpty()
         }
+        InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("input keyevent KEYCODE_BACK").close()
+        compose.waitUntil(15_000) { compose.onAllNodes(hasText(text(R.string.permission_allow))).fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithText(text(R.string.message_text)).assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.permission_pending)).performClick()
+        await(R.string.permission_allow)
         compose.onNodeWithText(text(R.string.permission_allow)).assertIsEnabled().performClick()
         val result = fixtureRequest("/api/permissions/$id/wait?timeout=5")
         assertEquals("A fixture não recebeu decisão", "decided", result.optString("status"))

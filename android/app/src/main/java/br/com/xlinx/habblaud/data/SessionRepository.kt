@@ -6,6 +6,7 @@ import kotlinx.serialization.json.jsonObject
 class SessionRepository(private val api: HabblaudApi) {
     private var recent = emptyList<SessionItem>()
     private var open = emptyList<SessionItem>()
+    private var cast = emptyList<JsonObject>()
     var terminalAllowed = false
         private set
     var messagesAllowed = false
@@ -26,6 +27,9 @@ class SessionRepository(private val api: HabblaudApi) {
                 wireJson.parseToJsonElement(api.request("/api/sessions/recent")).jsonObject.objects("sessions").mapNotNull { item(it, null) }
             } catch (e: ApiException) { if (e.status == 403) { terminalAllowed = false; emptyList() } else throw e }
         } else emptyList()
+        cast = if (terminalAllowed) try {
+            wireJson.parseToJsonElement(api.request("/api/cast")).jsonObject.objects("members")
+        } catch (e: ApiException) { if (e.status == 403 || e.status == 404) emptyList() else throw e } else emptyList()
     }
 
     fun snapshot(data: String): List<SessionItem> {
@@ -40,7 +44,13 @@ class SessionRepository(private val api: HabblaudApi) {
     fun sessions(): List<SessionItem> {
         val live = open.associateBy { it.key }
         val historical = recent.associateBy { it.key }
-        return open.map { item -> item.copy(project = item.project ?: historical[item.key]?.project, lastAt = item.lastAt ?: historical[item.key]?.lastAt) } + recent.filterNot { live.containsKey(it.key) }.map { it.copy(agentId = null) }
+        return open.map { item -> item.copy(project = item.project ?: historical[item.key]?.project, lastAt = item.lastAt ?: historical[item.key]?.lastAt) } + recent.filterNot { live.containsKey(it.key) }.map { item ->
+            val match = cast.filter { member ->
+                item.key.provider == "claude" && (member.string("account") == null || member.string("account") == item.key.account) &&
+                    (member["last"] as? JsonObject)?.values?.any { value -> value.toString().trim('"') == item.key.sessionId } == true
+            }.singleOrNull()
+            item.copy(agentId = null, avatar = match?.let(::avatar), cast = match?.string("id"))
+        }
     }
 
     private fun item(o: JsonObject, project: String?): SessionItem? {
@@ -50,6 +60,12 @@ class SessionRepository(private val api: HabblaudApi) {
         val agent = o.string("id") ?: o.string("agentId")
         val activity = (o["activity"] as? JsonObject)?.let { it.string("summary") ?: it.string("text") ?: it.string("description") }
         val permission = o["permission"] as? JsonObject
-        return SessionItem(key, agent, o.string("title") ?: o.string("name") ?: id, project ?: o.string("project"), o.string("status"), activity, permission != null, o.string("name"), o.flag("canMessage"), permission?.string("id"), (o.string("lastEventAt") ?: o.string("lastAt"))?.toLongOrNull())
+        return SessionItem(key, agent, o.string("title") ?: o.string("name") ?: id, project ?: o.string("project"), o.string("status"), activity, permission != null, o.string("name"), o.flag("canMessage"), permission?.string("id"), (o.string("lastEventAt") ?: o.string("lastAt"))?.toLongOrNull(), avatar(o), o.string("cast"), o.flag("castOpened"))
+    }
+
+    private fun avatar(o: JsonObject): Avatar? {
+        val seed = o.string("seed")?.toLongOrNull()?.takeIf { it in 0..0xffffffffL } ?: return null
+        val look = o.string("look")?.takeIf { it == "f" || it == "m" } ?: return null
+        return Avatar(seed, look, if (o.string("kind") == "sub") "sub" else "main", (o["parts"] as? JsonObject)?.toString())
     }
 }

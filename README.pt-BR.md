@@ -244,7 +244,7 @@ A extensão vale para as sessões do omp abertas **depois** da instalação. Vej
 
 ### Aplicativo Android
 
-O cliente nativo Android opera sessões existentes sem a interface do escritório. Requer Android 8.0 (API 26) ou
+O cliente nativo Android acompanha sessões e personagens sem a interface do escritório. Requer Android 8.0 (API 26) ou
 superior e uma instalação do Habblaud com login remoto configurado. A URL deve apontar para a **porta remota**, nunca
 para a porta local sem autenticação. O aplicativo aceita uma instalação por vez; informe URL, usuário e senha do acesso
 remoto. A senha não é persistida. HTTPS usa a validação normal de certificado e nome do Android.
@@ -256,6 +256,10 @@ O aplicativo acompanha o tema claro ou escuro do sistema. As mensagens exibem Ma
 listas, tabelas e código; links abrem ao toque. Imagens remotas e HTML não são carregados ou interpretados.
 Para gerar capturas dos dois temas com dados fictícios, execute `scripts/android-screens.sh` com o AVD
 `habblaud034` disponível. As imagens ficam em `/tmp/android-screens/`.
+
+Quando o acesso remoto permite `terminal` e o auxiliar do host está disponível, o aplicativo também chama e dispensa
+personagens do elenco e retoma sessões Claude em pastas permitidas ao personagem. Um pedido sem confirmação não é
+reenviado automaticamente. Os avatares usam a mesma arte do escritório e ficam em cache privado no aparelho.
 
 #### Compilar e instalar
 
@@ -337,6 +341,7 @@ Na porta remota, as travas de `HABBLAUD_REMOTE_ALLOW` são independentes. O apli
 | --- | --- |
 | Lista de sessões abertas | Login |
 | Recentes e conversas vivas ou históricas | `terminal` |
+| Chamar, dispensar ou retomar personagem | `terminal` e auxiliar do host disponível |
 | Mensagens, anexos e interrupção omp | `messages` e `messageSessionGuard` no `/api/access` |
 | Respostas a aprovações e perguntas | `permissions` |
 
@@ -353,7 +358,7 @@ Para usar todos os recursos, rode o servidor incluído no HabblaudX.
 
 Recentes cobre até 150 sessões dos últimos 7 dias. A conversa começa com até 500 entradas dos aproximadamente 4 MiB
 finais; pode haver conteúdo anterior não carregado. A janela local também é limitada. Sessões encerradas ficam somente
-para leitura; o app não cria nem retoma processos. Não há paginação de histórico nem sincronização offline de conversas.
+para leitura até serem retomadas por um personagem elegível. Não há paginação de histórico nem sincronização offline de conversas.
 Rascunhos são locais por sessão; o app não reenvia mensagens automaticamente após perda de conexão. Se o envio não for
 confirmado, confira a conversa antes de tentar novamente: a primeira tentativa pode ter sido aceita.
 

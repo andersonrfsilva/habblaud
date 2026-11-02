@@ -9,6 +9,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -74,12 +75,16 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
     }
     val selected = state.selected
     var menuExpanded by remember { mutableStateOf(false) }
+    BackHandler(enabled = selected != null && permissionSession == null && !menuExpanded) { controller.close() }
     Scaffold(topBar = {
         TopAppBar(
             title = {
-                Column {
-                    Text(selected?.title ?: stringResource(R.string.app_name), maxLines = 1)
-                    Text(if (selected == null) stringResource(when (state.connection) { "connected" -> R.string.reading_connected; "connecting" -> R.string.reading_connecting; else -> R.string.reading_offline }) else listOfNotNull(selected.project?.substringAfterLast('/'), statusLabel(selected.status ?: selected.activity)).joinToString(" · "), style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (selected != null) CharacterAvatar(api, selected, 36.dp)
+                    Column(Modifier.weight(1f)) {
+                        Text(selected?.title ?: stringResource(R.string.app_name), maxLines = 1)
+                        Text(if (selected == null) stringResource(when (state.connection) { "connected" -> R.string.reading_connected; "connecting" -> R.string.reading_connecting; else -> R.string.reading_offline }) else listOfNotNull(selected.project?.substringAfterLast('/'), statusLabel(selected.status ?: selected.activity)).joinToString(" · "), style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                    }
                 }
             },
             navigationIcon = {
@@ -101,6 +106,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
     }) { padding ->
     Column(Modifier.fillMaxSize().padding(padding).imePadding().background(if (selected == null) MaterialTheme.colorScheme.background else if (isSystemInDarkTheme()) MaterialTheme.colorScheme.surfaceContainerLowest else MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         state.error?.let { error -> Text(stringResource(when (error) { "changed" -> R.string.session_changed; "forbidden" -> R.string.terminal_blocked; "missing" -> R.string.reading_missing; "oversize" -> R.string.reading_oversize; "vpn_required" -> R.string.vpn_required; else -> R.string.network_error }), color = MaterialTheme.colorScheme.error) }
+        if (state.terminalAllowed) CastActions(api, selected, state.connection == "connected", onUnauthorized)
         if (selected == null) {
             var query by remember { mutableStateOf("") }
             var recent by remember { mutableStateOf(false) }
@@ -115,10 +121,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(items, key = { it.key.serialize() }) { session ->
                     Row(Modifier.fillMaxWidth().clickable { controller.open(session) }.padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        val avatarColors = if (isSystemInDarkTheme()) listOf(Color(0xFF294D40), Color(0xFF314759), Color(0xFF564139), Color(0xFF484052), Color(0xFF51482D)) else listOf(Color(0xFFD3EEE3), Color(0xFFDCE7F7), Color(0xFFF7E4D6), Color(0xFFEAE0F4), Color(0xFFF5EABF))
-                        Box(Modifier.size(48.dp).background(avatarColors[(session.title.hashCode() and Int.MAX_VALUE) % avatarColors.size], CircleShape), contentAlignment = Alignment.Center) {
-                            Text(session.title.take(1).uppercase(), color = if (isSystemInDarkTheme()) Color(0xFFE0E9E2) else Color(0xFF002117), style = MaterialTheme.typography.titleLarge)
-                        }
+                        CharacterAvatar(api, session, 48.dp)
                         Column(Modifier.weight(1f)) {
                             Text(session.title, style = MaterialTheme.typography.titleMedium)
                             Text(listOfNotNull(session.project?.substringAfterLast('/'), statusLabel(session.status ?: session.activity)).joinToString(" · "), style = MaterialTheme.typography.bodyMedium)
@@ -157,8 +160,13 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                         following = last != null && last.first >= total - 1 && last.second <= end
                         if (following && !dragging) { userScrolled = false; unread = 0 }
                         else if (initialScroll && !userScrolled && !dragging && last != null) {
-                            if (last.first < total - 1) listState.scrollToItem(total - 1)
-                            else if (last.second > end) listState.scrollBy((last.second - end).toFloat())
+                            withFrameNanos { }
+                            if (!userScrolled && !dragging) {
+                                val layout = listState.layoutInfo
+                                val current = layout.visibleItemsInfo.lastOrNull()
+                                if (current != null && current.index < layout.totalItemsCount - 1) listState.scrollToItem(layout.totalItemsCount - 1)
+                                else if (current != null && current.offset + current.size > layout.viewportEndOffset) listState.scrollBy((current.offset + current.size - layout.viewportEndOffset).toFloat())
+                            }
                         }
                     }
                 }

@@ -109,8 +109,13 @@ internal fun PermissionSheet(api: HabblaudApi, session: SessionItem, allowed: Bo
     }
     ModalBottomSheet(onDismissRequest = onClose) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(stringResource(R.string.permission_pending), style = MaterialTheme.typography.titleLarge)
-            Text(listOfNotNull(session.project?.substringAfterLast('/'), session.agentName, session.title).distinct().joinToString(" · "))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                CharacterAvatar(api, session, 48.dp)
+                Column {
+                    Text(stringResource(R.string.permission_pending), style = MaterialTheme.typography.titleLarge)
+                    Text(listOfNotNull(session.project?.substringAfterLast('/'), session.agentName, session.title).distinct().joinToString(" · "))
+                }
+            }
             if (!allowed) Text(stringResource(R.string.permissions_blocked))
             if (!connected) Text(stringResource(R.string.reading_offline))
             item?.let { request ->

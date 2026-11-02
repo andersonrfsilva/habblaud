@@ -135,12 +135,28 @@ wait_text() {
     return 1
 }
 tap() { wait_text "$1"; local xy; xy=$(coords "$1"); adb shell input tap $xy; }
+enter_text() {
+    tap "$1"
+    for _ in $(seq 1 20); do
+        dump
+        if python3 - "$TMP/window.xml" <<'PY'
+import sys, xml.etree.ElementTree as ET
+root = ET.parse(sys.argv[1]).getroot()
+raise SystemExit(not any(node.get('class') == 'android.widget.EditText' and node.get('focused') == 'true' for node in root.iter('node')))
+PY
+        then break; fi
+        sleep 1
+    done
+    sleep 2
+    adb shell input text "$2"
+    adb shell input keyevent 4
+}
 shot() { sleep 1; adb exec-out screencap -p >"$OUT/$1-$THEME.png"; echo "$OUT/$1-$THEME.png"; }
 reset_app() { adb shell pm clear "$PACKAGE" >/dev/null; adb shell am start -n "$PACKAGE/.MainActivity" >/dev/null; wait_text 'URL do servidor'; }
 fill_login() {
-    tap 'URL do servidor'; adb shell input text "$1"; adb shell input keyevent 4
-    tap 'Usuário'; adb shell input text android-test; adb shell input keyevent 4
-    tap 'Senha'; adb shell input text "$2"; adb shell input keyevent 4
+    enter_text 'URL do servidor' "$1"
+    enter_text 'Usuário' android-test
+    enter_text 'Senha' "$2"
     tap 'Entrar'
 }
 fixture_check() {
@@ -246,7 +262,7 @@ printf 'permission fixture:analise bash\n' >&3
 
 reset_app
 shot conexao-vazia
-tap 'URL do servidor'; adb shell input text http://100.64.0.1:14748; adb shell input keyevent 4
+enter_text 'URL do servidor' http://100.64.0.1:14748
 tap 'Revisar aviso de segurança'
 shot consentimento-http
 reset_app
@@ -263,7 +279,7 @@ shot sessoes-recentes
 tap 'Buscar por título, projeto ou agente'; adb shell input text busca-impossivel; adb shell input keyevent 4
 wait_text 'Nenhuma sessão encontrada.'
 shot busca-vazia
-adb shell input tap 300 450; adb shell input keyevent KEYCODE_MOVE_END
+tap 'Buscar por título, projeto ou agente'; adb shell input keyevent KEYCODE_MOVE_END
 for _ in $(seq 1 20); do adb shell input keyevent KEYCODE_DEL KEYCODE_FORWARD_DEL; done
 adb shell input keyevent 4
 tap Abertas
@@ -363,6 +379,39 @@ shot omp-stop
 for _ in $(seq 1 35); do adb shell input swipe 500 500 500 1850 150; done
 wait_text 'Existe conversa anterior que não foi carregada. Não há paginação.'
 shot omp-historico-truncado
+tap 'Voltar às sessões'
+tap 'Chamar personagem'
+wait_text 'Escolha um personagem'
+shot elenco-personagem
+tap 'Caio Fictício'
+wait_text 'Escolha a pasta do projeto'
+shot elenco-pasta
+tap '/fixture/jardim'
+wait_text 'Pedido enviado. Aguardando o servidor.'
+shot elenco-aguardando
+printf 'cast-consume\n' >&3
+wait_text 'Pedido concluído.'
+tap 'Caio Fictício'
+wait_text 'Dispensar personagem'
+tap 'Dispensar personagem'
+wait_text 'Dispensar este personagem e fechar sua sessão no servidor?'
+shot elenco-dispensar
+tap Confirmar
+wait_text 'Pedido enviado. Aguardando o servidor.'
+printf 'cast-consume\n' >&3
+wait_text 'Pedido concluído.'
+tap 'Voltar às sessões'
+tap Recentes
+enter_text 'Buscar por título, projeto ou agente' encerrada
+tap 'Conversa encerrada fictícia'
+wait_text 'Retomar conversa'
+tap 'Retomar conversa'
+wait_text Confirmar
+shot elenco-retomar
+tap Confirmar
+wait_text 'Pedido enviado. Aguardando o servidor.'
+printf 'cast-consume\n' >&3
+wait_text 'Pedido concluído.'
 reset_app
 fill_login http://127.0.0.1:14749 android-test
 wait_text Abertas

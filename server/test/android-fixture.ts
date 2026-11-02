@@ -1,10 +1,11 @@
 import http from 'node:http';
-import { appendFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { OMP_SESSION_ID } from '../../shared/omp-events';
 import { AccountsService } from '../accounts/service';
+import { CastLauncher } from '../cast/launcher';
 import { createApiHandler } from '../http/app';
 import { createRequestGuard } from '../http/guard';
 import { createRemoteGate, isRemoteRequest, loadSecret, parseAllow, RemoteSessions } from '../http/remote';
@@ -76,6 +77,7 @@ export async function startAndroidFixture(root: string, args: string[]): Promise
     const path = join(projectDir, `${sessionId}.jsonl`);
     const base = () => ({ uuid: randomUUID(), timestamp: new Date().toISOString(), sessionId, cwd, isSidechain: false });
     const lines = [
+      ...(sessionId === CLOSED ? [{ ...base(), type: 'custom-title', customTitle: 'Conversa encerrada fictícia' }] : []),
       ...(Number(sessionId.slice(-12)) >= 20 ? [{ ...base(), type: 'custom-title', customTitle: `Planejamento de ${cwd.split('/').pop()}` }] : []),
       { ...base(), type: 'user', message: { role: 'user', content: sessionId === AGENTS[0].sessionId ? 'Pedido fictício' : `Planejamento de ${cwd.split('/').pop()}` } },
       ...Array.from({ length: 16 }, (_, index) => ([
@@ -122,9 +124,17 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
   for (let index = 0; index < 6; index++) seed(`00000000-0000-4000-8000-${String(index + 20).padStart(12, '0')}`, 'claude', false, `/fixture/${projects[index]}`);
   const accounts = new AccountsService({ dirs: [accountDir], home: root, env: {}, onChange: () => {} });
   accounts.setProviderAccounts('omp', [{ dir: ompDir, detected: { id: OMP_ACCOUNT, configDir: ompDir, short: 'OMP', name: 'OMP fixture', color: '#4aa8e8' } }]);
-  const late: { messages?: MessageRegistry; permissions?: PermissionRegistry } = {};
-  const office = new Office({ names: new NameStore(null), version: 'android-fixture', startedAt: Date.now(), accounts: s => accounts.list(s), sources: () => [], accountName: () => undefined, terminal: true, messages: () => late.messages?.reachable() ?? new Set(), permissions: () => late.permissions?.snapshot() ?? new Map() });
+  const late: { messages?: MessageRegistry; permissions?: PermissionRegistry; launcher?: CastLauncher } = {};
+  const office = new Office({ names: new NameStore(null), version: 'android-fixture', startedAt: Date.now(), accounts: s => accounts.list(s), sources: () => [], accountName: () => undefined, terminal: true, messages: () => late.messages?.reachable() ?? new Set(), permissions: () => late.permissions?.snapshot() ?? new Map(), castLauncher: () => late.launcher });
   for (const [index, agent] of AGENTS.entries()) office.addMain({ ...agent, cwd: `/fixture/${projects[index]}`, role: 'Agente principal', startedAt: Date.now() - index * 300_000, status: index % 2 ? 'working' : 'idle' });
+  if (office.putCast({ id: 'ana', name: 'Ana Fictícia', kind: 'main', seed: 1001, look: 'f', rooms: ['/fixture/projeto'] }, 'fixture:claude') !== 'ok' ||
+      office.putCast({ id: 'bia', name: 'Bia Fictícia', kind: 'main', seed: 1002, look: 'f', rooms: ['/fixture/projeto'], last: { '/fixture/projeto': CLOSED } }) !== 'ok' ||
+      office.putCast({ id: 'caio', name: 'Caio Fictício', kind: 'main', seed: 1003, look: 'm', rooms: [] }) !== 'ok') throw new Error('Could not create fictional cast');
+  const launcher = new CastLauncher({ dataDir: root, member: id => office.cast.get(id), agents: () => office.list(), account: id => !id || id === ACCOUNT ? accountDir : undefined, changed: () => office.markDirty() });
+  late.launcher = launcher;
+  launcher.poll({ open: ['ana'] });
+  const presence = setInterval(() => launcher.ack({ results: [] }), 10_000);
+  timers.add(presence);
   const hub = new Hub(office, { canAnswer: req => isRemoteRequest(req) && parseAllow(allow).has('permissions') });
   const stagingDir = join(root, 'attachments', '.pending');
   const deliveredDir = join(root, 'attachments', 'delivered');
@@ -154,7 +164,7 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
     new OmpHistory({ accounts: () => accounts.entries().filter(account => account.provider === 'omp'), openAgentOf }),
   ]);
   const allowed = parseAllow(allow);
-  const api = createApiHandler({ office, hub, accounts, sources: () => [], version: 'android-fixture', inDocker: false, terminal: true, terminals, sessions: history, messages: createMessageRoutes(messages), permissions: createPermissionRoutes(permissions), remote: { is: isRemoteRequest, allows: feature => allowed.has(feature) } });
+  const api = createApiHandler({ office, hub, accounts, sources: () => [], version: 'android-fixture', inDocker: false, terminal: true, terminals, sessions: history, messages: createMessageRoutes(messages), permissions: createPermissionRoutes(permissions), castLauncher: launcher, spawnFolders: async () => projects.map(name => ({ name, path: `/fixture/${name}`, lastAt: Date.now(), sessions: 1 })), remote: { is: isRemoteRequest, allows: feature => allowed.has(feature) } });
   const passwordHashText = await hashPassword('android-test');
   const passwordHash = parsePasswordHash(passwordHashText);
   if (!passwordHash) throw new Error('Could not create fixture password');
@@ -224,6 +234,8 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
     }
     if (!api(req, res, url)) res.writeHead(404).end();
   });
+  // Evita que o adb reverse entregue ao cliente um socket ocioso já fechado pelo timeout padrão de 5 s.
+  server.keepAliveTimeout = 3_600_000;
   const listening = Promise.withResolvers<void>();
   server.once('error', listening.reject);
   server.listen(port, '127.0.0.1', () => { server.off('error', listening.reject); listening.resolve(); });
@@ -289,7 +301,26 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
     try {
       const [command, agentId, kind] = line.trim().split(/\s+/);
       let result: unknown;
-      if (command === 'stats') result = { sse: hub.size, terminal: terminals.size, posts, messageRequests, lastHeaders, permissionResults, localAcks };
+      if (command === 'stats') result = { sse: hub.size, terminal: terminals.size, posts, messageRequests, lastHeaders, permissionResults, localAcks, castJobs: launcher.jobs() };
+      else if (command === 'cast-consume') {
+        const jobs = launcher.poll();
+        launcher.ack({ results: jobs.map(job => ({ id: job.id, ok: true })) });
+        for (const job of jobs) {
+          if (job.op === 'start') {
+            const id = `fixture:cast:${job.cast}`;
+            const sessionId = job.resume ?? randomUUID();
+            const existing = join(accountDir, 'projects', encodeCwd(job.folder), `${sessionId}.jsonl`);
+            paths.set(id, job.resume && existsSync(existing) ? existing : seed(sessionId, 'claude', false, job.folder));
+            office.addMain({ id, cast: job.cast, account: ACCOUNT, sessionId, cwd: job.folder, role: 'Agente principal', startedAt: Date.now(), status: 'idle' });
+            messages.inbox({ session: sessionId, account: ACCOUNT });
+          } else {
+            const agent = office.list().find(item => item.cast === job.cast && item.status !== 'offline');
+            if (agent) office.setStatus(agent.id, 'offline');
+          }
+        }
+        launcher.tick();
+        result = { ok: true, consumed: jobs, jobs: launcher.jobs() };
+      }
       else if (command === 'drop-next-response') { drop = true; result = { ok: true }; }
       else if (command === 'expire-attachments') { attachmentTimeOffset += ATTACHMENT_TTL_MS + 1; result = { ok: true }; }
       else if (command === 'stop-streams') { terminals.stop(); hub.stop(); hub.start(); result = { ok: true }; }
