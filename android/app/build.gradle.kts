@@ -37,12 +37,15 @@ android {
     }
 }
 
-tasks.matching { it.name == "assembleRelease" }.configureEach {
-    doFirst {
+val validateReleaseSigning = tasks.register("validateReleaseSigning") {
+    doLast {
         check(android.signingConfigs.getByName("release").storeFile != null) {
             "Configure HABBLAUD_KEYSTORE, HABBLAUD_KEYSTORE_PASSWORD, HABBLAUD_KEY_ALIAS e HABBLAUD_KEY_PASSWORD."
         }
     }
+}
+tasks.matching { it.name == "packageRelease" }.configureEach {
+    dependsOn(validateReleaseSigning)
 }
 
 dependencies {
