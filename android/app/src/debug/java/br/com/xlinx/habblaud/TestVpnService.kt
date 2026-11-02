@@ -17,6 +17,7 @@ class TestVpnService : VpnService() {
     @Volatile private var reading = false
     private var reader: Thread? = null
     val packetReceived = CountDownLatch(1)
+    val readinessPacket = CountDownLatch(1)
 
     override fun onBind(intent: Intent): IBinder? =
         if (intent.action == SERVICE_INTERFACE) super.onBind(intent) else binder
@@ -35,8 +36,15 @@ class TestVpnService : VpnService() {
                 while (reading) {
                     if (Os.poll(arrayOf(poll), 100) <= 0 || !reading) continue
                     val length = Os.read(descriptor.fileDescriptor, packet, 0, packet.size)
-                    if (length >= 20 && packet[16] == 100.toByte() && packet[17] == 64.toByte() &&
-                        packet[18] == 0.toByte() && packet[19] == 1.toByte()) packetReceived.countDown()
+                    if (length >= 24 && packet[16] == 100.toByte() && packet[17] == 64.toByte() &&
+                        packet[18] == 0.toByte() && packet[19] == 1.toByte()) {
+                        val headerSize = (packet[0].toInt() and 0x0f) * 4
+                        if (length >= headerSize + 4) {
+                            val port = (packet[headerSize + 2].toInt() and 0xff) * 256 + (packet[headerSize + 3].toInt() and 0xff)
+                            if (packet[9].toInt() == 17 && port == 14749) readinessPacket.countDown()
+                            if (packet[9].toInt() == 6 && port == 14748) packetReceived.countDown()
+                        }
+                    }
                 }
             } catch (_: android.system.ErrnoException) { }
         }.apply { isDaemon = true; start() }

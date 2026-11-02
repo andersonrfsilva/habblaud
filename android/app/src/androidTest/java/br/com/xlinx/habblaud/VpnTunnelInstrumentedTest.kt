@@ -7,6 +7,7 @@ import android.content.ServiceConnection
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.VpnService
+import android.util.Log
 import android.os.IBinder
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -19,9 +20,13 @@ import okhttp3.Response
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.net.DatagramPacket
+import java.net.DatagramSocket
+import java.net.InetAddress
 import java.io.IOException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 @RunWith(AndroidJUnit4::class)
 class VpnTunnelInstrumentedTest {
@@ -55,7 +60,8 @@ class VpnTunnelInstrumentedTest {
         assertTrue(context.bindService(Intent(context, TestVpnService::class.java), connection, Context.BIND_AUTO_CREATE))
         try {
             assertTrue("VPN service did not bind", bound.await(10, TimeUnit.SECONDS))
-            requireNotNull(service).establishTunnel()
+            val vpn = requireNotNull(service)
+            vpn.establishTunnel()
             val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
             var network = manager.allNetworks.firstOrNull {
                 manager.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
@@ -67,18 +73,41 @@ class VpnTunnelInstrumentedTest {
                 }
             }
             assertNotNull("VPN network not published", network)
+            val vpnNetwork = requireNotNull(network)
+            val target = InetAddress.getByName("100.64.0.1")
+            val routeDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+            fun routeReady(): Boolean = manager.getLinkProperties(vpnNetwork)?.let { properties ->
+                properties.interfaceName != null && properties.routes.any { it.destination.contains(target) }
+            } == true
+            while (!routeReady() && System.nanoTime() < routeDeadline) Thread.sleep(50)
+            assertTrue("VPN route not published", routeReady())
+            DatagramSocket().use { probe ->
+                vpnNetwork.bindSocket(probe)
+                val packet = DatagramPacket(byteArrayOf(0), 1, target, 14749)
+                val probeDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+                while (vpn.readinessPacket.count != 0L && System.nanoTime() < probeDeadline) {
+                    probe.send(packet)
+                    vpn.readinessPacket.await(100, TimeUnit.MILLISECONDS)
+                }
+            }
+            assertEquals("VPN dataplane not ready", 0L, vpn.readinessPacket.count)
             VpnGuard(instrumentation.targetContext).use { guard ->
                 val client = guard.client(OkHttpClient())
                 assertNotNull("Active VPN was not seeded during initialization", client)
                 assertNotSame(OkHttpClient().socketFactory, client!!.socketFactory)
                 assertEquals(network!!.socketFactory.javaClass, client.socketFactory.javaClass)
+                val socketFailure = AtomicReference<IOException>()
                 val call = client!!.newCall(Request.Builder().url("http://100.64.0.1:14748/slow").build())
                 call.enqueue(object : Callback {
-                    override fun onFailure(call: Call, e: IOException) { }
+                    override fun onFailure(call: Call, e: IOException) {
+                        socketFailure.set(e)
+                        if (!call.isCanceled()) Log.e("VpnTunnelTest", "VPN socket failed: ${e.javaClass.simpleName}", e)
+                    }
                     override fun onResponse(call: Call, response: Response) { response.close() }
                 })
                 try {
-                    assertTrue("The request never entered the VPN tunnel", requireNotNull(service).packetReceived.await(10, TimeUnit.SECONDS))
+                    val received = requireNotNull(service).packetReceived.await(10, TimeUnit.SECONDS)
+                    assertTrue("The request never entered the VPN tunnel: ${socketFailure.get()}", received)
                 } finally {
                     call.cancel()
                 }
