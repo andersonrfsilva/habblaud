@@ -31,6 +31,10 @@ const OMP_ACCOUNT = '.omp';
 const AGENTS = [
   { id: 'fixture:claude', sessionId: '00000000-0000-4000-8000-000000000001', provider: 'claude' as const, account: ACCOUNT },
   { id: 'fixture:omp', sessionId: '00000000-0000-4000-8000-000000000002', provider: 'omp' as const, account: OMP_ACCOUNT },
+  { id: 'fixture:analise', sessionId: '00000000-0000-4000-8000-000000000004', provider: 'claude' as const, account: ACCOUNT },
+  { id: 'fixture:revisao', sessionId: '00000000-0000-4000-8000-000000000005', provider: 'claude' as const, account: ACCOUNT },
+  { id: 'fixture:interface', sessionId: '00000000-0000-4000-8000-000000000006', provider: 'claude' as const, account: ACCOUNT },
+  { id: 'fixture:testes', sessionId: '00000000-0000-4000-8000-000000000007', provider: 'claude' as const, account: ACCOUNT },
 ];
 const CLOSED = '00000000-0000-4000-8000-000000000003';
 
@@ -47,20 +51,18 @@ export async function startAndroidFixture(root: string, args: string[]): Promise
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid port');
   setQuiet(true);
   const accountDir = join(root, ACCOUNT);
-  const projectDir = join(accountDir, 'projects', encodeCwd(CWD));
   const ompDir = join(root, OMP_ACCOUNT);
-  const ompProjectDir = join(ompDir, 'sessions', encodeCwd(CWD));
-  mkdirSync(projectDir, { recursive: true });
-  mkdirSync(ompProjectDir, { recursive: true });
   const paths = new Map<string, string>();
   const pendingResults = new Map<string, string>();
   const timers = new Set<NodeJS.Timeout>();
-  const seed = (sessionId: string, provider: 'claude' | 'omp' = 'claude', late = false) => {
+  const seed = (sessionId: string, provider: 'claude' | 'omp' = 'claude', late = false, cwd = CWD) => {
+    const projectDir = provider === 'omp' ? join(ompDir, 'sessions', encodeCwd(cwd)) : join(accountDir, 'projects', encodeCwd(cwd));
+    mkdirSync(projectDir, { recursive: true });
     if (provider === 'omp') {
-      const path = join(ompProjectDir, `2026-01-01T00-00-00-000Z_${sessionId}.jsonl`);
+      const path = join(projectDir, `2026-01-01T00-00-00-000Z_${sessionId}.jsonl`);
       const lines = [
         { type: 'title', title: 'Conversa OMP fictícia' },
-        { type: 'session', id: sessionId, cwd: CWD, timestamp: new Date().toISOString() },
+        { type: 'session', id: sessionId, cwd, timestamp: new Date().toISOString() },
         { type: 'message', id: randomUUID(), timestamp: new Date().toISOString(), message: { role: 'user', content: [{ type: 'text', text: 'Pedido OMP fictício' }] } },
         { type: 'message', id: randomUUID(), timestamp: new Date().toISOString(), message: { role: 'assistant', content: [{ type: 'text', text: 'Resposta OMP fictícia' }] } },
       ];
@@ -68,9 +70,18 @@ export async function startAndroidFixture(root: string, args: string[]): Promise
       return path;
     }
     const path = join(projectDir, `${sessionId}.jsonl`);
-    const base = () => ({ uuid: randomUUID(), timestamp: new Date().toISOString(), sessionId, cwd: CWD, isSidechain: false });
+    const base = () => ({ uuid: randomUUID(), timestamp: new Date().toISOString(), sessionId, cwd, isSidechain: false });
     const lines = [
-      { ...base(), type: 'user', message: { role: 'user', content: 'Pedido fictício' } },
+      ...(Number(sessionId.slice(-12)) >= 20 ? [{ ...base(), type: 'custom-title', customTitle: `Planejamento de ${cwd.split('/').pop()}` }] : []),
+      { ...base(), type: 'user', message: { role: 'user', content: sessionId === AGENTS[0].sessionId ? 'Pedido fictício' : `Planejamento de ${cwd.split('/').pop()}` } },
+      ...Array.from({ length: 16 }, (_, index) => ([
+        { ...base(), type: 'user', message: { role: 'user', content: `Pode revisar a etapa ${index + 1} do projeto fictício?` } },
+        { ...base(), type: 'assistant', message: { id: randomUUID(), role: 'assistant', content: [{ type: 'text', text: `Revisei a etapa ${index + 1}.\n\n- Organização conferida\n- Próximos passos documentados\n\n\`\`\`sh\nprintf 'exemplo fictício\\n'\n\`\`\`` }] } },
+      ])).flat(),
+      { ...base(), type: 'assistant', message: { id: randomUUID(), role: 'assistant', content: [{ type: 'tool_use', id: 'tool-list', name: 'Bash', input: { command: 'ls -la' } }] } },
+      { ...base(), type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tool-list', content: Array.from({ length: 20 }, (_, i) => `arquivo-ficticio-${i + 1}.txt`).join('\n') }] } },
+      { ...base(), type: 'assistant', message: { id: randomUUID(), role: 'assistant', content: [{ type: 'tool_use', id: 'tool-read', name: 'Read', input: { file_path: '/fixture/projeto/exemplo.txt' } }] } },
+      { ...base(), type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tool-read', content: 'Conteúdo demonstrativo sem dados reais.' }] } },
       { ...base(), type: 'assistant', message: { id: randomUUID(), role: 'assistant', content: [{ type: 'thinking', thinking: 'Pensamento fictício' }, { type: 'text', text: 'Resposta fictícia' }, { type: 'tool_use', id: 'tool-fixture', name: 'Bash', input: { command: 'echo fixture' } }] } },
       { ...base(), type: 'system', subtype: 'informational', content: 'Aviso fictício' },
     ];
@@ -79,13 +90,15 @@ export async function startAndroidFixture(root: string, args: string[]): Promise
     if (late) pendingResults.set(path, result);
     return path;
   };
-  for (const agent of AGENTS) paths.set(agent.id, seed(agent.sessionId, agent.provider, agent.provider === 'claude'));
+  const projects = ['projeto', 'caderno', 'loja', 'biblioteca', 'jardim', 'viagem'];
+  for (const [index, agent] of AGENTS.entries()) paths.set(agent.id, seed(agent.sessionId, agent.provider, agent.id === 'fixture:claude', `/fixture/${projects[index]}`));
   seed(CLOSED);
+  for (let index = 0; index < 6; index++) seed(`00000000-0000-4000-8000-${String(index + 20).padStart(12, '0')}`, 'claude', false, `/fixture/${projects[index]}`);
   const accounts = new AccountsService({ dirs: [accountDir], home: root, env: {}, onChange: () => {} });
   accounts.setProviderAccounts('omp', [{ dir: ompDir, detected: { id: OMP_ACCOUNT, configDir: ompDir, short: 'OMP', name: 'OMP fixture', color: '#4aa8e8' } }]);
   const late: { messages?: MessageRegistry; permissions?: PermissionRegistry } = {};
   const office = new Office({ names: new NameStore(null), version: 'android-fixture', startedAt: Date.now(), accounts: s => accounts.list(s), sources: () => [], accountName: () => undefined, terminal: true, messages: () => late.messages?.reachable() ?? new Set(), permissions: () => late.permissions?.snapshot() ?? new Map() });
-  for (const agent of AGENTS) office.addMain({ ...agent, cwd: CWD, role: 'Agente principal', startedAt: Date.now(), status: 'idle' });
+  for (const [index, agent] of AGENTS.entries()) office.addMain({ ...agent, cwd: `/fixture/${projects[index]}`, role: 'Agente principal', startedAt: Date.now() - index * 300_000, status: index % 2 ? 'working' : 'idle' });
   const hub = new Hub(office, { canAnswer: req => isRemoteRequest(req) && parseAllow(allow).has('permissions') });
   const stagingDir = join(root, 'attachments', '.pending');
   const deliveredDir = join(root, 'attachments', 'delivered');

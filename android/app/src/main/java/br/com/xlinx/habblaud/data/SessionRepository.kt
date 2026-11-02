@@ -40,7 +40,7 @@ class SessionRepository(private val api: HabblaudApi) {
     fun sessions(): List<SessionItem> {
         val live = open.associateBy { it.key }
         val historical = recent.associateBy { it.key }
-        return open.map { item -> item.copy(project = item.project ?: historical[item.key]?.project) } + recent.filterNot { live.containsKey(it.key) }.map { it.copy(agentId = null) }
+        return open.map { item -> item.copy(project = item.project ?: historical[item.key]?.project, lastAt = item.lastAt ?: historical[item.key]?.lastAt) } + recent.filterNot { live.containsKey(it.key) }.map { it.copy(agentId = null) }
     }
 
     private fun item(o: JsonObject, project: String?): SessionItem? {
@@ -50,6 +50,6 @@ class SessionRepository(private val api: HabblaudApi) {
         val agent = o.string("id") ?: o.string("agentId")
         val activity = (o["activity"] as? JsonObject)?.let { it.string("summary") ?: it.string("text") ?: it.string("description") }
         val permission = o["permission"] as? JsonObject
-        return SessionItem(key, agent, o.string("title") ?: o.string("name") ?: id, project ?: o.string("project"), o.string("status"), activity, permission != null, o.string("name"), o.flag("canMessage"), permission?.string("id"))
+        return SessionItem(key, agent, o.string("title") ?: o.string("name") ?: id, project ?: o.string("project"), o.string("status"), activity, permission != null, o.string("name"), o.flag("canMessage"), permission?.string("id"), (o.string("lastEventAt") ?: o.string("lastAt"))?.toLongOrNull())
     }
 }

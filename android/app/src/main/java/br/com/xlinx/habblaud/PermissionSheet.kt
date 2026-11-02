@@ -8,6 +8,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import br.com.xlinx.habblaud.data.*
 import kotlinx.coroutines.CancellationException
@@ -17,6 +18,7 @@ import kotlinx.serialization.json.*
 import java.net.URLEncoder
 import java.text.DateFormat
 import java.util.Date
+import java.util.Locale
 internal fun permissionExpired(deadline: Long, now: Long) = deadline <= now
 internal fun permissionClosed(status: Int) = status == 404 || status == 409
 
@@ -52,6 +54,7 @@ internal fun permissionDecision(provider: String, behavior: String, questions: L
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun PermissionSheet(api: HabblaudApi, session: SessionItem, allowed: Boolean, connected: Boolean, onUnauthorized: () -> Unit, onClose: () -> Unit) {
     val id = session.permissionId ?: return
@@ -100,15 +103,16 @@ internal fun PermissionSheet(api: HabblaudApi, session: SessionItem, allowed: Bo
             } finally { busy = false }
         }
     }
-    AlertDialog(onDismissRequest = onClose, title = { Text(stringResource(R.string.permission_pending)) }, text = {
-        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(listOfNotNull(session.project, session.agentName, session.title).joinToString(" · "))
+    ModalBottomSheet(onDismissRequest = onClose) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(stringResource(R.string.permission_pending), style = MaterialTheme.typography.titleLarge)
+            Text(listOfNotNull(session.project?.substringAfterLast('/'), session.agentName, session.title).distinct().joinToString(" · "))
             if (!allowed) Text(stringResource(R.string.permissions_blocked))
             if (!connected) Text(stringResource(R.string.reading_offline))
             item?.let { request ->
                 Text(request.string("tool").orEmpty()); Text(request.string("title").orEmpty())
-                SelectionContainer { Text(request.string("input").orEmpty()) }
-                request["expiresAt"]?.jsonPrimitive?.longOrNull?.let { Text(stringResource(R.string.permission_deadline, DateFormat.getDateTimeInstance().format(Date(it)))) }
+                SelectionContainer { Text(request.string("input").orEmpty(), fontFamily = FontFamily.Monospace) }
+                request["expiresAt"]?.jsonPrimitive?.longOrNull?.let { Text(stringResource(R.string.permission_deadline, DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT, Locale.forLanguageTag("pt-BR")).format(Date(it)))) }
                 questions.forEach { q ->
                     val index = q["index"]?.jsonPrimitive?.intOrNull ?: return@forEach
                     val multi = q.flag("multiSelect")
@@ -128,7 +132,15 @@ internal fun PermissionSheet(api: HabblaudApi, session: SessionItem, allowed: Bo
                 if (provider == "claude" && questions.isEmpty()) {
                     request.objects("suggestions").forEach { s ->
                         val index = s["index"]?.jsonPrimitive?.intOrNull ?: return@forEach
-                        Row { Checkbox(suggestion == index, { suggestion = if (it) index else null }); Text(s.toString()) }
+                        val rules = runCatching { s["rules"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }?.joinToString(", ") }.getOrNull().orEmpty()
+                        val destination = stringResource(when (s.string("destination")) {
+                            "session" -> R.string.permission_destination_session
+                            "localSettings" -> R.string.permission_destination_local
+                            "projectSettings" -> R.string.permission_destination_project
+                            "userSettings" -> R.string.permission_destination_user
+                            else -> R.string.permission_destination_unknown
+                        })
+                        Row { Checkbox(suggestion == index, { suggestion = if (it) index else null }); Text(stringResource(R.string.permission_suggestion, rules, destination)) }
                     }
                     Row { Checkbox(interrupt, { interrupt = it }); Text(stringResource(R.string.permission_interrupt)) }
                 }
@@ -136,9 +148,7 @@ internal fun PermissionSheet(api: HabblaudApi, session: SessionItem, allowed: Bo
             }
             if (expired) Text(stringResource(R.string.permission_expired))
             error?.let { Text(stringResource(when (it) { "answers" -> R.string.permission_answers; "unknown" -> R.string.permission_unknown; else -> R.string.network_error }), color = MaterialTheme.colorScheme.error) }
-        }
-    }, confirmButton = {
-        val enabled = allowed && connected && item != null && !expired && !busy && !ambiguous
+            val enabled = allowed && connected && item != null && !expired && !busy && !ambiguous
         Row {
             if (questions.isNotEmpty()) TextButton(onClick = { decide("answer") }, enabled = enabled) { Text(stringResource(R.string.permission_answer)) }
             else {
@@ -147,5 +157,7 @@ internal fun PermissionSheet(api: HabblaudApi, session: SessionItem, allowed: Bo
             }
             TextButton(onClick = { decide("terminal") }, enabled = enabled) { Text(stringResource(R.string.permission_terminal)) }
         }
-    }, dismissButton = { TextButton(onClick = onClose) { Text(stringResource(R.string.cancel)) } })
+        TextButton(onClick = onClose) { Text(stringResource(R.string.cancel)) }
+        }
+    }
 }
