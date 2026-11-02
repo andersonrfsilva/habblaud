@@ -445,6 +445,17 @@ async function login(base: string): Promise<string> {
 }
 
 describe('porta remota', () => {
+  it('avatar exige autenticação remota e mantém cache privado', async () => {
+    const s = await start([]);
+    const path = '/api/avatar.png?seed=42&look=f&kind=main&scale=3';
+    expect((await request(s.remoteBase, path)).status).toBe(401);
+    const cookie = await login(s.remoteBase);
+    const response = await request(s.remoteBase, path, { headers: { Cookie: cookie } });
+    expect(response.status).toBe(200);
+    expect(response.headers['content-type']).toBe('image/png');
+    expect(response.headers['cache-control']).toContain('private');
+    expect((await request(s.remoteBase, '/api/avatar.png?seed=-1&look=f&kind=main&scale=3', { headers: { Cookie: cookie } })).status).toBe(400);
+  });
   it('logado: terminal interativo, rotas do hook e do plugin e o auxiliar nunca passam, nem com Host local', async () => {
     const s = await start(['permissions', 'messages', 'terminal', 'spawn']);
     const cookie = await login(s.remoteBase);

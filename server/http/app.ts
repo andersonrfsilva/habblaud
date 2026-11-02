@@ -28,6 +28,7 @@ import type { DeliveryIndex } from '../deliveries/deliveries';
 import type { FileFetcher } from '../deliveries/fetcher';
 import { handleFilesRoute, type BrowseDeps } from './files';
 import { HOST_WAIT_MS } from '../host-wait';
+import { avatarPng } from './avatar';
 
 export interface ApiDeps {
   office: Office;
@@ -402,6 +403,18 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
     if (isRemote(req) && isLocalOnlyPath(path)) {
       req.resume();
       sendJson(res, 403, { error: tr('rota só do próprio computador (hooks, plugins e o auxiliar do host)') });
+      return true;
+    }
+    if (path === '/api/avatar.png') {
+      if (!isRead) methodNotAllowed(res, 'GET');
+      else {
+        const png = avatarPng(url.searchParams);
+        if (!png) sendJson(res, 400, { error: tr('pedido inválido') });
+        else {
+          res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': png.length, 'Cache-Control': 'private, max-age=86400' });
+          res.end(method === 'HEAD' ? undefined : png);
+        }
+      }
       return true;
     }
     if (path === '/api/world' || path.startsWith('/api/world/')) {

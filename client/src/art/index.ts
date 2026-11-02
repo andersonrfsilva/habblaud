@@ -21,6 +21,7 @@ import {
   type WallStyle,
 } from './api';
 import { appearanceFromSeed as appearanceFromSeedPure, appearanceKey } from './character/appearance';
+import { avatarPixels } from './character/avatar';
 import { CHAR_H, CHAR_W, POSE_DURATION, POSE_FRAMES, isSeated, renderCharacter } from './character/render';
 import { Cache } from './core/cache';
 import { shade } from './core/color';
@@ -97,23 +98,7 @@ export function characterSprite(req: CharacterFrameRequest): Sprite {
 export function avatarCanvas(seed: number, opts: { look?: 'f' | 'm'; sub?: boolean; scale?: number; parts?: AppearanceParts } = {}): HTMLCanvasElement {
   const scale = Math.max(1, Math.round(opts.scale ?? 3));
   const key = `${seed}|${opts.look ?? '-'}|${opts.sub ? 1 : 0}|${scale}|${partsKey(opts.parts)}`;
-  return avatarCache.get(key, () => {
-    const s = renderCharacter({ appearance: appearanceFromSeedPure(seed, opts), dir: 'down', pose: 'stand', frame: 0 });
-    // Busto: cabeça + ombros (20x20 a partir do topo do cabelo).
-    const crop = s.buf.crop(2, 2, CHAR_W - 4, 20);
-    const out = new PixelBuf(crop.w * scale, crop.h * scale);
-    for (let y = 0; y < out.h; y++) {
-      for (let x = 0; x < out.w; x++) {
-        const si = (Math.floor(y / scale) * crop.w + Math.floor(x / scale)) * 4;
-        const di = (y * out.w + x) * 4;
-        out.data[di] = crop.data[si];
-        out.data[di + 1] = crop.data[si + 1];
-        out.data[di + 2] = crop.data[si + 2];
-        out.data[di + 3] = crop.data[si + 3];
-      }
-    }
-    return toCanvas(out);
-  });
+  return avatarCache.get(key, () => toCanvas(avatarPixels(seed, { ...opts, scale })));
 }
 
 
