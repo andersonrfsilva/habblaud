@@ -231,10 +231,9 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                         else if (!attachment.persistent) Text(stringResource(R.string.attachment_temporary), style = MaterialTheme.typography.bodySmall)
                     }
                 }
-                composer.operation?.let { operation -> ChatBanner(stringResource(when (operation.status) {
+                composer.operation?.takeUnless { it.status == "delivered" }?.let { operation -> ChatBanner(stringResource(when (operation.status) {
                     "queued" -> R.string.message_queued
                     "sent" -> R.string.message_sent
-                    "delivered" -> R.string.message_delivered
                     "failed" -> R.string.message_failed
                     else -> R.string.message_unknown
                 })) }

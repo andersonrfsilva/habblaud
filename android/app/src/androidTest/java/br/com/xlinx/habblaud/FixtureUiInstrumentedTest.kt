@@ -18,6 +18,8 @@ import androidx.test.platform.app.InstrumentationRegistry
 import br.com.xlinx.habblaud.data.ConnectionSettings
 import br.com.xlinx.habblaud.data.HabblaudApi
 import br.com.xlinx.habblaud.data.LocalStateStore
+import br.com.xlinx.habblaud.data.MessageDraft
+import br.com.xlinx.habblaud.data.MessageOperation
 import br.com.xlinx.habblaud.data.SessionKey
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -130,6 +132,38 @@ class FixtureUiInstrumentedTest {
         compose.onNodeWithText("Acrescentar agora").assertDoesNotExist()
         compose.onNodeWithText("Limites da entrega").assertDoesNotExist()
         compose.onNodeWithText(text(R.string.window_truncated)).assertDoesNotExist()
+    }
+
+    @Test fun deliveryBannerDisappearsOnlyAfterDelivery() {
+        val statuses = listOf(
+            "queued" to R.string.message_queued,
+            "sent" to R.string.message_sent,
+            "failed" to R.string.message_failed,
+            "unknown" to R.string.message_unknown,
+            "delivered" to null,
+        )
+        for ((status, banner) in statuses) {
+            runBlocking {
+                LocalStateStore(context).updateMessage(key) {
+                    it.copy(draft = MessageDraft("rascunho preservado", revision = 1), operation = MessageOperation(status = status))
+                }
+            }
+            scenario = ActivityScenario.launch(MainActivity::class.java)
+            compose.waitUntil(15_000) { compose.onAllNodes(hasText("rascunho preservado", substring = true)).fetchSemanticsNodes().isNotEmpty() }
+            if (banner != null) {
+                await(banner)
+                compose.onNodeWithText(text(banner)).assertIsDisplayed()
+            } else {
+                compose.onNodeWithText("ⓘ").assertDoesNotExist()
+                for (other in listOf(R.string.message_queued, R.string.message_sent, R.string.message_failed, R.string.message_unknown)) {
+                    compose.onNodeWithText(text(other)).assertDoesNotExist()
+                }
+                compose.onNodeWithText("Entregue à sessão", substring = true).assertDoesNotExist()
+            }
+            compose.onNodeWithText(text(R.string.message_text)).assertTextContains("rascunho preservado")
+            scenario!!.close()
+            scenario = null
+        }
     }
 
     @Test fun opensAndDecidesRealFixturePermission() {

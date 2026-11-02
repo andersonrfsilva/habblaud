@@ -263,7 +263,9 @@ shot sessoes-recentes
 tap 'Buscar por título, projeto ou agente'; adb shell input text busca-impossivel; adb shell input keyevent 4
 wait_text 'Nenhuma sessão encontrada.'
 shot busca-vazia
-adb shell input tap 300 450; adb shell input keyevent KEYCODE_MOVE_END; adb shell input keycombination KEYCODE_CTRL_LEFT KEYCODE_A; adb shell input keyevent KEYCODE_DEL; adb shell input keyevent 4
+adb shell input tap 300 450; adb shell input keyevent KEYCODE_MOVE_END
+for _ in $(seq 1 20); do adb shell input keyevent KEYCODE_DEL KEYCODE_FORWARD_DEL; done
+adb shell input keyevent 4
 tap Abertas
 tap 'projeto · parado'
 wait_text 'Bash(echo fixture)'
@@ -321,6 +323,18 @@ if coords "$TEST_A" >/dev/null; then echo 'O primeiro anexo não foi removido.' 
 tap Enviar
 fixture_check 4 2 2
 wait_draft_cleared caso-c
+wait_text 'Aceita e na fila; ainda não entregue.'
+printf 'deliver fixture:claude\n' >&3
+for _ in $(seq 1 20); do
+    dump
+    if ! coords 'Aceita e na fila; ainda não entregue.' >/dev/null; then break; fi
+    sleep 1
+done
+if coords 'Aceita e na fila; ainda não entregue.' >/dev/null || coords 'Entregue à sessão; isso não significa que foi lida ou concluída.' >/dev/null || coords 'Envio não confirmado; confira a conversa antes de reenviar.' >/dev/null; then
+    echo 'Banner inesperado após confirmação de entrega.' >&2
+    exit 1
+fi
+shot entrega-confirmada
 for _ in $(seq 1 18); do adb shell input swipe 500 500 500 1850 150; done
 printf 'append fixture:claude\n' >&3
 wait_text '1'

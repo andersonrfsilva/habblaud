@@ -52,7 +52,6 @@
     <string name="send_message">Enviar</string>
     <string name="message_queued">Aceita e na fila; ainda não entregue.</string>
     <string name="message_sent">Enviada; aguardando confirmação de entrega.</string>
-    <string name="message_delivered">Entregue à sessão; isso não significa que foi lida ou concluída.</string>
     <string name="message_failed">A entrega falhou.</string>
     <string name="message_unknown">Envio não confirmado; confira a conversa antes de reenviar.</string>
     <string name="message_send_error">Não foi possível enviar a mensagem.</string>

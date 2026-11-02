@@ -347,8 +347,8 @@ para leitura; o app não cria nem retoma processos. Não há paginação de hist
 Rascunhos são locais por sessão; o app não reenvia mensagens automaticamente após perda de conexão. Se o envio não for
 confirmado, confira a conversa antes de tentar novamente: a primeira tentativa pode ter sido aceita.
 
-Mensagens aceitam até 20.000 unidades UTF-16 e cinco anexos de até 15 MiB cada. `delivered` indica aceitação pela
-sessão/runtime, não leitura nem conclusão. No omp, o app envia mensagens no modo `aside`; a entrega depende da
+Mensagens aceitam até 20.000 unidades UTF-16 e cinco anexos de até 15 MiB cada. O aviso de envio desaparece quando
+`delivered` confirma a aceitação pela sessão/runtime; isso não indica leitura nem conclusão. No omp, o app envia mensagens no modo `aside`; a entrega depende da
 extensão carregada. O botão de parar aparece enquanto o agente omp trabalha e não garante efeito imediato.
 Aprovações e perguntas dependem do provedor e do pedido;
 omp e Codex não aceitam `interrupt` nem `suggestion` nas decisões.
