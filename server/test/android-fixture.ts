@@ -75,14 +75,36 @@ export async function startAndroidFixture(root: string, args: string[]): Promise
       ...(Number(sessionId.slice(-12)) >= 20 ? [{ ...base(), type: 'custom-title', customTitle: `Planejamento de ${cwd.split('/').pop()}` }] : []),
       { ...base(), type: 'user', message: { role: 'user', content: sessionId === AGENTS[0].sessionId ? 'Pedido fictício' : `Planejamento de ${cwd.split('/').pop()}` } },
       ...Array.from({ length: 16 }, (_, index) => ([
-        { ...base(), type: 'user', message: { role: 'user', content: `Pode revisar a etapa ${index + 1} do projeto fictício?` } },
-        { ...base(), type: 'assistant', message: { id: randomUUID(), role: 'assistant', content: [{ type: 'text', text: `Revisei a etapa ${index + 1}.\n\n- Organização conferida\n- Próximos passos documentados\n\n\`\`\`sh\nprintf 'exemplo fictício\\n'\n\`\`\`` }] } },
+        { ...base(), type: 'user', message: { role: 'user', content: index === 0 ? 'Pode revisar **todas** as etapas do projeto fictício?' : `Pode revisar a etapa ${index + 1} do projeto fictício?` } },
+        { ...base(), type: 'assistant', message: { id: randomUUID(), role: 'assistant', content: [{ type: 'text', text: index === 0 ? `# Relatório fictício
+
+Uma revisão **completa** e *cuidadosa*, com \`código inline\`.
+
+- Organização conferida
+  - Arquivos fictícios revisados
+  - Nenhum dado real
+- Próximos passos documentados
+
+1. Conferir a entrada
+2. Revisar a saída
+
+> Este é um exemplo de citação.
+
+[Documentação de exemplo](https://example.com)
+
+| Item | Estado |
+| --- | --- |
+| Revisão | Concluída |
+
+\`\`\`sh
+printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no bloco de código\\n'
+\`\`\`` : `Revisei a etapa ${index + 1}.\n\n- Organização conferida\n- Próximos passos documentados\n\n\`\`\`sh\nprintf 'exemplo fictício\\n'\n\`\`\`` }] } },
       ])).flat(),
       { ...base(), type: 'assistant', message: { id: randomUUID(), role: 'assistant', content: [{ type: 'tool_use', id: 'tool-list', name: 'Bash', input: { command: 'ls -la' } }] } },
       { ...base(), type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tool-list', content: Array.from({ length: 20 }, (_, i) => `arquivo-ficticio-${i + 1}.txt`).join('\n') }] } },
       { ...base(), type: 'assistant', message: { id: randomUUID(), role: 'assistant', content: [{ type: 'tool_use', id: 'tool-read', name: 'Read', input: { file_path: '/fixture/projeto/exemplo.txt' } }] } },
       { ...base(), type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tool-read', content: 'Conteúdo demonstrativo sem dados reais.' }] } },
-      { ...base(), type: 'assistant', message: { id: randomUUID(), role: 'assistant', content: [{ type: 'thinking', thinking: 'Pensamento fictício' }, { type: 'text', text: 'Resposta fictícia' }, { type: 'tool_use', id: 'tool-fixture', name: 'Bash', input: { command: 'echo fixture' } }] } },
+      { ...base(), type: 'assistant', message: { id: randomUUID(), role: 'assistant', content: [{ type: 'thinking', thinking: 'Primeira linha do pensamento.\nSegunda linha do pensamento.\nTerceira linha do pensamento.' }, { type: 'text', text: 'Resposta fictícia' }, { type: 'tool_use', id: 'tool-fixture', name: 'Bash', input: { command: 'echo fixture' } }] } },
       { ...base(), type: 'system', subtype: 'informational', content: 'Aviso fictício' },
     ];
     const result = JSON.stringify({ ...base(), type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tool-fixture', content: 'Resultado fictício' }] } }) + '\n';

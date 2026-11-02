@@ -103,6 +103,20 @@ class FixtureUiInstrumentedTest {
         }
     }
 
+    @Test fun thinkingExpandsAllLinesAndCollapses() {
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        await(R.string.thinking)
+        compose.onNodeWithText(text(R.string.thinking)).performClick()
+        compose.waitUntil(15_000) {
+            compose.onAllNodes(hasText("Terceira linha do pensamento.", substring = true)).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Primeira linha do pensamento.", substring = true)
+            .assertTextContains("Segunda linha do pensamento.", substring = true)
+            .assertTextContains("Terceira linha do pensamento.", substring = true)
+        compose.onNodeWithText(text(R.string.thinking)).performClick()
+        compose.onNodeWithText("Terceira linha do pensamento.", substring = true).assertDoesNotExist()
+    }
+
     @Test fun opensAndDecidesRealFixturePermission() {
         val port = InstrumentationRegistry.getArguments().getString("fixtureLocalPort")?.toIntOrNull()
         require(port != null && port in 1..65535) {

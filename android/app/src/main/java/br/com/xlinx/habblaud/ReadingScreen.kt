@@ -3,6 +3,7 @@ package br.com.xlinx.habblaud
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -23,6 +24,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -31,6 +34,10 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import br.com.xlinx.habblaud.data.*
+import com.mikepenz.markdown.compose.components.markdownComponents
+import com.mikepenz.markdown.m3.Markdown
+import com.mikepenz.markdown.m3.markdownColor
+import com.mikepenz.markdown.m3.markdownTypography
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -90,7 +97,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
             }
         )
     }) { padding ->
-    Column(Modifier.fillMaxSize().padding(padding).imePadding().background(if (selected == null) MaterialTheme.colorScheme.background else Color(0xFFF0F5F1)).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.fillMaxSize().padding(padding).imePadding().background(if (selected == null) MaterialTheme.colorScheme.background else if (isSystemInDarkTheme()) MaterialTheme.colorScheme.surfaceContainerLowest else MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         state.error?.let { error -> Text(stringResource(when (error) { "changed" -> R.string.session_changed; "forbidden" -> R.string.terminal_blocked; "missing" -> R.string.reading_missing; "oversize" -> R.string.reading_oversize; "vpn_required" -> R.string.vpn_required; else -> R.string.network_error }), color = MaterialTheme.colorScheme.error) }
         if (selected == null) {
             var query by remember { mutableStateOf("") }
@@ -106,9 +113,9 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(items, key = { it.key.serialize() }) { session ->
                     Row(Modifier.fillMaxWidth().clickable { controller.open(session) }.padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        val avatarColors = listOf(Color(0xFFD3EEE3), Color(0xFFDCE7F7), Color(0xFFF7E4D6), Color(0xFFEAE0F4), Color(0xFFF5EABF))
+                        val avatarColors = if (isSystemInDarkTheme()) listOf(Color(0xFF294D40), Color(0xFF314759), Color(0xFF564139), Color(0xFF484052), Color(0xFF51482D)) else listOf(Color(0xFFD3EEE3), Color(0xFFDCE7F7), Color(0xFFF7E4D6), Color(0xFFEAE0F4), Color(0xFFF5EABF))
                         Box(Modifier.size(48.dp).background(avatarColors[(session.title.hashCode() and Int.MAX_VALUE) % avatarColors.size], CircleShape), contentAlignment = Alignment.Center) {
-                            Text(session.title.take(1).uppercase(), color = MaterialTheme.colorScheme.onPrimaryContainer, style = MaterialTheme.typography.titleLarge)
+                            Text(session.title.take(1).uppercase(), color = if (isSystemInDarkTheme()) Color(0xFFE0E9E2) else Color(0xFF002117), style = MaterialTheme.typography.titleLarge)
                         }
                         Column(Modifier.weight(1f)) {
                             Text(session.title, style = MaterialTheme.typography.titleMedium)
@@ -145,6 +152,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                     if (total > 0) {
                         following = last != null && last >= total - 1
                         if (following && !dragging) { userScrolled = false; unread = 0 }
+                        else if (initialScroll && !userScrolled && !dragging && last != null) listState.scrollToItem(total - 1)
                     }
                 }
             }
@@ -175,7 +183,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                 }
                 if (userScrolled && !following && initialScroll && state.entries.isNotEmpty()) {
                     val label = stringResource(R.string.go_to_end)
-                    SmallFloatingActionButton(onClick = { scope.launch { listState.scrollToItem(state.entries.lastIndex); unread = 0; userScrolled = false } }, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp).semantics { contentDescription = label }, shape = CircleShape) {
+                    SmallFloatingActionButton(onClick = { userScrolled = false; unread = 0; scope.launch { listState.scrollToItem(state.entries.lastIndex) } }, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp).semantics { contentDescription = label }, shape = CircleShape) {
                         BadgedBox(badge = { if (unread > 0) Badge { Text(unread.toString()) } }) { Text("↓", style = MaterialTheme.typography.titleLarge) }
                     }
                 }
@@ -309,27 +317,35 @@ private fun EntryView(entry: TerminalEntry, results: List<TerminalEntry>) {
                         Text(label, style = MaterialTheme.typography.labelLarge)
                     }
                     if (expanded) SelectionContainer {
-                        Column(Modifier.horizontalScroll(rememberScrollState())) {
-                            Text(entry.text, fontFamily = FontFamily.Monospace)
-                            results.forEach {
-                                Text(stringResource(R.string.tool_result))
-                                Text(it.text, fontFamily = FontFamily.Monospace)
-                                if (it.truncated) Text(stringResource(R.string.result_truncated))
+                        if (entry.kind == "thinking") {
+                            Text(entry.text, color = MaterialTheme.colorScheme.onSurfaceVariant, fontStyle = FontStyle.Italic)
+                        } else {
+                            Column(Modifier.horizontalScroll(rememberScrollState())) {
+                                Text(entry.text, fontFamily = FontFamily.Monospace)
+                                results.forEach {
+                                    Text(stringResource(R.string.tool_result))
+                                    Text(it.text, fontFamily = FontFamily.Monospace)
+                                    if (it.truncated) Text(stringResource(R.string.result_truncated))
+                                }
                             }
                         }
                     }
                 } else {
                     SelectionContainer {
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            entry.text.split("```").forEachIndexed { index, part ->
-                                if (index % 2 == 0) {
-                                    val text = part.trim('\n').replace(Regex("\\n[ \\t]*\\n(?:[ \\t]*\\n)+"), "\n\n")
-                                    if (text.isNotEmpty()) Text(text)
-                                } else {
-                                    Text(part.substringAfter('\n', part).trimEnd(), Modifier.fillMaxWidth().background(Color(0xFFF0F3F1), RoundedCornerShape(8.dp)).horizontalScroll(rememberScrollState()).padding(8.dp), fontFamily = FontFamily.Monospace)
-                                }
-                            }
-                        }
+                        Markdown(
+                            entry.text,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = markdownColor(text = if (entry.kind == "user") MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface),
+                            typography = markdownTypography(
+                                h1 = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.SemiBold),
+                                h2 = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                                h3 = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                                h4 = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                h5 = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
+                                h6 = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                            ),
+                            components = markdownComponents(image = {}),
+                        )
                     }
                     if (entry.truncated) Text(stringResource(R.string.result_truncated))
                 }

@@ -2,9 +2,11 @@ package br.com.xlinx.habblaud
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -29,7 +31,23 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         val store = LocalStateStore(applicationContext)
         setContent {
-            MaterialTheme(colorScheme = lightColorScheme(
+            val dark = isSystemInDarkTheme()
+            SideEffect {
+                val bars = if (dark) SystemBarStyle.dark(android.graphics.Color.TRANSPARENT) else SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+                enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
+            }
+            MaterialTheme(colorScheme = if (dark) darkColorScheme(
+                primary = Color(0xFF9CDCC6), onPrimary = Color(0xFF00382A),
+                primaryContainer = Color(0xFF195342), onPrimaryContainer = Color(0xFFB8F5DD),
+                secondary = Color(0xFFACD2C4), onSecondary = Color(0xFF17372D),
+                secondaryContainer = Color(0xFF294D40), onSecondaryContainer = Color(0xFFC9EEE0),
+                surface = Color(0xFF171F1B), onSurface = Color(0xFFE0E9E2),
+                background = Color(0xFF101814), onBackground = Color(0xFFE0E9E2),
+                surfaceVariant = Color(0xFF3E4A42), onSurfaceVariant = Color(0xFFC1CEC4),
+                surfaceContainerLowest = Color(0xFF0B120F), surfaceContainerLow = Color(0xFF171F1B),
+                surfaceContainer = Color(0xFF1B241F), surfaceContainerHigh = Color(0xFF253029),
+                surfaceContainerHighest = Color(0xFF303B34)
+            ) else lightColorScheme(
                 primary = Color(0xFF176B58), onPrimary = Color.White,
                 primaryContainer = Color(0xFFD3EEE3), onPrimaryContainer = Color(0xFF002117),
                 secondary = Color(0xFF416A60), secondaryContainer = Color(0xFFDCEFE6), onSecondaryContainer = Color(0xFF173C31),

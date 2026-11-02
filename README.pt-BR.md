@@ -249,6 +249,11 @@ superior e uma instalação do Habblaud com login remoto configurado. A URL deve
 para a porta local sem autenticação. O aplicativo aceita uma instalação por vez; informe URL, usuário e senha do acesso
 remoto. A senha não é persistida. HTTPS usa a validação normal de certificado e nome do Android.
 
+O aplicativo acompanha o tema claro ou escuro do sistema. As mensagens exibem Markdown selecionável, incluindo
+listas, tabelas e código; links abrem ao toque. Imagens remotas e HTML não são carregados ou interpretados.
+Para gerar capturas dos dois temas com dados fictícios, execute `scripts/android-screens.sh` com o AVD
+`habblaud034` disponível. As imagens ficam em `/tmp/android-screens/`.
+
 #### Compilar e instalar
 
 Instale JDK 17 ou superior e o Android SDK com a plataforma 36 e ferramentas de build. Na raiz do repositório:

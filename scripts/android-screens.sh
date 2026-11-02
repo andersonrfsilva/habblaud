@@ -15,6 +15,7 @@ EMULATOR_PID=
 SIZE=
 DENSITY=
 FONT=
+NIGHT=
 TEST_A=habblaud-exemplo.txt
 TEST_B="habblaud-${TMP##*.}-b.txt"
 
@@ -25,6 +26,7 @@ cleanup() {
         if [[ -n "$SIZE" ]]; then "$ADB" -s "$SERIAL" shell wm size "$SIZE"; else "$ADB" -s "$SERIAL" shell wm size reset; fi
         if [[ -n "$DENSITY" ]]; then "$ADB" -s "$SERIAL" shell wm density "$DENSITY"; else "$ADB" -s "$SERIAL" shell wm density reset; fi
         if [[ "$FONT" == null || -z "$FONT" ]]; then "$ADB" -s "$SERIAL" shell settings delete system font_scale; else "$ADB" -s "$SERIAL" shell settings put system font_scale "$FONT"; fi
+        if [[ -n "$NIGHT" ]]; then "$ADB" -s "$SERIAL" shell cmd uimode night "$NIGHT"; fi
         "$ADB" -s "$SERIAL" reverse --remove tcp:14748
         "$ADB" -s "$SERIAL" reverse --remove tcp:14749
         "$ADB" -s "$SERIAL" shell rm -f "/sdcard/Download/$TEST_A" "/sdcard/Download/$TEST_B"
@@ -83,6 +85,7 @@ done
 SIZE=$("$ADB" -s "$SERIAL" shell wm size | awk '/Override size:/{print $3}' | tr -d '\r')
 DENSITY=$("$ADB" -s "$SERIAL" shell wm density | awk '/Override density:/{print $3}' | tr -d '\r')
 FONT=$("$ADB" -s "$SERIAL" shell settings get system font_scale | tr -d '\r')
+NIGHT=$("$ADB" -s "$SERIAL" shell cmd uimode night | awk '{print $3}' | tr -d '\r')
 "$ADB" -s "$SERIAL" shell wm size 1080x2340
 "$ADB" -s "$SERIAL" shell wm density 420
 "$ADB" -s "$SERIAL" shell settings put system font_scale 1.0
@@ -93,18 +96,6 @@ ANDROID_HOME="$ANDROID_HOME" android/gradlew -p android :app:assembleDebug
 
 mkfifo "$TMP/control" "$TMP/readonly-control"
 exec 3<>"$TMP/control" 4<>"$TMP/readonly-control"
-node --import tsx scripts/android-smoke.ts --port 14748 --allow terminal,messages,permissions <"$TMP/control" >"$TMP/fixture.log" 2>&1 &
-FIXTURE_PID=$!
-node --import tsx scripts/android-smoke.ts --port 14749 --allow terminal,messages,permissions --no-session-guard <"$TMP/readonly-control" >"$TMP/readonly.log" 2>&1 &
-READONLY_PID=$!
-for _ in $(seq 1 60); do
-    grep -qs '"ready":true' "$TMP/fixture.log" && grep -qs '"ready":true' "$TMP/readonly.log" && break
-    kill -0 "$FIXTURE_PID" "$READONLY_PID"
-    sleep 1
-done
-grep -q '"ready":true' "$TMP/fixture.log"
-grep -q '"ready":true' "$TMP/readonly.log"
-printf 'permission fixture:analise bash\n' >&3
 
 adb() { "$ADB" -s "$SERIAL" "$@"; }
 dump() {
@@ -144,7 +135,7 @@ wait_text() {
     return 1
 }
 tap() { wait_text "$1"; local xy; xy=$(coords "$1"); adb shell input tap $xy; }
-shot() { sleep 1; adb exec-out screencap -p >"$OUT/$1.png"; echo "$OUT/$1.png"; }
+shot() { sleep 1; adb exec-out screencap -p >"$OUT/$1-$THEME.png"; echo "$OUT/$1-$THEME.png"; }
 reset_app() { adb shell pm clear "$PACKAGE" >/dev/null; adb shell am start -n "$PACKAGE/.MainActivity" >/dev/null; wait_text 'URL do servidor'; }
 fill_login() {
     tap 'URL do servidor'; adb shell input text "$1"; adb shell input keyevent 4
@@ -221,6 +212,21 @@ PY
     return 1
 }
 
+for THEME in claro escuro; do
+if [[ "$THEME" == claro ]]; then adb shell cmd uimode night no; else adb shell cmd uimode night yes; fi
+node --import tsx scripts/android-smoke.ts --port 14748 --allow terminal,messages,permissions <"$TMP/control" >"$TMP/fixture.log" 2>&1 &
+FIXTURE_PID=$!
+node --import tsx scripts/android-smoke.ts --port 14749 --allow terminal,messages,permissions --no-session-guard <"$TMP/readonly-control" >"$TMP/readonly.log" 2>&1 &
+READONLY_PID=$!
+for _ in $(seq 1 60); do
+    grep -qs '"ready":true' "$TMP/fixture.log" && grep -qs '"ready":true' "$TMP/readonly.log" && break
+    kill -0 "$FIXTURE_PID" "$READONLY_PID"
+    sleep 1
+done
+grep -q '"ready":true' "$TMP/fixture.log"
+grep -q '"ready":true' "$TMP/readonly.log"
+printf 'permission fixture:analise bash\n' >&3
+
 reset_app
 shot conexao-vazia
 tap 'URL do servidor'; adb shell input text http://100.64.0.1:14748; adb shell input keyevent 4
@@ -245,8 +251,16 @@ tap Abertas
 tap 'projeto · parado'
 wait_text 'Bash(echo fixture)'
 shot conversa-fim
+tap 'Pensando…'
+wait_text $'Primeira linha do pensamento.\nSegunda linha do pensamento.\nTerceira linha do pensamento.'
+shot pensamento-expandido
+tap 'Pensando…'
 for _ in $(seq 1 18); do adb shell input swipe 500 500 500 1850 150; done
 shot conversa-topo
+wait_text 'Relatório fictício'
+shot markdown-rico
+adb shell input swipe 500 1650 500 900 400
+shot markdown-detalhes
 tap 'Ir para o fim'
 wait_text 'Bash(echo fixture)'
 tap 'Bash(echo fixture)'
@@ -311,3 +325,9 @@ wait_text Abertas
 tap 'projeto · parado'
 wait_text 'O servidor precisa ser atualizado para enviar mensagens.'
 shot modo-leitura
+kill "$FIXTURE_PID" "$READONLY_PID"
+wait "$FIXTURE_PID" 2>/dev/null || true
+wait "$READONLY_PID" 2>/dev/null || true
+FIXTURE_PID=
+READONLY_PID=
+done
