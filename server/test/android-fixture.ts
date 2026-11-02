@@ -109,13 +109,24 @@ export async function startAndroidFixture(root: string, args: string[]): Promise
   const sessions = new RemoteSessions(loadSecret(join(root, 'remote-secret')), { user: 'android-test', passwordHashText }, Date.now, join(root, 'remote-revoked'));
   const gate = createRemoteGate({ config: { user: 'android-test', passwordHash }, sessions, secure: false });
   const guard = createRequestGuard({ allowedHosts: new Set() });
-  const posts: Record<string, number> = {};
+  const posts: Record<string, number> = { '/api/messages': 0 };
   let lastHeaders: Record<string, string | null> = {};
   let drop = false;
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
     lastHeaders = { origin: req.headers.origin ?? null, referer: req.headers.referer ?? null, host: req.headers.host ?? null, 'content-type': req.headers['content-type'] ?? null };
     if (req.method === 'POST') posts[url.pathname] = (posts[url.pathname] ?? 0) + 1;
+    if (req.method === 'POST') {
+      const end = res.end.bind(res);
+      res.end = ((...args: Parameters<typeof res.end>) => {
+        if (drop && res.statusCode >= 200 && res.statusCode < 300) {
+          drop = false;
+          res.destroy();
+          return res;
+        }
+        return end(...args);
+      }) as typeof res.end;
+    }
     if (guard(req, res) || gate(req, res, url)) return;
     const match = /^\/api\/agents\/([^/]+)\/terminal$/.exec(url.pathname);
     if (req.method === 'GET' && match && allowed.has('terminal')) {
@@ -129,10 +140,6 @@ export async function startAndroidFixture(root: string, args: string[]): Promise
         }, 1_000);
         timers.add(timer);
       }
-    }
-    if (drop && req.method === 'POST') {
-      drop = false;
-      res.end = (() => { res.destroy(); return res; }) as typeof res.end;
     }
     if (noSessionGuard && url.pathname === '/api/access') {
       const writeHead = res.writeHead.bind(res);

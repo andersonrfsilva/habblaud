@@ -28,7 +28,7 @@ internal fun JsonObject.string(name: String): String? = this[name]?.let { runCat
 internal fun JsonObject.flag(name: String): Boolean = this[name]?.let { runCatching { it.jsonPrimitive.booleanOrNull }.getOrNull() } == true
 internal fun JsonObject.objects(name: String): List<JsonObject> = this[name]?.let { runCatching { it.jsonArray.mapNotNull { item -> item as? JsonObject } }.getOrNull() } ?: emptyList()
 
-data class SessionItem(val key: SessionKey, val agentId: String?, val title: String, val project: String?, val status: String?, val activity: String?, val permission: Boolean = false, val agentName: String? = null)
+data class SessionItem(val key: SessionKey, val agentId: String?, val title: String, val project: String?, val status: String?, val activity: String?, val permission: Boolean = false, val agentName: String? = null, val canMessage: Boolean = false)
 
 data class TerminalEntry(val id: String, val kind: String, val text: String, val title: String? = null, val toolUseId: String? = null, val truncated: Boolean = false) {
     val bytes: Int get() = (id + kind + text + (title ?: "") + (toolUseId ?: "")).toByteArray(Charsets.UTF_8).size

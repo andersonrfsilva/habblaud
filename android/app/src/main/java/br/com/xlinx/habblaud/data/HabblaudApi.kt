@@ -13,7 +13,7 @@ import java.io.IOException
 import java.net.URI
 import java.util.concurrent.TimeUnit
 
-class ApiException(val status: Int, val retryAfter: String? = null) : IOException("HTTP $status")
+class ApiException(val status: Int, val retryAfter: String? = null, val code: String? = null) : IOException("HTTP $status")
 class VpnRequiredException : IOException("Conecte o Tailscale")
 class RedirectException : IOException("Redirecionamento recusado")
 internal fun httpClient(): OkHttpClient = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
@@ -37,7 +37,10 @@ class HabblaudApi(context: Context, val origin: String, consent: Boolean) : Auto
         client().newCall(builder.build()).execute().use { response ->
             if (response.code in 300..399) throw RedirectException()
             if (response.code == 401) { cancelCalls(); cookies.clear() }
-            if (!response.isSuccessful) throw ApiException(response.code, response.header("Retry-After"))
+            if (!response.isSuccessful) {
+                val code = runCatching { JSONObject(response.body?.string() ?: "").optString("code").ifEmpty { null } }.getOrNull()
+                throw ApiException(response.code, response.header("Retry-After"), code)
+            }
             response.body?.string() ?: ""
         }
     }

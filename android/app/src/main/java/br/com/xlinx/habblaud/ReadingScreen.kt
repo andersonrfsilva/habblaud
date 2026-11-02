@@ -1,6 +1,9 @@
 package br.com.xlinx.habblaud
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -34,6 +37,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
         onDispose { owner.lifecycle.removeObserver(observer); controller.stop() }
     }
     val state by controller.state.collectAsStateWithLifecycle()
+    val composer by controller.messages.state.collectAsStateWithLifecycle()
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(stringResource(when (state.connection) { "connected" -> R.string.reading_connected; "connecting" -> R.string.reading_connecting; else -> R.string.reading_offline }))
         state.error?.let { error -> Text(stringResource(when (error) { "changed" -> R.string.session_changed; "forbidden" -> R.string.terminal_blocked; "missing" -> R.string.reading_missing; "oversize" -> R.string.reading_oversize; else -> R.string.network_error }), color = MaterialTheme.colorScheme.error) }
@@ -66,7 +70,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                 Text(selected.title, style = MaterialTheme.typography.titleMedium)
             }
             Text(listOfNotNull(selected.project, selected.key.provider, selected.status, selected.activity).joinToString(" · "))
-            Text(stringResource(if (selected.agentId == null) R.string.history_read_only else R.string.read_only))
+            if (selected.agentId == null) Text(stringResource(R.string.history_read_only))
             if (!state.terminalAllowed) Text(stringResource(R.string.terminal_blocked))
             if (state.truncated) Text(stringResource(R.string.window_truncated))
             if (state.reduced) Text(stringResource(R.string.window_reduced))
@@ -85,6 +89,51 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
             LazyColumn(Modifier.weight(1f), state = listState, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(state.entries, key = { it.id }) { entry ->
                     if (entry.kind != "result" || entry.toolUseId !in tools) EntryView(entry, results[entry.id].orEmpty())
+                }
+            }
+            if (composer.key == selected.key && selected.agentId != null) {
+                val agentId = selected.agentId
+                Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                val enabled = agentId != null && selected.canMessage && state.messagesAllowed && state.messageGuard && state.connection == "connected"
+                if (!state.messagesAllowed) Text(stringResource(R.string.messages_blocked))
+                else if (!state.messageGuard) Text(stringResource(R.string.message_guard_required))
+                else if (agentId != null && !selected.canMessage) Text(stringResource(R.string.message_unavailable))
+                if (selected.key.provider == "omp") {
+                    var expanded by remember { mutableStateOf(false) }
+                    var showWarning by remember { mutableStateOf(false) }
+                    val modes = listOf("aside" to R.string.mode_aside, "followUp" to R.string.mode_follow_up, "steer" to R.string.mode_steer)
+                    Row(Modifier.horizontalScroll(rememberScrollState())) {
+                        Box {
+                            TextButton(onClick = { expanded = true }) { Text(stringResource(modes.first { it.first == composer.draft.mode }.second)) }
+                            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                                modes.forEach { (mode, label) ->
+                                    DropdownMenuItem(text = { Text(stringResource(label)) }, onClick = { controller.messages.edit(mode = mode); expanded = false })
+                                }
+                            }
+                        }
+                        TextButton(onClick = { showWarning = true }) { Text(stringResource(R.string.omp_warning_title)) }
+                    }
+                    if (showWarning) AlertDialog(onDismissRequest = { showWarning = false }, title = { Text(stringResource(R.string.omp_warning_title)) }, text = { Text(stringResource(R.string.omp_warning)) }, confirmButton = { TextButton(onClick = { showWarning = false }) { Text(stringResource(R.string.confirm)) } })
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    OutlinedTextField(composer.draft.text, { controller.messages.edit(text = it) }, Modifier.weight(1f), enabled = !composer.loading, label = { Text(stringResource(R.string.message_text)) }, supportingText = { Text("${composer.draft.text.length}/20000") }, maxLines = 3)
+                    Button(onClick = { if (agentId != null) controller.messages.send(agentId) }, enabled = enabled && !composer.loading && !composer.sending && composer.draft.text.isNotBlank()) { Text(stringResource(R.string.send_message)) }
+                }
+                composer.operation?.let { operation -> Text(stringResource(when (operation.status) {
+                    "queued" -> R.string.message_queued
+                    "sent" -> R.string.message_sent
+                    "delivered" -> R.string.message_delivered
+                    "failed" -> R.string.message_failed
+                    else -> R.string.message_unknown
+                })) }
+                composer.error?.let { error -> if (error != "confirm") Text(stringResource(when (error) { "storage" -> R.string.storage_error; "unknown" -> R.string.message_unknown; else -> R.string.message_send_error }), color = MaterialTheme.colorScheme.error) }
+                if (composer.error == "confirm" && agentId != null) AlertDialog(
+                    onDismissRequest = { controller.messages.dismissConfirmation() },
+                    title = { Text(stringResource(R.string.message_retry_title)) },
+                    text = { Text(stringResource(R.string.message_retry_warning)) },
+                    confirmButton = { TextButton(onClick = { controller.messages.send(agentId, confirmed = true) }) { Text(stringResource(R.string.confirm)) } },
+                    dismissButton = { TextButton(onClick = { controller.messages.dismissConfirmation() }) { Text(stringResource(R.string.cancel)) } }
+                )
                 }
             }
         }

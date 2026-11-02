@@ -15,7 +15,8 @@ import java.net.URLEncoder
     val sessions: List<SessionItem> = emptyList(), val selected: SessionItem? = null,
     val entries: List<TerminalEntry> = emptyList(), val truncated: Boolean = false,
     val reduced: Boolean = false, val terminalAllowed: Boolean = false,
-    val connection: String = "connecting", val error: String? = null
+    val connection: String = "connecting", val error: String? = null,
+    val messagesAllowed: Boolean = false, val messageGuard: Boolean = false
 )
 
 class ReadingController(private val api: HabblaudApi, private val store: LocalStateStore, private val scope: CoroutineScope, private val unauthorized: () -> Unit) {
@@ -28,12 +29,19 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
     private var generation = 0
     private var active = false
     private val conversation = ConversationState()
+    val messages = MessageController(api, store, scope, ::canSend, ::changed, unauthorized)
+    private fun canSend(key: SessionKey, agentId: String): Boolean {
+        val current = mutable.value
+        return active && current.connection == "connected" && current.messagesAllowed && current.messageGuard &&
+            current.selected?.key == key && current.sessions.any { it.key == key && it.agentId == agentId && it.canMessage }
+    }
 
     private var restore: SessionKey? = null
     private var restoreLoaded = false
     fun start() {
         if (active) return
         active = true
+        messages.start()
         stateJob = scope.launch {
             try {
                 var retry = 2000L
@@ -45,7 +53,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                         delay(maxOf(retry, retryAfterMillis((e as? ApiException)?.retryAfter))); retry = (retry * 2).coerceAtMost(30000)
                     }
                 }
-                mutable.value = mutable.value.copy(terminalAllowed = repository.terminalAllowed)
+                mutable.value = mutable.value.copy(terminalAllowed = repository.terminalAllowed, messagesAllowed = repository.messagesAllowed, messageGuard = repository.messageGuard)
                 if (!restoreLoaded) { restore = store.lastSession()?.takeIf { it.origin == api.origin }; restoreLoaded = true }
                 streams.stream("/api/stream").collect { event ->
                     when (event) {
@@ -55,7 +63,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                             val sessions = repository.snapshot(event.data)
                             val selected = mutable.value.selected
                             if (selected?.agentId != null && sessions.any { it.agentId == selected.agentId && it.key != selected.key }) changed()
-                            mutable.value = mutable.value.copy(sessions = sessions)
+                            mutable.value = mutable.value.copy(sessions = sessions, selected = mutable.value.selected?.let { selectedItem -> sessions.find { it.key == selectedItem.key } ?: selectedItem.copy(agentId = null, canMessage = false) })
                             restore?.let { key -> sessions.find { it.key == key }?.let { item -> restore = null; open(item) } }
                         }
                     }
@@ -64,8 +72,8 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         }
         mutable.value.selected?.let { open(it) }
     }
-    fun stop() { active = false; generation++; stateJob?.cancel(); conversationJob?.cancel(); api.cancelCalls(); mutable.value = mutable.value.copy(connection = "offline") }
-    fun close() { generation++; conversationJob?.cancel(); restore = null; scope.launch { store.setLastSession(null) }; mutable.value = mutable.value.copy(selected = null, entries = emptyList(), error = null) }
+    fun stop() { active = false; generation++; stateJob?.cancel(); conversationJob?.cancel(); messages.stop(); api.cancelCalls(); mutable.value = mutable.value.copy(connection = "offline") }
+    fun close() { generation++; conversationJob?.cancel(); messages.close(); restore = null; scope.launch { store.setLastSession(null) }; mutable.value = mutable.value.copy(selected = null, entries = emptyList(), error = null) }
     private fun changed() { close(); mutable.value = mutable.value.copy(error = "changed") }
     private fun failure(event: StreamEvent.Failure) {
         if (event.status == 401) { unauthorized(); return }
@@ -80,6 +88,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         generation++; val token = generation
         conversationJob?.cancel()
         mutable.value = mutable.value.copy(selected = item, entries = emptyList(), truncated = false, reduced = false, error = null)
+        messages.open(item.key)
         if (!active || !repository.terminalAllowed) return
         val path = if (item.agentId != null) "/api/agents/${encode(item.agentId)}/terminal" else "/api/sessions/${encode(item.key.account)}/${encode(item.key.sessionId)}/terminal"
         scope.launch { store.setLastSession(item.key) }
