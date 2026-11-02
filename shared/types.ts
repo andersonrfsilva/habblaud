@@ -492,6 +492,8 @@ export interface AccessInfo {
   local: boolean;
   permissions: boolean;
   messages: boolean;
+  /** Protege mensagens e controles contra troca da sessão antes do enfileiramento. */
+  messageSessionGuard?: boolean;
   terminal: boolean;
   /** Pode abrir agentes novos no app do Claude (POST /api/spawn). */
   spawn: boolean;

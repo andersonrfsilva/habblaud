@@ -662,10 +662,12 @@ describe('porta remota', () => {
   it('HABBLAUD_REMOTE_ALLOW=messages libera mensagens e "none" tira até as permissões', async () => {
     const withMessages = await start(['messages']);
     const c1 = await login(withMessages.remoteBase);
+    expect(JSON.parse((await request(withMessages.remoteBase, '/api/access', { headers: { Cookie: c1 } })).body).messageSessionGuard).toBe(true);
     expect((await request(withMessages.remoteBase, '/api/messages', { method: 'POST', headers: { Cookie: c1 }, body: {} })).status).toBe(200);
     expect((await request(withMessages.remoteBase, '/api/permissions/p1/decision', { method: 'POST', headers: { Cookie: c1 }, body: {} })).status).toBe(403);
     const viewOnly = await start([]);
     const c2 = await login(viewOnly.remoteBase);
+    expect(JSON.parse((await request(viewOnly.remoteBase, '/api/access', { headers: { Cookie: c2 } })).body).messageSessionGuard).toBe(false);
     expect((await request(viewOnly.remoteBase, '/api/permissions/p1/decision', { method: 'POST', headers: { Cookie: c2 }, body: {} })).status).toBe(403);
     expect((await request(viewOnly.remoteBase, '/api/snapshot', { headers: { Cookie: c2 } })).status).toBe(200);
   });
@@ -737,12 +739,13 @@ describe('GET /api/access (o que a página pode fazer)', () => {
       local: false,
       permissions: true,
       messages: false,
+      messageSessionGuard: false,
       terminal: false,
       spawn: false,
       world: false,
       files: false,
     });
-    expect(JSON.parse((await request(h.localBase, '/api/access')).body)).toEqual({ remote: false, local: true, permissions: true, messages: true, terminal: false, spawn: true, world: true, files: false });
+    expect(JSON.parse((await request(h.localBase, '/api/access')).body)).toEqual({ remote: false, local: true, permissions: true, messages: true, messageSessionGuard: true, terminal: false, spawn: true, world: true, files: false });
     expect(JSON.parse((await request(h.localBase, '/api/access', { headers: { Host: '192.168.1.5:4747' } })).body)).toMatchObject({
       local: false,
       permissions: false,

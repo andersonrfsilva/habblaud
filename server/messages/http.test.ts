@@ -128,6 +128,21 @@ async function binary(s: MessageServer, data: Buffer, headers: Record<string, st
   return promise;
 }
 
+describe('proteção da sessão esperada', () => {
+  it('responde código distinto para troca de sessão e preserva outros conflitos', async () => {
+    srv = await serveMessages();
+    const changed = await post(srv, '/api/messages', { agentId: MAIN, text: 'oi', expectedSessionId: 'outra' });
+    expect(changed.status).toBe(409);
+    expect(changed.json).toMatchObject({ code: 'session_changed' });
+    const control = await post(srv, '/api/messages/control', { agentId: MAIN, stop: true, expectedSessionId: 'outra' });
+    expect(control.status).toBe(409);
+    expect(control.json).toMatchObject({ code: 'session_changed' });
+    const unavailable = await post(srv, '/api/messages', { agentId: MAIN, text: 'oi' });
+    expect(unavailable.status).toBe(409);
+    expect(unavailable.json).not.toHaveProperty('code');
+  });
+});
+
 describe('trava das mensagens (config)', () => {
   it('messagesOffReason: a trava do terminal e HABBLAUD_MENSAGENS (0/false/off/no desligam)', () => {
     expect(messagesOffReason({}, '127.0.0.1', false)).toBeUndefined();
