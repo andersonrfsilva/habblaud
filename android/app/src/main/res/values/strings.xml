@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">Habblaud</string>
+    <string name="connection">Conexão</string>
+    <string name="server_url">URL do servidor</string>
+    <string name="user">Usuário</string>
+    <string name="password">Senha</string>
+</resources>

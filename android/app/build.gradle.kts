@@ -1,0 +1,62 @@
+plugins {
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.compose)
+}
+
+kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
+
+android {
+    namespace = "br.com.xlinx.habblaud"
+    compileSdk = 36
+    defaultConfig {
+        applicationId = "br.com.xlinx.habblaud"
+        minSdk = 26
+        targetSdk = 36
+        versionCode = 1
+        versionName = "1.0"
+    }
+    buildFeatures { compose = true; buildConfig = true }
+    compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
+    signingConfigs {
+        create("release") {
+            val path = providers.environmentVariable("HABBLAUD_KEYSTORE").orElse(providers.gradleProperty("HABBLAUD_KEYSTORE")).orNull
+            val password = providers.environmentVariable("HABBLAUD_KEYSTORE_PASSWORD").orElse(providers.gradleProperty("HABBLAUD_KEYSTORE_PASSWORD")).orNull
+            val alias = providers.environmentVariable("HABBLAUD_KEY_ALIAS").orElse(providers.gradleProperty("HABBLAUD_KEY_ALIAS")).orNull
+            val keyPasswordValue = providers.environmentVariable("HABBLAUD_KEY_PASSWORD").orElse(providers.gradleProperty("HABBLAUD_KEY_PASSWORD")).orNull
+            if (path != null && password != null && alias != null && keyPasswordValue != null) {
+                storeFile = file(path); storePassword = password; keyAlias = alias; keyPassword = keyPasswordValue
+            }
+        }
+    }
+    buildTypes {
+        debug { buildConfigField("boolean", "ALLOW_LOOPBACK_HTTP", "true") }
+        release {
+            buildConfigField("boolean", "ALLOW_LOOPBACK_HTTP", "false")
+            signingConfig = signingConfigs.getByName("release")
+        }
+    }
+}
+
+tasks.matching { it.name == "assembleRelease" }.configureEach {
+    doFirst {
+        check(android.signingConfigs.getByName("release").storeFile != null) {
+            "Configure HABBLAUD_KEYSTORE, HABBLAUD_KEYSTORE_PASSWORD, HABBLAUD_KEY_ALIAS e HABBLAUD_KEY_PASSWORD."
+        }
+    }
+}
+
+dependencies {
+    implementation(platform(libs.compose.bom))
+    implementation(libs.compose.ui)
+    implementation(libs.compose.material3)
+    implementation(libs.activity.compose)
+    implementation(libs.lifecycle.viewmodel.compose)
+    implementation(libs.lifecycle.runtime.compose)
+    implementation(libs.coroutines.android)
+    implementation(libs.serialization.json)
+    implementation(libs.datastore)
+    implementation(libs.okhttp)
+    implementation(libs.okhttp.sse)
+    testImplementation("junit:junit:4.13.2")
+    testImplementation(libs.mockwebserver)
+}
