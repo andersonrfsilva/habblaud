@@ -7,6 +7,7 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
@@ -115,6 +116,20 @@ class FixtureUiInstrumentedTest {
             .assertTextContains("Terceira linha do pensamento.", substring = true)
         compose.onNodeWithText(text(R.string.thinking)).performClick()
         compose.onNodeWithText("Terceira linha do pensamento.", substring = true).assertDoesNotExist()
+    }
+
+    @Test fun ompShowsStopWithoutDeliveryModeSelector() {
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        await(R.string.message_text)
+        compose.onNodeWithContentDescription(text(R.string.stop_agent)).assertDoesNotExist()
+        compose.onNodeWithContentDescription(text(R.string.back_sessions)).performClick()
+        compose.waitUntil(15_000) { compose.onAllNodes(hasText("caderno · trabalhando")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("caderno · trabalhando").performClick()
+        compose.waitUntil(15_000) { compose.onAllNodes(androidx.compose.ui.test.hasContentDescription(text(R.string.stop_agent)) and androidx.compose.ui.test.isEnabled()).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithContentDescription(text(R.string.stop_agent)).assertIsDisplayed().assertIsEnabled()
+        compose.onNodeWithText("Acrescentar agora").assertDoesNotExist()
+        compose.onNodeWithText("Limites da entrega").assertDoesNotExist()
+        compose.onNodeWithText(text(R.string.window_truncated)).assertDoesNotExist()
     }
 
     @Test fun opensAndDecidesRealFixturePermission() {

@@ -69,7 +69,7 @@ class AttachmentUploadTest {
         val key = SessionKey("https://example.test", "omp", "account", "one")
         val entered = CompletableDeferred<Unit>()
         val resume = CompletableDeferred<Unit>()
-        var local = MessageLocalState(MessageDraft("rascunho", mode = "steer", revision = 3))
+        var local = MessageLocalState(MessageDraft("rascunho", revision = 3))
         val store = object : MessageStore {
             override suspend fun message(key: SessionKey) = local
             override suspend fun updateMessage(key: SessionKey, update: (MessageLocalState) -> MessageLocalState): MessageLocalState {
@@ -86,7 +86,6 @@ class AttachmentUploadTest {
         resume.complete(Unit)
         withTimeout(3000) { while (controller.state.value.draft.attachments.isEmpty()) delay(1) }
         assertEquals("rascunho", controller.state.value.draft.text)
-        assertEquals("steer", controller.state.value.draft.mode)
         assertEquals(listOf(attachment), controller.state.value.draft.attachments)
         withTimeout(3000) { while (local.draft.attachments.isEmpty()) delay(1) }
         controller.stop()

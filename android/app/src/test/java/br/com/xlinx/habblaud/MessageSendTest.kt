@@ -52,6 +52,22 @@ class MessageSendTest {
             c.stop()
         } finally { server.shutdown() }
     }
+    @Test fun nonOmpMessagesOmitDeliverAs() = runBlocking {
+        for (provider in listOf("claude", "codex")) {
+            val server = MockWebServer(); server.start()
+            try {
+                server.enqueue(MockResponse().setBody("{\"id\":\"m1\",\"status\":\"queued\"}"))
+                val key = a.copy(provider = provider)
+                val c = controller(this, MemoryStore(), server); open(c, key)
+                c.edit(text = "pedido"); c.send("agent")
+                waitFor { c.state.value.operation?.id == "m1" }
+                val body = server.takeRequest().body.readUtf8()
+                assertTrue(body.contains("\"expectedSessionId\":\"one\""))
+                assertFalse(body.contains("\"deliverAs\""))
+                c.stop()
+            } finally { server.shutdown() }
+        }
+    }
     @Test fun ambiguousFailureAndRestartNeverResendWithoutConfirmation() = runBlocking {
         val server = MockWebServer(); server.start(); val store = MemoryStore()
         try {
@@ -150,7 +166,7 @@ class MessageSendTest {
     @Test fun acceptedOperationRecoversAfterProcessDiesBeforeDraftClear() = runBlocking {
         val server = MockWebServer(); server.start(); val store = MemoryStore()
         try {
-            store.items[a] = MessageLocalState(MessageDraft("pedido", "steer", 7), MessageOperation("m1", "delivered", 7))
+            store.items[a] = MessageLocalState(MessageDraft("pedido", 7), MessageOperation("m1", "delivered", 7))
             val restored = controller(this, store, server); open(restored, a)
             assertEquals("", restored.state.value.draft.text)
             assertEquals("delivered", restored.state.value.operation?.status)

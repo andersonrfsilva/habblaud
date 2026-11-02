@@ -93,10 +93,10 @@ class MessageController(
     }
     fun dismissConfirmation() { mutable.value = mutable.value.copy(error = null) }
     fun close() { generation++; poll?.cancel(); controlPoll?.cancel(); mutable.value = ComposerState() }
-    fun edit(text: String = state.value.draft.text, mode: String = state.value.draft.mode, files: List<Attachment> = state.value.draft.attachments) {
+    fun edit(text: String = state.value.draft.text, files: List<Attachment> = state.value.draft.attachments) {
         val key = state.value.key ?: return
-        if (state.value.loading || text.length > 20000 || mode !in setOf("aside", "followUp", "steer")) return
-        val draft = MessageDraft(text, mode, state.value.draft.revision + 1, files)
+        if (state.value.loading || text.length > 20000) return
+        val draft = MessageDraft(text, state.value.draft.revision + 1, files)
         drafts[key] = draft
         mutable.value = mutable.value.copy(draft = draft, error = null)
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
@@ -193,7 +193,7 @@ class MessageController(
                 }
                 val body = buildJsonObject {
                     put("agentId", agentId); put("text", draft.text); put("expectedSessionId", key.sessionId)
-                    if (key.provider == "omp") put("deliverAs", draft.mode)
+                    if (key.provider == "omp") put("deliverAs", "aside")
                     if (ids.isNotEmpty()) put("attachments", buildJsonArray { ids.forEach { add(it) } })
                 }
                 uploadJobs.remove(key)

@@ -48,11 +48,6 @@
     <string name="messages_blocked">Envio bloqueado pelo servidor.</string>
     <string name="message_guard_required">O servidor precisa ser atualizado para enviar mensagens.</string>
     <string name="message_unavailable">Esta sessão não está disponível para receber mensagens.</string>
-    <string name="omp_warning">A entrega depende da extensão carregada. Mudar direção não garante interromper ou pular ferramentas.</string>
-    <string name="omp_warning_title">Limites da entrega</string>
-    <string name="mode_aside">Acrescentar agora</string>
-    <string name="mode_follow_up">Enfileirar</string>
-    <string name="mode_steer">Mudar direção</string>
     <string name="message_text">Mensagem</string>
     <string name="send_message">Enviar</string>
     <string name="message_queued">Aceita e na fila; ainda não entregue.</string>
@@ -82,7 +77,7 @@
     <string name="permission_allow">Permitir</string>
     <string name="permission_deny">Recusar</string>
     <string name="permission_terminal">Terminal</string>
-    <string name="stop_omp">Solicitar interrupção</string>
+    <string name="stop_agent">Parar agente</string>
     <string name="stop_pending">Interrupção na fila; aguardando confirmação.</string>
     <string name="stop_ack">Controle confirmado pela sessão. O efeito não é garantido.</string>
     <string name="stop_failed">A entrega do controle falhou.</string>

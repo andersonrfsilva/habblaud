@@ -3,6 +3,8 @@ package br.com.xlinx.habblaud
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -134,7 +136,6 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
             state.readingError?.let { error ->
                 Text(stringResource(when (error) { "forbidden" -> R.string.terminal_blocked; "missing" -> R.string.reading_missing; "oversize" -> R.string.reading_oversize; "vpn_required" -> R.string.vpn_required; else -> R.string.reading_offline }), color = MaterialTheme.colorScheme.error)
             }
-            if (state.truncated) Text(stringResource(R.string.window_truncated))
             if (state.reduced) Text(stringResource(R.string.window_reduced))
             val results = state.entries.filter { it.kind == "result" }.groupBy { it.toolUseId }
             val tools = state.entries.filter { it.kind == "tool" }.map { it.id }.toSet()
@@ -148,20 +149,26 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
             val dragging by listState.interactionSource.collectIsDraggedAsState()
             LaunchedEffect(dragging) { if (dragging && initialScroll) userScrolled = true }
             LaunchedEffect(listState) {
-                snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index to listState.layoutInfo.totalItemsCount }.collect { (last, total) ->
+                snapshotFlow {
+                    val layout = listState.layoutInfo
+                    Triple(layout.visibleItemsInfo.lastOrNull()?.let { it.index to it.offset + it.size }, layout.totalItemsCount, layout.viewportEndOffset)
+                }.collect { (last, total, end) ->
                     if (total > 0) {
-                        following = last != null && last >= total - 1
+                        following = last != null && last.first >= total - 1 && last.second <= end
                         if (following && !dragging) { userScrolled = false; unread = 0 }
-                        else if (initialScroll && !userScrolled && !dragging && last != null) listState.scrollToItem(total - 1)
+                        else if (initialScroll && !userScrolled && !dragging && last != null) {
+                            if (last.first < total - 1) listState.scrollToItem(total - 1)
+                            else if (last.second > end) listState.scrollBy((last.second - end).toFloat())
+                        }
                     }
                 }
             }
             val lastId = state.entries.lastOrNull()?.id
-            LaunchedEffect(state.entries.size, lastId) {
+            LaunchedEffect(state.entries.size, lastId, state.truncated) {
                 val count = state.entries.size
                 if (count > 0) {
                     if (!initialScroll || !userScrolled || following) {
-                        listState.scrollToItem(count - 1)
+                        listState.scrollToItem(count - 1 + if (state.truncated) 1 else 0)
                         initialScroll = true
                         unread = 0
                     } else {
@@ -177,13 +184,16 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
             }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom)) {
+                    if (state.truncated) item {
+                        Text(stringResource(R.string.window_truncated), Modifier.fillMaxWidth().padding(8.dp), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                     items(state.entries, key = { it.id }) { entry ->
                         if (entry.kind != "result" || entry.toolUseId !in tools) EntryView(entry, results[entry.id].orEmpty())
                     }
                 }
                 if (userScrolled && !following && initialScroll && state.entries.isNotEmpty()) {
                     val label = stringResource(R.string.go_to_end)
-                    SmallFloatingActionButton(onClick = { userScrolled = false; unread = 0; scope.launch { listState.scrollToItem(state.entries.lastIndex) } }, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp).semantics { contentDescription = label }, shape = CircleShape) {
+                    SmallFloatingActionButton(onClick = { userScrolled = false; unread = 0; scope.launch { listState.scrollToItem(state.entries.lastIndex + if (state.truncated) 1 else 0) } }, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp).semantics { contentDescription = label }, shape = CircleShape) {
                         BadgedBox(badge = { if (unread > 0) Badge { Text(unread.toString()) } }) { Text("↓", style = MaterialTheme.typography.titleLarge) }
                     }
                 }
@@ -197,7 +207,6 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                 else if (!state.messageGuard) ChatBanner(stringResource(R.string.message_guard_required))
                 else if (agentId != null && !selected.canMessage) ChatBanner(stringResource(R.string.message_unavailable))
                 if (selected.key.provider == "omp") {
-                    if (selected.status in setOf("working", "busy", "shell") && !composer.sending) TextButton(onClick = { controller.messages.interrupt(agentId!!) }, enabled = enabled && !composer.loading && composer.control?.status !in setOf("queued", "sent")) { Text(stringResource(R.string.stop_omp)) }
                     composer.control?.let { control -> Text(stringResource(when (control.status) {
                         "queued", "sent" -> R.string.stop_pending
                         "delivered" -> R.string.stop_ack
@@ -208,26 +217,11 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                     if (composer.controlError == "failed") Text(stringResource(R.string.stop_failed), color = MaterialTheme.colorScheme.error)
                     if (composer.controlError == "confirm") AlertDialog(
                         onDismissRequest = { controller.messages.dismissControlConfirmation() },
-                        title = { Text(stringResource(R.string.stop_omp)) },
+                        title = { Text(stringResource(R.string.stop_agent)) },
                         text = { Text(stringResource(R.string.stop_unknown)) },
                         confirmButton = { TextButton(onClick = { controller.messages.interrupt(agentId!!, confirmed = true) }) { Text(stringResource(R.string.confirm)) } },
                         dismissButton = { TextButton(onClick = { controller.messages.dismissControlConfirmation() }) { Text(stringResource(R.string.cancel)) } }
                     )
-                    var expanded by remember { mutableStateOf(false) }
-                    var showWarning by remember { mutableStateOf(false) }
-                    val modes = listOf("aside" to R.string.mode_aside, "followUp" to R.string.mode_follow_up, "steer" to R.string.mode_steer)
-                    Row(Modifier.horizontalScroll(rememberScrollState())) {
-                        Box {
-                            AssistChip(onClick = { expanded = true }, label = { Text(stringResource(modes.first { it.first == composer.draft.mode }.second)) })
-                            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                                modes.forEach { (mode, label) ->
-                                    DropdownMenuItem(text = { Text(stringResource(label)) }, onClick = { controller.messages.edit(mode = mode); expanded = false })
-                                }
-                            }
-                        }
-                        TextButton(onClick = { showWarning = true }) { Text(stringResource(R.string.omp_warning_title)) }
-                    }
-                    if (showWarning) AlertDialog(onDismissRequest = { showWarning = false }, title = { Text(stringResource(R.string.omp_warning_title)) }, text = { Text(stringResource(R.string.omp_warning)) }, confirmButton = { TextButton(onClick = { showWarning = false }) { Text(stringResource(R.string.confirm)) } })
                 }
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     composer.draft.attachments.forEach { attachment ->
@@ -256,6 +250,18 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                     val attachLabel = stringResource(R.string.attach_files)
                     IconButton(onClick = { pickerKey = selected.key; picker.launch(arrayOf("*/*")) }, enabled = !composer.loading && composer.draft.attachments.size < MAX_ATTACHMENTS, modifier = Modifier.semantics { contentDescription = attachLabel }) { Text("📎", style = MaterialTheme.typography.titleLarge) }
                     OutlinedTextField(composer.draft.text, { controller.messages.edit(text = it) }, Modifier.weight(1f), enabled = !composer.loading, label = { Text(stringResource(R.string.message_text)) }, supportingText = if (composer.draft.text.length >= 18000) { { Text("${composer.draft.text.length}/20000") } } else null, maxLines = 6, shape = RoundedCornerShape(24.dp))
+                    if (selected.key.provider == "omp" && selected.status in setOf("working", "busy", "shell")) {
+                        val stopLabel = stringResource(R.string.stop_agent)
+                        FilledIconButton(
+                            onClick = { controller.messages.interrupt(agentId) },
+                            enabled = enabled && !composer.loading && !composer.sending && composer.control?.status !in setOf("queued", "sent"),
+                            colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError),
+                            modifier = Modifier.semantics { contentDescription = stopLabel },
+                        ) {
+                            val color = LocalContentColor.current
+                            Canvas(Modifier.size(14.dp)) { drawRect(color) }
+                        }
+                    }
                     val sendLabel = stringResource(R.string.send_message)
                     FilledIconButton(onClick = { if (agentId != null) controller.messages.send(agentId) }, enabled = enabled && !composer.loading && !composer.sending && composer.unavailable.isEmpty() && (composer.draft.text.isNotBlank() || composer.draft.attachments.isNotEmpty()), modifier = Modifier.semantics { contentDescription = sendLabel }) { Text("➤") }
                 }

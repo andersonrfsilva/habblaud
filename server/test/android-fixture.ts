@@ -64,6 +64,10 @@ export async function startAndroidFixture(root: string, args: string[]): Promise
         { type: 'title', title: 'Conversa OMP fictícia' },
         { type: 'session', id: sessionId, cwd, timestamp: new Date().toISOString() },
         { type: 'message', id: randomUUID(), timestamp: new Date().toISOString(), message: { role: 'user', content: [{ type: 'text', text: 'Pedido OMP fictício' }] } },
+        ...Array.from({ length: 60 }, (_, index) => ({
+          type: 'message', id: randomUUID(), timestamp: new Date().toISOString(),
+          message: { role: index % 2 ? 'assistant' : 'user', content: [{ type: 'text', text: `Etapa fictícia OMP ${index + 1}.` }] },
+        })),
         { type: 'message', id: randomUUID(), timestamp: new Date().toISOString(), message: { role: 'assistant', content: [{ type: 'text', text: 'Resposta OMP fictícia' }] } },
       ];
       writeFileSync(path, lines.map(line => JSON.stringify(line)).join('\n') + '\n');
@@ -143,7 +147,7 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
   permissions.start();
   hub.start();
   for (const agent of AGENTS) messages.inbox({ session: agent.sessionId, account: agent.account });
-  const terminals = new TerminalStreams({ office, transcriptPathOf: id => paths.get(id), parserFor: id => office.get(id)?.provider === 'omp' ? createOmpTerminalParser() : undefined });
+  const terminals = new TerminalStreams({ office, transcriptPathOf: id => paths.get(id), parserFor: id => office.get(id)?.provider === 'omp' ? createOmpTerminalParser() : undefined, initEntries: 50 });
   const openAgentOf = (account: string, session: string) => openMainAgent(office.list(), account, session);
   const history = new HistorySet([
     new SessionHistory({ accounts: () => accounts.entries().filter(account => account.provider === 'claude'), openAgentOf }),

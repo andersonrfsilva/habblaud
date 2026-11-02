@@ -192,9 +192,26 @@ select_test_file() {
 }
 type_test_message() {
     tap Mensagem
+    for _ in $(seq 1 20); do
+        dump
+        if python3 - "$TMP/window.xml" <<'PY'
+import sys, xml.etree.ElementTree as ET
+root = ET.parse(sys.argv[1]).getroot()
+raise SystemExit(not any(node.get('class') == 'android.widget.EditText' and node.get('focused') == 'true' for node in root.iter('node')))
+PY
+        then break; fi
+        sleep 1
+    done
+    sleep 1
     adb shell input text "$1"
     adb shell input keyevent KEYCODE_ENTER
     adb shell input text segunda-linha
+    dump
+    python3 - "$TMP/window.xml" "$1" <<'PY'
+import sys, xml.etree.ElementTree as ET
+root = ET.parse(sys.argv[1]).getroot()
+assert any(node.get('class') == 'android.widget.EditText' and node.get('text') == sys.argv[2] + '\nsegunda-linha' for node in root.iter('node')), 'Rascunho digitado incompleto'
+PY
     adb shell input keyevent 4
 }
 wait_draft_cleared() {
@@ -319,6 +336,19 @@ adb shell settings put system font_scale 1.3
 sleep 2
 shot conversa-fonte-1-3
 adb shell settings put system font_scale 1.0
+tap 'Voltar às sessões'
+tap 'caderno · trabalhando'
+wait_text 'Parar agente'
+wait_text 'Resposta OMP fictícia'
+dump
+if coords 'Existe conversa anterior que não foi carregada. Não há paginação.' >/dev/null || coords 'Acrescentar agora' >/dev/null || coords 'Limites da entrega' >/dev/null; then
+    echo 'Aviso de histórico ou seletor de modo visível no fim da conversa OMP.' >&2
+    exit 1
+fi
+shot omp-stop
+for _ in $(seq 1 35); do adb shell input swipe 500 500 500 1850 150; done
+wait_text 'Existe conversa anterior que não foi carregada. Não há paginação.'
+shot omp-historico-truncado
 reset_app
 fill_login http://127.0.0.1:14749 android-test
 wait_text Abertas
