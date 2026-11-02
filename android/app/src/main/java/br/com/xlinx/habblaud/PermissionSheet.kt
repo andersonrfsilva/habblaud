@@ -2,6 +2,7 @@ package br.com.xlinx.habblaud
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -10,6 +11,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -37,7 +39,7 @@ internal fun permissionDecision(provider: String, behavior: String, questions: L
             if (interrupt) put("interrupt", true)
         }
         if (behavior == "answer") {
-            require(provider == "claude" && questions.isNotEmpty())
+            require(questions.isNotEmpty())
             put("answers", buildJsonArray {
                 questions.forEach { q ->
                     val index = requireNotNull(q["index"]?.jsonPrimitive?.intOrNull)
@@ -132,11 +134,11 @@ internal fun PermissionSheet(api: HabblaudApi, session: SessionItem, allowed: Bo
                     Text(q.string("question").orEmpty())
                     q.objects("options").forEach { option ->
                         val optionIndex = option["index"]?.jsonPrimitive?.intOrNull ?: return@forEach
-                        Row {
-                            Checkbox(checked = optionIndex in selections[index].orEmpty(), onCheckedChange = { checked ->
-                                selections[index] = if (multi) { if (checked) selections[index].orEmpty() + optionIndex else selections[index].orEmpty() - optionIndex } else if (checked) setOf(optionIndex) else emptySet()
-                                if (!multi && checked) others[index] = ""
-                            })
+                        Row(Modifier.fillMaxWidth().toggleable(value = optionIndex in selections[index].orEmpty(), role = Role.Checkbox, onValueChange = { checked ->
+                            selections[index] = if (multi) { if (checked) selections[index].orEmpty() + optionIndex else selections[index].orEmpty() - optionIndex } else if (checked) setOf(optionIndex) else emptySet()
+                            if (!multi && checked) others[index] = ""
+                        })) {
+                            Checkbox(checked = optionIndex in selections[index].orEmpty(), onCheckedChange = null)
                             Column { Text(option.string("label").orEmpty()); option.string("description")?.let { Text(it) } }
                         }
                     }

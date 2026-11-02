@@ -19,6 +19,13 @@ class PermissionDecisionTest {
         assertEquals("livre", free.getValue("answers").jsonArray.single().jsonObject.getValue("other").jsonPrimitive.content)
     }
 
+    @Test fun ompAnswersUseOriginalIndicesAndFreeText() {
+        val decision = permissionDecision("omp", "answer", questions, mapOf(2 to setOf(8), 7 to setOf(1, 5)), mapOf(7 to "outra"))
+        assertEquals(wireJson.parseToJsonElement("""{"behavior":"answer","answers":[{"question":2,"options":[8]},{"question":7,"options":[1,5],"other":"outra"}]}"""), decision)
+        val free = permissionDecision("omp", "answer", questions.take(1), emptyMap(), mapOf(2 to "livre"))
+        assertEquals(wireJson.parseToJsonElement("""{"behavior":"answer","answers":[{"question":2,"other":"livre"}]}"""), free)
+    }
+
     @Test fun rejectsInvalidSingleAndUnsupportedControls() {
         assertThrows(IllegalArgumentException::class.java) { permissionDecision("claude", "answer", questions.take(1), mapOf(2 to setOf(4, 8)), emptyMap()) }
         for (provider in listOf("omp", "codex")) {
