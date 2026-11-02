@@ -1,6 +1,7 @@
 package br.com.xlinx.habblaud.data
 
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -27,17 +28,24 @@ sealed interface StreamEvent {
     data object Connected : StreamEvent
 }
 
+internal fun sendStreamEvent(channel: SendChannel<StreamEvent>, event: StreamEvent, cancel: () -> Unit) {
+    if (channel.trySend(event).isFailure) {
+        channel.close(IOException("SSE buffer overflow"))
+        cancel()
+    }
+}
+
 class ConversationRepository(private val origin: String, private val client: () -> okhttp3.OkHttpClient, private val unauthorized: () -> Unit) {
     constructor(api: HabblaudApi) : this(api.origin, { api.client() }, { api.cancelCalls(); api.cookies.clear() })
     private fun once(path: String): Flow<StreamEvent> = callbackFlow {
         val client = try { client() } catch (e: IOException) { trySend(StreamEvent.Failure(null)); close(); return@callbackFlow }
         val source = EventSources.createFactory(client).newEventSource(Request.Builder().url(origin + path).build(), object : EventSourceListener() {
-            override fun onOpen(eventSource: EventSource, response: Response) { trySend(StreamEvent.Connected) }
+            override fun onOpen(eventSource: EventSource, response: Response) { sendStreamEvent(channel, StreamEvent.Connected) { eventSource.cancel() } }
             override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
                 if (data.toByteArray(Charsets.UTF_8).size > ConversationState.MAX_BYTES) {
-                    trySend(StreamEvent.Failure(-1)); eventSource.cancel(); close(); return
+                    sendStreamEvent(channel, StreamEvent.Failure(-1)) { eventSource.cancel() }; eventSource.cancel(); close(); return
                 }
-                trySend(StreamEvent.Data(type ?: "message", data, false))
+                sendStreamEvent(channel, StreamEvent.Data(type ?: "message", data, false)) { eventSource.cancel() }
             }
             override fun onClosed(eventSource: EventSource) { trySend(StreamEvent.Failure(null)); close() }
             override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
@@ -54,12 +62,17 @@ class ConversationRepository(private val origin: String, private val client: () 
         var connection = 0
         while (true) {
             var failure: StreamEvent.Failure? = null
-            once(path).collect { event ->
-                when (event) {
-                    is StreamEvent.Connected -> { connection++; emit(event) }
-                    is StreamEvent.Data -> emit(event.copy(firstConnection = connection == 1))
-                    is StreamEvent.Failure -> { failure = event; emit(event) }
+            try {
+                once(path).collect { event ->
+                    when (event) {
+                        is StreamEvent.Connected -> { connection++; emit(event) }
+                        is StreamEvent.Data -> emit(event.copy(firstConnection = connection == 1))
+                        is StreamEvent.Failure -> { failure = event; emit(event) }
+                    }
                 }
+            } catch (_: IOException) {
+                failure = StreamEvent.Failure(null)
+                emit(failure!!)
             }
             if (failure?.status in listOf(-1, 401, 403, 404) || failure?.status?.let { it in 300..399 } == true) return@flow
             val retry = failure?.retryAfter?.let { value ->

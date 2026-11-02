@@ -42,6 +42,7 @@ para dar a letra de cada conta). Nada sai do computador: o Habblaud não lê cre
 - [Como é](#como-é)
 - [Instalação](#instalação)
 - [Como usar](#como-usar)
+- [Aplicativo Android](#aplicativo-android)
 - [Contas e uso (5 horas e semanal)](#contas-e-uso-5-horas-e-semanal)
 - [Configuração](#configuração)
 - [Habblaud World](#habblaud-world)
@@ -240,6 +241,77 @@ npm run omp:status         # confere
 ```
 
 A extensão vale para as sessões do omp abertas **depois** da instalação. Veja [omp (oh-my-pi)](#omp-oh-my-pi).
+
+### Aplicativo Android
+
+O cliente nativo Android opera sessões existentes sem a interface do escritório. Requer Android 8.0 (API 26) ou
+superior e uma instalação do Habblaud com login remoto configurado. A URL deve apontar para a **porta remota**, nunca
+para a porta local sem autenticação. O aplicativo aceita uma instalação por vez; informe URL, usuário e senha do acesso
+remoto. A senha não é persistida. HTTPS usa a validação normal de certificado e nome do Android.
+
+#### Compilar e instalar
+
+Instale JDK 17 ou superior e o Android SDK com a plataforma 36 e ferramentas de build. Na raiz do repositório:
+
+```bash
+android/gradlew -p android :app:assembleDebug
+adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+Para gerar o APK release assinado, configure fora do repositório as variáveis `HABBLAUD_KEYSTORE` (caminho do
+keystore), `HABBLAUD_KEYSTORE_PASSWORD`, `HABBLAUD_KEY_ALIAS` e `HABBLAUD_KEY_PASSWORD`. Também podem ser propriedades
+Gradle em `~/.gradle/gradle.properties`. Use uma chave persistente do operador e não versione chaves nem senhas.
+
+```bash
+android/gradlew -p android :app:assembleRelease
+adb install -r android/app/build/outputs/apk/release/app-release.apk
+```
+
+Sem as quatro informações de assinatura, o build release falha. Também é possível instalar o APK assinado diretamente
+no aparelho, permitindo a instalação pelo aplicativo de origem quando o Android solicitar.
+
+#### Conexão HTTP e Tailscale
+
+Prefira HTTPS com certificado confiável. Para HTTP, o aplicativo aceita somente um IPv4 literal confirmado pelo usuário
+em `100.64.0.0/10`, com consentimento explícito para a origem e uma VPN ativa. O debug também aceita HTTP em
+`localhost` ou `127.0.0.1` para desenvolvimento; o release não aceita loopback HTTP. URL com caminho diferente de `/`,
+usuário embutido, query ou fragmento é recusada.
+
+**HTTP não cifra senha nem cookie na camada HTTP.** A faixa `100.64.0.0/10` também é usada por CGNAT de operadoras.
+Mantenha o Tailscale conectado e confira o endereço do servidor antes de aceitar. O aplicativo verifica apenas se há
+alguma VPN ativa: não identifica o Tailscale nem comprova o destino. Outra VPN pode satisfazer a verificação.
+As conexões HTTP são presas ao socket da rede VPN; se essa rede cair, as chamadas são canceladas, sem desvio para a
+rede móvel. Essa proteção não substitui a confirmação de que a VPN correta está ligada. HTTPS não exige essa exceção.
+
+#### Recursos e limites
+
+Na porta remota, as travas de `HABBLAUD_REMOTE_ALLOW` são independentes. O aplicativo não as altera:
+
+| Recurso | Autorização remota |
+| --- | --- |
+| Lista de sessões abertas | Login |
+| Recentes e conversas vivas ou históricas | `terminal` |
+| Mensagens, anexos e interrupção omp | `messages` e `messageSessionGuard` no `/api/access` |
+| Respostas a aprovações e perguntas | `permissions` |
+
+Para usar todos, o operador precisa liberar `terminal,permissions,messages` e habilitar os recursos correspondentes no
+servidor. Um servidor antigo sem `messageSessionGuard` permite leitura conforme as demais travas, mas não recebe
+mensagens ou controles do Android. Veja o contrato em [Servidor](server/README.md#api).
+
+Recentes cobre até 150 sessões dos últimos 7 dias. A conversa começa com até 500 entradas dos aproximadamente 4 MiB
+finais; pode haver conteúdo anterior não carregado. A janela local também é limitada. Sessões encerradas ficam somente
+para leitura; o app não cria nem retoma processos. Não há paginação de histórico nem sincronização offline de conversas.
+Rascunhos são locais por sessão; o app não reenvia mensagens automaticamente após perda de conexão. Se o envio não for
+confirmado, confira a conversa antes de tentar novamente: a primeira tentativa pode ter sido aceita.
+
+Mensagens aceitam até 20.000 unidades UTF-16 e cinco anexos de até 15 MiB cada. `delivered` indica aceitação pela
+sessão/runtime, não leitura nem conclusão. No omp, os modos são `aside` (acrescentar agora), `followUp` (enfileirar)
+e `steer` (mudar direção). A entrega depende da extensão carregada; `steer` não garante interromper ou pular ferramentas.
+Interromper é exclusivo do omp e não garante efeito imediato. Aprovações e perguntas dependem do provedor e do pedido;
+omp e Codex não aceitam `interrupt` nem `suggestion` nas decisões.
+
+O app não oferece terminal interativo, notificações com o app fechado, fila offline de comandos ou atualização
+automática. As sessões e conversas permanecem no servidor.
 
 ### Abrir no celular (opcional)
 

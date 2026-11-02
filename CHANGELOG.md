@@ -19,6 +19,12 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Android:** cliente nativo para login remoto, lista de sessões e conversa, envio com anexos, aprovações e
+  interrupção omp, conforme as permissões do servidor. HTTP exige consentimento e rede VPN para o IPv4 confirmado
+  na faixa `100.64.0.0/10`; o aplicativo não identifica qual VPN está ativa.
+- **Proteção de sessão:** mensagens e controles aceitam `expectedSessionId` e recusam troca de sessão com
+  `409` e `code: 'session_changed'`. `/api/access` anuncia `messageSessionGuard` quando mensagens estão autorizadas.
+
 - **Elenco:** o auxiliar aceita `--only-cast` para atender apenas personagens, sem iniciar os outros serviços.
 - **Terminal:** o título mostra o modelo e o raciocínio em uso no omp, por exemplo `Opus 5.5 M`.
 - **Elenco:** a ficha escolhe o modelo numa lista agrupada por provedor (a mesma da gaveta), em vez de digitar.

@@ -28,6 +28,15 @@ internal fun ReadingState.streamFailure(status: Int?, conversation: Boolean): Re
 internal fun ReadingState.conversationConnected(): ReadingState =
     copy(readingError = if (readingError == "network") null else readingError)
 
+internal fun snapshotMatchesSession(snapshot: String, key: SessionKey, agentId: String): Boolean {
+    val agents = wireJson.parseToJsonElement(snapshot).jsonObject.objects("agents")
+    return agents.any {
+        it.string("id") == agentId && it.string("kind") == "main" &&
+            it.string("account") == key.account && (it.string("provider") ?: "claude") == key.provider &&
+            it.string("sessionId") == key.sessionId
+    }
+}
+
 class ReadingController(private val api: HabblaudApi, private val store: LocalStateStore, private val scope: CoroutineScope, private val unauthorized: () -> Unit) {
     private val repository = SessionRepository(api)
     private val streams = ConversationRepository(api)
@@ -107,6 +116,20 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                     is StreamEvent.Data -> try {
                         if (event.type == "init") {
                             if (initialized && !awaitingInit) { changed(); return@collect }
+                            if (item.agentId != null) {
+                                val matches = try {
+                                    snapshotMatchesSession(api.request("/api/snapshot"), item.key, item.agentId)
+                                } catch (e: Exception) {
+                                    if (e is kotlinx.coroutines.CancellationException) throw e
+                                    if (e is ApiException && e.status == 401) unauthorized()
+                                    else { close(); mutable.value = mutable.value.copy(error = "network") }
+                                    return@collect
+                                }
+                                if (token != generation) return@collect
+                                if (!matches || mutable.value.sessions.any { it.agentId == item.agentId && it.key != item.key }) {
+                                    changed(); return@collect
+                                }
+                            }
                             val obj = wireJson.parseToJsonElement(event.data).jsonObject
                             conversation.init(obj.objects("entries").mapNotNull(TerminalEntry::parse), obj.flag("truncated"))
                             initialized = true; awaitingInit = false
@@ -114,7 +137,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                             conversation.append(wireJson.parseToJsonElement(event.data).jsonArray.mapNotNull { (it as? kotlinx.serialization.json.JsonObject)?.let(TerminalEntry::parse) })
                         }
                         mutable.value = mutable.value.copy(entries = conversation.snapshot(), truncated = conversation.truncated, reduced = conversation.reduced)
-                    } catch (_: Exception) { mutable.value = mutable.value.copy(readingError = "oversize"); conversationJob?.cancel() }
+                    } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; mutable.value = mutable.value.copy(readingError = "oversize"); conversationJob?.cancel() }
                 }
             }
         }

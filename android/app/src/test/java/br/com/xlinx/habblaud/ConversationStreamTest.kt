@@ -2,6 +2,9 @@ package br.com.xlinx.habblaud
 
 import br.com.xlinx.habblaud.data.ConversationRepository
 import br.com.xlinx.habblaud.data.StreamEvent
+import br.com.xlinx.habblaud.data.sendStreamEvent
+import kotlinx.coroutines.channels.Channel
+import java.io.IOException
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -17,6 +20,15 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ConversationStreamTest {
+    @Test fun overflowClosesChannelAndCancelsSource() = runBlocking {
+        val channel = Channel<StreamEvent>(1)
+        var cancelled = false
+        sendStreamEvent(channel, StreamEvent.Data("init", "{}", true)) { cancelled = true }
+        sendStreamEvent(channel, StreamEvent.Data("append", "[]", true)) { cancelled = true }
+        assertTrue(cancelled)
+        assertTrue(channel.receive() is StreamEvent.Data)
+        assertTrue(channel.receiveCatching().exceptionOrNull() is IOException)
+    }
     @Test fun parsesMultilineDataAndComments() = runBlocking {
         val server = MockWebServer()
         server.start()

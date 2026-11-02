@@ -112,8 +112,12 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
             }
             if (composer.key == selected.key && selected.agentId != null) {
                 val agentId = selected.agentId
-                Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(Modifier.weight(2f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 val enabled = agentId != null && selected.canMessage && state.messagesAllowed && state.messageGuard && state.connection == "connected"
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    OutlinedTextField(composer.draft.text, { controller.messages.edit(text = it) }, Modifier.weight(1f), enabled = !composer.loading, label = { Text(stringResource(R.string.message_text)) }, supportingText = { Text("${composer.draft.text.length}/20000") }, maxLines = 3)
+                    Button(onClick = { if (agentId != null) controller.messages.send(agentId) }, enabled = enabled && !composer.loading && !composer.sending && composer.unavailable.isEmpty() && (composer.draft.text.isNotBlank() || composer.draft.attachments.isNotEmpty())) { Text(stringResource(R.string.send_message)) }
+                }
                 if (!state.messagesAllowed) Text(stringResource(R.string.messages_blocked))
                 else if (!state.messageGuard) Text(stringResource(R.string.message_guard_required))
                 else if (agentId != null && !selected.canMessage) Text(stringResource(R.string.message_unavailable))
@@ -156,10 +160,6 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                         }
                         TextButton(onClick = { controller.messages.remove(attachment) }) { Text(stringResource(R.string.attachment_remove)) }
                     }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                    OutlinedTextField(composer.draft.text, { controller.messages.edit(text = it) }, Modifier.weight(1f), enabled = !composer.loading, label = { Text(stringResource(R.string.message_text)) }, supportingText = { Text("${composer.draft.text.length}/20000") }, maxLines = 3)
-                    Button(onClick = { if (agentId != null) controller.messages.send(agentId) }, enabled = enabled && !composer.loading && !composer.sending && composer.unavailable.isEmpty() && (composer.draft.text.isNotBlank() || composer.draft.attachments.isNotEmpty())) { Text(stringResource(R.string.send_message)) }
                 }
                 composer.operation?.let { operation -> Text(stringResource(when (operation.status) {
                     "queued" -> R.string.message_queued

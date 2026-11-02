@@ -7,6 +7,7 @@ import org.junit.Test
 
 class UrlPolicyTest {
     @Test fun acceptsOnlyConfirmedHttpHostWithConsent() {
+        assertEquals(BuildConfig.DEBUG, BuildConfig.ALLOW_LOOPBACK_HTTP)
         assertEquals("http://100.64.0.1:4747", UrlPolicy.origin("http://100.64.0.1:4747/", "100.64.0.1", true, false))
         assertNull(UrlPolicy.origin("http://100.64.0.2:4747", "100.64.0.1", true, false))
         assertNull(UrlPolicy.origin("http://100.64.0.1", "100.64.0.1", false, false))
