@@ -23,4 +23,26 @@
     <string name="change_warning">A troca apaga os dados locais da origem anterior, incluindo rascunhos não enviados.</string>
     <string name="confirm">Confirmar</string>
     <string name="cancel">Cancelar</string>
+    <string name="sessions">Sessões</string>
+    <string name="open_sessions">Abertas</string>
+    <string name="recent_sessions">Recentes</string>
+    <string name="search_sessions">Buscar por título, projeto ou agente</string>
+    <string name="reading_connecting">Conectando…</string>
+    <string name="reading_connected">Conectado</string>
+    <string name="reading_offline">Desconectado; conteúdo pode estar desatualizado.</string>
+    <string name="terminal_blocked">Leitura de conversas e recentes bloqueada pelo servidor.</string>
+    <string name="session_changed">A sessão mudou. Escolha a nova sessão na lista.</string>
+    <string name="reading_missing">Conversa indisponível ou não encontrada.</string>
+    <string name="reading_oversize">Entrada ou evento excedeu o limite de leitura.</string>
+    <string name="window_truncated">Existe conversa anterior que não foi carregada. Não há paginação.</string>
+    <string name="window_reduced">Janela local reduzida; entradas antigas foram descartadas.</string>
+    <string name="history_read_only">Sessão encerrada: somente leitura.</string>
+    <string name="read_only">Conversa somente leitura. Envio indisponível nesta versão.</string>
+    <string name="permission_pending">Aprovação pendente</string>
+    <string name="back_sessions">Voltar às sessões</string>
+    <string name="new_entries">Novas entradas</string>
+    <string name="unknown_entry">Entrada não suportada</string>
+    <string name="result_truncated">Resultado truncado pelo servidor.</string>
+    <string name="thinking">Raciocínio</string>
+    <string name="tool_result">Resultado</string>
 </resources>

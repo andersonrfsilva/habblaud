@@ -16,6 +16,12 @@ data class ConnectionSettings(val origin: String, val consent: Boolean)
 class LocalStateStore(private val context: Context) {
     private val originKey = stringPreferencesKey("origin")
     private val consentKey = booleanPreferencesKey("http_consent")
+    private val sessionKey = stringPreferencesKey("last_session")
+
+    suspend fun lastSession(): SessionKey? = context.localState.data.first()[sessionKey]?.let { runCatching { SessionKey.deserialize(it) }.getOrNull() }
+    suspend fun setLastSession(key: SessionKey?) {
+        context.localState.edit { if (key == null) it.remove(sessionKey) else it[sessionKey] = key.serialize() }
+    }
     private fun retryKey(origin: String) = longPreferencesKey("retry_" + java.security.MessageDigest.getInstance("SHA-256").digest(origin.toByteArray()).joinToString("") { "%02x".format(it) })
 
     suspend fun retryUntil(origin: String): Long = context.rateState.data.first()[retryKey(origin)] ?: 0

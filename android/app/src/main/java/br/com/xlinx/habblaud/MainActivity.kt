@@ -106,6 +106,9 @@ class MainActivity : ComponentActivity() {
                         if (!revoked) message = getString(R.string.logout_unconfirmed)
                     }
                 }) { Text(stringResource(R.string.confirm)) } }, dismissButton = { TextButton(onClick = { confirmLogout = false }) { Text(stringResource(R.string.cancel)) } })
+                if (connected && api != null) {
+                    ReadingScreen(api!!, store, onUnauthorized = { connected = false; message = getString(R.string.login_error) }, onLogout = { confirmLogout = true })
+                } else {
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(stringResource(R.string.connection), style = MaterialTheme.typography.headlineMedium)
                     if (connected) {
@@ -127,6 +130,7 @@ class MainActivity : ComponentActivity() {
                     }
                     if (busy) CircularProgressIndicator()
                     if (message.isNotEmpty()) Text(message, color = MaterialTheme.colorScheme.error)
+                }
                 }
             }
         }
