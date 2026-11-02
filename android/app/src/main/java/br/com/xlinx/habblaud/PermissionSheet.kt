@@ -1,5 +1,8 @@
 package br.com.xlinx.habblaud
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -69,6 +72,7 @@ internal fun PermissionSheet(api: HabblaudApi, session: SessionItem, allowed: Bo
     var suggestion by remember(id) { mutableStateOf<Int?>(null) }
     var interrupt by remember(id) { mutableStateOf(false) }
     var message by remember(id) { mutableStateOf("") }
+    var showDeny by remember(id) { mutableStateOf(false) }
     val path = "/api/permissions/${URLEncoder.encode(id, "UTF-8").replace("+", "%20")}"
     LaunchedEffect(id, connected, allowed) {
         detail = null
@@ -110,9 +114,13 @@ internal fun PermissionSheet(api: HabblaudApi, session: SessionItem, allowed: Bo
             if (!allowed) Text(stringResource(R.string.permissions_blocked))
             if (!connected) Text(stringResource(R.string.reading_offline))
             item?.let { request ->
-                Text(request.string("tool").orEmpty()); Text(request.string("title").orEmpty())
-                SelectionContainer { Text(request.string("input").orEmpty(), fontFamily = FontFamily.Monospace) }
-                request["expiresAt"]?.jsonPrimitive?.longOrNull?.let { Text(stringResource(R.string.permission_deadline, DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT, Locale.forLanguageTag("pt-BR")).format(Date(it)))) }
+                Text(stringResource(R.string.permission_tool), style = MaterialTheme.typography.labelMedium)
+                Text(request.string("tool").orEmpty(), style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(if (request.string("tool")?.equals("bash", true) == true) R.string.permission_command else R.string.permission_input), style = MaterialTheme.typography.labelMedium)
+                SelectionContainer {
+                    Text(request.string("input").orEmpty(), Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHighest, RoundedCornerShape(8.dp)).horizontalScroll(rememberScrollState()).padding(12.dp), fontFamily = FontFamily.Monospace)
+                }
+                request["expiresAt"]?.jsonPrimitive?.longOrNull?.let { Text(stringResource(R.string.permission_deadline, DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT, Locale.forLanguageTag("pt-BR")).format(Date(it))), style = MaterialTheme.typography.bodySmall) }
                 questions.forEach { q ->
                     val index = q["index"]?.jsonPrimitive?.intOrNull ?: return@forEach
                     val multi = q.flag("multiSelect")
@@ -142,9 +150,9 @@ internal fun PermissionSheet(api: HabblaudApi, session: SessionItem, allowed: Bo
                         })
                         Row { Checkbox(suggestion == index, { suggestion = if (it) index else null }); Text(stringResource(R.string.permission_suggestion, rules, destination)) }
                     }
-                    Row { Checkbox(interrupt, { interrupt = it }); Text(stringResource(R.string.permission_interrupt)) }
+                    if (showDeny) Row { Checkbox(interrupt, { interrupt = it }); Text(stringResource(R.string.permission_interrupt)) }
                 }
-                if (questions.isEmpty()) OutlinedTextField(message, { message = it }, label = { Text(stringResource(R.string.permission_reason)) })
+                if (questions.isEmpty() && showDeny) OutlinedTextField(message, { message = it }, label = { Text(stringResource(R.string.permission_reason)) })
             }
             if (expired) Text(stringResource(R.string.permission_expired))
             error?.let { Text(stringResource(when (it) { "answers" -> R.string.permission_answers; "unknown" -> R.string.permission_unknown; else -> R.string.network_error }), color = MaterialTheme.colorScheme.error) }
@@ -152,8 +160,8 @@ internal fun PermissionSheet(api: HabblaudApi, session: SessionItem, allowed: Bo
         Row {
             if (questions.isNotEmpty()) TextButton(onClick = { decide("answer") }, enabled = enabled) { Text(stringResource(R.string.permission_answer)) }
             else {
-                TextButton(onClick = { decide("allow") }, enabled = enabled) { Text(stringResource(R.string.permission_allow)) }
-                TextButton(onClick = { decide("deny") }, enabled = enabled) { Text(stringResource(R.string.permission_deny)) }
+                Button(onClick = { decide("allow") }, enabled = enabled) { Text(stringResource(R.string.permission_allow)) }
+                OutlinedButton(onClick = { if (showDeny) decide("deny") else showDeny = true }, enabled = enabled) { Text(stringResource(R.string.permission_deny)) }
             }
             TextButton(onClick = { decide("terminal") }, enabled = enabled) { Text(stringResource(R.string.permission_terminal)) }
         }

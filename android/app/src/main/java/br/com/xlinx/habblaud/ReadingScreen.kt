@@ -1,6 +1,7 @@
 package br.com.xlinx.habblaud
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -89,7 +90,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
             }
         )
     }) { padding ->
-    Column(Modifier.fillMaxSize().padding(padding).imePadding().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.fillMaxSize().padding(padding).imePadding().background(if (selected == null) MaterialTheme.colorScheme.background else Color(0xFFF0F5F1)).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         state.error?.let { error -> Text(stringResource(when (error) { "changed" -> R.string.session_changed; "forbidden" -> R.string.terminal_blocked; "missing" -> R.string.reading_missing; "oversize" -> R.string.reading_oversize; "vpn_required" -> R.string.vpn_required; else -> R.string.network_error }), color = MaterialTheme.colorScheme.error) }
         if (selected == null) {
             var query by remember { mutableStateOf("") }
@@ -132,22 +133,51 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
             val tools = state.entries.filter { it.kind == "tool" }.map { it.id }.toSet()
             val listState = rememberLazyListState()
             var following by remember { mutableStateOf(true) }
-            var newEntries by remember { mutableStateOf(false) }
+            var userScrolled by remember(selected.key) { mutableStateOf(false) }
+            var unread by remember(selected.key) { mutableIntStateOf(0) }
+            var previousCount by remember(selected.key) { mutableIntStateOf(0) }
+            var previousLastId by remember(selected.key) { mutableStateOf<String?>(null) }
             var initialScroll by remember(selected.key) { mutableStateOf(false) }
-            LaunchedEffect(listState) { snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index to listState.layoutInfo.totalItemsCount }.collect { (last, total) -> if (total > 0) following = last != null && last >= total - 1 } }
-            LaunchedEffect(state.entries.size) {
-                if (state.entries.isNotEmpty()) {
-                    if (!initialScroll || following) {
-                        listState.scrollToItem(state.entries.lastIndex)
-                        initialScroll = true
-                        newEntries = false
-                    } else newEntries = true
-                } else initialScroll = false
+            val dragging by listState.interactionSource.collectIsDraggedAsState()
+            LaunchedEffect(dragging) { if (dragging && initialScroll) userScrolled = true }
+            LaunchedEffect(listState) {
+                snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index to listState.layoutInfo.totalItemsCount }.collect { (last, total) ->
+                    if (total > 0) {
+                        following = last != null && last >= total - 1
+                        if (following && !dragging) { userScrolled = false; unread = 0 }
+                    }
+                }
             }
-            if (!following && initialScroll && state.entries.isNotEmpty()) TextButton(onClick = { scope.launch { listState.scrollToItem(state.entries.lastIndex); newEntries = false } }) { Text(stringResource(if (newEntries) R.string.new_entries else R.string.go_to_end)) }
-            LazyColumn(Modifier.weight(1f).fillMaxWidth().background(Color(0xFFF0F5F1), RoundedCornerShape(12.dp)).padding(8.dp), state = listState, verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom)) {
-                items(state.entries, key = { it.id }) { entry ->
-                    if (entry.kind != "result" || entry.toolUseId !in tools) EntryView(entry, results[entry.id].orEmpty())
+            val lastId = state.entries.lastOrNull()?.id
+            LaunchedEffect(state.entries.size, lastId) {
+                val count = state.entries.size
+                if (count > 0) {
+                    if (!initialScroll || !userScrolled || following) {
+                        listState.scrollToItem(count - 1)
+                        initialScroll = true
+                        unread = 0
+                    } else {
+                        val previousIndex = state.entries.indexOfLast { it.id == previousLastId }
+                        unread += if (previousIndex >= 0) count - previousIndex - 1 else (count - previousCount).coerceAtLeast(1)
+                    }
+                } else {
+                    initialScroll = false
+                    unread = 0
+                }
+                previousCount = count
+                previousLastId = lastId
+            }
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom)) {
+                    items(state.entries, key = { it.id }) { entry ->
+                        if (entry.kind != "result" || entry.toolUseId !in tools) EntryView(entry, results[entry.id].orEmpty())
+                    }
+                }
+                if (userScrolled && !following && initialScroll && state.entries.isNotEmpty()) {
+                    val label = stringResource(R.string.go_to_end)
+                    SmallFloatingActionButton(onClick = { scope.launch { listState.scrollToItem(state.entries.lastIndex); unread = 0; userScrolled = false } }, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp).semantics { contentDescription = label }, shape = CircleShape) {
+                        BadgedBox(badge = { if (unread > 0) Badge { Text(unread.toString()) } }) { Text("↓", style = MaterialTheme.typography.titleLarge) }
+                    }
                 }
             }
             if (composer.key == selected.key && selected.agentId != null) {
@@ -155,9 +185,9 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 val enabled = agentId != null && selected.canMessage && state.messagesAllowed && state.messageGuard && state.connection == "connected"
                 composer.progress?.let { Text(stringResource(R.string.attachment_progress, it), style = MaterialTheme.typography.bodySmall) }
-                if (!state.messagesAllowed) Text(stringResource(R.string.messages_blocked))
-                else if (!state.messageGuard) Text(stringResource(R.string.message_guard_required))
-                else if (agentId != null && !selected.canMessage) Text(stringResource(R.string.message_unavailable))
+                if (!state.messagesAllowed) ChatBanner(stringResource(R.string.messages_blocked))
+                else if (!state.messageGuard) ChatBanner(stringResource(R.string.message_guard_required))
+                else if (agentId != null && !selected.canMessage) ChatBanner(stringResource(R.string.message_unavailable))
                 if (selected.key.provider == "omp") {
                     if (selected.status in setOf("working", "busy", "shell") && !composer.sending) TextButton(onClick = { controller.messages.interrupt(agentId!!) }, enabled = enabled && !composer.loading && composer.control?.status !in setOf("queued", "sent")) { Text(stringResource(R.string.stop_omp)) }
                     composer.control?.let { control -> Text(stringResource(when (control.status) {
@@ -199,13 +229,13 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                         else if (!attachment.persistent) Text(stringResource(R.string.attachment_temporary), style = MaterialTheme.typography.bodySmall)
                     }
                 }
-                composer.operation?.let { operation -> Text(stringResource(when (operation.status) {
+                composer.operation?.let { operation -> ChatBanner(stringResource(when (operation.status) {
                     "queued" -> R.string.message_queued
                     "sent" -> R.string.message_sent
                     "delivered" -> R.string.message_delivered
                     "failed" -> R.string.message_failed
                     else -> R.string.message_unknown
-                }), style = MaterialTheme.typography.bodySmall) }
+                })) }
                 composer.error?.let { error -> if (error != "confirm") Text(stringResource(when (error) { "storage" -> R.string.storage_error; "unknown" -> R.string.message_unknown; "attachment" -> R.string.attachment_error; "attachments_expired" -> R.string.attachments_expired; else -> R.string.message_send_error }), color = MaterialTheme.colorScheme.error) }
                 if (composer.error == "confirm" && agentId != null) AlertDialog(
                     onDismissRequest = { controller.messages.dismissConfirmation() },
@@ -249,6 +279,16 @@ private fun relativeTime(timestamp: Long): String {
 }
 
 @Composable
+private fun ChatBanner(message: String) {
+    Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("ⓘ", color = MaterialTheme.colorScheme.onSecondaryContainer)
+            Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
+        }
+    }
+}
+
+@Composable
 private fun EntryView(entry: TerminalEntry, results: List<TerminalEntry>) {
     var expanded by remember(entry.id) { mutableStateOf(false) }
     if (entry.kind == "system") {
@@ -257,7 +297,7 @@ private fun EntryView(entry: TerminalEntry, results: List<TerminalEntry>) {
     }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (entry.kind == "user") Arrangement.End else Arrangement.Start) {
         Surface(
-            modifier = Modifier.fillMaxWidth(0.88f),
+            modifier = Modifier.fillMaxWidth(0.85f),
             shape = RoundedCornerShape(16.dp),
             color = if (entry.kind == "user") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
         ) {
@@ -283,7 +323,8 @@ private fun EntryView(entry: TerminalEntry, results: List<TerminalEntry>) {
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             entry.text.split("```").forEachIndexed { index, part ->
                                 if (index % 2 == 0) {
-                                    if (part.isNotEmpty()) Text(part)
+                                    val text = part.trim('\n').replace(Regex("\\n[ \\t]*\\n(?:[ \\t]*\\n)+"), "\n\n")
+                                    if (text.isNotEmpty()) Text(text)
                                 } else {
                                     Text(part.substringAfter('\n', part).trimEnd(), Modifier.fillMaxWidth().background(Color(0xFFF0F3F1), RoundedCornerShape(8.dp)).horizontalScroll(rememberScrollState()).padding(8.dp), fontFamily = FontFamily.Monospace)
                                 }

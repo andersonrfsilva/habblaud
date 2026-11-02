@@ -144,5 +144,23 @@ class FixtureUiInstrumentedTest {
         assertEquals("A fixture não recebeu decisão", "decided", result.optString("status"))
         assertEquals("A fixture recebeu decisão diferente", "allow", result.optString("behavior"))
         compose.onNodeWithText(text(R.string.message_text)).assertIsDisplayed()
+        compose.waitUntil(15_000) { compose.onAllNodes(hasText(text(R.string.permission_pending))).fetchSemanticsNodes().isEmpty() }
+        val denial = fixtureRequest("/api/permissions", JSONObject()
+            .put("session_id", key.sessionId)
+            .put("tool_name", "Bash")
+            .put("tool_input", JSONObject().put("command", "echo recusa")))
+        val denialId = denial.optString("id")
+        assertTrue("Fixture não registrou a recusa: $denial", denialId.isNotEmpty())
+        await(R.string.permission_pending)
+        compose.onNodeWithText(text(R.string.permission_pending)).performClick()
+        await(R.string.permission_deny)
+        compose.onNodeWithText(text(R.string.permission_reason)).assertDoesNotExist()
+        compose.onNodeWithText(text(R.string.permission_deny)).performClick()
+        await(R.string.permission_reason)
+        compose.onNodeWithText(text(R.string.permission_reason)).performTextInput("Não autorizado")
+        compose.onNodeWithText(text(R.string.permission_deny)).performClick()
+        val denied = fixtureRequest("/api/permissions/$denialId/wait?timeout=5")
+        assertEquals("decided", denied.optString("status"))
+        assertEquals("deny", denied.optString("behavior"))
     }
 }

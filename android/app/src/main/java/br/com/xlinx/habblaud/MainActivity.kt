@@ -29,7 +29,16 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         val store = LocalStateStore(applicationContext)
         setContent {
-            MaterialTheme(colorScheme = lightColorScheme(primary = Color(0xFF176B58), onPrimary = Color.White, primaryContainer = Color(0xFFD3EEE3), onPrimaryContainer = Color(0xFF002117), secondary = Color(0xFF416A60), surface = Color.White, background = Color(0xFFF7FAF8))) {
+            MaterialTheme(colorScheme = lightColorScheme(
+                primary = Color(0xFF176B58), onPrimary = Color.White,
+                primaryContainer = Color(0xFFD3EEE3), onPrimaryContainer = Color(0xFF002117),
+                secondary = Color(0xFF416A60), secondaryContainer = Color(0xFFDCEFE6), onSecondaryContainer = Color(0xFF173C31),
+                surface = Color.White, background = Color(0xFFF7FAF8),
+                surfaceVariant = Color(0xFFE2EEE7), onSurfaceVariant = Color(0xFF3C4A43),
+                surfaceContainerLowest = Color.White, surfaceContainerLow = Color(0xFFF3F8F4),
+                surfaceContainer = Color(0xFFEBF3EE), surfaceContainerHigh = Color(0xFFE3EFE7),
+                surfaceContainerHighest = Color(0xFFDBEAE1)
+            )) {
                 var url by remember { mutableStateOf("") }
                 var user by remember { mutableStateOf("") }
                 var password by remember { mutableStateOf("") }

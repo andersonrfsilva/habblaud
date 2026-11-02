@@ -271,6 +271,12 @@ export async function startAndroidFixture(root: string, args: string[]): Promise
         office.switchSession(agentId, sessionId);
         messages.inbox({ session: sessionId, account: agent.account });
         result = { ok: true, sessionId };
+      } else if (command === 'append') {
+        const agent = office.get(agentId);
+        const path = paths.get(agentId);
+        if (!agent || !path || agent.provider === 'omp') throw new Error('Unknown Claude agent');
+        appendFileSync(path, JSON.stringify({ uuid: randomUUID(), timestamp: new Date().toISOString(), sessionId: agent.sessionId, cwd: CWD, isSidechain: false, type: 'assistant', message: { id: randomUUID(), role: 'assistant', content: [{ type: 'text', text: 'Nova resposta fictícia.' }] } }) + '\n');
+        result = { ok: true };
       } else if (command === 'deliver' || command === 'fail') {
         const agent = office.get(agentId);
         if (!agent) throw new Error('Unknown agent');

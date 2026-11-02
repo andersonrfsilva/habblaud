@@ -107,4 +107,7 @@
     <string name="permission_destination_project">neste projeto</string>
     <string name="permission_destination_user">nas configurações do usuário no servidor</string>
     <string name="permission_destination_unknown">destino desconhecido</string>
+    <string name="permission_tool">Ferramenta</string>
+    <string name="permission_command">Comando</string>
+    <string name="permission_input">Entrada</string>
 </resources>

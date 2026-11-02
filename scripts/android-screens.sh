@@ -17,6 +17,7 @@ DENSITY=
 FONT=
 
 cleanup() {
+    local status=$?
     set +e
     if [[ -n "$SERIAL" ]]; then
         if [[ -n "$SIZE" ]]; then "$ADB" -s "$SERIAL" shell wm size "$SIZE"; else "$ADB" -s "$SERIAL" shell wm size reset; fi
@@ -30,6 +31,10 @@ cleanup() {
     [[ -z "$READONLY_PID" ]] || kill "$READONLY_PID" 2>/dev/null
     [[ -z "$FIXTURE_PID" ]] || wait "$FIXTURE_PID" 2>/dev/null
     [[ -z "$READONLY_PID" ]] || wait "$READONLY_PID" 2>/dev/null
+    if (( status != 0 )); then
+        [[ ! -f "$TMP/fixture.log" ]] || cat "$TMP/fixture.log" >&2
+        [[ ! -f "$TMP/readonly.log" ]] || cat "$TMP/readonly.log" >&2
+    fi
     [[ -z "$EMULATOR_PID" ]] || "$ADB" -s "$SERIAL" emu kill >/dev/null 2>&1
     rm -rf "$TMP"
 }
@@ -89,7 +94,7 @@ adb() { "$ADB" -s "$SERIAL" "$@"; }
 dump() {
     for _ in $(seq 1 5); do
         adb shell rm -f /sdcard/habblaud-window.xml
-        if adb shell uiautomator dump /sdcard/habblaud-window.xml >/dev/null 2>&1 && adb exec-out cat /sdcard/habblaud-window.xml >"$TMP/window.xml" 2>/dev/null && [[ -s "$TMP/window.xml" ]]; then return; fi
+        if adb shell uiautomator dump /sdcard/habblaud-window.xml >/dev/null 2>&1 && adb exec-out cat /sdcard/habblaud-window.xml >"$TMP/window.xml" 2>/dev/null && grep -q '^<?xml' "$TMP/window.xml"; then return; fi
         sleep 1
     done
     echo 'Não foi possível ler a árvore da interface.' >&2
@@ -158,8 +163,7 @@ wait_text 'Bash(echo fixture)'
 shot conversa-fim
 for _ in $(seq 1 18); do adb shell input swipe 500 500 500 1850 150; done
 shot conversa-topo
-dump
-if coords 'Novas entradas' >/dev/null; then tap 'Novas entradas'; else tap 'Ir para o fim'; fi
+tap 'Ir para o fim'
 wait_text 'Bash(echo fixture)'
 tap 'Bash(echo fixture)'
 adb shell input swipe 500 1750 500 900 400
@@ -168,6 +172,9 @@ tap 'Mensagem'
 adb shell input text 'Primeira%slinha%sficticia'; adb shell input keyevent KEYCODE_ENTER; adb shell input text 'Segunda%slinha%sficticia'
 shot composer-teclado
 adb shell input keyevent 4
+tap Enviar
+wait_text 'Aceita e na fila; ainda não entregue.'
+shot estado-envio
 printf 'Documento fictício para o teste visual.\n' >"$TMP/habblaud-exemplo.txt"
 adb push "$TMP/habblaud-exemplo.txt" /sdcard/Download/habblaud-exemplo.txt >/dev/null
 adb shell am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/Download/habblaud-exemplo.txt >/dev/null
@@ -176,9 +183,12 @@ wait_text 'habblaud-exemplo.txt'
 tap 'habblaud-exemplo.txt'
 wait_text 'habblaud-exemplo.txt'
 shot anexos-selecionados
-tap Enviar
-wait_text 'Aceita e na fila; ainda não entregue.'
-shot estado-envio
+tap Remover
+for _ in $(seq 1 18); do adb shell input swipe 500 500 500 1850 150; done
+printf 'append fixture:claude\n' >&3
+wait_text '1'
+shot novas-entradas
+tap 'Ir para o fim'
 printf 'permission fixture:claude bash\n' >&3
 wait_text 'Aprovação pendente'
 tap 'Aprovação pendente'
