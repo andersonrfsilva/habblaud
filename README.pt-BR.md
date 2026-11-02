@@ -249,6 +249,9 @@ superior e uma instalação do Habblaud com login remoto configurado. A URL deve
 para a porta local sem autenticação. O aplicativo aceita uma instalação por vez; informe URL, usuário e senha do acesso
 remoto. A senha não é persistida. HTTPS usa a validação normal de certificado e nome do Android.
 
+O código do aplicativo, junto com o servidor compatível, fica no repositório privado
+[andersonrfsilva/HabblaudX](https://github.com/andersonrfsilva/HabblaudX).
+
 O aplicativo acompanha o tema claro ou escuro do sistema. As mensagens exibem Markdown selecionável, incluindo
 listas, tabelas e código; links abrem ao toque. Imagens remotas e HTML não são carregados ou interpretados.
 Para gerar capturas dos dois temas com dados fictícios, execute `scripts/android-screens.sh` com o AVD
@@ -340,6 +343,13 @@ Na porta remota, as travas de `HABBLAUD_REMOTE_ALLOW` são independentes. O apli
 Para usar todos, o operador precisa liberar `terminal,permissions,messages` e habilitar os recursos correspondentes no
 servidor. Um servidor antigo sem `messageSessionGuard` permite leitura conforme as demais travas, mas não recebe
 mensagens ou controles do Android. Veja o contrato em [Servidor](server/README.md#api).
+
+**Compatibilidade com o upstream.** O servidor do upstream ([marmottajr/habblaud](https://github.com/marmottajr/habblaud))
+atende só parte do aplicativo. Login, lista de sessões, recentes, conversas e respostas a aprovações e perguntas
+funcionam, conforme `HABBLAUD_REMOTE_ALLOW` e os recursos ligados no servidor. Mensagens ficam bloqueadas no aplicativo,
+porque o upstream não anuncia `messageSessionGuard` nem confere `expectedSessionId`. Anexos
+(`POST /api/messages/attachments`), interrupção (`POST /api/messages/control`) e sessões omp não existem no upstream.
+Para usar todos os recursos, rode o servidor deste repositório.
 
 Recentes cobre até 150 sessões dos últimos 7 dias. A conversa começa com até 500 entradas dos aproximadamente 4 MiB
 finais; pode haver conteúdo anterior não carregado. A janela local também é limitada. Sessões encerradas ficam somente
