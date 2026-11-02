@@ -3,7 +3,6 @@ package br.com.xlinx.habblaud
 import br.com.xlinx.habblaud.data.*
 import kotlinx.coroutines.*
 import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.mockwebserver.MockResponse
@@ -23,13 +22,13 @@ class MessageSendTest {
     private val b = SessionKey("https://example.test", "omp", "a", "two")
     private suspend fun waitFor(predicate: () -> Boolean) = withTimeout(6000) { while (!predicate()) delay(10) }
     private fun controller(scope: CoroutineScope, store: MemoryStore, server: MockWebServer, changed: () -> Unit = {}): MessageController {
-        val client = OkHttpClient.Builder().retryOnConnectionFailure(false).build()
+        val client = httpClient()
         return MessageController({ path, body -> withContext(Dispatchers.IO) {
             val builder = Request.Builder().url(server.url(path))
             if (body != null) builder.post(body.toRequestBody("application/json".toMediaType()))
             client.newCall(builder.build()).execute().use { response ->
                 val text = response.body?.string().orEmpty()
-                if (!response.isSuccessful) throw ApiException(response.code, code = if (text.contains("session_changed")) "session_changed" else null)
+                if (!response.isSuccessful) throw apiError(response.code, response.header("Retry-After"), text)
                 text
             }
         } }, store, scope, { _, _ -> true }, changed, {})
@@ -88,6 +87,54 @@ class MessageSendTest {
             waitFor { changed }
             assertEquals("pedido", store.message(a).draft.text)
             assertNull(store.message(a).operation); assertEquals(1, server.requestCount); c.stop()
+        } finally { server.shutdown() }
+    }
+    @Test fun uncertainStopRequiresExplicitConfirmationAfterRestart() = runBlocking {
+        val server = MockWebServer(); server.start(); val store = MemoryStore()
+        try {
+            server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST))
+            val c = controller(this, store, server); open(c, a); c.interrupt("agent")
+            waitFor { c.state.value.controlError == "unknown" }
+            assertEquals(1, server.requestCount); c.stop()
+            val restored = controller(this, store, server); open(restored, a)
+            assertEquals("unknown", restored.state.value.control?.status)
+            restored.interrupt("agent")
+            assertEquals("confirm", restored.state.value.controlError)
+            assertEquals(1, server.requestCount)
+            restored.dismissControlConfirmation()
+            assertNull(restored.state.value.controlError)
+            restored.interrupt("agent")
+            server.enqueue(MockResponse().setBody("{\"id\":\"stop2\",\"status\":\"queued\"}"))
+            restored.interrupt("agent", confirmed = true)
+            waitFor { restored.state.value.control?.id == "stop2" }
+            restored.interrupt("agent", confirmed = true)
+            assertEquals(2, server.requestCount)
+            val first = server.takeRequest()
+            val second = server.takeRequest()
+            assertEquals("/api/messages/control", first.path)
+            assertTrue(second.body.readUtf8().contains("\"expectedSessionId\":\"one\""))
+            restored.stop()
+        } finally { server.shutdown() }
+    }
+    @Test fun realErrorParserDistinguishesSessionConflict() {
+        val conflict = apiError(409, null, "{\"error\":\"Sessão mudou\",\"code\":\"session_changed\"}")
+        assertEquals("session_changed", conflict.code)
+        assertNull(apiError(409, null, "{\"error\":\"session_changed\"}").code)
+        assertNull(apiError(409, null, "not json").code)
+        assertTrue(apiError(409, null, "{\"attachmentsExpired\":true}").attachmentsExpired)
+        assertFalse(httpClient().retryOnConnectionFailure)
+    }
+    @Test fun expiredStopStatusAlsoRequiresConfirmation() = runBlocking {
+        val server = MockWebServer(); server.start(); val store = MemoryStore()
+        try {
+            server.enqueue(MockResponse().setBody("{\"id\":\"stop1\",\"status\":\"queued\"}"))
+            server.enqueue(MockResponse().setResponseCode(404))
+            val c = controller(this, store, server); open(c, a); c.interrupt("agent")
+            waitFor { c.state.value.control?.status == "unknown" }
+            c.interrupt("agent")
+            assertEquals("confirm", c.state.value.controlError)
+            assertEquals(2, server.requestCount)
+            c.stop()
         } finally { server.shutdown() }
     }
     @Test fun draftsRemainIsolatedAndUtf16Limited() = runBlocking {

@@ -10,6 +10,8 @@ class UrlPolicyTest {
         assertEquals(BuildConfig.DEBUG, BuildConfig.ALLOW_LOOPBACK_HTTP)
         assertEquals("http://100.64.0.1:4747", UrlPolicy.origin("http://100.64.0.1:4747/", "100.64.0.1", true, false))
         assertNull(UrlPolicy.origin("http://100.64.0.2:4747", "100.64.0.1", true, false))
+        assertNull(UrlPolicy.origin("http://100.64.0.1", null, true, false))
+        assertNull(UrlPolicy.origin("http://100.64.0.1", "100.64.0.2", true, false))
         assertNull(UrlPolicy.origin("http://100.64.0.1", "100.64.0.1", false, false))
         assertNull(UrlPolicy.origin("http://192.168.1.1", "192.168.1.1", true, false))
         assertNull(UrlPolicy.origin("http://[::1]", "::1", true, false))

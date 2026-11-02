@@ -7,6 +7,17 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ReadingConnectionTest {
+    @Test fun vpnFailureIsDistinctAndClearsOnReconnect() {
+        val state = ReadingState(connection = "connected")
+        val snapshotFailure = state.streamFailure(null, conversation = false, vpnRequired = true)
+        assertEquals("offline", snapshotFailure.connection)
+        assertEquals("vpn_required", snapshotFailure.error)
+        val conversationFailure = state.streamFailure(null, conversation = true, vpnRequired = true)
+        assertEquals("connected", conversationFailure.connection)
+        assertEquals("vpn_required", conversationFailure.readingError)
+        assertNull(conversationFailure.conversationConnected().readingError)
+    }
+
     @Test fun conversationFailureDoesNotDisconnectSnapshotStream() {
         val state = ReadingState(connection = "connected", messagesAllowed = true, messageGuard = true)
         val failed = state.streamFailure(null, conversation = true)

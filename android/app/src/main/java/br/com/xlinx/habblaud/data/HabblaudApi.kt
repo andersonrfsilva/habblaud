@@ -15,6 +15,7 @@ import kotlin.coroutines.resumeWithException
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.Response
+import kotlinx.serialization.json.jsonObject
 import org.json.JSONObject
 import java.io.IOException
 import java.net.URI
@@ -25,12 +26,16 @@ class VpnRequiredException : IOException("Conecte o Tailscale")
 class RedirectException : IOException("Redirecionamento recusado")
 internal fun httpClient(): OkHttpClient = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
     .retryOnConnectionFailure(false).readTimeout(45, TimeUnit.SECONDS).build()
+internal fun apiError(status: Int, retryAfter: String?, body: String): ApiException {
+    val error = runCatching { wireJson.parseToJsonElement(body).jsonObject }.getOrNull()
+    return ApiException(status, retryAfter, error?.string("code")?.ifEmpty { null }, error?.flag("attachmentsExpired") == true)
+}
 
 
-class HabblaudApi(context: Context, val origin: String, consent: Boolean) : AutoCloseable {
+class HabblaudApi(context: Context, val origin: String, consent: Boolean, confirmedHost: String? = null) : AutoCloseable {
     val attachments = Attachments(context.contentResolver)
     private val host = URI(origin).host
-    init { require(UrlPolicy.origin(origin, host, consent, BuildConfig.ALLOW_LOOPBACK_HTTP) == origin) }
+    init { require(UrlPolicy.origin(origin, confirmedHost, consent, BuildConfig.ALLOW_LOOPBACK_HTTP) == origin) }
     val cookies = SessionCookieStore(context, origin)
     private val vpn = VpnGuard(context)
     private val base = httpClient().newBuilder().cookieJar(cookies).build()
@@ -46,8 +51,7 @@ class HabblaudApi(context: Context, val origin: String, consent: Boolean) : Auto
             if (response.code in 300..399) throw RedirectException()
             if (response.code == 401) { cancelCalls(); cookies.clear() }
             if (!response.isSuccessful) {
-                val error = runCatching { JSONObject(response.body?.string() ?: "") }.getOrNull()
-                throw ApiException(response.code, response.header("Retry-After"), error?.optString("code")?.ifEmpty { null }, error?.optBoolean("attachmentsExpired") == true)
+                throw apiError(response.code, response.header("Retry-After"), response.body?.string().orEmpty())
             }
             response.body?.string() ?: ""
         }
@@ -69,7 +73,7 @@ class HabblaudApi(context: Context, val origin: String, consent: Boolean) : Auto
                             if (it.code in 300..399) throw RedirectException()
                             if (it.code == 401) { cancelCalls(); cookies.clear() }
                             val text = it.body?.string().orEmpty()
-                            if (!it.isSuccessful) throw ApiException(it.code, it.header("Retry-After"), runCatching { JSONObject(text).optString("code").ifEmpty { null } }.getOrNull())
+                            if (!it.isSuccessful) throw apiError(it.code, it.header("Retry-After"), text)
                             if (continuation.isActive) continuation.resume(text)
                         } catch (e: Exception) { if (continuation.isActive) continuation.resumeWithException(e) }
                     }

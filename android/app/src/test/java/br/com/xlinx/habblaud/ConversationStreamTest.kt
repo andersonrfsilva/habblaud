@@ -2,11 +2,13 @@ package br.com.xlinx.habblaud
 
 import br.com.xlinx.habblaud.data.ConversationRepository
 import br.com.xlinx.habblaud.data.StreamEvent
+import br.com.xlinx.habblaud.data.VpnRequiredException
 import br.com.xlinx.habblaud.data.sendStreamEvent
 import kotlinx.coroutines.channels.Channel
 import java.io.IOException
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -20,6 +22,35 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ConversationStreamTest {
+    @Test fun missingVpnIsReportedByStream() = runBlocking {
+        val repo = ConversationRepository("http://100.64.0.1", { throw VpnRequiredException() }, {})
+        val event = withTimeout(5000) { repo.stream("/api/stream").first() } as StreamEvent.Failure
+        assertTrue(event.vpnRequired)
+        assertNull(event.status)
+    }
+
+    @Test fun successfulConnectionResetsRetryDelay() = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(MockResponse().setResponseCode(500))
+            server.enqueue(MockResponse().setResponseCode(500))
+            server.enqueue(MockResponse().setHeader("Content-Type", "text/event-stream").setBody(""))
+            server.enqueue(MockResponse().setResponseCode(404))
+            val repo = ConversationRepository(server.url("/").toString().removeSuffix("/"), { OkHttpClient() }, {})
+            var disconnectedAt = 0L
+            var lastDelay = 0L
+            withTimeout(15000) {
+                repo.stream("/api/stream").collect { event ->
+                    if (event is StreamEvent.Failure && event.status == null) disconnectedAt = System.nanoTime()
+                    if (event is StreamEvent.Failure && event.status == 404) lastDelay = (System.nanoTime() - disconnectedAt) / 1_000_000
+                }
+            }
+            assertTrue(disconnectedAt != 0L)
+            assertTrue("retry delay was $lastDelay ms", lastDelay in 1800..3999)
+        } finally { server.shutdown() }
+    }
+
     @Test fun overflowClosesChannelAndCancelsSource() = runBlocking {
         val channel = Channel<StreamEvent>(1)
         var cancelled = false

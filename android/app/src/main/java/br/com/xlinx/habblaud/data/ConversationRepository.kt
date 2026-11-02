@@ -24,7 +24,7 @@ internal fun retryAfterMillis(value: String?): Long = value?.let {
 
 sealed interface StreamEvent {
     data class Data(val type: String, val data: String, val firstConnection: Boolean) : StreamEvent
-    data class Failure(val status: Int?, val retryAfter: String? = null) : StreamEvent
+    data class Failure(val status: Int?, val retryAfter: String? = null, val vpnRequired: Boolean = false) : StreamEvent
     data object Connected : StreamEvent
 }
 
@@ -38,7 +38,7 @@ internal fun sendStreamEvent(channel: SendChannel<StreamEvent>, event: StreamEve
 class ConversationRepository(private val origin: String, private val client: () -> okhttp3.OkHttpClient, private val unauthorized: () -> Unit) {
     constructor(api: HabblaudApi) : this(api.origin, { api.client() }, { api.cancelCalls(); api.cookies.clear() })
     private fun once(path: String): Flow<StreamEvent> = callbackFlow {
-        val client = try { client() } catch (e: IOException) { trySend(StreamEvent.Failure(null)); close(); return@callbackFlow }
+        val client = try { client() } catch (e: IOException) { trySend(StreamEvent.Failure(null, vpnRequired = e is VpnRequiredException)); close(); return@callbackFlow }
         val source = EventSources.createFactory(client).newEventSource(Request.Builder().url(origin + path).build(), object : EventSourceListener() {
             override fun onOpen(eventSource: EventSource, response: Response) { sendStreamEvent(channel, StreamEvent.Connected) { eventSource.cancel() } }
             override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
@@ -65,7 +65,7 @@ class ConversationRepository(private val origin: String, private val client: () 
             try {
                 once(path).collect { event ->
                     when (event) {
-                        is StreamEvent.Connected -> { connection++; emit(event) }
+                        is StreamEvent.Connected -> { connection++; delayMs = 2000L; emit(event) }
                         is StreamEvent.Data -> emit(event.copy(firstConnection = connection == 1))
                         is StreamEvent.Failure -> { failure = event; emit(event) }
                     }

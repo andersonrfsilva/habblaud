@@ -55,7 +55,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
     }
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(stringResource(when (state.connection) { "connected" -> R.string.reading_connected; "connecting" -> R.string.reading_connecting; else -> R.string.reading_offline }))
-        state.error?.let { error -> Text(stringResource(when (error) { "changed" -> R.string.session_changed; "forbidden" -> R.string.terminal_blocked; "missing" -> R.string.reading_missing; "oversize" -> R.string.reading_oversize; else -> R.string.network_error }), color = MaterialTheme.colorScheme.error) }
+        state.error?.let { error -> Text(stringResource(when (error) { "changed" -> R.string.session_changed; "forbidden" -> R.string.terminal_blocked; "missing" -> R.string.reading_missing; "oversize" -> R.string.reading_oversize; "vpn_required" -> R.string.vpn_required; else -> R.string.network_error }), color = MaterialTheme.colorScheme.error) }
         val selected = state.selected
         if (selected == null) {
             var query by remember { mutableStateOf("") }
@@ -89,7 +89,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
             if (selected.agentId == null) Text(stringResource(R.string.history_read_only))
             if (!state.terminalAllowed) Text(stringResource(R.string.terminal_blocked))
             state.readingError?.let { error ->
-                Text(stringResource(when (error) { "forbidden" -> R.string.terminal_blocked; "missing" -> R.string.reading_missing; "oversize" -> R.string.reading_oversize; else -> R.string.reading_offline }), color = MaterialTheme.colorScheme.error)
+                Text(stringResource(when (error) { "forbidden" -> R.string.terminal_blocked; "missing" -> R.string.reading_missing; "oversize" -> R.string.reading_oversize; "vpn_required" -> R.string.vpn_required; else -> R.string.reading_offline }), color = MaterialTheme.colorScheme.error)
             }
             if (state.truncated) Text(stringResource(R.string.window_truncated))
             if (state.reduced) Text(stringResource(R.string.window_reduced))
@@ -122,15 +122,22 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                 else if (!state.messageGuard) Text(stringResource(R.string.message_guard_required))
                 else if (agentId != null && !selected.canMessage) Text(stringResource(R.string.message_unavailable))
                 if (selected.key.provider == "omp") {
-                    Button(onClick = { controller.messages.interrupt(agentId!!) }, enabled = enabled && !composer.loading && composer.control?.status !in setOf("queued", "sent", "unknown")) { Text(stringResource(R.string.stop_omp)) }
+                    Button(onClick = { controller.messages.interrupt(agentId!!) }, enabled = enabled && !composer.loading && composer.control?.status !in setOf("queued", "sent")) { Text(stringResource(R.string.stop_omp)) }
                     composer.control?.let { control -> Text(stringResource(when (control.status) {
                         "queued", "sent" -> R.string.stop_pending
                         "delivered" -> R.string.stop_ack
                         "failed" -> R.string.stop_failed
                         else -> R.string.stop_unknown
                     })) }
-                    (composer.control?.error ?: composer.controlError)?.takeIf { it != "unknown" && it != "failed" }?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    (composer.control?.error ?: composer.controlError)?.takeIf { it != "unknown" && it != "failed" && it != "confirm" }?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     if (composer.controlError == "failed") Text(stringResource(R.string.stop_failed), color = MaterialTheme.colorScheme.error)
+                    if (composer.controlError == "confirm") AlertDialog(
+                        onDismissRequest = { controller.messages.dismissControlConfirmation() },
+                        title = { Text(stringResource(R.string.stop_omp)) },
+                        text = { Text(stringResource(R.string.stop_unknown)) },
+                        confirmButton = { TextButton(onClick = { controller.messages.interrupt(agentId!!, confirmed = true) }) { Text(stringResource(R.string.confirm)) } },
+                        dismissButton = { TextButton(onClick = { controller.messages.dismissControlConfirmation() }) { Text(stringResource(R.string.cancel)) } }
+                    )
                     var expanded by remember { mutableStateOf(false) }
                     var showWarning by remember { mutableStateOf(false) }
                     val modes = listOf("aside" to R.string.mode_aside, "followUp" to R.string.mode_follow_up, "steer" to R.string.mode_steer)

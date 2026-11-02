@@ -6,10 +6,9 @@ import android.net.NetworkCapabilities
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import br.com.xlinx.habblaud.data.HabblaudApi
-import br.com.xlinx.habblaud.data.VpnGuard
+import br.com.xlinx.habblaud.data.vpnNetworkRequest
 import br.com.xlinx.habblaud.data.VpnRequiredException
 import kotlinx.coroutines.runBlocking
-import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
@@ -25,11 +24,17 @@ class VpnGuardInstrumentedTest {
         manager.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
     }
 
+    @Test fun vpnRequestDoesNotExcludeVpn() {
+        val request = vpnNetworkRequest()
+        assertTrue(request.hasTransport(NetworkCapabilities.TRANSPORT_VPN))
+        assertFalse(request.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN))
+    }
+
     @Test fun noVpnRejectsLoginBeforeAnyConnection() {
         assumeTrue("Requires a device without VPN", vpn() == null)
         MockWebServer().use { server ->
             server.start()
-            HabblaudApi(context, "http://100.64.0.1:${server.port}", true).use { api ->
+            HabblaudApi(context, "http://100.64.0.1:${server.port}", true, "100.64.0.1").use { api ->
                 try {
                     runBlocking { api.login("instrumentation", "instrumentation") }
                     fail("Login must not be sent without VPN")
@@ -40,18 +45,4 @@ class VpnGuardInstrumentedTest {
         }
     }
 
-    @Test fun activeVpnClientUsesActualNetworkSocketFactory() {
-        val network = vpn()
-        assumeTrue("Requires an active VPN network", network != null)
-        VpnGuard(context).use { guard ->
-            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
-            var client = guard.client(OkHttpClient())
-            while (client == null && System.nanoTime() < deadline) {
-                Thread.sleep(50)
-                client = guard.client(OkHttpClient())
-            }
-            assertNotNull("VPN callback was not delivered", client)
-            assertEquals(network!!.socketFactory, client!!.socketFactory)
-        }
-    }
 }

@@ -237,10 +237,11 @@ class MessageController(
         uploadJobs[key] = job
         job.start()
     }
-    fun interrupt(agentId: String) {
+    fun interrupt(agentId: String, confirmed: Boolean = false) {
         val current = state.value
         val key = current.key ?: return
-        if (key.provider != "omp" || !visible || current.loading || key in controlling || !eligible(key, agentId) || current.control?.status in setOf("queued", "sent", "unknown")) return
+        if (key.provider != "omp" || !visible || current.loading || key in controlling || !eligible(key, agentId) || current.control?.status in setOf("queued", "sent")) return
+        if (current.control?.status == "unknown" && !confirmed) { mutable.value = current.copy(controlError = "confirm"); return }
         controlling.add(key)
         scope.launch {
             var dispatched = false
@@ -270,6 +271,7 @@ class MessageController(
             } finally { controlling.remove(key) }
         }
     }
+    fun dismissControlConfirmation() { mutable.value = mutable.value.copy(controlError = null) }
     private fun pollControl(key: SessionKey, operation: MessageOperation?) {
         controlPoll?.cancel()
         if (!visible || operation?.id == null || operation.status in setOf("delivered", "failed", "unknown")) return

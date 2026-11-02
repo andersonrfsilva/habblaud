@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.first
 private val Context.localState by preferencesDataStore(name = "local_state")
 private val Context.rateState by preferencesDataStore(name = "login_rate")
 
-data class ConnectionSettings(val origin: String, val consent: Boolean)
+data class ConnectionSettings(val origin: String, val consent: Boolean, val confirmedHost: String? = null)
 data class MessageDraft(val text: String = "", val mode: String = "aside", val revision: Long = 0, val attachments: List<Attachment> = emptyList())
 data class MessageOperation(val id: String? = null, val status: String = "unknown", val revision: Long = 0, val error: String? = null)
 data class MessageLocalState(val draft: MessageDraft = MessageDraft(), val operation: MessageOperation? = null, val control: MessageOperation? = null)
@@ -48,6 +48,7 @@ class LocalStateStore(private val context: Context) : MessageStore {
     }
     private val originKey = stringPreferencesKey("origin")
     private val consentKey = booleanPreferencesKey("http_consent")
+    private val confirmedHostKey = stringPreferencesKey("confirmed_http_host")
     private val sessionKey = stringPreferencesKey("last_session")
 
     override suspend fun message(key: SessionKey): MessageLocalState = decodeMessage(context.localState.data.first()[messageKey(key)])
@@ -75,14 +76,15 @@ class LocalStateStore(private val context: Context) : MessageStore {
 
     suspend fun connection(): ConnectionSettings? {
         val data = context.localState.data.first()
-        return data[originKey]?.let { ConnectionSettings(it, data[consentKey] == true) }
+        return data[originKey]?.let { ConnectionSettings(it, data[consentKey] == true, data[confirmedHostKey]) }
     }
 
-    suspend fun setConnection(origin: String, consent: Boolean) {
+    suspend fun setConnection(origin: String, consent: Boolean, confirmedHost: String? = null) {
         context.localState.edit { data ->
             if (data[originKey] != origin) data.clear()
             data[originKey] = origin
             data[consentKey] = consent
+            if (consent && confirmedHost != null) data[confirmedHostKey] = confirmedHost else data.remove(confirmedHostKey)
         }
     }
 

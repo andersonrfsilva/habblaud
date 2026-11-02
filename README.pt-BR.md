@@ -270,6 +270,44 @@ adb install -r android/app/build/outputs/apk/release/app-release.apk
 Sem as quatro informações de assinatura, o build release falha. Também é possível instalar o APK assinado diretamente
 no aparelho, permitindo a instalação pelo aplicativo de origem quando o Android solicitar.
 
+#### Testes instrumentados com fixture
+
+Use um emulador ou aparelho conectado e execute os comandos na raiz do repositório. Em um terminal, mantenha a
+fixture isolada aberta:
+
+```bash
+npx tsx scripts/android-smoke.ts --port 14748 --allow terminal,permissions,messages
+```
+
+Aguarde o JSON com `ready: true`. Anote a porta de `localUrl`, escolhida pela fixture a cada inicialização. Em outro
+terminal, substitua `PORTA_LOCAL` por essa porta e execute:
+
+Os testes criam uma VPN temporária no aplicativo debug. Desconecte outras VPNs antes de começar.
+Em um emulador isolado, instale os APKs e autorize a VPN de teste:
+
+```bash
+android/gradlew -p android :app:assembleDebug :app:assembleDebugAndroidTest
+adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+adb install -r android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+adb shell appops set br.com.xlinx.habblaud ACTIVATE_VPN allow
+```
+
+
+```bash
+adb reverse tcp:14748 tcp:14748
+adb reverse tcp:PORTA_LOCAL tcp:PORTA_LOCAL
+android/gradlew -p android :app:connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.fixture=true \
+  -Pandroid.testInstrumentationRunnerArguments.fixtureLocalPort=PORTA_LOCAL
+```
+
+A instrumentação cria um pedido real pela porta local da fixture, aprova na interface e consulta a decisão registrada.
+As duas portas são exclusivas do laboratório; não as encaminhe para um servidor de produção. Sem fixture ou argumentos,
+os testes falham em vez de serem ignorados. Pare a fixture com `Ctrl+C` ao terminar.
+
+Se o aplicativo debug continuar instalado, revogue a autorização de VPN com
+`adb shell appops set br.com.xlinx.habblaud ACTIVATE_VPN default`.
+
 #### Conexão HTTP e Tailscale
 
 Prefira HTTPS com certificado confiável. Para HTTP, o aplicativo aceita somente um IPv4 literal confirmado pelo usuário
