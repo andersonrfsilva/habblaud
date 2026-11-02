@@ -12,7 +12,7 @@ private val Context.localState by preferencesDataStore(name = "local_state")
 private val Context.rateState by preferencesDataStore(name = "login_rate")
 
 data class ConnectionSettings(val origin: String, val consent: Boolean)
-data class MessageDraft(val text: String = "", val mode: String = "aside", val revision: Long = 0)
+data class MessageDraft(val text: String = "", val mode: String = "aside", val revision: Long = 0, val attachments: List<Attachment> = emptyList())
 data class MessageOperation(val id: String? = null, val status: String = "unknown", val revision: Long = 0)
 data class MessageLocalState(val draft: MessageDraft = MessageDraft(), val operation: MessageOperation? = null)
 interface MessageStore {
@@ -24,17 +24,26 @@ private fun messageKey(key: SessionKey) = stringPreferencesKey("message_" + java
 private fun decodeMessage(value: String?): MessageLocalState {
     if (value == null) return MessageLocalState()
     val json = org.json.JSONObject(value)
-    val draft = MessageDraft(json.optString("text", ""), json.optString("mode", "aside"), json.optLong("revision", 0))
+    val attachments = json.optJSONArray("attachments")?.let { array -> (0 until array.length()).mapNotNull { i ->
+        runCatching { array.getJSONObject(i).let { Attachment(it.getString("uri"), it.getString("name"), it.getString("mime"), if (it.isNull("size")) null else it.getLong("size"), it.optBoolean("persistent")) } }.getOrNull()
+    } } ?: emptyList()
+    val draft = MessageDraft(json.optString("text", ""), json.optString("mode", "aside"), json.optLong("revision", 0), attachments)
     val op = json.optJSONObject("operation")?.let { MessageOperation(it.optString("id").ifEmpty { null }, it.optString("status", "unknown"), it.optLong("revision", 0)) }
     return MessageLocalState(draft, op)
 }
 private fun encodeMessage(state: MessageLocalState): String {
     val json = org.json.JSONObject().put("text", state.draft.text).put("mode", state.draft.mode).put("revision", state.draft.revision)
+    json.put("attachments", org.json.JSONArray().also { array -> state.draft.attachments.forEach { attachment ->
+        array.put(org.json.JSONObject().put("uri", attachment.uri).put("name", attachment.name).put("mime", attachment.mime).put("size", attachment.size ?: org.json.JSONObject.NULL).put("persistent", attachment.persistent))
+    } })
     state.operation?.let { json.put("operation", org.json.JSONObject().put("id", it.id).put("status", it.status).put("revision", it.revision)) }
     return json.toString()
 }
 
 class LocalStateStore(private val context: Context) : MessageStore {
+    suspend fun usesAttachment(uri: String): Boolean = context.localState.data.first().asMap().any { (key, value) ->
+        key.name.startsWith("message_") && value is String && runCatching { decodeMessage(value).draft.attachments.any { it.uri == uri } }.getOrDefault(false)
+    }
     private val originKey = stringPreferencesKey("origin")
     private val consentKey = booleanPreferencesKey("http_consent")
     private val sessionKey = stringPreferencesKey("last_session")

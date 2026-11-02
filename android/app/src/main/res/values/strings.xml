@@ -63,4 +63,11 @@
     <string name="message_send_error">Não foi possível enviar a mensagem.</string>
     <string name="message_retry_title">Reenviar mensagem?</string>
     <string name="message_retry_warning">O envio anterior pode ter sido aceito. Confira a conversa; reenviar pode duplicar a mensagem.</string>
+    <string name="attach_files">Anexar arquivos (até 5)</string>
+    <string name="attachment_progress">Enviando anexo %1$s</string>
+    <string name="attachment_reselect">Acesso indisponível. Remova e selecione este arquivo novamente.</string>
+    <string name="attachment_temporary">Acesso temporário; pode ser necessário selecionar novamente após reiniciar.</string>
+    <string name="attachment_remove">Remover</string>
+    <string name="attachment_error">Não foi possível selecionar ou enviar os arquivos. Verifique acesso, nome e limite de 1 byte a 15 MiB por arquivo; máximo de 5.</string>
+    <string name="attachments_expired">Os anexos podem ter expirado. Prepare novamente com um novo envio explícito.</string>
 </resources>

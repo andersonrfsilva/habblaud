@@ -8,12 +8,19 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.RequestBody
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.Response
 import org.json.JSONObject
 import java.io.IOException
 import java.net.URI
 import java.util.concurrent.TimeUnit
 
-class ApiException(val status: Int, val retryAfter: String? = null, val code: String? = null) : IOException("HTTP $status")
+class ApiException(val status: Int, val retryAfter: String? = null, val code: String? = null, val attachmentsExpired: Boolean = false) : IOException("HTTP $status")
 class VpnRequiredException : IOException("Conecte o Tailscale")
 class RedirectException : IOException("Redirecionamento recusado")
 internal fun httpClient(): OkHttpClient = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
@@ -21,6 +28,7 @@ internal fun httpClient(): OkHttpClient = OkHttpClient.Builder().followRedirects
 
 
 class HabblaudApi(context: Context, val origin: String, consent: Boolean) : AutoCloseable {
+    val attachments = Attachments(context.contentResolver)
     private val host = URI(origin).host
     init { require(UrlPolicy.origin(origin, host, consent, BuildConfig.ALLOW_LOOPBACK_HTTP) == origin) }
     val cookies = SessionCookieStore(context, origin)
@@ -38,11 +46,36 @@ class HabblaudApi(context: Context, val origin: String, consent: Boolean) : Auto
             if (response.code in 300..399) throw RedirectException()
             if (response.code == 401) { cancelCalls(); cookies.clear() }
             if (!response.isSuccessful) {
-                val code = runCatching { JSONObject(response.body?.string() ?: "").optString("code").ifEmpty { null } }.getOrNull()
-                throw ApiException(response.code, response.header("Retry-After"), code)
+                val error = runCatching { JSONObject(response.body?.string() ?: "") }.getOrNull()
+                throw ApiException(response.code, response.header("Retry-After"), error?.optString("code")?.ifEmpty { null }, error?.optBoolean("attachmentsExpired") == true)
             }
             response.body?.string() ?: ""
         }
+    }
+
+    suspend fun upload(name: String, mime: String, body: RequestBody): String = suspendCancellableCoroutine { continuation ->
+        try {
+            val request = Request.Builder().url(origin + "/api/messages/attachments")
+                .header("X-Habblaud-File-Name", encodeAttachmentName(name))
+                .header("X-Habblaud-File-Type", mime)
+                .post(body).build()
+            val call = client().newCall(request)
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) { if (continuation.isActive) continuation.resumeWithException(e) }
+                override fun onResponse(call: Call, response: Response) {
+                    response.use {
+                        try {
+                            if (it.code in 300..399) throw RedirectException()
+                            if (it.code == 401) { cancelCalls(); cookies.clear() }
+                            val text = it.body?.string().orEmpty()
+                            if (!it.isSuccessful) throw ApiException(it.code, it.header("Retry-After"), runCatching { JSONObject(text).optString("code").ifEmpty { null } }.getOrNull())
+                            if (continuation.isActive) continuation.resume(text)
+                        } catch (e: Exception) { if (continuation.isActive) continuation.resumeWithException(e) }
+                    }
+                }
+            })
+        } catch (e: Exception) { if (continuation.isActive) continuation.resumeWithException(e) }
     }
 
     suspend fun login(user: String, password: String) {

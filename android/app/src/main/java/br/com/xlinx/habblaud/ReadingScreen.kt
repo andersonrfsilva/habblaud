@@ -1,6 +1,8 @@
 package br.com.xlinx.habblaud
 
 import androidx.compose.foundation.clickable
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
@@ -38,6 +40,11 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
     }
     val state by controller.state.collectAsStateWithLifecycle()
     val composer by controller.messages.state.collectAsStateWithLifecycle()
+    var pickerKey by remember { mutableStateOf<SessionKey?>(null) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (pickerKey == controller.messages.state.value.key) controller.messages.select(uris)
+        pickerKey = null
+    }
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(stringResource(when (state.connection) { "connected" -> R.string.reading_connected; "connecting" -> R.string.reading_connecting; else -> R.string.reading_offline }))
         state.error?.let { error -> Text(stringResource(when (error) { "changed" -> R.string.session_changed; "forbidden" -> R.string.terminal_blocked; "missing" -> R.string.reading_missing; "oversize" -> R.string.reading_oversize; else -> R.string.network_error }), color = MaterialTheme.colorScheme.error) }
@@ -115,9 +122,23 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                     }
                     if (showWarning) AlertDialog(onDismissRequest = { showWarning = false }, title = { Text(stringResource(R.string.omp_warning_title)) }, text = { Text(stringResource(R.string.omp_warning)) }, confirmButton = { TextButton(onClick = { showWarning = false }) { Text(stringResource(R.string.confirm)) } })
                 }
+                Row {
+                    TextButton(onClick = { pickerKey = selected.key; picker.launch(arrayOf("*/*")) }, enabled = !composer.loading && composer.draft.attachments.size < MAX_ATTACHMENTS) { Text(stringResource(R.string.attach_files)) }
+                    composer.progress?.let { Text(stringResource(R.string.attachment_progress, it)) }
+                }
+                composer.draft.attachments.forEach { attachment ->
+                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(attachment.name)
+                            if (attachment.uri in composer.unavailable) Text(stringResource(R.string.attachment_reselect), color = MaterialTheme.colorScheme.error)
+                            else if (!attachment.persistent) Text(stringResource(R.string.attachment_temporary))
+                        }
+                        TextButton(onClick = { controller.messages.remove(attachment) }) { Text(stringResource(R.string.attachment_remove)) }
+                    }
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                     OutlinedTextField(composer.draft.text, { controller.messages.edit(text = it) }, Modifier.weight(1f), enabled = !composer.loading, label = { Text(stringResource(R.string.message_text)) }, supportingText = { Text("${composer.draft.text.length}/20000") }, maxLines = 3)
-                    Button(onClick = { if (agentId != null) controller.messages.send(agentId) }, enabled = enabled && !composer.loading && !composer.sending && composer.draft.text.isNotBlank()) { Text(stringResource(R.string.send_message)) }
+                    Button(onClick = { if (agentId != null) controller.messages.send(agentId) }, enabled = enabled && !composer.loading && !composer.sending && composer.unavailable.isEmpty() && (composer.draft.text.isNotBlank() || composer.draft.attachments.isNotEmpty())) { Text(stringResource(R.string.send_message)) }
                 }
                 composer.operation?.let { operation -> Text(stringResource(when (operation.status) {
                     "queued" -> R.string.message_queued
@@ -126,7 +147,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                     "failed" -> R.string.message_failed
                     else -> R.string.message_unknown
                 })) }
-                composer.error?.let { error -> if (error != "confirm") Text(stringResource(when (error) { "storage" -> R.string.storage_error; "unknown" -> R.string.message_unknown; else -> R.string.message_send_error }), color = MaterialTheme.colorScheme.error) }
+                composer.error?.let { error -> if (error != "confirm") Text(stringResource(when (error) { "storage" -> R.string.storage_error; "unknown" -> R.string.message_unknown; "attachment" -> R.string.attachment_error; "attachments_expired" -> R.string.attachments_expired; else -> R.string.message_send_error }), color = MaterialTheme.colorScheme.error) }
                 if (composer.error == "confirm" && agentId != null) AlertDialog(
                     onDismissRequest = { controller.messages.dismissConfirmation() },
                     title = { Text(stringResource(R.string.message_retry_title)) },

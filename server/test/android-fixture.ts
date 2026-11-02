@@ -22,7 +22,7 @@ import { OmpHistory } from '../sources/omp/history';
 import { createOmpTerminalParser } from '../sources/omp/terminal';
 import { HistorySet } from '../sources/source';
 import { encodeCwd } from '../sources/watcher';
-import { AttachmentStore, writeAttachments } from '../spawn/attachments';
+import { ATTACHMENT_TTL_MS, AttachmentStore, writeAttachments } from '../spawn/attachments';
 
 const CWD = '/fixture/projeto';
 const ACCOUNT = '.claude';
@@ -86,8 +86,11 @@ export async function startAndroidFixture(root: string, args: string[]): Promise
   const office = new Office({ names: new NameStore(null), version: 'android-fixture', startedAt: Date.now(), accounts: s => accounts.list(s), sources: () => [], accountName: () => undefined, terminal: true, messages: () => late.messages?.reachable() ?? new Set(), permissions: () => late.permissions?.snapshot() ?? new Map() });
   for (const agent of AGENTS) office.addMain({ ...agent, cwd: CWD, role: 'Agente principal', startedAt: Date.now(), status: 'idle' });
   const hub = new Hub(office, { canAnswer: req => isRemoteRequest(req) && parseAllow(allow).has('permissions') });
-  const attachments = new AttachmentStore({ dir: join(root, 'attachments', '.pending') });
-  const messages = new MessageRegistry({ office, attachments, presenceMs: Number.MAX_SAFE_INTEGER, writeAttachments: async files => ({ paths: await writeAttachments(join(root, 'attachments', 'delivered'), randomUUID(), files) }) });
+  const stagingDir = join(root, 'attachments', '.pending');
+  const deliveredDir = join(root, 'attachments', 'delivered');
+  let attachmentTimeOffset = 0;
+  const attachments = new AttachmentStore({ dir: stagingDir, now: () => Date.now() + attachmentTimeOffset });
+  const messages = new MessageRegistry({ office, attachments, presenceMs: Number.MAX_SAFE_INTEGER, writeAttachments: async files => ({ paths: await writeAttachments(deliveredDir, randomUUID(), files) }) });
   const permissions = new PermissionRegistry({ office, viewers: () => 1, answerLater: () => true, orphanMs: 300_000 });
   late.messages = messages;
   late.permissions = permissions;
@@ -178,6 +181,7 @@ export async function startAndroidFixture(root: string, args: string[]): Promise
       let result: unknown;
       if (command === 'stats') result = { sse: hub.size, terminal: terminals.size, posts, lastHeaders };
       else if (command === 'drop-next-response') { drop = true; result = { ok: true }; }
+      else if (command === 'expire-attachments') { attachmentTimeOffset += ATTACHMENT_TTL_MS + 1; result = { ok: true }; }
       else if (command === 'stop-streams') { terminals.stop(); hub.stop(); hub.start(); result = { ok: true }; }
       else if (command === 'clear') {
         const agent = office.get(agentId);
@@ -221,5 +225,5 @@ export async function startAndroidFixture(root: string, args: string[]): Promise
   process.once('SIGINT', close);
   process.once('SIGTERM', close);
   input.once('close', close);
-  process.stdout.write(`${JSON.stringify({ ready: true, url: `http://127.0.0.1:${port}`, user: 'android-test', password: 'android-test', home: root, agents: AGENTS.map(agent => agent.id) })}\n`);
+  process.stdout.write(`${JSON.stringify({ ready: true, url: `http://127.0.0.1:${port}`, user: 'android-test', password: 'android-test', home: root, stagingDir, deliveredDir, agents: AGENTS.map(agent => agent.id) })}\n`);
 }
