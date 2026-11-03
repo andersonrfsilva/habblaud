@@ -73,6 +73,7 @@ class MainActivity : ComponentActivity() {
                 var busy by remember { mutableStateOf(false) }
                 var message by remember { mutableStateOf("") }
                 var confirmChange by remember { mutableStateOf(false) }
+                var confirmHttpOrigin by remember { mutableStateOf<String?>(null) }
                 var confirmLogout by remember { mutableStateOf(false) }
                 var retryUntil by remember { mutableLongStateOf(0L) }
                 val scope = rememberCoroutineScope()
@@ -142,7 +143,25 @@ class MainActivity : ComponentActivity() {
                         } finally { busy = false }
                     }
                 }
-                if (confirmChange) AlertDialog(onDismissRequest = { confirmChange = false }, title = { Text(stringResource(R.string.change_server)) }, text = { Text(stringResource(R.string.change_warning)) }, confirmButton = { TextButton(onClick = { confirmChange = false; connect() }) { Text(stringResource(R.string.confirm)) } }, dismissButton = { TextButton(onClick = { confirmChange = false }) { Text(stringResource(R.string.cancel)) } })
+                fun requestLogin() {
+                    val origin = UrlPolicy.origin(url)
+                    if (origin == null) connect()
+                    else if (origin.startsWith("http://")) confirmHttpOrigin = origin
+                    else connect()
+                }
+                if (confirmChange) AlertDialog(onDismissRequest = { confirmChange = false }, title = { Text(stringResource(R.string.change_server)) }, text = { Text(stringResource(R.string.change_warning)) }, confirmButton = { TextButton(onClick = { confirmChange = false; requestLogin() }) { Text(stringResource(R.string.confirm)) } }, dismissButton = { TextButton(onClick = { confirmChange = false }) { Text(stringResource(R.string.cancel)) } })
+                confirmHttpOrigin?.let { origin ->
+                    AlertDialog(
+                        onDismissRequest = { confirmHttpOrigin = null },
+                        title = { Text(stringResource(R.string.http_login_title)) },
+                        text = { Text(stringResource(R.string.http_login_warning, origin)) },
+                        confirmButton = { TextButton(onClick = {
+                            confirmHttpOrigin = null
+                            if (UrlPolicy.origin(url) == origin) connect()
+                        }) { Text(stringResource(R.string.confirm)) } },
+                        dismissButton = { TextButton(onClick = { confirmHttpOrigin = null }) { Text(stringResource(R.string.cancel)) } }
+                    )
+                }
                 if (confirmLogout) AlertDialog(onDismissRequest = { confirmLogout = false }, title = { Text(stringResource(R.string.logout)) }, text = { Text(stringResource(R.string.change_warning)) }, confirmButton = { TextButton(onClick = {
                     confirmLogout = false
                     busy = true
@@ -172,7 +191,7 @@ class MainActivity : ComponentActivity() {
                         OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.password)) }, visualTransformation = PasswordVisualTransformation(), singleLine = true)
                         Button(modifier = Modifier.fillMaxWidth(), enabled = !busy && user.isNotEmpty() && password.isNotEmpty(), onClick = {
                             val target = UrlPolicy.origin(url)
-                            if (target != null && saved != null && saved?.origin != target) confirmChange = true else connect()
+                            if (target != null && saved != null && saved?.origin != target) confirmChange = true else requestLogin()
                         }) { Text(stringResource(R.string.login)) }
                     if (busy) CircularProgressIndicator()
                     if (message.isNotEmpty()) Text(message, color = MaterialTheme.colorScheme.error)

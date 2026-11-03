@@ -21,6 +21,7 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Android:** cada autenticação HTTP pede confirmação sobre o risco de enviar senha e sessão sem criptografia.
 - **Android:** conversas ficam guardadas no aparelho e aparecem na hora ao abrir; o servidor manda só o que veio
   depois da última mensagem guardada (`?after=` no stream do terminal). Elenco e pastas deixam de ser baixados a cada
   5 s.
@@ -37,9 +38,9 @@ do meio (0.**3**.0).
 
 - **Android:** cliente nativo para login remoto, lista de sessões e conversa, envio com anexos, aprovações e
   interrupção omp, conforme as permissões do servidor. Acompanha o tema claro ou escuro do sistema e mostra Markdown
-  selecionável nas mensagens. HTTP exige consentimento e rede VPN para o IPv4 confirmado na faixa `100.64.0.0/10`; o
-  aplicativo não identifica qual VPN está ativa. Mensagens, anexos e interrupção precisam do servidor deste fork. O
-  upstream atende no máximo leitura e aprovações, conforme `HABBLAUD_REMOTE_ALLOW` e os recursos ligados nele.
+  selecionável nas mensagens. HTTP é aceito em qualquer rede, inclusive LAN e VPN. Mensagens, anexos e interrupção
+  precisam do servidor deste fork. O upstream atende no máximo leitura e aprovações, conforme `HABBLAUD_REMOTE_ALLOW`
+  e os recursos ligados nele.
 - **Proteção de sessão:** mensagens e controles aceitam `expectedSessionId` e recusam troca de sessão com
   `409` e `code: 'session_changed'`. `/api/access` anuncia `messageSessionGuard` quando mensagens estão autorizadas.
 
