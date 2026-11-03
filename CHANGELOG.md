@@ -10,6 +10,11 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Android:** Configurações › Resumos liga o resumo das respostas do agente. O papel `tiny` do omp resume cada
+  resposta longa em até 5 frases; tocar no resumo mostra a resposta completa. Desligado por padrão.
+
 ### Corrigido
 
 - **Android:** gravações antigas de conversas não recriam o cache após sair da conta ou trocar de servidor.

@@ -202,6 +202,11 @@ class LocalStateStore(private val context: Context) : MessageStore {
     val theme: Flow<String> = context.appSettings.data.map { it[themeKey]?.takeIf { v -> v in THEMES } ?: "system" }
     suspend fun setTheme(theme: String) { if (theme in THEMES) context.appSettings.edit { it[themeKey] = theme } }
 
+    private val summarizeKey = booleanPreferencesKey("summarize_replies")
+    /** Respostas do agente aparecem resumidas (papel tiny do omp, no servidor); desligado por padrão. */
+    val summarize: Flow<Boolean> = context.appSettings.data.map { it[summarizeKey] == true }
+    suspend fun setSummarize(on: Boolean) { context.appSettings.edit { it[summarizeKey] = on } }
+
     private val notifyPermissionKey = booleanPreferencesKey("notify_permission")
     private val notifyDoneKey = booleanPreferencesKey("notify_done")
     /** Quais eventos viram notificação: pedido/pergunta e turno concluído (os dois ligados por padrão). */

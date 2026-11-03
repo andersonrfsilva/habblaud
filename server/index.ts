@@ -46,6 +46,8 @@ import { OmpHistory } from './sources/omp/history';
 import { CodexSource } from './sources/codex/source';
 import { OmpSource } from './sources/omp/source';
 import type { OmpLive } from './sources/omp/live';
+import { ompBinFrom } from './sources/omp/bin';
+import { Summarizer } from './summaries/summarizer';
 import { createBuildReader, readBuildInfo } from './build';
 import { UpdateChecker } from './updates/checker';
 import { getLocale, tr } from '../shared/i18n';
@@ -161,6 +163,11 @@ const castLauncher = config.terminal ? new CastLauncher({
   ...(config.castMax ? { max: config.castMax } : {}),
 }) : undefined;
 late.castLauncher = castLauncher;
+// Resumo das respostas (Android): papel tiny da conta padrão do omp; manda texto ao modelo, então só com as mensagens.
+const summaries = config.messages ? new Summarizer({
+  bin: () => ompBinFrom(process.env, config.home),
+  agentDir: () => accounts.entriesOf('omp')[0]?.detected.configDir,
+}) : undefined;
 // Fontes de agentes, uma por ferramenta (sources/source.ts): a do Claude Code e, depois dela, a do Codex (quando há
 // pastas do Codex; HABBLAUD_CODEX=0 desliga), com o histórico dela no HistorySet abaixo e as contas registradas por
 // ela mesma (accounts.setProviderAccounts). `codex` também recebe os eventos dos hooks do Codex (CodexLive).
@@ -456,6 +463,7 @@ const api = createApiHandler({
   updates,
   remote: config.remote ? { is: isRemoteRequest, allows: (f) => config.remote!.allow.has(f) } : undefined,
   world: world ? createWorldRoutes(world, worldViewer, worldSocial) : undefined,
+  summaries,
 });
 
 const server = http.createServer();

@@ -60,6 +60,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -> Unit, onLogout: () -> Unit) {
     val scope = rememberCoroutineScope()
+    val summarizeReplies by store.summarize.collectAsState(initial = false)
     val controller = remember(api) { ReadingController(api, store, scope, onUnauthorized) }
     val context = androidx.compose.ui.platform.LocalContext.current
     val pending by MainActivity.pendingSession.collectAsStateWithLifecycle()
@@ -274,7 +275,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                     // Lista invertida: o primeiro item fica no pé da conversa, logo abaixo da última mensagem.
                     if (selected.agentId != null && selected.status == "working") item(key = "working") { WorkingIndicator(api, selected) }
                     items(rows.asReversed(), key = { it.first.id }) { (entry, thoughts) ->
-                        if (entry.kind != "result" || entry.toolUseId !in tools) EntryView(entry, results[entry.id].orEmpty(), thoughts, recovered = entry.id in recovered) { before, now ->
+                        if (entry.kind != "result" || entry.toolUseId !in tools) EntryView(entry, results[entry.id].orEmpty(), thoughts, recovered = entry.id in recovered, summarize = if (summarizeReplies) api::summary else null) { before, now ->
                             // A lista é invertida: o item cresce para cima. Rola o quanto o cabeçalho tocado andou, para ele voltar ao lugar.
                             scope.launch { repeat(2) { withFrameNanos { } }; listState.scrollBy(before - now()) }
                         }
@@ -448,8 +449,17 @@ private fun ChatBanner(message: String) {
     }
 }
 
+/** Respostas até este tamanho já cabem em poucas frases: ficam inteiras, sem pedir resumo. */
+private const val SUMMARY_MIN_CHARS = 500
+/** O servidor aceita até 32 Ki caracteres; o resumo de uma resposta maior olha só o começo dela. */
+private const val SUMMARY_MAX_CHARS = 32 * 1024
+/** Resumos já recebidos (id e hash do texto), para não pedir de novo ao rolar ou reabrir a conversa; só na thread da tela. */
+private val summaryCache = object : LinkedHashMap<String, String>(64, 0.75f, true) {
+    override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?) = size > 300
+}
+
 @Composable
-private fun EntryView(entry: TerminalEntry, results: List<TerminalEntry>, thoughts: Int = 1, recovered: Boolean = false, keepPlace: (before: Float, now: () -> Float) -> Unit = { _, _ -> }) {
+private fun EntryView(entry: TerminalEntry, results: List<TerminalEntry>, thoughts: Int = 1, recovered: Boolean = false, summarize: (suspend (String) -> String)? = null, keepPlace: (before: Float, now: () -> Float) -> Unit = { _, _ -> }) {
     var expanded by remember(entry.id) { mutableStateOf(false) }
     var headerY by remember { mutableFloatStateOf(0f) }
     if (entry.kind == "system") {
@@ -486,23 +496,45 @@ private fun EntryView(entry: TerminalEntry, results: List<TerminalEntry>, though
                         }
                     }
                 } else {
-                    SelectionContainer {
-                        Markdown(
-                            entry.text,
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = markdownColor(text = if (entry.kind == "user") MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface),
-                            typography = markdownTypography(
-                                h1 = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.SemiBold),
-                                h2 = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
-                                h3 = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                                h4 = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                                h5 = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
-                                h6 = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                            ),
-                            components = markdownComponents(image = {}),
-                        )
+                    // Resposta longa com "Resumir respostas" ligado: mostra o resumo; tocar alterna com a resposta completa.
+                    // Sem resumo (curta, servidor recusou ou falhou), fica a resposta completa como sempre.
+                    val summaryKey = "${entry.id}:${entry.text.hashCode()}"
+                    val wantsSummary = summarize != null && entry.kind == "assistant" && entry.text.length > SUMMARY_MIN_CHARS
+                    var summary by remember(summaryKey) { mutableStateOf(summaryCache[summaryKey]) }
+                    var summaryFailed by remember(summaryKey) { mutableStateOf(false) }
+                    if (wantsSummary && summary == null && !summaryFailed) LaunchedEffect(summaryKey) {
+                        try { summarize!!(entry.text.take(SUMMARY_MAX_CHARS)).let { summaryCache[summaryKey] = it; summary = it } }
+                        catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; summaryFailed = true }
                     }
-                    if (entry.truncated) Text(stringResource(R.string.result_truncated))
+                    val summarized = wantsSummary && !summaryFailed
+                    if (summarized && !expanded) {
+                        Column(Modifier.fillMaxWidth().onGloballyPositioned { headerY = it.positionInWindow().y }.clickable { val before = headerY; expanded = true; keepPlace(before) { headerY } }, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            if (summary == null) Text(stringResource(R.string.summary_loading), style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            else {
+                                Text(summary!!, color = MaterialTheme.colorScheme.onSurface)
+                                Text(stringResource(R.string.summary_label), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    } else {
+                        if (summarized) Text(stringResource(R.string.summary_collapse), Modifier.onGloballyPositioned { headerY = it.positionInWindow().y }.clickable { val before = headerY; expanded = false; keepPlace(before) { headerY } }.padding(bottom = 4.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                        SelectionContainer {
+                            Markdown(
+                                entry.text,
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = markdownColor(text = if (entry.kind == "user") MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface),
+                                typography = markdownTypography(
+                                    h1 = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    h2 = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                                    h3 = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                                    h4 = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    h5 = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
+                                    h6 = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                ),
+                                components = markdownComponents(image = {}),
+                            )
+                        }
+                        if (entry.truncated) Text(stringResource(R.string.result_truncated))
+                    }
                 }
                 entry.at?.let { Text(entryTime(it), Modifier.align(Alignment.End), style = MaterialTheme.typography.labelSmall, color = (if (entry.kind == "user") MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant).copy(alpha = 0.7f)) }
             }

@@ -86,6 +86,8 @@ class HabblaudApi(context: Context, val origin: String) : AutoCloseable {
         if (!result.optBoolean("ok")) throw IOException("Login recusado")
     }
     suspend fun access(): String = request("/api/access")
+    /** Resumo da resposta do agente em até 5 frases (POST /api/summaries; o servidor guarda e reaproveita). */
+    suspend fun summary(text: String): String = JSONObject(request("/api/summaries", JSONObject().put("text", text))).getString("summary")
     suspend fun logout(): Boolean = try { request("/api/remote/logout", JSONObject()); true } catch (_: IOException) { false } finally { cancelCalls(); cookies.clear() }
     fun cancelCalls() { base.dispatcher.cancelAll(); base.connectionPool.evictAll() }
     override fun close() { cancelCalls() }

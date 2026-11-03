@@ -57,6 +57,7 @@ fun SettingsScreen(api: HabblaudApi, store: LocalStateStore, onClose: () -> Unit
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val theme by store.theme.collectAsState(initial = null)
+    val summarize by store.summarize.collectAsState(initial = null)
     var view by remember { mutableStateOf<String?>(null) }
     var deliver by remember { mutableStateOf<String?>(null) }
     var notifications by remember { mutableStateOf<Boolean?>(null) }
@@ -139,6 +140,10 @@ fun SettingsScreen(api: HabblaudApi, store: LocalStateStore, onClose: () -> Unit
                 }
             }
             Hint(R.string.settings_per_session)
+
+            Section(R.string.settings_summaries)
+            summarize?.let { on -> SwitchRow(stringResource(R.string.settings_summarize), on) { scope.launch { store.setSummarize(!on) } } }
+            Hint(R.string.settings_summarize_hint)
 
             Section(R.string.settings_roles)
             when (rolesStatus) {
