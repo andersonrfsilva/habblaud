@@ -318,7 +318,7 @@ private fun ChatBanner(message: String) {
 private fun EntryView(entry: TerminalEntry, results: List<TerminalEntry>) {
     var expanded by remember(entry.id) { mutableStateOf(false) }
     if (entry.kind == "system") {
-        SelectionContainer { Text(entry.text, Modifier.fillMaxWidth().padding(8.dp), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodySmall) }
+        SelectionContainer { Text(listOfNotNull(entry.text, entry.at?.let(::entryTime)).joinToString(" · "), Modifier.fillMaxWidth().padding(8.dp), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodySmall) }
         return
     }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (entry.kind == "user") Arrangement.End else Arrangement.Start) {
@@ -367,7 +367,16 @@ private fun EntryView(entry: TerminalEntry, results: List<TerminalEntry>) {
                     }
                     if (entry.truncated) Text(stringResource(R.string.result_truncated))
                 }
+                entry.at?.let { Text(entryTime(it), Modifier.align(Alignment.End), style = MaterialTheme.typography.labelSmall, color = (if (entry.kind == "user") MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant).copy(alpha = 0.7f)) }
             }
         }
     }
+}
+
+/** "14:05" hoje; "02/11 14:05" em outro dia (fuso e formato do aparelho). */
+internal fun entryTime(at: Long, now: Long = System.currentTimeMillis()): String {
+    val zone = java.time.ZoneId.systemDefault()
+    val time = java.time.Instant.ofEpochMilli(at).atZone(zone)
+    val sameDay = time.toLocalDate() == java.time.Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+    return time.format(java.time.format.DateTimeFormatter.ofPattern(if (sameDay) "HH:mm" else "dd/MM HH:mm"))
 }

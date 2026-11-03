@@ -7,6 +7,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.booleanOrNull
 
 import kotlinx.serialization.json.JsonPrimitive
@@ -32,14 +33,14 @@ data class Avatar(val seed: Long, val look: String, val kind: String = "main", v
 
 data class SessionItem(val key: SessionKey, val agentId: String?, val title: String, val project: String?, val status: String?, val activity: String?, val permission: Boolean = false, val agentName: String? = null, val canMessage: Boolean = false, val permissionId: String? = null, val lastAt: Long? = null, val avatar: Avatar? = null, val cast: String? = null, val castOpened: Boolean = false, val permissionQuestion: Boolean = false, val characterName: String? = null)
 
-data class TerminalEntry(val id: String, val kind: String, val text: String, val title: String? = null, val toolUseId: String? = null, val truncated: Boolean = false) {
+data class TerminalEntry(val id: String, val kind: String, val text: String, val title: String? = null, val toolUseId: String? = null, val truncated: Boolean = false, val at: Long? = null) {
     val bytes: Int get() = (id + kind + text + (title ?: "") + (toolUseId ?: "")).toByteArray(Charsets.UTF_8).size
     companion object {
         fun parse(o: JsonObject): TerminalEntry? {
             val id = o.string("id") ?: return null
             val kind = o.string("kind") ?: "unknown"
             val known = kind in setOf("user", "assistant", "thinking", "tool", "result", "system")
-            return TerminalEntry(id, if (known) kind else "unknown", if (known) listOfNotNull(o.string("text"), o.string("input"), o.string("detail")).joinToString("\n") else "", o.string("title"), o.string("toolUseId"), o.flag("truncated"))
+            return TerminalEntry(id, if (known) kind else "unknown", if (known) listOfNotNull(o.string("text"), o.string("input"), o.string("detail")).joinToString("\n") else "", o.string("title"), o.string("toolUseId"), o.flag("truncated"), (o["at"] as? JsonPrimitive)?.longOrNull?.takeIf { it > 0 })
         }
     }
 }
