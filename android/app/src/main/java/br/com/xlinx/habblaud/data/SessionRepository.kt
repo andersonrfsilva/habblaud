@@ -60,7 +60,7 @@ class SessionRepository(private val api: HabblaudApi) {
         val agent = o.string("id") ?: o.string("agentId")
         val activity = (o["activity"] as? JsonObject)?.let { it.string("summary") ?: it.string("text") ?: it.string("description") }
         val permission = o["permission"] as? JsonObject
-        return SessionItem(key, agent, o.string("title") ?: o.string("name") ?: id, project ?: o.string("project"), o.string("status"), activity, permission != null, o.string("name"), o.flag("canMessage"), permission?.string("id"), (o.string("lastEventAt") ?: o.string("lastAt"))?.toLongOrNull(), avatar(o), o.string("cast"), o.flag("castOpened"))
+        return SessionItem(key, agent, o.string("title") ?: o.string("name") ?: id, project ?: o.string("project"), o.string("status"), activity, permission != null, o.string("name"), o.flag("canMessage"), permission?.string("id"), (o.string("lastEventAt") ?: o.string("lastAt"))?.toLongOrNull(), avatar(o), o.string("cast"), o.flag("castOpened"), permission?.objects("questions")?.isNotEmpty() == true)
     }
 
     private fun avatar(o: JsonObject): Avatar? {

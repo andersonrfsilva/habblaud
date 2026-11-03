@@ -357,8 +357,8 @@ wait_text '1'
 shot novas-entradas
 tap 'Ir para o fim'
 printf 'permission fixture:claude bash\n' >&3
-wait_text 'Aprovação pendente'
-tap 'Aprovação pendente'
+wait_text 'Aprovar'
+tap 'Aprovar'
 wait_text 'Permitir'
 shot aprovacao-aberta
 adb shell input keyevent 4
@@ -370,6 +370,48 @@ tap 'Voltar às sessões'
 tap 'caderno · trabalhando'
 wait_text 'Parar agente'
 wait_text 'Resposta OMP fictícia'
+printf 'permission fixture:omp question-omp\n' >&3
+wait_text 'Responder'
+shot pergunta-omp-botao-1
+sleep 1
+shot pergunta-omp-botao-2
+tap 'Responder'
+wait_text 'Azul'
+dump
+if ! coords 'Caderno' >/dev/null; then
+    read -r handle_x handle_y <<<"$(coords 'Drag handle')"
+    adb shell input swipe "$handle_x" "$handle_y" "$handle_x" 300 500
+fi
+tap 'Laranja'
+tap 'Caderno'
+tap 'Livro'
+adb shell input swipe 500 1900 500 950 400
+wait_text 'Qual observação fictícia?'
+dump
+xy=$(python3 - "$TMP/window.xml" <<'PY'
+import re, sys, xml.etree.ElementTree as ET
+fields = [n for n in ET.parse(sys.argv[1]).iter('node') if n.get('class') == 'android.widget.EditText' and n.get('bounds') != '[0,0][0,0]']
+node = fields[-1]
+x1, y1, x2, y2 = map(int, re.findall(r'\d+', node.get('bounds')))
+print((x1+x2)//2, (y1+y2)//2)
+PY
+)
+adb shell input tap $xy
+adb shell input text 'xyz123'
+adb shell input keyevent 4
+shot pergunta-omp-preenchida
+tap 'Responder'
+wait_text 'Parar agente'
+shot pergunta-omp-respondida
+printf 'stats\n' >&3
+sleep 1
+python3 - "$TMP/fixture.log" <<'PY'
+import json, pathlib, sys
+records = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text().splitlines() if line.startswith('{')]
+stats = next(item for item in reversed(records) if 'permissionResults' in item)
+expected = [{'question': 0, 'options': [1]}, {'question': 1, 'options': [0, 2]}, {'question': 2, 'other': 'xyz123'}]
+assert any(result.get('behavior') == 'answer' and result.get('answers') == expected for result in stats['permissionResults'].values()), stats['permissionResults']
+PY
 dump
 if coords 'Existe conversa anterior que não foi carregada. Não há paginação.' >/dev/null || coords 'Acrescentar agora' >/dev/null || coords 'Limites da entrega' >/dev/null; then
     echo 'Aviso de histórico ou seletor de modo visível no fim da conversa OMP.' >&2

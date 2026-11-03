@@ -106,7 +106,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
     }) { padding ->
     Column(Modifier.fillMaxSize().padding(padding).imePadding().background(if (selected == null) MaterialTheme.colorScheme.background else if (isSystemInDarkTheme()) MaterialTheme.colorScheme.surfaceContainerLowest else MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         state.error?.let { error -> Text(stringResource(when (error) { "changed" -> R.string.session_changed; "forbidden" -> R.string.terminal_blocked; "missing" -> R.string.reading_missing; "oversize" -> R.string.reading_oversize; "vpn_required" -> R.string.vpn_required; else -> R.string.network_error }), color = MaterialTheme.colorScheme.error) }
-        if (state.terminalAllowed) CastActions(api, selected, state.connection == "connected", onUnauthorized)
+        if (state.terminalAllowed || selected?.permission == true) CastActions(api, selected, state.connection == "connected", onUnauthorized) { permissionSession = selected }
         if (selected == null) {
             var query by remember { mutableStateOf("") }
             var recent by remember { mutableStateOf(false) }
@@ -133,7 +133,6 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
             }
         } else {
             Spacer(Modifier.height(1.dp))
-            if (selected.permission) TextButton(onClick = { permissionSession = selected }) { Text(stringResource(R.string.permission_pending)) }
             if (selected.agentId == null) Text(stringResource(R.string.history_read_only))
             if (!state.terminalAllowed) Text(stringResource(R.string.terminal_blocked))
             state.readingError?.let { error ->

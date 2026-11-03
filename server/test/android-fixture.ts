@@ -356,9 +356,14 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
       } else if (command === 'permission') {
         const agent = office.get(agentId);
         if (!agent) throw new Error('Unknown agent');
-        if (!['bash', 'question-single', 'question-multi'].includes(kind)) throw new Error('Unknown permission type');
+        if (!['bash', 'question-single', 'question-multi', 'question-omp'].includes(kind)) throw new Error('Unknown permission type');
         const question = kind !== 'bash';
-        const registered = permissions.register({ session_id: agent.sessionId, ...(agent.provider === 'omp' ? { provider: 'omp' } : {}), tool_name: question ? 'AskUserQuestion' : agent.provider === 'omp' ? 'bash' : 'Bash', tool_input: question ? { questions: [{ question: 'Escolha fictícia?', header: 'Fixture', multiSelect: kind === 'question-multi', options: [{ label: 'Primeira', description: 'Opção fictícia' }, { label: 'Segunda', description: 'Opção fictícia' }] }] } : { command: 'echo fixture' }, ...(!question && agent.provider === 'claude' ? { permission_suggestions: [{ type: 'addRules', behavior: 'allow', destination: 'session', rules: [{ toolName: 'Bash', ruleContent: 'echo fixture' }] }] } : {}) });
+        const questions = kind === 'question-omp' ? [
+          { question: 'Escolha uma cor fictícia', options: [{ label: 'Azul' }, { label: 'Laranja' }] },
+          { question: 'Escolha os itens fictícios', multiSelect: true, options: [{ label: 'Caderno' }, { label: 'Lápis' }, { label: 'Livro' }] },
+          { question: 'Qual observação fictícia?', options: [{ label: 'Nenhuma' }, { label: 'Outra' }] },
+        ] : [{ question: 'Escolha fictícia?', header: 'Fixture', multiSelect: kind === 'question-multi', options: [{ label: 'Primeira', description: 'Opção fictícia' }, { label: 'Segunda', description: 'Opção fictícia' }] }];
+        const registered = permissions.register({ session_id: agent.sessionId, ...(agent.provider === 'omp' ? { provider: 'omp' } : {}), tool_name: question ? 'AskUserQuestion' : agent.provider === 'omp' ? 'bash' : 'Bash', tool_input: question ? { questions } : { command: 'echo fixture' }, ...(!question && agent.provider === 'claude' ? { permission_suggestions: [{ type: 'addRules', behavior: 'allow', destination: 'session', rules: [{ toolName: 'Bash', ruleContent: 'echo fixture' }] }] } : {}) });
         if ('skip' in registered) throw new Error(registered.skip);
         waitForPermission(registered.id);
         result = { ok: true, id: registered.id };

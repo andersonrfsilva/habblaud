@@ -2,6 +2,7 @@ package br.com.xlinx.habblaud
 
 import android.content.Context
 import android.content.pm.ActivityInfo
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertTextContains
@@ -11,6 +12,8 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.isToggleable
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -29,6 +32,7 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -209,8 +213,8 @@ class FixtureUiInstrumentedTest {
         val id = registered.optString("id")
         assertTrue("Fixture não registrou a permissão: $registered", id.isNotEmpty())
         scenario = ActivityScenario.launch(MainActivity::class.java)
-        await(R.string.permission_pending)
-        compose.onNodeWithText(text(R.string.permission_pending)).performClick()
+        await(R.string.permission_approve)
+        compose.onNodeWithText(text(R.string.permission_approve)).performClick()
         await(R.string.permission_allow)
         compose.waitUntil(15_000) {
             compose.onAllNodes(hasText("echo fixture", substring = true)).fetchSemanticsNodes().isNotEmpty()
@@ -218,22 +222,22 @@ class FixtureUiInstrumentedTest {
         InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("input keyevent KEYCODE_BACK").close()
         compose.waitUntil(15_000) { compose.onAllNodes(hasText(text(R.string.permission_allow))).fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithText(text(R.string.message_text)).assertIsDisplayed()
-        compose.onNodeWithText(text(R.string.permission_pending)).performClick()
+        compose.onNodeWithText(text(R.string.permission_approve)).performClick()
         await(R.string.permission_allow)
         compose.onNodeWithText(text(R.string.permission_allow)).assertIsEnabled().performClick()
         val result = fixtureRequest("/api/permissions/$id/wait?timeout=5")
         assertEquals("A fixture não recebeu decisão", "decided", result.optString("status"))
         assertEquals("A fixture recebeu decisão diferente", "allow", result.optString("behavior"))
         compose.onNodeWithText(text(R.string.message_text)).assertIsDisplayed()
-        compose.waitUntil(15_000) { compose.onAllNodes(hasText(text(R.string.permission_pending))).fetchSemanticsNodes().isEmpty() }
+        compose.waitUntil(15_000) { compose.onAllNodes(hasText(text(R.string.permission_approve))).fetchSemanticsNodes().isEmpty() }
         val denial = fixtureRequest("/api/permissions", JSONObject()
             .put("session_id", key.sessionId)
             .put("tool_name", "Bash")
             .put("tool_input", JSONObject().put("command", "echo recusa")))
         val denialId = denial.optString("id")
         assertTrue("Fixture não registrou a recusa: $denial", denialId.isNotEmpty())
-        await(R.string.permission_pending)
-        compose.onNodeWithText(text(R.string.permission_pending)).performClick()
+        await(R.string.permission_approve)
+        compose.onNodeWithText(text(R.string.permission_approve)).performClick()
         await(R.string.permission_deny)
         compose.onNodeWithText(text(R.string.permission_reason)).assertDoesNotExist()
         compose.onNodeWithText(text(R.string.permission_deny)).performClick()
@@ -243,5 +247,46 @@ class FixtureUiInstrumentedTest {
         val denied = fixtureRequest("/api/permissions/$denialId/wait?timeout=5")
         assertEquals("decided", denied.optString("status"))
         assertEquals("deny", denied.optString("behavior"))
+    }
+    @Test fun answersOmpQuestionWithOriginalPositions() {
+        val port = requireNotNull(InstrumentationRegistry.getArguments().getString("fixtureLocalPort")?.toIntOrNull())
+        fun request(path: String, body: JSONObject? = null): JSONObject {
+            val connection = URL("http://127.0.0.1:$port$path").openConnection() as HttpURLConnection
+            try {
+                connection.connectTimeout = 5_000
+                connection.readTimeout = 10_000
+                if (body != null) {
+                    connection.requestMethod = "POST"
+                    connection.doOutput = true
+                    connection.setRequestProperty("Content-Type", "application/json")
+                    connection.outputStream.use { it.write(body.toString().toByteArray()) }
+                }
+                assertTrue("Fixture HTTP ${connection.responseCode}", connection.responseCode in 200..299)
+                return JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+            } finally { connection.disconnect() }
+        }
+        val input = JSONObject("""{"questions":[{"question":"Cor?","options":[{"label":"Azul"},{"label":"Laranja"}]},{"question":"Itens?","multiSelect":true,"options":[{"label":"Caderno"},{"label":"Lápis"},{"label":"Livro"}]},{"question":"Observação?","options":[{"label":"Nenhuma"},{"label":"Outra"}]}]}""")
+        val registered = request("/api/permissions", JSONObject().put("session_id", "00000000-0000-4000-8000-000000000002").put("provider", "omp").put("tool_name", "AskUserQuestion").put("tool_input", input))
+        val id = registered.optString("id")
+        assertTrue("Pedido não registrado: $registered", id.isNotEmpty())
+        runBlocking { LocalStateStore(context).setLastSession(SessionKey(origin, "omp", ".omp", "00000000-0000-4000-8000-000000000002")) }
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        await(R.string.permission_answer)
+        compose.onNodeWithText(text(R.string.permission_answer)).performClick()
+        compose.waitUntil(15_000) { compose.onAllNodes(hasText("Cor?")).fetchSemanticsNodes().isNotEmpty() }
+        val toggles = compose.onAllNodes(isToggleable())
+        toggles[1].performScrollTo().performClick()
+        toggles[2].performScrollTo().performClick()
+        toggles[4].performScrollTo().performClick()
+        toggles[1].assertIsOn()
+        toggles[2].assertIsOn()
+        toggles[4].assertIsOn()
+        compose.onAllNodes(hasText(text(R.string.permission_other)))[2].performScrollTo().performTextInput("texto livre")
+        compose.onAllNodes(hasText(text(R.string.permission_answer)))[1].performScrollTo().performClick()
+        compose.onNodeWithText(text(R.string.permission_answers)).assertDoesNotExist()
+        val result = request("/api/permissions/$id/wait?timeout=5")
+        assertEquals("decided", result.getString("status"))
+        assertEquals("answer", result.getString("behavior"))
+        assertEquals(JSONArray("""[{"question":0,"options":[1]},{"question":1,"options":[0,2]},{"question":2,"other":"texto livre"}]""").toString(), result.getJSONArray("answers").toString())
     }
 }

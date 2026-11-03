@@ -109,23 +109,32 @@ internal fun PermissionSheet(api: HabblaudApi, session: SessionItem, allowed: Bo
             } finally { busy = false }
         }
     }
-    ModalBottomSheet(onDismissRequest = onClose) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    LaunchedEffect(id, item) {
+        if (item != null) {
+            withFrameNanos { }
+            sheetState.expand()
+        }
+    }
+    ModalBottomSheet(onDismissRequest = onClose, sheetState = sheetState) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 CharacterAvatar(api, session, 48.dp)
                 Column {
-                    Text(stringResource(R.string.permission_pending), style = MaterialTheme.typography.titleLarge)
+                    Text(stringResource(if (questions.isNotEmpty()) R.string.question_pending else R.string.permission_pending), style = MaterialTheme.typography.titleLarge)
                     Text(listOfNotNull(session.project?.substringAfterLast('/'), session.agentName, session.title).distinct().joinToString(" · "))
                 }
             }
             if (!allowed) Text(stringResource(R.string.permissions_blocked))
             if (!connected) Text(stringResource(R.string.reading_offline))
             item?.let { request ->
-                Text(stringResource(R.string.permission_tool), style = MaterialTheme.typography.labelMedium)
-                Text(request.string("tool").orEmpty(), style = MaterialTheme.typography.titleMedium)
-                Text(stringResource(if (request.string("tool")?.equals("bash", true) == true) R.string.permission_command else R.string.permission_input), style = MaterialTheme.typography.labelMedium)
-                SelectionContainer {
-                    Text(request.string("input").orEmpty(), Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHighest, RoundedCornerShape(8.dp)).horizontalScroll(rememberScrollState()).padding(12.dp), fontFamily = FontFamily.Monospace)
+                if (questions.isEmpty()) {
+                    Text(stringResource(R.string.permission_tool), style = MaterialTheme.typography.labelMedium)
+                    Text(request.string("tool").orEmpty(), style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(if (request.string("tool")?.equals("bash", true) == true) R.string.permission_command else R.string.permission_input), style = MaterialTheme.typography.labelMedium)
+                    SelectionContainer {
+                        Text(request.string("input").orEmpty(), Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHighest, RoundedCornerShape(8.dp)).horizontalScroll(rememberScrollState()).padding(12.dp), fontFamily = FontFamily.Monospace)
+                    }
                 }
                 request["expiresAt"]?.jsonPrimitive?.longOrNull?.let { Text(stringResource(R.string.permission_deadline, DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT, Locale.forLanguageTag("pt-BR")).format(Date(it))), style = MaterialTheme.typography.bodySmall) }
                 questions.forEach { q ->

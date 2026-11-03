@@ -73,6 +73,8 @@
     <string name="permission_answers">Responda cada pergunta com opções válidas ou texto livre.</string>
     <string name="permission_unknown">Resposta não confirmada. Confira o pedido antes de agir novamente.</string>
     <string name="permission_answer">Responder</string>
+    <string name="permission_approve">Aprovar</string>
+    <string name="question_pending">Pergunta pendente</string>
     <string name="permission_allow">Permitir</string>
     <string name="permission_deny">Recusar</string>
     <string name="permission_terminal">Terminal</string>

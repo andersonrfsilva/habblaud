@@ -365,8 +365,9 @@ confirmado, confira a conversa antes de tentar novamente: a primeira tentativa p
 Mensagens aceitam até 20.000 unidades UTF-16 e cinco anexos de até 15 MiB cada. O aviso de envio desaparece quando
 `delivered` confirma a aceitação pela sessão/runtime; isso não indica leitura nem conclusão. No omp, o app envia mensagens no modo `aside`; a entrega depende da
 extensão carregada. O botão de parar aparece enquanto o agente omp trabalha e não garante efeito imediato.
-Aprovações e perguntas dependem do provedor e do pedido;
-omp e Codex não aceitam `interrupt` nem `suggestion` nas decisões.
+A conversa mostra **Responder** para perguntas e **Aprovar** para permissões pendentes. O aviso laranja respeita a
+configuração de animações do sistema. Perguntas do omp aceitam escolha única, múltipla e texto livre; omp e Codex
+não aceitam `interrupt` nem `suggestion` nas decisões.
 
 O app não oferece terminal interativo, notificações com o app fechado, fila offline de comandos ou atualização
 automática. As sessões e conversas permanecem no servidor.

@@ -30,7 +30,7 @@ internal fun JsonObject.objects(name: String): List<JsonObject> = this[name]?.le
 
 data class Avatar(val seed: Long, val look: String, val kind: String = "main", val parts: String? = null)
 
-data class SessionItem(val key: SessionKey, val agentId: String?, val title: String, val project: String?, val status: String?, val activity: String?, val permission: Boolean = false, val agentName: String? = null, val canMessage: Boolean = false, val permissionId: String? = null, val lastAt: Long? = null, val avatar: Avatar? = null, val cast: String? = null, val castOpened: Boolean = false)
+data class SessionItem(val key: SessionKey, val agentId: String?, val title: String, val project: String?, val status: String?, val activity: String?, val permission: Boolean = false, val agentName: String? = null, val canMessage: Boolean = false, val permissionId: String? = null, val lastAt: Long? = null, val avatar: Avatar? = null, val cast: String? = null, val castOpened: Boolean = false, val permissionQuestion: Boolean = false)
 
 data class TerminalEntry(val id: String, val kind: String, val text: String, val title: String? = null, val toolUseId: String? = null, val truncated: Boolean = false) {
     val bytes: Int get() = (id + kind + text + (title ?: "") + (toolUseId ?: "")).toByteArray(Charsets.UTF_8).size

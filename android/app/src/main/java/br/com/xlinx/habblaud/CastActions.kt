@@ -1,5 +1,14 @@
 package br.com.xlinx.habblaud
 
+import android.database.ContentObserver
+import android.os.Handler
+import android.os.Looper
+import android.provider.Settings
+import androidx.compose.animation.animateColor
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -7,6 +16,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import br.com.xlinx.habblaud.data.*
@@ -21,7 +32,7 @@ private data class CastChoice(val id: String, val name: String, val rooms: List<
 private val sessionIdPattern = Regex("^[0-9a-fA-F][0-9a-fA-F-]{7,199}$")
 
 @Composable
-internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Boolean, onUnauthorized: () -> Unit) {
+internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Boolean, onUnauthorized: () -> Unit, onPermission: () -> Unit) {
     val scope = rememberCoroutineScope()
     var availability by remember(api) { mutableStateOf("loading") }
     var characters by remember(api) { mutableStateOf(emptyList<CastChoice>()) }
@@ -95,10 +106,15 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
         selected.key.sessionId.matches(sessionIdPattern) && resumeChoices.isNotEmpty()
     val dismiss = selected?.agentId != null && selected.castOpened && current != null
     Column {
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (availability == "available") {
+                if (selected == null) TextButton(onClick = { choice = null; dialog = "start" }, enabled = !sending) { Text(stringResource(R.string.cast_start)) }
+                if (resume) TextButton(onClick = { choice = current?.takeIf { it in resumeChoices }; dialog = if (choice != null) "resume" else "resume-select" }, enabled = !sending && !activeJob) { Text(stringResource(R.string.cast_resume)) }
+                if (dismiss) TextButton(onClick = { dialog = "dismiss" }, enabled = !sending && !activeJob) { Text(stringResource(R.string.cast_dismiss)) }
+            }
+            if (selected?.permission == true) PermissionAttentionButton(selected.permissionQuestion, onPermission)
+        }
         if (availability == "available") {
-            if (selected == null) TextButton(onClick = { choice = null; dialog = "start" }, enabled = !sending) { Text(stringResource(R.string.cast_start)) }
-            if (resume) TextButton(onClick = { choice = current?.takeIf { it in resumeChoices }; dialog = if (choice != null) "resume" else "resume-select" }, enabled = !sending && !activeJob) { Text(stringResource(R.string.cast_resume)) }
-            if (dismiss) TextButton(onClick = { dialog = "dismiss" }, enabled = !sending && !activeJob) { Text(stringResource(R.string.cast_dismiss)) }
             if (activeJob) Text(stringResource(R.string.cast_pending), style = MaterialTheme.typography.bodySmall)
         } else if (availability == "unavailable" || availability == "forbidden") {
             Text(stringResource(if (availability == "forbidden") R.string.cast_forbidden else R.string.cast_unavailable), style = MaterialTheme.typography.bodySmall)
@@ -134,4 +150,27 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
             else submit("/api/cast/${URLEncoder.encode(choice!!.id, "UTF-8").replace("+", "%20")}/start", JSONObject().put("mode", "resume").put("room", selected!!.project).put("session", selected.key.sessionId).put("account", selected.key.account))
         }) { Text(stringResource(R.string.cast_confirm)) }
     }, dismissButton = { TextButton(onClick = { dialog = "" }) { Text(stringResource(R.string.cancel)) } })
+}
+
+@Composable
+private fun PermissionAttentionButton(question: Boolean, onClick: () -> Unit) {
+    val resolver = LocalContext.current.contentResolver
+    var animationsEnabled by remember { mutableStateOf(Settings.Global.getFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) != 0f) }
+    DisposableEffect(resolver) {
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) {
+                animationsEnabled = Settings.Global.getFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) != 0f
+            }
+        }
+        resolver.registerContentObserver(Settings.Global.getUriFor(Settings.Global.ANIMATOR_DURATION_SCALE), false, observer)
+        onDispose { resolver.unregisterContentObserver(observer) }
+    }
+    val color = if (animationsEnabled) {
+        val transition = rememberInfiniteTransition(label = "permission")
+        val animated by transition.animateColor(Color(0xFF984000), Color(0xFFB44C00), infiniteRepeatable(tween(1200), RepeatMode.Reverse), label = "permission color")
+        animated
+    } else Color(0xFF984000)
+    Button(onClick = onClick, colors = ButtonDefaults.buttonColors(containerColor = color, contentColor = Color.White)) {
+        Text(stringResource(if (question) R.string.permission_answer else R.string.permission_approve))
+    }
 }
