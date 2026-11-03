@@ -21,7 +21,7 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.add
 import okhttp3.RequestBody
 
-data class ComposerState(val key: SessionKey? = null, val draft: MessageDraft = MessageDraft(), val operation: MessageOperation? = null, val control: MessageOperation? = null, val controlError: String? = null, val loading: Boolean = false, val sending: Boolean = false, val error: String? = null, val progress: String? = null, val unavailable: Set<String> = emptySet())
+data class ComposerState(val key: SessionKey? = null, val draft: MessageDraft = MessageDraft(), val operation: MessageOperation? = null, val control: MessageOperation? = null, val controlError: String? = null, val loading: Boolean = false, val sending: Boolean = false, val error: String? = null, val progress: String? = null, val unavailable: Set<String> = emptySet(), val commandResult: String? = null)
 
 class MessageController(
     private val request: suspend (String, String?) -> String,
@@ -40,6 +40,8 @@ class MessageController(
 
     private val mutable = MutableStateFlow(ComposerState())
     val state: StateFlow<ComposerState> = mutable
+    /** Modo de entrega no omp: aside (acrescenta agora), followUp (enfileira) ou steer (muda a direção). */
+    var deliverAs = "aside"
     private val drafts = mutableMapOf<SessionKey, MessageDraft>()
     private val sending = mutableSetOf<SessionKey>()
     private var poll: Job? = null
@@ -193,7 +195,7 @@ class MessageController(
                 }
                 val body = buildJsonObject {
                     put("agentId", agentId); put("text", draft.text); put("expectedSessionId", key.sessionId)
-                    if (key.provider == "omp") put("deliverAs", "aside")
+                    if (key.provider == "omp") put("deliverAs", deliverAs)
                     if (ids.isNotEmpty()) put("attachments", buildJsonArray { ids.forEach { add(it) } })
                 }
                 uploadJobs.remove(key)
@@ -272,6 +274,25 @@ class MessageController(
         }
     }
     fun dismissControlConfirmation() { mutable.value = mutable.value.copy(controlError = null) }
+
+    /** /shake do omp (elide e thinking): libera contexto trocando blocos antigos por referências. Sem retry automático. */
+    fun shake(agentId: String) {
+        val key = state.value.key ?: return
+        if (key.provider != "omp" || !visible || !eligible(key, agentId)) return
+        mutable.value = state.value.copy(commandResult = "pending")
+        scope.launch {
+            val result = try {
+                request("/api/messages/control", buildJsonObject { put("agentId", agentId); put("command", "shake"); put("expectedSessionId", key.sessionId) }.toString())
+                "sent"
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                if (e is ApiException && e.code == "session_changed") changed() else if (e is ApiException && e.status == 401) unauthorized()
+                if (e is ApiException && e.status in 400..499) "failed" else "unknown"
+            }
+            if (state.value.key == key) mutable.value = state.value.copy(commandResult = result)
+        }
+    }
+    fun dismissCommandResult() { mutable.value = mutable.value.copy(commandResult = null) }
     private fun pollControl(key: SessionKey, operation: MessageOperation?) {
         controlPoll?.cancel()
         if (!visible || operation?.id == null || operation.status in setOf("delivered", "failed", "unknown")) return

@@ -138,4 +138,14 @@
     <string name="info_counts">Conversa carregada</string>
     <string name="info_counts_value">%1$d prompts, %2$d respostas, %3$d ferramentas, %4$d pensamentos</string>
     <string name="info_server">Servidor</string>
+    <string name="shake">Shake (liberar contexto)</string>
+    <string name="shake_pending">Enviando shake…</string>
+    <string name="shake_sent">Shake enviado à sessão.</string>
+    <string name="shake_failed">O servidor recusou o shake.</string>
+    <string name="shake_unknown">Shake não confirmado. Confira a sessão antes de tentar de novo.</string>
+    <string name="deliver_mode">Modo de envio</string>
+    <string name="deliver_aside">Acrescentar agora</string>
+    <string name="deliver_follow_up">Enfileirar</string>
+    <string name="deliver_steer">Mudar direção</string>
+    <string name="context_usage">Contexto em uso: %1$d%% (%2$d mil de %3$d mil tokens)</string>
 </resources>

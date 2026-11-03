@@ -92,5 +92,11 @@ class LocalStateStore(private val context: Context) : MessageStore {
     suspend fun notificationsEnabled(): Boolean = context.localState.data.first()[notificationsKey] != false
     suspend fun setNotificationsEnabled(enabled: Boolean) { context.localState.edit { it[notificationsKey] = enabled } }
 
+    private val deliverAsKey = stringPreferencesKey("deliver_as")
+    suspend fun deliverAs(): String = context.localState.data.first()[deliverAsKey]?.takeIf { it in DELIVER_MODES } ?: "aside"
+    suspend fun setDeliverAs(mode: String) { if (mode in DELIVER_MODES) context.localState.edit { it[deliverAsKey] = mode } }
+
     suspend fun clear() { context.localState.edit { it.clear() } }
 }
+
+val DELIVER_MODES = listOf("aside", "followUp", "steer")

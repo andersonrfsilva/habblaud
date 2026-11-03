@@ -63,7 +63,9 @@ class SessionRepository(private val api: HabblaudApi) {
         val agent = o.string("id") ?: o.string("agentId")
         val activity = (o["activity"] as? JsonObject)?.let { it.string("summary") ?: it.string("text") ?: it.string("description") }
         val permission = o["permission"] as? JsonObject
-        return SessionItem(key, agent, o.string("title") ?: o.string("name") ?: id, project ?: o.string("project"), o.string("status"), activity, permission != null, o.string("name"), o.flag("canMessage"), permission?.string("id"), (o.string("lastEventAt") ?: o.string("lastAt"))?.toLongOrNull(), parseAvatar(o), o.string("cast"), o.flag("castOpened"), permission?.objects("questions")?.isNotEmpty() == true, o.string("name")?.takeIf { o.string("kind") == "main" })
+        val context = o["context"] as? JsonObject
+        return SessionItem(key, agent, o.string("title") ?: o.string("name") ?: id, project ?: o.string("project"), o.string("status"), activity, permission != null, o.string("name"), o.flag("canMessage"), permission?.string("id"), (o.string("lastEventAt") ?: o.string("lastAt"))?.toLongOrNull(), parseAvatar(o), o.string("cast"), o.flag("castOpened"), permission?.objects("questions")?.isNotEmpty() == true, o.string("name")?.takeIf { o.string("kind") == "main" },
+            contextTokens = context?.string("tokens")?.toLongOrNull()?.takeIf { it >= 0 }, contextWindow = context?.string("window")?.toLongOrNull()?.takeIf { it > 0 })
     }
 
 }

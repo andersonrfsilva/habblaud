@@ -90,9 +90,27 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
     // O que a conversa mostra: tudo, só as mensagens (suas e do agente), ou sem ferramentas (e seus resultados).
     var view by rememberSaveable { mutableStateOf("all") }
     BackHandler(enabled = selected != null && permissionSession == null && !menuExpanded) { controller.close() }
+    var deliverMode by remember { mutableStateOf("aside") }
+    LaunchedEffect(controller) { deliverMode = store.deliverAs(); controller.messages.deliverAs = deliverMode }
     CastActions(api, selected, state.connection == "connected" && (state.terminalAllowed || selected?.permission == true), state.sessions.filter { it.agentId != null }.mapNotNull { it.cast }.toSet(), onUnauthorized, { permissionSession = selected }, menu = { close ->
         listOf("all" to R.string.view_all, "prompts" to R.string.view_prompts, "no_tools" to R.string.view_no_tools).forEach { (value, label) ->
             DropdownMenuItem(text = { Text(stringResource(label)) }, leadingIcon = { RadioButton(selected = view == value, onClick = null) }, onClick = { view = value; close() })
+        }
+        val agentId = selected?.agentId
+        if (selected?.key?.provider == "omp" && agentId != null) {
+            HorizontalDivider()
+            val canControl = selected.canMessage && state.messagesAllowed && state.messageGuard && state.connection == "connected"
+            DropdownMenuItem(text = { Text(stringResource(R.string.shake)) }, enabled = canControl, onClick = { controller.messages.shake(agentId); close() })
+            // Submenu: os três modos de entrega abrem dentro do próprio menu.
+            var modesOpen by remember { mutableStateOf(false) }
+            DropdownMenuItem(text = { Text(stringResource(R.string.deliver_mode)) }, trailingIcon = { Text(if (modesOpen) "▾" else "▸") }, onClick = { modesOpen = !modesOpen })
+            if (modesOpen) listOf("aside" to R.string.deliver_aside, "followUp" to R.string.deliver_follow_up, "steer" to R.string.deliver_steer).forEach { (mode, label) ->
+                DropdownMenuItem(text = { Text(stringResource(label)) }, leadingIcon = { RadioButton(selected = deliverMode == mode, onClick = null) }, contentPadding = PaddingValues(start = 28.dp, end = 12.dp), onClick = {
+                    deliverMode = mode; controller.messages.deliverAs = mode
+                    scope.launch { store.setDeliverAs(mode) }
+                    close()
+                })
+            }
         }
     }) { castActions, castFab, castStatus ->
     var showInfo by remember(selected?.key) { mutableStateOf(false) }
@@ -279,6 +297,10 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                     "failed" -> R.string.message_failed
                     else -> R.string.message_unknown
                 })) }
+                composer.commandResult?.let { result ->
+                    LaunchedEffect(result) { if (result == "sent") { kotlinx.coroutines.delay(4000); controller.messages.dismissCommandResult() } }
+                    ChatBanner(stringResource(when (result) { "pending" -> R.string.shake_pending; "sent" -> R.string.shake_sent; "failed" -> R.string.shake_failed; else -> R.string.shake_unknown }))
+                }
                 composer.error?.let { error -> if (error != "confirm") Text(stringResource(when (error) { "storage" -> R.string.storage_error; "unknown" -> R.string.message_unknown; "attachment" -> R.string.attachment_error; "attachments_expired" -> R.string.attachments_expired; else -> R.string.message_send_error }), color = MaterialTheme.colorScheme.error) }
                 if (composer.error == "confirm" && agentId != null) AlertDialog(
                     onDismissRequest = { controller.messages.dismissConfirmation() },
@@ -289,7 +311,8 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                 )
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                     val attachLabel = stringResource(R.string.attach_files)
-                    IconButton(onClick = { pickerKey = selected.key; picker.launch(arrayOf("*/*")) }, enabled = !composer.loading && composer.draft.attachments.size < MAX_ATTACHMENTS, modifier = Modifier.semantics { contentDescription = attachLabel }) { Text("📎", style = MaterialTheme.typography.titleLarge) }
+                    IconButton(onClick = { pickerKey = selected.key; picker.launch(arrayOf("*/*")) }, enabled = !composer.loading && composer.draft.attachments.size < MAX_ATTACHMENTS, modifier = Modifier.size(32.dp).semantics { contentDescription = attachLabel }) { Text("📎", style = MaterialTheme.typography.titleMedium) }
+                    if (selected.contextTokens != null && selected.contextWindow != null) ContextBar(selected.contextTokens, selected.contextWindow)
                     OutlinedTextField(composer.draft.text, { controller.messages.edit(text = it) }, Modifier.weight(1f), enabled = !composer.loading, label = { Text(stringResource(R.string.message_text)) }, supportingText = if (composer.draft.text.length >= 18000) { { Text("${composer.draft.text.length}/20000") } } else null, maxLines = 6, shape = RoundedCornerShape(24.dp))
                     if (selected.key.provider == "omp" && selected.status in setOf("working", "busy", "shell")) {
                         val stopLabel = stringResource(R.string.stop_agent)
@@ -311,6 +334,18 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
         }
     }
     }
+    }
+}
+
+/** Barrinha vertical do contexto em uso (tokens / janela do modelo), cheia de baixo para cima. */
+@Composable
+private fun ContextBar(tokens: Long, window: Long) {
+    val fraction = (tokens.toFloat() / window).coerceIn(0f, 1f)
+    val pct = (fraction * 100).toInt()
+    val color = when { pct >= 80 -> MaterialTheme.colorScheme.error; pct >= 50 -> Color(0xFFEF6C00); else -> MaterialTheme.colorScheme.primary }
+    val label = stringResource(R.string.context_usage, pct, tokens / 1000, window / 1000)
+    Box(Modifier.width(4.dp).height(40.dp).background(MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(2.dp)).semantics { contentDescription = label }, contentAlignment = Alignment.BottomCenter) {
+        Box(Modifier.fillMaxWidth().fillMaxHeight(fraction).background(color, RoundedCornerShape(2.dp)))
     }
 }
 
