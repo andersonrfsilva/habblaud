@@ -275,7 +275,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
             var unread by remember(selected.key) { mutableIntStateOf(0) }
             var previousLastId by remember(selected.key) { mutableStateOf<String?>(null) }
             val shown = visibleEntries(state.entries, view)
-            val rows = groupThinking(shown)
+            val rows = groupTurn(shown)
             val recovered = recoveredErrors(state.entries)
             val lastId = shown.lastOrNull()?.id
             val working = selected.agentId != null && selected.status == "working"
@@ -285,7 +285,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
             // Item novo no pé (entrada ou o indicador de trabalho) seguindo o fim: a lista seguraria o item que estava
             // no pé, pela chave, e o novo ficaria escondido abaixo. Pedido ainda na composição, antes da medida que o
             // insere: sem um quadro com o botão "↓" piscando.
-            val bottom = if (working) "working" else rows.lastOrNull()?.first?.id
+            val bottom = if (working) "working" else rows.lastOrNull()?.entry?.id
             val bottomSeen = remember(selected.key) { arrayOfNulls<String>(1) }
             val wasFollowing = following
             if (bottom != bottomSeen[0]) {
@@ -303,8 +303,9 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                 LazyColumn(Modifier.fillMaxSize(), state = listState, reverseLayout = true, contentPadding = PaddingValues(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom)) {
                     // Lista invertida: o primeiro item fica no pé da conversa, logo abaixo da última mensagem.
                     if (working) item(key = "working") { WorkingIndicator(api, selected) }
-                    items(rows.asReversed(), key = { it.first.id }) { (entry, thoughts) ->
-                        if (entry.kind != "result" || entry.toolUseId !in tools) EntryView(entry, results[entry.id].orEmpty(), thoughts, recovered = entry.id in recovered, cachedSummary = controller.summary(entry), summarize = if (summarizeReplies) { text -> controller.summarize(entry, text) } else null) { before, now ->
+                    items(rows.asReversed(), key = { it.entry.id }) { row ->
+                        val entry = row.entry
+                        if (entry.kind != "result" || entry.toolUseId !in tools) EntryView(entry, results, row.count, row.tools, recovered = entry.id in recovered, cachedSummary = controller.summary(entry), summarize = if (summarizeReplies) { text -> controller.summarize(entry, text) } else null) { before, now ->
                             // A lista é invertida: o item cresce para cima. Rola o quanto o cabeçalho tocado andou, para ele
                             // voltar ao lugar; repete por alguns quadros porque o markdown e o texto longo crescem depois do
                             // primeiro quadro. Para se a pessoa rolar.
@@ -495,7 +496,7 @@ private const val SUMMARY_MIN_CHARS = 500
 private const val SUMMARY_MAX_CHARS = 32 * 1024
 
 @Composable
-private fun EntryView(entry: TerminalEntry, results: List<TerminalEntry>, thoughts: Int = 1, recovered: Boolean = false, cachedSummary: String? = null, summarize: (suspend (String) -> String)? = null, keepPlace: (before: Float, now: () -> Float) -> Unit = { _, _ -> }) {
+private fun EntryView(entry: TerminalEntry, results: Map<String?, List<TerminalEntry>>, count: Int = 1, tools: List<TerminalEntry> = emptyList(), recovered: Boolean = false, cachedSummary: String? = null, summarize: (suspend (String) -> String)? = null, keepPlace: (before: Float, now: () -> Float) -> Unit = { _, _ -> }) {
     var expanded by remember(entry.id) { mutableStateOf(false) }
     var headerY by remember { mutableFloatStateOf(0f) }
     if (entry.kind == "system") {
@@ -512,7 +513,7 @@ private fun EntryView(entry: TerminalEntry, results: List<TerminalEntry>, though
         ) {
             Column(Modifier.padding(12.dp)) {
                 if (entry.kind == "tool" || entry.kind == "thinking") {
-                    val label = if (entry.kind == "thinking") "${stringResource(R.string.thinking)} ($thoughts)" else entry.title ?: stringResource(R.string.tool_result)
+                    val label = "${stringResource(if (entry.kind == "thinking") R.string.thinking else R.string.tools)} ($count)"
                     Row(Modifier.fillMaxWidth().onGloballyPositioned { headerY = it.positionInWindow().y }.clickable { val before = headerY; expanded = !expanded; keepPlace(before) { headerY } }, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (entry.kind == "tool") Text("⚙", color = MaterialTheme.colorScheme.primary)
                         Text(label, style = MaterialTheme.typography.labelLarge)
@@ -521,12 +522,18 @@ private fun EntryView(entry: TerminalEntry, results: List<TerminalEntry>, though
                         if (entry.kind == "thinking") {
                             Text(entry.text, color = MaterialTheme.colorScheme.onSurfaceVariant, fontStyle = FontStyle.Italic)
                         } else {
-                            Column(Modifier.horizontalScroll(rememberScrollState())) {
-                                Text(entry.text, fontFamily = FontFamily.Monospace)
-                                results.forEach {
-                                    Text(stringResource(R.string.tool_result))
-                                    Text(it.text, fontFamily = FontFamily.Monospace)
-                                    if (it.truncated) Text(stringResource(R.string.result_truncated))
+                            // Cada ferramenta do turno: nome, entrada e resultados, na ordem em que rodaram.
+                            Column(Modifier.horizontalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                tools.forEach { tool ->
+                                    Column {
+                                        tool.title?.let { Text(it, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary) }
+                                        Text(tool.text, fontFamily = FontFamily.Monospace)
+                                        results[tool.id].orEmpty().forEach {
+                                            Text(stringResource(R.string.tool_result))
+                                            Text(it.text, fontFamily = FontFamily.Monospace)
+                                            if (it.truncated) Text(stringResource(R.string.result_truncated))
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -578,21 +585,36 @@ private fun EntryView(entry: TerminalEntry, results: List<TerminalEntry>, though
     }
 }
 
+/** Uma linha da conversa. Nos grupos do turno: quantas entradas juntou e, no das ferramentas, quais. */
+internal data class EntryRow(val entry: TerminalEntry, val count: Int = 1, val tools: List<TerminalEntry> = emptyList())
+
 /**
  * Os pensamentos de um turno (até a próxima mensagem sua) viram uma linha só, no lugar do primeiro, com a contagem;
- * ao expandir, mostra o texto de todos. Os transcripts intercalam pensamento e ferramenta, então juntar só os seguidos não basta.
+ * ao expandir, mostra o texto de todos. As ferramentas do turno idem: uma linha, no lugar da primeira, que ao expandir
+ * mostra cada uma com os resultados. Os transcripts intercalam pensamento e ferramenta, então juntar só os seguidos
+ * não basta.
  */
-internal fun groupThinking(entries: List<TerminalEntry>): List<Pair<TerminalEntry, Int>> {
-    val rows = mutableListOf<Pair<TerminalEntry, Int>>()
-    var turnThinking = -1
+internal fun groupTurn(entries: List<TerminalEntry>): List<EntryRow> {
+    val rows = mutableListOf<EntryRow>()
+    var thinking = -1
+    var tools = -1
     for (entry in entries) {
-        if (entry.kind == "user") turnThinking = -1
-        if (entry.kind == "thinking" && turnThinking >= 0) {
-            val (first, count) = rows[turnThinking]
-            rows[turnThinking] = first.copy(text = listOf(first.text, entry.text).filter { it.isNotBlank() }.joinToString("\n\n"), at = entry.at ?: first.at) to count + 1
-        } else {
-            if (entry.kind == "thinking") turnThinking = rows.size
-            rows += entry to 1
+        if (entry.kind == "user") { thinking = -1; tools = -1 }
+        when {
+            entry.kind == "thinking" && thinking >= 0 -> {
+                val row = rows[thinking]
+                val first = row.entry
+                rows[thinking] = row.copy(entry = first.copy(text = listOf(first.text, entry.text).filter { it.isNotBlank() }.joinToString("\n\n"), at = entry.at ?: first.at), count = row.count + 1)
+            }
+            entry.kind == "tool" && tools >= 0 -> {
+                val row = rows[tools]
+                rows[tools] = row.copy(entry = row.entry.copy(at = entry.at ?: row.entry.at), count = row.count + 1, tools = row.tools + entry)
+            }
+            else -> {
+                if (entry.kind == "thinking") thinking = rows.size
+                if (entry.kind == "tool") tools = rows.size
+                rows += EntryRow(entry, tools = if (entry.kind == "tool") listOf(entry) else emptyList())
+            }
         }
     }
     return rows

@@ -22,6 +22,8 @@ do meio (0.**3**.0).
 - **Android:** a tela principal ordena as conversas pela resposta mais recente do agente e mostra um balão com as
   respostas que chegaram desde a última vez que a conversa foi aberta (até "99+"). O servidor manda, para cada agente
   principal, a hora das últimas 99 respostas em texto (`replies` no snapshot).
+- **Android:** as ferramentas de um turno viram uma linha só, "Ferramentas (N)", como o pensamento. Ao expandir,
+  mostra cada ferramenta com a entrada e os resultados, na ordem em que rodaram.
 
 ### Corrigido
 

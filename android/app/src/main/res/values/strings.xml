@@ -60,6 +60,7 @@
     <string name="unknown_entry">Entrada não suportada</string>
     <string name="result_truncated">Resultado truncado pelo servidor.</string>
     <string name="thinking">Pensando…</string>
+    <string name="tools">Ferramentas</string>
     <string name="tool_result">Resultado</string>
     <string name="messages_blocked">Envio bloqueado pelo servidor.</string>
     <string name="message_guard_required">O servidor precisa ser atualizado para enviar mensagens.</string>

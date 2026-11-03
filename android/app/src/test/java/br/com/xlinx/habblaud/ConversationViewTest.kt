@@ -12,14 +12,18 @@ class ConversationViewTest {
     @Test fun noToolsKeepsThinkingAndSystem() = assertEquals(listOf("user", "thinking", "assistant", "system"), kinds("no_tools"))
     @Test fun allShowsEverything() = assertEquals(entries.map { it.kind }, kinds("all"))
 
-    @Test fun thinkingOfATurnBecomesOneCountedRowWithAllText() {
-        val rows = groupThinking(listOf(
+    @Test fun thinkingAndToolsOfATurnBecomeOneCountedRowEach() {
+        val rows = groupTurn(listOf(
             TerminalEntry("t1", "thinking", "um"), TerminalEntry("x", "tool", "ls"), TerminalEntry("t2", "thinking", ""),
-            TerminalEntry("t3", "thinking", "três"), TerminalEntry("a", "assistant", "ok"),
-            TerminalEntry("u", "user", "próximo"), TerminalEntry("t4", "thinking", "quatro"),
+            TerminalEntry("y", "tool", "cat", at = 9), TerminalEntry("t3", "thinking", "três"), TerminalEntry("a", "assistant", "ok"),
+            TerminalEntry("u", "user", "próximo"), TerminalEntry("t4", "thinking", "quatro"), TerminalEntry("z", "tool", "pwd"),
         ))
-        assertEquals(listOf("t1" to 3, "x" to 1, "a" to 1, "u" to 1, "t4" to 1), rows.map { it.first.id to it.second })
-        assertEquals("um\n\ntrês", rows[0].first.text)
+        assertEquals(listOf("t1" to 3, "x" to 2, "a" to 1, "u" to 1, "t4" to 1, "z" to 1), rows.map { it.entry.id to it.count })
+        assertEquals("um\n\ntrês", rows[0].entry.text)
+        // O grupo das ferramentas fica no lugar da primeira, leva a hora da última e lista todas, na ordem.
+        assertEquals(listOf("x", "y"), rows[1].tools.map { it.id })
+        assertEquals(9L, rows[1].entry.at)
+        assertEquals(listOf("z"), rows[5].tools.map { it.id })
     }
 
     @Test fun responseErrorIsRecoveredOnlyWhenTheAgentContinuesInTheSameTurn() {
