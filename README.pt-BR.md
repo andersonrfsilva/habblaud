@@ -242,9 +242,9 @@ npm run omp:status         # confere
 
 A extensão vale para as sessões do omp abertas **depois** da instalação. Veja [omp (oh-my-pi)](#omp-oh-my-pi).
 
-### Aplicativo Android
+### Aplicativo Android (Zaplaud)
 
-O cliente nativo Android acompanha sessões e personagens sem a interface do escritório. Requer Android 8.0 (API 26) ou
+O Zaplaud, cliente nativo Android, acompanha sessões e personagens sem a interface do escritório. Requer Android 8.0 (API 26) ou
 superior e uma instalação do Habblaud com login remoto configurado. A URL deve apontar para a **porta remota**, nunca
 para a porta local sem autenticação. O aplicativo aceita uma instalação por vez; informe URL, usuário e senha do acesso
 remoto. A senha não é persistida. HTTPS usa a validação normal de certificado e nome do Android.
