@@ -161,6 +161,12 @@ export class CastLauncher {
       if (r.ok !== true) e.info.error = typeof r.error === 'string' ? r.error.slice(0, 300) : tr('o auxiliar não abriu a sessão');
       e.at = this.now();
       if (r.ok === true && e.job.op === 'start') this.opened.set(e.job.cast, this.now());
+      // O auxiliar só relê os papéis na rodada seguinte: sem isto, quem consulta logo após o ack vê os antigos.
+      if (r.ok === true && e.job.op === 'roles') {
+        const roles = { ...this.lastRoles };
+        for (const [role, value] of Object.entries(e.job.roles)) { if (value === null) delete roles[role]; else roles[role] = value; }
+        this.lastRoles = roles;
+      }
       this.opts.changed();
     }
   }

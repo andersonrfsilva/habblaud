@@ -74,7 +74,8 @@ describe('CastLauncher', () => {
     expect(job).toEqual({ id: submitted.job.id, op: 'roles', cast: '', agentDir: '/tmp', roles: { task: 'openai/gpt-6:low', advisor: null } });
     launcher.ack({ results: [{ id: job.id, ok: true }] });
     expect(launcher.jobs().find((j) => j.id === job.id)?.status).toBe('done');
-    expect(launcher.roles().pending).toBe(false);
+    // Logo após o ack (antes de o auxiliar reler), roles() já mostra o que foi gravado.
+    expect(launcher.roles()).toEqual({ roles: { task: 'openai/gpt-6:low' }, pending: false });
   });
   it('fails a start without a session and queues a stop', () => {
     const { launcher, time } = setup();
