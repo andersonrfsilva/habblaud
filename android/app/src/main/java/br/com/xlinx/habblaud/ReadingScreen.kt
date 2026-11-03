@@ -373,7 +373,7 @@ private fun EntryView(entry: TerminalEntry, results: List<TerminalEntry>) {
     }
 }
 
-/** "14:05" hoje; "02/11 14:05" em outro dia (fuso e formato do aparelho). */
+/** "14:05" hoje; "02/11 14:05" em outro dia, no fuso do aparelho. */
 internal fun entryTime(at: Long, now: Long = System.currentTimeMillis()): String {
     val zone = java.time.ZoneId.systemDefault()
     val time = java.time.Instant.ofEpochMilli(at).atZone(zone)
