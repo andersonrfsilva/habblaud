@@ -21,6 +21,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -259,7 +261,10 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 LazyColumn(Modifier.fillMaxSize(), state = listState, reverseLayout = true, contentPadding = PaddingValues(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom)) {
                     items(rows.asReversed(), key = { it.first.id }) { (entry, thoughts) ->
-                        if (entry.kind != "result" || entry.toolUseId !in tools) EntryView(entry, results[entry.id].orEmpty(), thoughts)
+                        if (entry.kind != "result" || entry.toolUseId !in tools) EntryView(entry, results[entry.id].orEmpty(), thoughts) { before, now ->
+                            // A lista é invertida: o item cresce para cima. Rola o quanto o cabeçalho tocado andou, para ele voltar ao lugar.
+                            scope.launch { repeat(2) { withFrameNanos { } }; listState.scrollBy(before - now()) }
+                        }
                     }
                     if (state.truncated) item {
                         Text(stringResource(R.string.window_truncated), Modifier.fillMaxWidth().padding(8.dp), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -394,8 +399,9 @@ private fun ChatBanner(message: String) {
 }
 
 @Composable
-private fun EntryView(entry: TerminalEntry, results: List<TerminalEntry>, thoughts: Int = 1) {
+private fun EntryView(entry: TerminalEntry, results: List<TerminalEntry>, thoughts: Int = 1, keepPlace: (before: Float, now: () -> Float) -> Unit = { _, _ -> }) {
     var expanded by remember(entry.id) { mutableStateOf(false) }
+    var headerY by remember { mutableFloatStateOf(0f) }
     if (entry.kind == "system") {
         SelectionContainer { Text(listOfNotNull(entry.text, entry.at?.let(::entryTime)).joinToString(" · "), Modifier.fillMaxWidth().padding(8.dp), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodySmall) }
         return
@@ -409,7 +415,7 @@ private fun EntryView(entry: TerminalEntry, results: List<TerminalEntry>, though
             Column(Modifier.padding(12.dp)) {
                 if (entry.kind == "tool" || entry.kind == "thinking") {
                     val label = if (entry.kind == "thinking") "${stringResource(R.string.thinking)} ($thoughts)" else entry.title ?: stringResource(R.string.tool_result)
-                    Row(Modifier.fillMaxWidth().clickable { expanded = !expanded }, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.fillMaxWidth().onGloballyPositioned { headerY = it.positionInWindow().y }.clickable { val before = headerY; expanded = !expanded; keepPlace(before) { headerY } }, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (entry.kind == "tool") Text("⚙", color = MaterialTheme.colorScheme.primary)
                         Text(label, style = MaterialTheme.typography.labelLarge)
                     }
