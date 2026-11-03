@@ -26,6 +26,18 @@ fun snapshotModels(snapshot: String): List<String> =
         (agent["models"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }.orEmpty()
     }.distinct().sorted()
 
+/** Nome do provedor para mostrar (o id do omp quando não é um dos conhecidos). */
+fun providerLabel(id: String) = when (id) {
+    "anthropic" -> "Anthropic"
+    "openai-codex" -> "OpenAI Codex"
+    "google-antigravity" -> "Google Antigravity"
+    "openrouter" -> "OpenRouter"
+    else -> id
+}
+
+/** "Provedor · modelo" para um id `provedor/modelo`; sem provedor, só o modelo. */
+fun modelLabel(model: String) = if ('/' in model) "${providerLabel(model.substringBefore('/'))} · ${model.substringAfter('/')}" else model
+
 /**
  * Opções do seletor de um papel, agrupadas por provedor (em ordem alfabética) com o nome do modelo sem o provedor.
  * Some a variante `:batch` (API em lote, não serve para conversa) e a cópia datada (`-AAAAMMDD`) de um modelo que

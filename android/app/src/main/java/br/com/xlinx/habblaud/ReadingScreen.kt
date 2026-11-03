@@ -134,6 +134,8 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
         @Composable fun Choice(label: String, checked: Boolean, onClick: () -> Unit) = DropdownMenuItem(text = { Text(label) }, leadingIcon = { RadioButton(selected = checked, onClick = null) }, onClick = onClick)
         val viewLabels = listOf("all" to R.string.view_all, "prompts" to R.string.view_prompts, "no_tools" to R.string.view_no_tools)
         val deliverLabels = listOf("aside" to R.string.deliver_aside, "followUp" to R.string.deliver_follow_up, "steer" to R.string.deliver_steer)
+        // O modelo da sessão pode vir sem o provedor: o da lista que bate com ele, com o provedor.
+        val currentModel = selected?.models?.firstOrNull { it == selected.model || it.substringAfter('/') == selected.model } ?: selected?.model?.takeIf { '/' in it }
         when (page) {
             "view" -> { Back(); viewLabels.forEach { (value, label) -> Choice(stringResource(label), view == value) {
                 selected?.key?.let { key -> viewFor = key to value; scope.launch { store.setSessionView(key, value) } }
@@ -143,13 +145,20 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                 selected?.key?.let { key -> deliverFor = key to mode; scope.launch { store.setSessionDeliverAs(key, mode) } }
                 close()
             } } }
-            "model" -> { Back(); selected!!.models.forEach { model -> Choice(model.substringAfter('/'), model == selected.model || model.substringAfter('/') == selected.model) { controller.messages.setModel(agentId!!, model); close() } } }
+            "model" -> {
+                Back()
+                // Como no seletor dos papéis: por provedor, a versão mais nova primeiro, sem `:batch` nem cópias datadas.
+                roleModelGroups(selected!!.models, keep = currentModel).forEach { (provider, list) ->
+                    Text(providerLabel(provider), Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    list.forEach { model -> Choice(model.substringAfter('/'), model == currentModel) { controller.messages.setModel(agentId!!, model); close() } }
+                }
+            }
             "thinking" -> { Back(); THINKING_LEVELS.forEach { level -> Choice(thinkingLabel(level), level == selected!!.thinking) { controller.messages.setThinking(agentId!!, level); close() } } }
             else -> {
                 Group(R.string.view_menu, viewLabels.firstOrNull { it.first == view }?.let { stringResource(it.second) }, "view", loaded)
                 if (omp) {
                     Group(R.string.deliver_mode, deliverLabels.firstOrNull { it.first == deliverMode }?.let { stringResource(it.second) }, "deliver", loaded)
-                    if (selected!!.models.isNotEmpty()) Group(R.string.model_menu, selected.model?.substringAfter('/'), "model", canControl)
+                    if (selected!!.models.isNotEmpty()) Group(R.string.model_menu, (currentModel ?: selected.model)?.let(::modelLabel), "model", canControl)
                     Group(R.string.thinking_menu, selected.thinking?.let { thinkingLabel(it) }, "thinking", canControl)
                     DropdownMenuItem(text = { Text(stringResource(R.string.shake)) }, enabled = canControl, onClick = { controller.messages.shake(agentId!!); close() })
                 }
@@ -514,9 +523,13 @@ private fun EntryView(entry: TerminalEntry, results: Map<String?, List<TerminalE
             Column(Modifier.padding(12.dp)) {
                 if (entry.kind == "tool" || entry.kind == "thinking") {
                     val label = "${stringResource(if (entry.kind == "thinking") R.string.thinking else R.string.tools)} ($count)"
-                    Row(Modifier.fillMaxWidth().onGloballyPositioned { headerY = it.positionInWindow().y }.clickable { val before = headerY; expanded = !expanded; keepPlace(before) { headerY } }, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Hora do último evento do grupo no cabeçalho (nas ferramentas, o último resultado também conta): dá
+                    // para ver, sem expandir, se o agente segue trabalhando ou parou.
+                    val last = if (entry.kind == "tool") (tools.mapNotNull { it.at } + tools.flatMap { results[it.id].orEmpty() }.mapNotNull { it.at }).maxOrNull() ?: entry.at else entry.at
+                    Row(Modifier.fillMaxWidth().onGloballyPositioned { headerY = it.positionInWindow().y }.clickable { val before = headerY; expanded = !expanded; keepPlace(before) { headerY } }, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         if (entry.kind == "tool") Text("⚙", color = MaterialTheme.colorScheme.primary)
-                        Text(label, style = MaterialTheme.typography.labelLarge)
+                        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
+                        last?.let { Text(entryTime(it), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
                     if (expanded) SelectionContainer {
                         if (entry.kind == "thinking") {
@@ -579,7 +592,8 @@ private fun EntryView(entry: TerminalEntry, results: Map<String?, List<TerminalE
                         if (entry.truncated) Text(stringResource(R.string.result_truncated))
                     }
                 }
-                entry.at?.let { Text(entryTime(it), Modifier.align(Alignment.End), style = MaterialTheme.typography.labelSmall, color = (if (entry.kind == "user") MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant).copy(alpha = 0.7f)) }
+                // Pensamento e ferramentas já mostram a hora no cabeçalho.
+                if (entry.kind != "tool" && entry.kind != "thinking") entry.at?.let { Text(entryTime(it), Modifier.align(Alignment.End), style = MaterialTheme.typography.labelSmall, color = (if (entry.kind == "user") MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant).copy(alpha = 0.7f)) }
             }
         }
     }

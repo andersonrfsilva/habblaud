@@ -23,7 +23,10 @@ do meio (0.**3**.0).
   respostas que chegaram desde a última vez que a conversa foi aberta (até "99+"). O servidor manda, para cada agente
   principal, a hora das últimas 99 respostas em texto (`replies` no snapshot).
 - **Android:** as ferramentas de um turno viram uma linha só, "Ferramentas (N)", como o pensamento. Ao expandir,
-  mostra cada ferramenta com a entrada e os resultados, na ordem em que rodaram.
+  mostra cada ferramenta com a entrada e os resultados, na ordem em que rodaram. O cabeçalho do pensamento e o das
+  ferramentas mostram a hora do último evento (nas ferramentas, o último resultado também conta).
+- **Android:** o menu de modelo da sessão agrupa por provedor, com a versão mais nova primeiro, como o seletor dos
+  papéis; o item do menu mostra o provedor do modelo atual.
 
 ### Corrigido
 

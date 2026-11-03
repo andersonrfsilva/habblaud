@@ -38,6 +38,7 @@ import br.com.xlinx.habblaud.data.ROLE_MODEL
 import br.com.xlinx.habblaud.data.joinRole
 import br.com.xlinx.habblaud.data.parseAccounts
 import br.com.xlinx.habblaud.data.roleModelGroups
+import br.com.xlinx.habblaud.data.providerLabel
 import br.com.xlinx.habblaud.data.snapshotModels
 import br.com.xlinx.habblaud.data.splitRole
 import br.com.xlinx.habblaud.data.string
@@ -313,12 +314,4 @@ private fun LimitRow(limit: UsageLimit) {
         if (used != null) LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth(), color = color, drawStopIndicator = {})
         limit.resetsAt?.let { Text(stringResource(R.string.quota_resets, entryTime(it)), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
-}
-
-private fun providerLabel(id: String) = when (id) {
-    "anthropic" -> "Anthropic"
-    "openai-codex" -> "OpenAI Codex"
-    "google-antigravity" -> "Google Antigravity"
-    "openrouter" -> "OpenRouter"
-    else -> id
 }
