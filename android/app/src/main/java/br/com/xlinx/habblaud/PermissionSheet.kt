@@ -121,8 +121,9 @@ internal fun PermissionSheet(api: HabblaudApi, session: SessionItem, allowed: Bo
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 CharacterAvatar(api, session, 48.dp)
                 Column {
+                    session.characterName?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
                     Text(stringResource(if (questions.isNotEmpty()) R.string.question_pending else R.string.permission_pending), style = MaterialTheme.typography.titleLarge)
-                    Text(listOfNotNull(session.project?.substringAfterLast('/'), session.agentName, session.title).distinct().joinToString(" · "))
+                    Text(listOfNotNull(session.project?.substringAfterLast('/'), session.agentName, session.title).filter { it != session.characterName }.distinct().joinToString(" · "))
                 }
             }
             if (!allowed) Text(stringResource(R.string.permissions_blocked))

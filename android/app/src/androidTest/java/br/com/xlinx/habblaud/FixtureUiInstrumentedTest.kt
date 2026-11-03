@@ -46,6 +46,7 @@ class FixtureUiInstrumentedTest {
     private var scenario: ActivityScenario<MainActivity>? = null
     private var prepared = false
     private fun text(id: Int) = context.getString(id)
+    private fun awaitDescription(id: Int) = compose.waitUntil(15_000) { compose.onAllNodes(androidx.compose.ui.test.hasContentDescription(text(id))).fetchSemanticsNodes().isNotEmpty() }
     private fun await(id: Int) = compose.waitUntil(15_000) { compose.onAllNodes(hasText(text(id))).fetchSemanticsNodes().isNotEmpty() }
 
     @Before fun prepare() {
@@ -213,8 +214,8 @@ class FixtureUiInstrumentedTest {
         val id = registered.optString("id")
         assertTrue("Fixture não registrou a permissão: $registered", id.isNotEmpty())
         scenario = ActivityScenario.launch(MainActivity::class.java)
-        await(R.string.permission_approve)
-        compose.onNodeWithText(text(R.string.permission_approve)).performClick()
+        awaitDescription(R.string.permission_approve)
+        compose.onNodeWithContentDescription(text(R.string.permission_approve)).performClick()
         await(R.string.permission_allow)
         compose.waitUntil(15_000) {
             compose.onAllNodes(hasText("echo fixture", substring = true)).fetchSemanticsNodes().isNotEmpty()
@@ -222,22 +223,22 @@ class FixtureUiInstrumentedTest {
         InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("input keyevent KEYCODE_BACK").close()
         compose.waitUntil(15_000) { compose.onAllNodes(hasText(text(R.string.permission_allow))).fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithText(text(R.string.message_text)).assertIsDisplayed()
-        compose.onNodeWithText(text(R.string.permission_approve)).performClick()
+        compose.onNodeWithContentDescription(text(R.string.permission_approve)).performClick()
         await(R.string.permission_allow)
         compose.onNodeWithText(text(R.string.permission_allow)).assertIsEnabled().performClick()
         val result = fixtureRequest("/api/permissions/$id/wait?timeout=5")
         assertEquals("A fixture não recebeu decisão", "decided", result.optString("status"))
         assertEquals("A fixture recebeu decisão diferente", "allow", result.optString("behavior"))
         compose.onNodeWithText(text(R.string.message_text)).assertIsDisplayed()
-        compose.waitUntil(15_000) { compose.onAllNodes(hasText(text(R.string.permission_approve))).fetchSemanticsNodes().isEmpty() }
+        compose.waitUntil(15_000) { compose.onAllNodes(androidx.compose.ui.test.hasContentDescription(text(R.string.permission_approve))).fetchSemanticsNodes().isEmpty() }
         val denial = fixtureRequest("/api/permissions", JSONObject()
             .put("session_id", key.sessionId)
             .put("tool_name", "Bash")
             .put("tool_input", JSONObject().put("command", "echo recusa")))
         val denialId = denial.optString("id")
         assertTrue("Fixture não registrou a recusa: $denial", denialId.isNotEmpty())
-        await(R.string.permission_approve)
-        compose.onNodeWithText(text(R.string.permission_approve)).performClick()
+        awaitDescription(R.string.permission_approve)
+        compose.onNodeWithContentDescription(text(R.string.permission_approve)).performClick()
         await(R.string.permission_deny)
         compose.onNodeWithText(text(R.string.permission_reason)).assertDoesNotExist()
         compose.onNodeWithText(text(R.string.permission_deny)).performClick()
@@ -271,8 +272,10 @@ class FixtureUiInstrumentedTest {
         assertTrue("Pedido não registrado: $registered", id.isNotEmpty())
         runBlocking { LocalStateStore(context).setLastSession(SessionKey(origin, "omp", ".omp", "00000000-0000-4000-8000-000000000002")) }
         scenario = ActivityScenario.launch(MainActivity::class.java)
-        await(R.string.permission_answer)
-        compose.onNodeWithText(text(R.string.permission_answer)).performClick()
+        awaitDescription(R.string.permission_answer)
+        compose.onNodeWithText("Davi Fictício").assertIsDisplayed()
+        compose.onNodeWithContentDescription(text(R.string.cast_dismiss)).assertIsDisplayed()
+        compose.onNodeWithContentDescription(text(R.string.permission_answer)).performClick()
         compose.waitUntil(15_000) { compose.onAllNodes(hasText("Cor?")).fetchSemanticsNodes().isNotEmpty() }
         val toggles = compose.onAllNodes(isToggleable())
         toggles[1].performScrollTo().performClick()
@@ -282,7 +285,7 @@ class FixtureUiInstrumentedTest {
         toggles[2].assertIsOn()
         toggles[4].assertIsOn()
         compose.onAllNodes(hasText(text(R.string.permission_other)))[2].performScrollTo().performTextInput("texto livre")
-        compose.onAllNodes(hasText(text(R.string.permission_answer)))[1].performScrollTo().performClick()
+        compose.onNodeWithText(text(R.string.permission_answer)).performScrollTo().performClick()
         compose.onNodeWithText(text(R.string.permission_answers)).assertDoesNotExist()
         val result = request("/api/permissions/$id/wait?timeout=5")
         assertEquals("decided", result.getString("status"))

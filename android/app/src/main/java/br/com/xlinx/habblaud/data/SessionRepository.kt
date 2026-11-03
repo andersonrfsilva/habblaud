@@ -44,12 +44,12 @@ class SessionRepository(private val api: HabblaudApi) {
     fun sessions(): List<SessionItem> {
         val live = open.associateBy { it.key }
         val historical = recent.associateBy { it.key }
-        return open.map { item -> item.copy(project = item.project ?: historical[item.key]?.project, lastAt = item.lastAt ?: historical[item.key]?.lastAt) } + recent.filterNot { live.containsKey(it.key) }.map { item ->
+        return open.map { item -> item.copy(project = item.project ?: historical[item.key]?.project, lastAt = item.lastAt ?: historical[item.key]?.lastAt, title = if (item.title == item.characterName) historical[item.key]?.title ?: item.title else item.title) } + recent.filterNot { live.containsKey(it.key) }.map { item ->
             val match = cast.filter { member ->
                 item.key.provider == "claude" && (member.string("account") == null || member.string("account") == item.key.account) &&
                     (member["last"] as? JsonObject)?.values?.any { value -> value.toString().trim('"') == item.key.sessionId } == true
             }.singleOrNull()
-            item.copy(agentId = null, avatar = match?.let(::avatar), cast = match?.string("id"))
+            item.copy(agentId = null, avatar = match?.let(::parseAvatar), cast = match?.string("id"), characterName = match?.string("name"))
         }
     }
 
@@ -60,12 +60,13 @@ class SessionRepository(private val api: HabblaudApi) {
         val agent = o.string("id") ?: o.string("agentId")
         val activity = (o["activity"] as? JsonObject)?.let { it.string("summary") ?: it.string("text") ?: it.string("description") }
         val permission = o["permission"] as? JsonObject
-        return SessionItem(key, agent, o.string("title") ?: o.string("name") ?: id, project ?: o.string("project"), o.string("status"), activity, permission != null, o.string("name"), o.flag("canMessage"), permission?.string("id"), (o.string("lastEventAt") ?: o.string("lastAt"))?.toLongOrNull(), avatar(o), o.string("cast"), o.flag("castOpened"), permission?.objects("questions")?.isNotEmpty() == true)
+        return SessionItem(key, agent, o.string("title") ?: o.string("name") ?: id, project ?: o.string("project"), o.string("status"), activity, permission != null, o.string("name"), o.flag("canMessage"), permission?.string("id"), (o.string("lastEventAt") ?: o.string("lastAt"))?.toLongOrNull(), parseAvatar(o), o.string("cast"), o.flag("castOpened"), permission?.objects("questions")?.isNotEmpty() == true, o.string("name")?.takeIf { o.string("kind") == "main" })
     }
 
-    private fun avatar(o: JsonObject): Avatar? {
-        val seed = o.string("seed")?.toLongOrNull()?.takeIf { it in 0..0xffffffffL } ?: return null
-        val look = o.string("look")?.takeIf { it == "f" || it == "m" } ?: return null
-        return Avatar(seed, look, if (o.string("kind") == "sub") "sub" else "main", (o["parts"] as? JsonObject)?.toString())
-    }
+}
+
+internal fun parseAvatar(o: JsonObject): Avatar? {
+    val seed = o.string("seed")?.toLongOrNull()?.takeIf { it in 0..0xffffffffL } ?: return null
+    val look = o.string("look")?.takeIf { it == "f" || it == "m" } ?: return null
+    return Avatar(seed, look, if (o.string("kind") == "sub") "sub" else "main", (o["parts"] as? JsonObject)?.toString())
 }

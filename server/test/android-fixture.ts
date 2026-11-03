@@ -129,10 +129,11 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
   for (const [index, agent] of AGENTS.entries()) office.addMain({ ...agent, cwd: `/fixture/${projects[index]}`, role: 'Agente principal', startedAt: Date.now() - index * 300_000, status: index % 2 ? 'working' : 'idle' });
   if (office.putCast({ id: 'ana', name: 'Ana Fictícia', kind: 'main', seed: 1001, look: 'f', rooms: ['/fixture/projeto'] }, 'fixture:claude') !== 'ok' ||
       office.putCast({ id: 'bia', name: 'Bia Fictícia', kind: 'main', seed: 1002, look: 'f', rooms: ['/fixture/projeto'], last: { '/fixture/projeto': CLOSED } }) !== 'ok' ||
-      office.putCast({ id: 'caio', name: 'Caio Fictício', kind: 'main', seed: 1003, look: 'm', rooms: [] }) !== 'ok') throw new Error('Could not create fictional cast');
+      office.putCast({ id: 'caio', name: 'Caio Fictício', kind: 'main', seed: 1003, look: 'm', rooms: [] }) !== 'ok' ||
+      office.putCast({ id: 'davi', name: 'Davi Fictício', kind: 'main', seed: 1004, look: 'm', rooms: ['/fixture/caderno'] }, 'fixture:omp') !== 'ok') throw new Error('Could not create fictional cast');
   const launcher = new CastLauncher({ dataDir: root, member: id => office.cast.get(id), agents: () => office.list(), account: id => !id || id === ACCOUNT ? accountDir : undefined, changed: () => office.markDirty() });
   late.launcher = launcher;
-  launcher.poll({ open: ['ana'] });
+  launcher.poll({ open: ['ana', 'davi'] });
   const presence = setInterval(() => launcher.ack({ results: [] }), 10_000);
   timers.add(presence);
   const hub = new Hub(office, { canAnswer: req => isRemoteRequest(req) && parseAllow(allow).has('permissions') });

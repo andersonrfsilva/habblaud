@@ -259,7 +259,8 @@ Para gerar capturas dos dois temas com dados fictícios, execute `scripts/androi
 
 Quando o acesso remoto permite `terminal` e o auxiliar do host está disponível, o aplicativo também chama e dispensa
 personagens do elenco e retoma sessões Claude em pastas permitidas ao personagem. Um pedido sem confirmação não é
-reenviado automaticamente. Os avatares usam a mesma arte do escritório e ficam em cache privado no aparelho.
+reenviado automaticamente. Os avatares usam a mesma arte do escritório e ficam em cache privado no aparelho. O nome
+do personagem aparece junto ao avatar; toque longo nos ícones de ação mostra sua função.
 
 #### Compilar e instalar
 
@@ -365,7 +366,7 @@ confirmado, confira a conversa antes de tentar novamente: a primeira tentativa p
 Mensagens aceitam até 20.000 unidades UTF-16 e cinco anexos de até 15 MiB cada. O aviso de envio desaparece quando
 `delivered` confirma a aceitação pela sessão/runtime; isso não indica leitura nem conclusão. No omp, o app envia mensagens no modo `aside`; a entrega depende da
 extensão carregada. O botão de parar aparece enquanto o agente omp trabalha e não garante efeito imediato.
-A conversa mostra **Responder** para perguntas e **Aprovar** para permissões pendentes. O aviso laranja respeita a
+A barra da conversa mostra ícones para responder perguntas e aprovar permissões pendentes. O aviso laranja respeita a
 configuração de animações do sistema. Perguntas do omp aceitam escolha única, múltipla e texto livre; omp e Codex
 não aceitam `interrupt` nem `suggestion` nas decisões.
 

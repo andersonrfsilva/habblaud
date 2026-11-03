@@ -13,9 +13,17 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material.icons.filled.Help
+import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -28,11 +36,12 @@ import kotlinx.serialization.json.*
 import org.json.JSONObject
 import java.net.URLEncoder
 
-private data class CastChoice(val id: String, val name: String, val rooms: List<String>)
+private data class CastChoice(val id: String, val name: String, val rooms: List<String>, val avatar: Avatar?)
 private val sessionIdPattern = Regex("^[0-9a-fA-F][0-9a-fA-F-]{7,199}$")
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Boolean, onUnauthorized: () -> Unit, onPermission: () -> Unit) {
+internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Boolean, onUnauthorized: () -> Unit, onPermission: () -> Unit, content: @Composable (@Composable () -> Unit, @Composable () -> Unit, @Composable () -> Unit) -> Unit) {
     val scope = rememberCoroutineScope()
     var availability by remember(api) { mutableStateOf("loading") }
     var characters by remember(api) { mutableStateOf(emptyList<CastChoice>()) }
@@ -66,7 +75,7 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
                             val id = member.string("id") ?: return@mapNotNull null
                             val name = member.string("name") ?: return@mapNotNull null
                             val rooms = (member["rooms"] as? JsonArray)?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty()
-                            CastChoice(id, name, rooms)
+                            CastChoice(id, name, rooms, parseAvatar(member))
                         }
                     folders = wireJson.parseToJsonElement(api.request("/api/cast/folders")).jsonObject.objects("folders").mapNotNull { it.string("path") }
                 }
@@ -105,26 +114,34 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
     val resume = selected != null && selected.agentId == null && selected.key.provider == "claude" &&
         selected.key.sessionId.matches(sessionIdPattern) && resumeChoices.isNotEmpty()
     val dismiss = selected?.agentId != null && selected.castOpened && current != null
-    Column {
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            if (availability == "available") {
-                if (selected == null) TextButton(onClick = { choice = null; dialog = "start" }, enabled = !sending) { Text(stringResource(R.string.cast_start)) }
-                if (resume) TextButton(onClick = { choice = current?.takeIf { it in resumeChoices }; dialog = if (choice != null) "resume" else "resume-select" }, enabled = !sending && !activeJob) { Text(stringResource(R.string.cast_resume)) }
-                if (dismiss) TextButton(onClick = { dialog = "dismiss" }, enabled = !sending && !activeJob) { Text(stringResource(R.string.cast_dismiss)) }
-            }
-            if (selected?.permission == true) PermissionAttentionButton(selected.permissionQuestion, onPermission)
-        }
+    val actions: @Composable () -> Unit = {
         if (availability == "available") {
-            if (activeJob) Text(stringResource(R.string.cast_pending), style = MaterialTheme.typography.bodySmall)
-        } else if (availability == "unavailable" || availability == "forbidden") {
-            Text(stringResource(if (availability == "forbidden") R.string.cast_forbidden else R.string.cast_unavailable), style = MaterialTheme.typography.bodySmall)
+            if (resume) ActionIcon(R.string.cast_resume, Icons.Default.PlayArrow, !sending && !activeJob) { choice = current?.takeIf { it in resumeChoices }; dialog = if (choice != null) "resume" else "resume-select" }
+            if (dismiss) ActionIcon(R.string.cast_dismiss, Icons.Default.ExitToApp, !sending && !activeJob) { dialog = "dismiss" }
         }
+        if (selected?.permission == true) PermissionAttentionButton(selected.permissionQuestion, onPermission)
+    }
+    val fab: @Composable () -> Unit = {
+        if (availability == "available" && selected == null) {
+            val label = stringResource(R.string.cast_start)
+            TooltipBox(positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(), tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
+                FloatingActionButton(onClick = { if (!sending) { choice = null; dialog = "start" } }) { Icon(Icons.Default.PersonAdd, contentDescription = label) }
+            }
+        }
+    }
+    val status: @Composable () -> Unit = {
+        if (availability == "available" && activeJob) Text(stringResource(R.string.cast_pending), style = MaterialTheme.typography.bodySmall)
+        else if (availability == "unavailable" || availability == "forbidden") Text(stringResource(if (availability == "forbidden") R.string.cast_forbidden else R.string.cast_unavailable), style = MaterialTheme.typography.bodySmall)
         if (result.isNotEmpty()) Text(stringResource(when (result) { "pending" -> R.string.cast_pending; "done" -> R.string.cast_done; "busy" -> R.string.cast_busy; "forbidden" -> R.string.cast_forbidden; "failed" -> R.string.cast_failed; else -> R.string.cast_unknown }), style = MaterialTheme.typography.bodySmall)
     }
+    content(actions, fab, status)
     if (dialog == "start") AlertDialog(onDismissRequest = { dialog = "" }, title = { Text(stringResource(if (choice == null) R.string.cast_select_character else R.string.cast_select_folder)) }, text = {
         Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
             if (choice == null) characters.filter { jobs[it.id] !in listOf("queued", "sent", "waiting") }.forEach { member ->
-                Text(member.name, Modifier.fillMaxWidth().clickable { choice = member }.padding(12.dp))
+                Row(Modifier.fillMaxWidth().clickable { choice = member }.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    CharacterAvatar(api, member.avatar, member.name, 40.dp)
+                    Text(member.name)
+                }
             } else {
                 val availableFolders = (folders + choice!!.rooms).distinct().filter { choice!!.rooms.isEmpty() || it in choice!!.rooms }
                 if (availableFolders.isEmpty()) Text(stringResource(R.string.cast_no_folders))
@@ -138,7 +155,10 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
     if (dialog == "resume-select") AlertDialog(onDismissRequest = { dialog = "" }, title = { Text(stringResource(R.string.cast_select_character)) }, text = {
         Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
             resumeChoices.filter { jobs[it.id] !in listOf("queued", "sent", "waiting") }.forEach { member ->
-                Text(member.name, Modifier.fillMaxWidth().clickable { choice = member; dialog = "resume" }.padding(12.dp))
+                Row(Modifier.fillMaxWidth().clickable { choice = member; dialog = "resume" }.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    CharacterAvatar(api, member.avatar, member.name, 40.dp)
+                    Text(member.name)
+                }
             }
         }
     }, confirmButton = {}, dismissButton = { TextButton(onClick = { dialog = "" }) { Text(stringResource(R.string.cancel)) } })
@@ -152,6 +172,16 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
     }, dismissButton = { TextButton(onClick = { dialog = "" }) { Text(stringResource(R.string.cancel)) } })
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ActionIcon(labelId: Int, icon: ImageVector, enabled: Boolean = true, onClick: () -> Unit) {
+    val label = stringResource(labelId)
+    TooltipBox(positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(), tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
+        IconButton(onClick = onClick, enabled = enabled) { Icon(icon, contentDescription = label) }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PermissionAttentionButton(question: Boolean, onClick: () -> Unit) {
     val resolver = LocalContext.current.contentResolver
@@ -170,7 +200,10 @@ private fun PermissionAttentionButton(question: Boolean, onClick: () -> Unit) {
         val animated by transition.animateColor(Color(0xFF984000), Color(0xFFB44C00), infiniteRepeatable(tween(1200), RepeatMode.Reverse), label = "permission color")
         animated
     } else Color(0xFF984000)
-    Button(onClick = onClick, colors = ButtonDefaults.buttonColors(containerColor = color, contentColor = Color.White)) {
-        Text(stringResource(if (question) R.string.permission_answer else R.string.permission_approve))
+    val label = stringResource(if (question) R.string.permission_answer else R.string.permission_approve)
+    TooltipBox(positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(), tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
+        FilledIconButton(onClick = onClick, colors = IconButtonDefaults.filledIconButtonColors(containerColor = color, contentColor = Color.White)) {
+            Icon(if (question) Icons.Default.Help else Icons.Default.VerifiedUser, contentDescription = label)
+        }
     }
 }

@@ -447,6 +447,7 @@ tap Recentes
 enter_text 'Buscar por título, projeto ou agente' encerrada
 tap 'Conversa encerrada fictícia'
 wait_text 'Retomar conversa'
+shot conversa-retomar-icone
 tap 'Retomar conversa'
 wait_text Confirmar
 shot elenco-retomar
@@ -454,6 +455,14 @@ tap Confirmar
 wait_text 'Pedido enviado. Aguardando o servidor.'
 printf 'cast-consume\n' >&3
 wait_text 'Pedido concluído.'
+tap 'Voltar às sessões'
+tap Recentes
+enter_text 'Buscar por título, projeto ou agente' jardim
+tap 'Planejamento de jardim'
+tap 'Retomar conversa'
+wait_text 'Escolha um personagem'
+shot elenco-retomar-personagem
+adb shell input keyevent 4
 reset_app
 fill_login http://127.0.0.1:14749 android-test
 wait_text Abertas

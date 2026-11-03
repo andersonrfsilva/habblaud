@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -76,14 +77,17 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
     val selected = state.selected
     var menuExpanded by remember { mutableStateOf(false) }
     BackHandler(enabled = selected != null && permissionSession == null && !menuExpanded) { controller.close() }
-    Scaffold(topBar = {
+    CastActions(api, selected, state.connection == "connected" && (state.terminalAllowed || selected?.permission == true), onUnauthorized, { permissionSession = selected }) { castActions, castFab, castStatus ->
+    Scaffold(floatingActionButton = { castFab() }, topBar = {
         TopAppBar(
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (selected != null) CharacterAvatar(api, selected, 36.dp)
                     Column(Modifier.weight(1f)) {
-                        Text(selected?.title ?: stringResource(R.string.app_name), maxLines = 1)
-                        Text(if (selected == null) stringResource(when (state.connection) { "connected" -> R.string.reading_connected; "connecting" -> R.string.reading_connecting; else -> R.string.reading_offline }) else listOfNotNull(selected.project?.substringAfterLast('/'), statusLabel(selected.status ?: selected.activity)).joinToString(" · "), style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                        Text(selected?.characterName ?: selected?.title ?: stringResource(R.string.app_name), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        val projectStatus = selected?.let { listOfNotNull(it.project?.substringAfterLast('/'), statusLabel(it.status ?: it.activity)).joinToString(" · ") }
+                        val subtitle = if (selected == null) stringResource(when (state.connection) { "connected" -> R.string.reading_connected; "connecting" -> R.string.reading_connecting; else -> R.string.reading_offline }) else listOfNotNull(selected.title.takeIf { selected.characterName != null && it != selected.characterName }, projectStatus?.takeIf { it.isNotEmpty() }).joinToString(" · ")
+                        Text(subtitle, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             },
@@ -94,6 +98,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                 }
             },
             actions = {
+                if (selected != null) castActions()
                 if (selected == null) Box {
                     val menuLabel = stringResource(R.string.menu)
                     IconButton(onClick = { menuExpanded = true }, modifier = Modifier.semantics { contentDescription = menuLabel }) { Text("⋮", style = MaterialTheme.typography.headlineMedium) }
@@ -106,7 +111,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
     }) { padding ->
     Column(Modifier.fillMaxSize().padding(padding).imePadding().background(if (selected == null) MaterialTheme.colorScheme.background else if (isSystemInDarkTheme()) MaterialTheme.colorScheme.surfaceContainerLowest else MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         state.error?.let { error -> Text(stringResource(when (error) { "changed" -> R.string.session_changed; "forbidden" -> R.string.terminal_blocked; "missing" -> R.string.reading_missing; "oversize" -> R.string.reading_oversize; "vpn_required" -> R.string.vpn_required; else -> R.string.network_error }), color = MaterialTheme.colorScheme.error) }
-        if (state.terminalAllowed || selected?.permission == true) CastActions(api, selected, state.connection == "connected", onUnauthorized) { permissionSession = selected }
+        castStatus()
         if (selected == null) {
             var query by remember { mutableStateOf("") }
             var recent by remember { mutableStateOf(false) }
@@ -116,14 +121,15 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
             }
             OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.search_sessions)) }, singleLine = true)
             if (!state.terminalAllowed) Text(stringResource(R.string.terminal_blocked))
-            val items = state.sessions.filter { (recent || it.agentId != null) && listOfNotNull(it.title, it.agentName, it.project, it.key.provider, it.key.account).any { value -> value.contains(query, true) } }
+            val items = state.sessions.filter { (recent || it.agentId != null) && listOfNotNull(it.title, it.characterName, it.agentName, it.project, it.key.provider, it.key.account).any { value -> value.contains(query, true) } }
             if (items.isEmpty()) Text(stringResource(R.string.sessions_empty), Modifier.fillMaxWidth().padding(32.dp), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyLarge)
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(items, key = { it.key.serialize() }) { session ->
                     Row(Modifier.fillMaxWidth().clickable { controller.open(session) }.padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         CharacterAvatar(api, session, 48.dp)
                         Column(Modifier.weight(1f)) {
-                            Text(session.title, style = MaterialTheme.typography.titleMedium)
+                            Text(session.characterName ?: session.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (session.characterName != null && session.title != session.characterName) Text(session.title, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(listOfNotNull(session.project?.substringAfterLast('/'), statusLabel(session.status ?: session.activity)).joinToString(" · "), style = MaterialTheme.typography.bodyMedium)
                             if (session.permission) TextButton(onClick = { permissionSession = session }) { Text(stringResource(R.string.permission_pending), color = MaterialTheme.colorScheme.error) }
                         }
@@ -274,6 +280,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                 }
             }
         }
+    }
     }
     }
 }
