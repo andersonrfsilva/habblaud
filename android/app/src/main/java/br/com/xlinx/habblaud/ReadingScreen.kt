@@ -225,9 +225,11 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                     Row(Modifier.fillMaxWidth().clickable { controller.open(session) }.padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         CharacterAvatar(api, session, 48.dp)
                         Column(Modifier.weight(1f)) {
-                            Text(session.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            if (session.characterName != null && session.title != session.characterName) Text(session.characterName, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(listOfNotNull(session.project?.substringAfterLast('/'), statusLabel(session.status ?: session.activity)).joinToString(" · "), style = MaterialTheme.typography.bodyMedium)
+                            // Não lida: título, personagem e linha de status em negrito, como num chat.
+                            val weight = if (state.unread[session.key] != null) FontWeight.Bold else null
+                            Text(session.title, style = MaterialTheme.typography.titleMedium, fontWeight = weight, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (session.characterName != null && session.title != session.characterName) Text(session.characterName, style = MaterialTheme.typography.bodyMedium, fontWeight = weight, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(listOfNotNull(session.project?.substringAfterLast('/'), statusLabel(session.status ?: session.activity)).joinToString(" · "), style = MaterialTheme.typography.bodyMedium, fontWeight = weight)
                             if (session.permission) TextButton(onClick = { permissionSession = session }) { Text(stringResource(R.string.permission_pending), color = MaterialTheme.colorScheme.error) }
                         }
                         Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
