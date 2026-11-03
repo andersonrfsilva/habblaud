@@ -204,14 +204,15 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                 }
             }
             val shown = visibleEntries(state.entries, view)
+            val rows = groupThinking(shown)
             val lastId = shown.lastOrNull()?.id
             // Ao enviar, volta a seguir o fim: o prompt e a resposta que chegam aparecem sem rolar à mão.
             fun stickToEnd() {
                 userScrolled = false; unread = 0
-                if (shown.isNotEmpty()) scope.launch { listState.scrollToItem(shown.lastIndex + if (state.truncated) 1 else 0) }
+                if (rows.isNotEmpty()) scope.launch { listState.scrollToItem(rows.lastIndex + if (state.truncated) 1 else 0) }
             }
             LaunchedEffect(shown.size, lastId, state.truncated) {
-                val count = shown.size
+                val count = rows.size
                 if (count > 0) {
                     if (!initialScroll || !userScrolled || following) {
                         listState.scrollToItem(count - 1 + if (state.truncated) 1 else 0)
@@ -219,13 +220,13 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                         unread = 0
                     } else {
                         val previousIndex = shown.indexOfLast { it.id == previousLastId }
-                        unread += if (previousIndex >= 0) count - previousIndex - 1 else (count - previousCount).coerceAtLeast(1)
+                        unread += if (previousIndex >= 0) shown.size - previousIndex - 1 else (shown.size - previousCount).coerceAtLeast(1)
                     }
                 } else {
                     initialScroll = false
                     unread = 0
                 }
-                previousCount = count
+                previousCount = shown.size
                 previousLastId = lastId
             }
             Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -233,13 +234,13 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                     if (state.truncated) item {
                         Text(stringResource(R.string.window_truncated), Modifier.fillMaxWidth().padding(8.dp), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    items(shown, key = { it.id }) { entry ->
-                        if (entry.kind != "result" || entry.toolUseId !in tools) EntryView(entry, results[entry.id].orEmpty())
+                    items(rows, key = { it.first.id }) { (entry, thoughts) ->
+                        if (entry.kind != "result" || entry.toolUseId !in tools) EntryView(entry, results[entry.id].orEmpty(), thoughts)
                     }
                 }
-                if (userScrolled && !following && initialScroll && shown.isNotEmpty()) {
+                if (userScrolled && !following && initialScroll && rows.isNotEmpty()) {
                     val label = stringResource(R.string.go_to_end)
-                    SmallFloatingActionButton(onClick = { userScrolled = false; unread = 0; scope.launch { listState.scrollToItem(shown.lastIndex + if (state.truncated) 1 else 0) } }, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp).semantics { contentDescription = label }, shape = CircleShape) {
+                    SmallFloatingActionButton(onClick = { userScrolled = false; unread = 0; scope.launch { listState.scrollToItem(rows.lastIndex + if (state.truncated) 1 else 0) } }, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp).semantics { contentDescription = label }, shape = CircleShape) {
                         BadgedBox(badge = { if (unread > 0) Badge { Text(unread.toString()) } }) { Text("↓", style = MaterialTheme.typography.titleLarge) }
                     }
                 }
@@ -348,7 +349,7 @@ private fun ChatBanner(message: String) {
 }
 
 @Composable
-private fun EntryView(entry: TerminalEntry, results: List<TerminalEntry>) {
+private fun EntryView(entry: TerminalEntry, results: List<TerminalEntry>, thoughts: Int = 1) {
     var expanded by remember(entry.id) { mutableStateOf(false) }
     if (entry.kind == "system") {
         SelectionContainer { Text(listOfNotNull(entry.text, entry.at?.let(::entryTime)).joinToString(" · "), Modifier.fillMaxWidth().padding(8.dp), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodySmall) }
@@ -362,7 +363,7 @@ private fun EntryView(entry: TerminalEntry, results: List<TerminalEntry>) {
         ) {
             Column(Modifier.padding(12.dp)) {
                 if (entry.kind == "tool" || entry.kind == "thinking") {
-                    val label = if (entry.kind == "thinking") stringResource(R.string.thinking) else entry.title ?: stringResource(R.string.tool_result)
+                    val label = if (entry.kind == "thinking") "${stringResource(R.string.thinking)} ($thoughts)" else entry.title ?: stringResource(R.string.tool_result)
                     Row(Modifier.fillMaxWidth().clickable { expanded = !expanded }, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (entry.kind == "tool") Text("⚙", color = MaterialTheme.colorScheme.primary)
                         Text(label, style = MaterialTheme.typography.labelLarge)
@@ -404,6 +405,18 @@ private fun EntryView(entry: TerminalEntry, results: List<TerminalEntry>) {
             }
         }
     }
+}
+
+/** Pensamentos seguidos viram uma linha só, com a contagem; ao expandir, mostra o texto de todos. */
+internal fun groupThinking(entries: List<TerminalEntry>): List<Pair<TerminalEntry, Int>> {
+    val rows = mutableListOf<Pair<TerminalEntry, Int>>()
+    for (entry in entries) {
+        val (last, count) = rows.lastOrNull() ?: (null to 0)
+        if (entry.kind == "thinking" && last?.kind == "thinking") {
+            rows[rows.lastIndex] = last.copy(text = listOf(last.text, entry.text).filter { it.isNotBlank() }.joinToString("\n\n"), at = entry.at ?: last.at) to count + 1
+        } else rows += entry to 1
+    }
+    return rows
 }
 
 /** "14:05" hoje; "02/11 14:05" em outro dia, no fuso do aparelho. */
