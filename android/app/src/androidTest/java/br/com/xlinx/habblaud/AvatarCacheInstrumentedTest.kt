@@ -32,7 +32,7 @@ class AvatarCacheInstrumentedTest {
         MockWebServer().use { server ->
             server.start()
             val origin = server.url("/").toString().removeSuffix("/").replace("localhost", "127.0.0.1")
-            HabblaudApi(context, origin, false).use { api ->
+            HabblaudApi(context, origin).use { api ->
                 val cache = AvatarCache(context, api)
                 server.enqueue(MockResponse().setHeader("Content-Type", "image/png").setBody(Buffer().write(png(60))))
                 val avatar = Avatar(71, "f")

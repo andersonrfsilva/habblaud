@@ -16,7 +16,7 @@ android {
         versionName = "1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
-    buildFeatures { compose = true; buildConfig = true }
+    buildFeatures { compose = true }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     signingConfigs {
         create("release") {
@@ -30,9 +30,7 @@ android {
         }
     }
     buildTypes {
-        debug { buildConfigField("boolean", "ALLOW_LOOPBACK_HTTP", "true") }
         release {
-            buildConfigField("boolean", "ALLOW_LOOPBACK_HTTP", "false")
             signingConfig = signingConfigs.getByName("release")
         }
     }

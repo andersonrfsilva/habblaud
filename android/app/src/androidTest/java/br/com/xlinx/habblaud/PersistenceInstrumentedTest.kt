@@ -45,7 +45,7 @@ class PersistenceInstrumentedTest {
         val a = SessionKey(origin, "claude", "account", "a")
         val b = a.copy(sessionId = "b")
         val store = LocalStateStore(context)
-        store.setConnection(origin, false)
+        store.setConnection(origin)
         store.updateMessage(a) { it.copy(draft = it.draft.copy(text = "draft A", revision = 1)) }
         store.updateMessage(b) { it.copy(draft = it.draft.copy(text = "draft B", revision = 2)) }
         val reopened = LocalStateStore(context)
@@ -53,7 +53,7 @@ class PersistenceInstrumentedTest {
         assertEquals("draft B", reopened.message(b).draft.text)
         assertEquals("", reopened.message(a.copy(provider = "omp")).draft.text)
         assertEquals("", reopened.message(a.copy(account = "other")).draft.text)
-        reopened.setConnection("https://other.example", false)
+        reopened.setConnection("https://other.example")
         assertEquals("", reopened.message(a).draft.text)
     }
 }

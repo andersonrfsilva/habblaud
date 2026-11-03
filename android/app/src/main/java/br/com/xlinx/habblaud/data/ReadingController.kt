@@ -20,13 +20,13 @@ import java.net.URLEncoder
     val readingError: String? = null
 )
 
-internal fun ReadingState.streamFailure(status: Int?, conversation: Boolean, vpnRequired: Boolean = false): ReadingState {
-    val reason = if (vpnRequired) "vpn_required" else when (status) { -1 -> "oversize"; 403 -> "forbidden"; 404 -> "missing"; else -> "network" }
+internal fun ReadingState.streamFailure(status: Int?, conversation: Boolean): ReadingState {
+    val reason = when (status) { -1 -> "oversize"; 403 -> "forbidden"; 404 -> "missing"; else -> "network" }
     return if (conversation) copy(readingError = reason) else copy(connection = "offline", error = reason)
 }
 
 internal fun ReadingState.conversationConnected(): ReadingState =
-    copy(readingError = if (readingError in listOf("network", "vpn_required")) null else readingError)
+    copy(readingError = if (readingError == "network") null else readingError)
 
 internal fun snapshotMatchesSession(snapshot: String, key: SessionKey, agentId: String): Boolean {
     val agents = wireJson.parseToJsonElement(snapshot).jsonObject.objects("agents")
@@ -67,7 +67,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                     try { repository.refresh(); break } catch (e: Exception) {
                         if (e is kotlinx.coroutines.CancellationException) throw e
                         if (e is ApiException && e.status in listOf(401, 403, 404)) throw e
-                        mutable.value = mutable.value.copy(connection = "offline", error = if (e is VpnRequiredException) "vpn_required" else "network")
+                        mutable.value = mutable.value.copy(connection = "offline", error = "network")
                         delay(maxOf(retry, retryAfterMillis((e as? ApiException)?.retryAfter))); retry = (retry * 2).coerceAtMost(30000)
                     }
                 }
@@ -75,7 +75,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                 if (!restoreLoaded) { restore = store.lastSession()?.takeIf { it.origin == api.origin }; restoreLoaded = true }
                 streams.stream("/api/stream").collect { event ->
                     when (event) {
-                        is StreamEvent.Connected -> mutable.value = mutable.value.copy(connection = "connected", error = if (mutable.value.error in listOf("network", "vpn_required")) null else mutable.value.error)
+                        is StreamEvent.Connected -> mutable.value = mutable.value.copy(connection = "connected", error = if (mutable.value.error == "network") null else mutable.value.error)
                         is StreamEvent.Failure -> failure(event, conversation = false)
                         is StreamEvent.Data -> if (event.type == "snapshot") {
                             val sessions = repository.snapshot(event.data)
@@ -86,7 +86,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                         }
                     }
                 }
-            } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; if (e is ApiException && e.status == 401) unauthorized() else mutable.value = mutable.value.copy(connection = "offline", error = if (e is VpnRequiredException) "vpn_required" else "network") }
+            } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; if (e is ApiException && e.status == 401) unauthorized() else mutable.value = mutable.value.copy(connection = "offline", error = "network") }
         }
         mutable.value.selected?.let { open(it) }
     }
@@ -95,7 +95,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
     private fun changed() { close(); mutable.value = mutable.value.copy(error = "changed") }
     private fun failure(event: StreamEvent.Failure, conversation: Boolean) {
         if (event.status == 401) { unauthorized(); return }
-        mutable.value = mutable.value.streamFailure(event.status, conversation, event.vpnRequired)
+        mutable.value = mutable.value.streamFailure(event.status, conversation)
     }
     fun open(item: SessionItem) {
         generation++; val token = generation
@@ -124,13 +124,9 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                                     try { matches = snapshotMatchesSession(api.request("/api/snapshot"), item.key, item.agentId) } catch (e: Exception) {
                                         if (e is kotlinx.coroutines.CancellationException) throw e
                                         if (e is ApiException && e.status == 401) { unauthorized(); return@collect }
-                                        val transient = when (e) {
-                                            is ApiException -> e.status >= 500 || e.status == 408 || e.status == 429
-                                            is VpnRequiredException -> false
-                                            else -> e is java.io.IOException
-                                        }
+                                        val transient = if (e is ApiException) e.status >= 500 || e.status == 408 || e.status == 429 else e is java.io.IOException
                                         if (!transient || ++attempt >= FAILURES_BEFORE_NOTICE) {
-                                            close(); mutable.value = mutable.value.copy(error = if (e is VpnRequiredException) "vpn_required" else "network")
+                                            close(); mutable.value = mutable.value.copy(error = "network")
                                             return@collect
                                         }
                                         delay(maxOf(1000L * attempt, retryAfterMillis((e as? ApiException)?.retryAfter)))

@@ -3,7 +3,6 @@ package br.com.xlinx.habblaud
 import br.com.xlinx.habblaud.data.ConversationRepository
 import br.com.xlinx.habblaud.data.FAILURES_BEFORE_NOTICE
 import br.com.xlinx.habblaud.data.StreamEvent
-import br.com.xlinx.habblaud.data.VpnRequiredException
 import br.com.xlinx.habblaud.data.sendStreamEvent
 import kotlinx.coroutines.channels.Channel
 import java.io.IOException
@@ -23,13 +22,6 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ConversationStreamTest {
-    @Test fun missingVpnIsReportedByStream() = runBlocking {
-        val repo = ConversationRepository("http://100.64.0.1", { throw VpnRequiredException() }, {})
-        val event = withTimeout(5000) { repo.stream("/api/stream").first() } as StreamEvent.Failure
-        assertTrue(event.vpnRequired)
-        assertNull(event.status)
-    }
-
     @Test fun successfulConnectionResetsRetryDelay() = runBlocking {
         val server = MockWebServer()
         server.start()

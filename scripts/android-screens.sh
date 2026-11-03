@@ -152,9 +152,9 @@ PY
     adb shell input keyevent 4
 }
 shot() { sleep 1; adb exec-out screencap -p >"$OUT/$1-$THEME.png"; echo "$OUT/$1-$THEME.png"; }
-reset_app() { adb shell pm clear "$PACKAGE" >/dev/null; adb shell am start -n "$PACKAGE/.MainActivity" >/dev/null; wait_text 'URL do servidor'; }
+reset_app() { adb shell pm clear "$PACKAGE" >/dev/null; adb shell am start -n "$PACKAGE/.MainActivity" >/dev/null; wait_text 'Endereço do servidor'; }
 fill_login() {
-    enter_text 'URL do servidor' "$1"
+    enter_text 'Endereço do servidor' "$1"
     enter_text 'Usuário' android-test
     enter_text 'Senha' "$2"
     tap 'Entrar'
@@ -262,9 +262,6 @@ printf 'permission fixture:analise bash\n' >&3
 
 reset_app
 shot conexao-vazia
-enter_text 'URL do servidor' http://100.64.0.1:14748
-tap 'Revisar aviso de segurança'
-shot consentimento-http
 reset_app
 fill_login http://127.0.0.1:14748 senha-incorreta
 wait_text 'Login inválido ou sessão expirada.'

@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.first
 private val Context.localState by preferencesDataStore(name = "local_state")
 private val Context.rateState by preferencesDataStore(name = "login_rate")
 
-data class ConnectionSettings(val origin: String, val consent: Boolean, val confirmedHost: String? = null)
+data class ConnectionSettings(val origin: String)
 data class MessageDraft(val text: String = "", val revision: Long = 0, val attachments: List<Attachment> = emptyList())
 data class MessageOperation(val id: String? = null, val status: String = "unknown", val revision: Long = 0, val error: String? = null)
 data class MessageLocalState(val draft: MessageDraft = MessageDraft(), val operation: MessageOperation? = null, val control: MessageOperation? = null)
@@ -47,8 +47,8 @@ class LocalStateStore(private val context: Context) : MessageStore {
         key.name.startsWith("message_") && value is String && runCatching { decodeMessage(value).draft.attachments.any { it.uri == uri } }.getOrDefault(false)
     }
     private val originKey = stringPreferencesKey("origin")
-    private val consentKey = booleanPreferencesKey("http_consent")
-    private val confirmedHostKey = stringPreferencesKey("confirmed_http_host")
+    // Chaves do antigo consentimento de HTTP pelo Tailscale: só para apagar o que ficou salvo.
+    private val legacyKeys = listOf(booleanPreferencesKey("http_consent"), stringPreferencesKey("confirmed_http_host"))
     private val sessionKey = stringPreferencesKey("last_session")
 
     override suspend fun message(key: SessionKey): MessageLocalState = decodeMessage(context.localState.data.first()[messageKey(key)])
@@ -76,15 +76,14 @@ class LocalStateStore(private val context: Context) : MessageStore {
 
     suspend fun connection(): ConnectionSettings? {
         val data = context.localState.data.first()
-        return data[originKey]?.let { ConnectionSettings(it, data[consentKey] == true, data[confirmedHostKey]) }
+        return data[originKey]?.let { ConnectionSettings(it) }
     }
 
-    suspend fun setConnection(origin: String, consent: Boolean, confirmedHost: String? = null) {
+    suspend fun setConnection(origin: String) {
         context.localState.edit { data ->
             if (data[originKey] != origin) data.clear()
             data[originKey] = origin
-            data[consentKey] = consent
-            if (consent && confirmedHost != null) data[confirmedHostKey] = confirmedHost else data.remove(confirmedHostKey)
+            legacyKeys.forEach { data.remove(it) }
         }
     }
 

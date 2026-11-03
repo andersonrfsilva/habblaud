@@ -1,7 +1,6 @@
 package br.com.xlinx.habblaud.data
 
 import android.content.Context
-import br.com.xlinx.habblaud.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -18,11 +17,9 @@ import okhttp3.Response
 import kotlinx.serialization.json.jsonObject
 import org.json.JSONObject
 import java.io.IOException
-import java.net.URI
 import java.util.concurrent.TimeUnit
 
 class ApiException(val status: Int, val retryAfter: String? = null, val code: String? = null, val attachmentsExpired: Boolean = false) : IOException("HTTP $status")
-class VpnRequiredException : IOException("Conecte o Tailscale")
 class RedirectException : IOException("Redirecionamento recusado")
 internal fun httpClient(): OkHttpClient = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
     .retryOnConnectionFailure(false).readTimeout(45, TimeUnit.SECONDS).build()
@@ -32,16 +29,13 @@ internal fun apiError(status: Int, retryAfter: String?, body: String): ApiExcept
 }
 
 
-class HabblaudApi(context: Context, val origin: String, consent: Boolean, confirmedHost: String? = null) : AutoCloseable {
+class HabblaudApi(context: Context, val origin: String) : AutoCloseable {
     val attachments = Attachments(context.contentResolver)
-    private val host = URI(origin).host
-    init { require(UrlPolicy.origin(origin, confirmedHost, consent, BuildConfig.ALLOW_LOOPBACK_HTTP) == origin) }
+    init { require(UrlPolicy.origin(origin) == origin) }
     val cookies = SessionCookieStore(context, origin)
-    private val vpn = VpnGuard(context)
     private val base = httpClient().newBuilder().cookieJar(cookies).build()
-    private val loopback = host == "127.0.0.1" || host.equals("localhost", true)
 
-    fun client(): OkHttpClient = if (origin.startsWith("http://") && !loopback) vpn.client(base) ?: throw VpnRequiredException() else base
+    fun client(): OkHttpClient = base
 
     suspend fun request(path: String, body: JSONObject? = null): String = withContext(Dispatchers.IO) {
         require(path.startsWith("/api/") && !path.startsWith("//"))
@@ -88,6 +82,6 @@ class HabblaudApi(context: Context, val origin: String, consent: Boolean, confir
     }
     suspend fun access(): String = request("/api/access")
     suspend fun logout(): Boolean = try { request("/api/remote/logout", JSONObject()); true } catch (_: IOException) { false } finally { cancelCalls(); cookies.clear() }
-    fun cancelCalls() { base.dispatcher.cancelAll(); base.connectionPool.evictAll(); vpn.cancelCalls() }
-    override fun close() { cancelCalls(); vpn.close() }
+    fun cancelCalls() { base.dispatcher.cancelAll(); base.connectionPool.evictAll() }
+    override fun close() { cancelCalls() }
 }

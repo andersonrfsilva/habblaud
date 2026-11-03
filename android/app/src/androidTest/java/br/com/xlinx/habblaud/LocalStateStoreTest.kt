@@ -14,7 +14,7 @@ class LocalStateStoreTest {
     @Test fun connectionAndRetrySurviveRecreationAndAreIsolated() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val first = LocalStateStore(context)
-        first.setConnection("https://example.com", false)
+        first.setConnection("https://example.com")
         first.setRetryUntil("https://example.com", 123456789L)
         first.setRetryUntil("https://other.example.com", 987654321L)
         val second = LocalStateStore(context)

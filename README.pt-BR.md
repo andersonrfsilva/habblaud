@@ -245,8 +245,8 @@ A extensão vale para as sessões do omp abertas **depois** da instalação. Vej
 ### Aplicativo Android (Zaplaud)
 
 O Zaplaud, cliente nativo Android, acompanha sessões e contatos sem a interface do escritório. Requer Android 8.0 (API 26) ou
-superior e uma instalação do Habblaud com login remoto configurado. A URL deve apontar para a **porta remota**, nunca
-para a porta local sem autenticação. O aplicativo aceita uma instalação por vez; informe URL, usuário e senha do acesso
+superior e uma instalação do Habblaud com login remoto configurado. O endereço deve apontar para a **porta remota**, nunca
+para a porta local sem autenticação. O aplicativo aceita uma instalação por vez; informe endereço, usuário e senha do acesso
 remoto. A senha não é persistida. HTTPS usa a validação normal de certificado e nome do Android.
 
 O código do aplicativo, junto com o servidor compatível, fica no repositório privado
@@ -295,16 +295,13 @@ npx tsx scripts/android-smoke.ts --port 14748 --allow terminal,permissions,messa
 Aguarde o JSON com `ready: true`. Anote a porta de `localUrl`, escolhida pela fixture a cada inicialização. Em outro
 terminal, substitua `PORTA_LOCAL` por essa porta e execute:
 
-Os testes criam uma VPN temporária no aplicativo debug. Desconecte outras VPNs antes de começar.
-Em um emulador isolado, instale os APKs e autorize a VPN de teste:
+Em um emulador isolado, instale os APKs:
 
 ```bash
 android/gradlew -p android :app:assembleDebug :app:assembleDebugAndroidTest
 adb install -r android/app/build/outputs/apk/debug/app-debug.apk
 adb install -r android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
-adb shell appops set br.com.xlinx.habblaud ACTIVATE_VPN allow
 ```
-
 
 ```bash
 adb reverse tcp:14748 tcp:14748
@@ -318,21 +315,14 @@ A instrumentação cria um pedido real pela porta local da fixture, aprova na in
 As duas portas são exclusivas do laboratório; não as encaminhe para um servidor de produção. Sem fixture ou argumentos,
 os testes falham em vez de serem ignorados. Pare a fixture com `Ctrl+C` ao terminar.
 
-Se o aplicativo debug continuar instalado, revogue a autorização de VPN com
-`adb shell appops set br.com.xlinx.habblaud ACTIVATE_VPN default`.
+#### Conexão HTTP
 
-#### Conexão HTTP e Tailscale
+O endereço do servidor aceita `http://` ou `https://`, com host e porta, em qualquer rede. Endereço com caminho
+diferente de `/`, usuário embutido, query ou fragmento é recusado.
 
-Prefira HTTPS com certificado confiável. Para HTTP, o aplicativo aceita somente um IPv4 literal confirmado pelo usuário
-em `100.64.0.0/10`, com consentimento explícito para a origem e uma VPN ativa. O debug também aceita HTTP em
-`localhost` ou `127.0.0.1` para desenvolvimento; o release não aceita loopback HTTP. URL com caminho diferente de `/`,
-usuário embutido, query ou fragmento é recusada.
-
-**HTTP não cifra senha nem cookie na camada HTTP.** A faixa `100.64.0.0/10` também é usada por CGNAT de operadoras.
-Mantenha o Tailscale conectado e confira o endereço do servidor antes de aceitar. O aplicativo verifica apenas se há
-alguma VPN ativa: não identifica o Tailscale nem comprova o destino. Outra VPN pode satisfazer a verificação.
-As conexões HTTP são presas ao socket da rede VPN; se essa rede cair, as chamadas são canceladas, sem desvio para a
-rede móvel. Essa proteção não substitui a confirmação de que a VPN correta está ligada. HTTPS não exige essa exceção.
+**HTTP não cifra senha nem cookie.** Quem estiver no caminho da conexão (Wi‑Fi público, operadora) pode ler a senha e
+usar a sessão para mandar comandos aos agentes. Use HTTP só em rede confiável, como a sua rede local ou uma VPN
+(Tailscale); fora dela, use HTTPS.
 
 #### Recursos e limites
 

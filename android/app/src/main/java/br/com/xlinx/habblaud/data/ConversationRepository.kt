@@ -26,7 +26,7 @@ internal fun retryAfterMillis(value: String?): Long = value?.let {
 
 sealed interface StreamEvent {
     data class Data(val type: String, val data: String, val firstConnection: Boolean) : StreamEvent
-    data class Failure(val status: Int?, val retryAfter: String? = null, val vpnRequired: Boolean = false) : StreamEvent
+    data class Failure(val status: Int?, val retryAfter: String? = null) : StreamEvent
     data object Connected : StreamEvent
 }
 
@@ -40,7 +40,7 @@ internal fun sendStreamEvent(channel: SendChannel<StreamEvent>, event: StreamEve
 class ConversationRepository(private val origin: String, private val client: () -> okhttp3.OkHttpClient, private val unauthorized: () -> Unit) {
     constructor(api: HabblaudApi) : this(api.origin, { api.client() }, { api.cancelCalls(); api.cookies.clear() })
     private fun once(path: String): Flow<StreamEvent> = callbackFlow {
-        val client = try { client() } catch (e: IOException) { trySend(StreamEvent.Failure(null, vpnRequired = e is VpnRequiredException)); close(); return@callbackFlow }
+        val client = client()
         val source = EventSources.createFactory(client).newEventSource(Request.Builder().url(origin + path).build(), object : EventSourceListener() {
             override fun onOpen(eventSource: EventSource, response: Response) { sendStreamEvent(channel, StreamEvent.Connected) { eventSource.cancel() } }
             override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
@@ -77,8 +77,8 @@ class ConversationRepository(private val origin: String, private val client: () 
                 failure = StreamEvent.Failure(null)
             }
             val terminal = failure?.status in listOf(-1, 401, 403, 404) || failure?.status?.let { it in 300..399 } == true
-            // Falha de rede passageira (troca de rede, VPN acordando, limite de streams): só avisa depois de 3 seguidas.
-            failure?.let { failures++; if (terminal || it.vpnRequired || failures >= FAILURES_BEFORE_NOTICE) emit(it) }
+            // Falha de rede passageira (troca de rede, limite de streams): só avisa depois de 3 seguidas.
+            failure?.let { failures++; if (terminal || failures >= FAILURES_BEFORE_NOTICE) emit(it) }
             if (terminal) return@flow
             val retry = failure?.retryAfter?.let { value ->
                 value.toLongOrNull()?.coerceAtLeast(0)?.coerceAtMost(86400)?.times(1000) ?: runCatching {

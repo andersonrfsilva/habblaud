@@ -6,18 +6,19 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class UrlPolicyTest {
-    @Test fun acceptsOnlyConfirmedHttpHostWithConsent() {
-        assertEquals(BuildConfig.DEBUG, BuildConfig.ALLOW_LOOPBACK_HTTP)
-        assertEquals("http://100.64.0.1:4747", UrlPolicy.origin("http://100.64.0.1:4747/", "100.64.0.1", true, false))
-        assertNull(UrlPolicy.origin("http://100.64.0.2:4747", "100.64.0.1", true, false))
-        assertNull(UrlPolicy.origin("http://100.64.0.1", null, true, false))
-        assertNull(UrlPolicy.origin("http://100.64.0.1", "100.64.0.2", true, false))
-        assertNull(UrlPolicy.origin("http://100.64.0.1", "100.64.0.1", false, false))
-        assertNull(UrlPolicy.origin("http://192.168.1.1", "192.168.1.1", true, false))
-        assertNull(UrlPolicy.origin("http://[::1]", "::1", true, false))
-        assertNull(UrlPolicy.origin("http://localhost", null, false, false))
-        assertEquals("http://localhost", UrlPolicy.origin("http://localhost/", null, false, true))
-        assertNull(UrlPolicy.origin("https://example.com/subpath", null, false, false))
-        assertEquals("https://example.com", UrlPolicy.origin("https://example.com/", null, false, false))
+    @Test fun acceptsAnyHttpOrHttpsServer() {
+        assertEquals("http://100.83.131.11:4747", UrlPolicy.origin("http://100.83.131.11:4747"))
+        assertEquals("http://192.168.1.10:4747", UrlPolicy.origin(" http://192.168.1.10:4747/ "))
+        assertEquals("http://example.com", UrlPolicy.origin("http://Example.com:80"))
+        assertEquals("https://example.com", UrlPolicy.origin("https://example.com/"))
+        assertEquals("http://localhost:14748", UrlPolicy.origin("http://localhost:14748"))
+    }
+
+    @Test fun rejectsPathsCredentialsAndOtherSchemes() {
+        assertNull(UrlPolicy.origin("https://example.com/subpath"))
+        assertNull(UrlPolicy.origin("https://user@example.com"))
+        assertNull(UrlPolicy.origin("https://example.com/?a=1"))
+        assertNull(UrlPolicy.origin("100.83.131.11:4747"))
+        assertNull(UrlPolicy.origin(""))
     }
 }

@@ -60,8 +60,6 @@ class MainActivity : ComponentActivity() {
                 var url by remember { mutableStateOf("") }
                 var user by remember { mutableStateOf("") }
                 var password by remember { mutableStateOf("") }
-                var consent by remember { mutableStateOf(false) }
-                var confirmedHost by remember { mutableStateOf<String?>(null) }
                 var saved by remember { mutableStateOf<ConnectionSettings?>(null) }
                 var api by remember { mutableStateOf<HabblaudApi?>(null) }
                 var connected by remember { mutableStateOf(false) }
@@ -69,23 +67,20 @@ class MainActivity : ComponentActivity() {
                 var message by remember { mutableStateOf("") }
                 var confirmChange by remember { mutableStateOf(false) }
                 var confirmLogout by remember { mutableStateOf(false) }
-                var showHttpWarning by remember { mutableStateOf(false) }
                 var retryUntil by remember { mutableLongStateOf(0L) }
                 val scope = rememberCoroutineScope()
                 LaunchedEffect(Unit) {
                     try {
                         saved = store.connection()
                         saved?.let { settings ->
-                            url = settings.origin; consent = settings.consent; confirmedHost = settings.confirmedHost
-                            if (UrlPolicy.origin(settings.origin, settings.confirmedHost, settings.consent, BuildConfig.ALLOW_LOOPBACK_HTTP) != settings.origin) {
-                                consent = false; confirmedHost = null
+                            url = settings.origin
+                            if (UrlPolicy.origin(settings.origin) != settings.origin) {
                                 message = getString(R.string.invalid_url)
                             } else {
-                                api = withContext(Dispatchers.IO) { HabblaudApi(applicationContext, settings.origin, settings.consent, settings.confirmedHost) }
+                                api = withContext(Dispatchers.IO) { HabblaudApi(applicationContext, settings.origin) }
                                 try { api?.access(); connected = true } catch (e: Exception) {
                                     if (e is kotlinx.coroutines.CancellationException) throw e
                                     message = when (e) {
-                                        is VpnRequiredException -> getString(R.string.vpn_required)
                                         is RedirectException -> getString(R.string.redirect_error)
                                         is ApiException -> if (e.status == 401) "" else getString(R.string.http_error, e.status)
                                         else -> getString(R.string.network_error)
@@ -97,7 +92,7 @@ class MainActivity : ComponentActivity() {
                 }
                 DisposableEffect(Unit) { onDispose { api?.close() } }
                 fun connect() {
-                    val origin = UrlPolicy.origin(url, confirmedHost, consent, BuildConfig.ALLOW_LOOPBACK_HTTP)
+                    val origin = UrlPolicy.origin(url)
                     if (origin == null) { password = ""; message = getString(R.string.invalid_url); return }
                     val secret = password
                     password = ""
@@ -109,17 +104,16 @@ class MainActivity : ComponentActivity() {
                                 message = getString(R.string.rate_limited, ((retryUntil - System.currentTimeMillis() + 999) / 1000).toString())
                                 return@launch
                             }
-                            if (saved?.origin != origin) { api?.close(); api?.cookies?.clear(); store.setConnection(origin, consent, confirmedHost); saved = ConnectionSettings(origin, consent, confirmedHost); api = null }
-                            val current = api ?: withContext(Dispatchers.IO) { HabblaudApi(applicationContext, origin, consent, confirmedHost) }.also { api = it }
+                            if (saved?.origin != origin) { api?.close(); api?.cookies?.clear(); store.setConnection(origin); saved = ConnectionSettings(origin); api = null }
+                            val current = api ?: withContext(Dispatchers.IO) { HabblaudApi(applicationContext, origin) }.also { api = it }
                             current.login(user, secret)
                             current.access()
-                            store.setConnection(origin, consent, confirmedHost)
-                            saved = ConnectionSettings(origin, consent, confirmedHost)
+                            store.setConnection(origin)
+                            saved = ConnectionSettings(origin)
                             connected = true; message = ""
                         } catch (e: Exception) {
                             if (e is kotlinx.coroutines.CancellationException) throw e
                             message = when (e) {
-                                is VpnRequiredException -> getString(R.string.vpn_required)
                                 is RedirectException -> getString(R.string.redirect_error)
                                 is ApiException -> when (e.status) {
                                     401 -> getString(R.string.login_error)
@@ -141,13 +135,6 @@ class MainActivity : ComponentActivity() {
                         } finally { busy = false }
                     }
                 }
-                if (showHttpWarning) AlertDialog(
-                    onDismissRequest = { showHttpWarning = false },
-                    title = { Text(stringResource(R.string.http_warning_title)) },
-                    text = { Text(stringResource(R.string.http_warning)) },
-                    confirmButton = { TextButton(onClick = { consent = true; confirmedHost = try { URI(url).host } catch (_: Exception) { null }; showHttpWarning = false }) { Text(stringResource(R.string.accept_risk)) } },
-                    dismissButton = { TextButton(onClick = { showHttpWarning = false }) { Text(stringResource(R.string.cancel)) } }
-                )
                 if (confirmChange) AlertDialog(onDismissRequest = { confirmChange = false }, title = { Text(stringResource(R.string.change_server)) }, text = { Text(stringResource(R.string.change_warning)) }, confirmButton = { TextButton(onClick = { confirmChange = false; connect() }) { Text(stringResource(R.string.confirm)) } }, dismissButton = { TextButton(onClick = { confirmChange = false }) { Text(stringResource(R.string.cancel)) } })
                 if (confirmLogout) AlertDialog(onDismissRequest = { confirmLogout = false }, title = { Text(stringResource(R.string.logout)) }, text = { Text(stringResource(R.string.change_warning)) }, confirmButton = { TextButton(onClick = {
                     confirmLogout = false
@@ -165,27 +152,11 @@ class MainActivity : ComponentActivity() {
                 Scaffold(topBar = { TopAppBar(title = { Text(stringResource(R.string.app_name)) }) }) { padding ->
                 Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(stringResource(R.string.connection), style = MaterialTheme.typography.headlineMedium)
-                        OutlinedTextField(url, { value ->
-                            if (value != url) {
-                                url = value; consent = false; confirmedHost = null
-                                saved?.takeIf { it.consent || it.confirmedHost != null }?.let { settings ->
-                                    saved = settings.copy(consent = false, confirmedHost = null)
-                                    busy = true
-                                    scope.launch {
-                                        try { store.setConnection(settings.origin, false) }
-                                        catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; message = getString(R.string.storage_error) }
-                                        finally { busy = false }
-                                    }
-                                }
-                            }
-                        }, Modifier.fillMaxWidth(), enabled = !busy, label = { Text(stringResource(R.string.server_url)) }, singleLine = true)
-                        if (url.startsWith("http://", true) && !url.startsWith("http://localhost", true) && !url.startsWith("http://127.0.0.1")) {
-                            TextButton(onClick = { showHttpWarning = true }) { Text(stringResource(if (consent) R.string.http_accepted else R.string.http_review)) }
-                        }
+                        OutlinedTextField(url, { url = it }, Modifier.fillMaxWidth(), enabled = !busy, label = { Text(stringResource(R.string.server_url)) }, singleLine = true)
                         OutlinedTextField(user, { user = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.user)) }, singleLine = true)
                         OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.password)) }, visualTransformation = PasswordVisualTransformation(), singleLine = true)
                         Button(modifier = Modifier.fillMaxWidth(), enabled = !busy && user.isNotEmpty() && password.isNotEmpty(), onClick = {
-                            val target = UrlPolicy.origin(url, confirmedHost, consent, BuildConfig.ALLOW_LOOPBACK_HTTP)
+                            val target = UrlPolicy.origin(url)
                             if (target != null && saved != null && saved?.origin != target) confirmChange = true else connect()
                         }) { Text(stringResource(R.string.login)) }
                     if (busy) CircularProgressIndicator()

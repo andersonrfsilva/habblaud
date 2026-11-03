@@ -57,10 +57,10 @@ class FixtureUiInstrumentedTest {
         runBlocking {
             val store = LocalStateStore(context)
             store.clear()
-            store.setConnection(origin, false)
+            store.setConnection(origin)
             store.setLastSession(key)
             try {
-                HabblaudApi(context, origin, false).use { it.login("android-test", "android-test") }
+                HabblaudApi(context, origin).use { it.login("android-test", "android-test") }
             } catch (e: Exception) {
                 throw AssertionError("Fixture indisponível ou login falhou; inicie android-smoke e configure adb reverse tcp:14748 tcp:14748.", e)
             }
@@ -75,13 +75,11 @@ class FixtureUiInstrumentedTest {
         }
     }
 
-    @Test fun connectionConsentAndConfirmedHostArePersistedAndRevoked() = runBlocking {
+    @Test fun connectionIsPersistedPerOrigin() = runBlocking {
         val store = LocalStateStore(context)
-        val vpnOrigin = "http://100.83.131.11:4747"
-        store.setConnection(vpnOrigin, true, "100.83.131.11")
-        assertEquals(ConnectionSettings(vpnOrigin, true, "100.83.131.11"), LocalStateStore(context).connection())
-        store.setConnection(vpnOrigin, false)
-        assertEquals(ConnectionSettings(vpnOrigin, false, null), LocalStateStore(context).connection())
+        val remote = "http://100.83.131.11:4747"
+        store.setConnection(remote)
+        assertEquals(ConnectionSettings(remote), LocalStateStore(context).connection())
     }
 
     @Test fun systemBackReturnsToSessionsThenExits() {
