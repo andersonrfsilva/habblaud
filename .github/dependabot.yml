@@ -28,3 +28,9 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+
+  # Dependências e plugins Gradle do aplicativo Android
+  - package-ecosystem: "gradle"
+    directory: "/android"
+    schedule:
+      interval: "weekly"
