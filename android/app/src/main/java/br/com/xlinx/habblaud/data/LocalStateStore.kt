@@ -87,5 +87,10 @@ class LocalStateStore(private val context: Context) : MessageStore {
         }
     }
 
+    private val notificationsKey = booleanPreferencesKey("notifications")
+    /** Notificações com o app fechado (serviço em primeiro plano); ligadas por padrão. */
+    suspend fun notificationsEnabled(): Boolean = context.localState.data.first()[notificationsKey] != false
+    suspend fun setNotificationsEnabled(enabled: Boolean) { context.localState.edit { it[notificationsKey] = enabled } }
+
     suspend fun clear() { context.localState.edit { it.clear() } }
 }

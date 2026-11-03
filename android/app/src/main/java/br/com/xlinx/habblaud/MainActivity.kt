@@ -1,6 +1,11 @@
 package br.com.xlinx.habblaud
 
+import android.Manifest
+import android.content.Intent
+import android.os.Build
 import android.os.Bundle
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
@@ -28,6 +33,7 @@ import java.net.URI
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        openFromNotification(intent)
         enableEdgeToEdge()
         val store = LocalStateStore(applicationContext)
         setContent {
@@ -142,10 +148,17 @@ class MainActivity : ComponentActivity() {
                     scope.launch {
                         val revoked = api?.logout() ?: false
                         try { store.clear() } catch (_: Exception) { message = getString(R.string.storage_error) }
+                        NotificationService.stop(applicationContext)
                         api?.close(); api = null; saved = null; connected = false; busy = false
                         if (!revoked) message = getString(R.string.logout_unconfirmed)
                     }
                 }) { Text(stringResource(R.string.confirm)) } }, dismissButton = { TextButton(onClick = { confirmLogout = false }) { Text(stringResource(R.string.cancel)) } })
+                val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+                LaunchedEffect(connected) {
+                    if (!connected || !store.notificationsEnabled()) return@LaunchedEffect
+                    if (Build.VERSION.SDK_INT >= 33) askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    NotificationService.start(applicationContext)
+                }
                 if (connected && api != null) {
                     ReadingScreen(api!!, store, onUnauthorized = { connected = false; message = getString(R.string.login_error) }, onLogout = { confirmLogout = true })
                 } else {
@@ -166,5 +179,25 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        openFromNotification(intent)
+    }
+    override fun onStart() { super.onStart(); visible = true }
+    override fun onStop() { visible = false; super.onStop() }
+
+    private fun openFromNotification(intent: Intent?) {
+        intent?.getStringExtra(EXTRA_SESSION)?.let { value -> runCatching { SessionKey.deserialize(value) }.getOrNull()?.let { pendingSession.value = it } }
+        intent?.removeExtra(EXTRA_SESSION)
+    }
+
+    companion object {
+        const val EXTRA_SESSION = "session"
+        /** Com o app à vista, o próprio app mostra o pedido: o serviço não notifica. */
+        @Volatile var visible = false
+        /** Sessão tocada numa notificação, à espera de a lista carregar para abrir. */
+        val pendingSession = kotlinx.coroutines.flow.MutableStateFlow<SessionKey?>(null)
     }
 }

@@ -97,6 +97,12 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         if (event.status == 401) { unauthorized(); return }
         mutable.value = mutable.value.streamFailure(event.status, conversation)
     }
+    /** Abre a sessão tocada numa notificação; se a lista ainda não chegou, abre quando ela chegar. */
+    fun openKey(key: SessionKey) {
+        if (key.origin != api.origin) return
+        val item = mutable.value.sessions.find { it.key == key }
+        if (item != null) open(item) else { restore = key; restoreLoaded = true }
+    }
     fun open(item: SessionItem) {
         generation++; val token = generation
         conversationJob?.cancel()

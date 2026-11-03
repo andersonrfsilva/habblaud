@@ -118,4 +118,12 @@
     <string name="cast_unknown">Não foi possível confirmar o pedido. Confira o estado antes de tentar novamente.</string>
     <string name="cast_failed">O servidor não concluiu o pedido.</string>
     <string name="cast_no_folders">Nenhuma pasta disponível para este contato.</string>
+    <string name="notifications">Notificações</string>
+    <string name="background_settings">Liberar uso em segundo plano</string>
+    <string name="notifications_running">Zaplaud conectado</string>
+    <string name="channel_alerts">Pedidos e turnos concluídos</string>
+    <string name="channel_connection">Conexão em segundo plano</string>
+    <string name="notify_permission">Pede sua aprovação</string>
+    <string name="notify_question">Tem uma pergunta para você</string>
+    <string name="notify_done">Terminou o turno</string>
 </resources>

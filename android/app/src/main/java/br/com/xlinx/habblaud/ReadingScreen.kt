@@ -50,6 +50,9 @@ import kotlinx.coroutines.launch
 fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -> Unit, onLogout: () -> Unit) {
     val scope = rememberCoroutineScope()
     val controller = remember(api) { ReadingController(api, store, scope, onUnauthorized) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val pending by MainActivity.pendingSession.collectAsStateWithLifecycle()
+    LaunchedEffect(pending) { pending?.let { controller.openKey(it); MainActivity.pendingSession.value = null } }
     val owner = LocalLifecycleOwner.current
     DisposableEffect(owner, controller) {
         val observer = LifecycleEventObserver { _, event ->
@@ -119,6 +122,19 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                     val menuLabel = stringResource(R.string.menu)
                     IconButton(onClick = { menuExpanded = true }, modifier = Modifier.semantics { contentDescription = menuLabel }) { Text("⋮", style = MaterialTheme.typography.headlineMedium) }
                     DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                        var notificationsOn by remember { mutableStateOf<Boolean?>(null) }
+                        LaunchedEffect(Unit) { notificationsOn = store.notificationsEnabled() }
+                        notificationsOn?.let { on ->
+                            DropdownMenuItem(text = { Text(stringResource(R.string.notifications)) }, trailingIcon = { Switch(checked = on, onCheckedChange = null) }, onClick = {
+                                notificationsOn = !on
+                                scope.launch { store.setNotificationsEnabled(!on) }
+                                if (on) NotificationService.stop(context) else NotificationService.start(context)
+                            })
+                        }
+                        DropdownMenuItem(text = { Text(stringResource(R.string.background_settings)) }, onClick = {
+                            menuExpanded = false
+                            runCatching { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
+                        })
                         DropdownMenuItem(text = { Text(stringResource(R.string.logout)) }, onClick = { menuExpanded = false; onLogout() })
                     }
                 }
