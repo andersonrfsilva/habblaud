@@ -37,7 +37,7 @@ export function createMessageRoutes(registry: MessageRegistry): (req: IncomingMe
       case 'not-found':
         return sendJson(res, 404, { error: tr('agente desconhecido: ele já saiu do escritório?') });
       case 'unavailable':
-        return sendJson(res, 409, { error: r.reason });
+        return sendJson(res, 409, { error: r.reason, ...(r.code ? { code: r.code } : {}) });
       case 'too-many':
         return sendJson(res, 429, { error: tr('já há {0} mensagens esperando a entrega para este agente: espere a sessão buscar', [MAX_OPEN]) });
     }

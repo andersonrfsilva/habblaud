@@ -369,19 +369,67 @@ export async function openCasts(tmux: string | undefined): Promise<string[]> {
   }
 }
 
+/** Papéis do omp (modelRoles global de uma conta), lidos e gravados pelo `omp config` com PI_CODING_AGENT_DIR da conta. */
+export interface OmpRolesIO {
+  /** Último lido (vai no próximo poll); relê a pasta `dir` se passou de 30 s ou se mudou. */
+  report(): Record<string, string> | undefined;
+  refresh(dir: string): Promise<void>;
+  /** Junta `roles` ao modelRoles atual (null apaga) e grava o mapa inteiro; a próxima rodada relê. */
+  write(dir: string, roles: Record<string, string | null>): Promise<void>;
+}
+
+export function ompRoles(omp: string, now: () => number = Date.now): OmpRolesIO {
+  let cache: { dir: string; at: number; roles: Record<string, string> } | undefined;
+  const env = (dir: string) => ({ ...process.env, PI_CODING_AGENT_DIR: dir });
+  const read = async (dir: string): Promise<Record<string, string>> => {
+    const { stdout } = await exec(omp, ['config', 'get', 'modelRoles', '--json'], { timeout: 10_000, windowsHide: true, env: env(dir) });
+    const value = rec(rec(JSON.parse(stdout))?.value) ?? {};
+    return Object.fromEntries(Object.entries(value).filter((e): e is [string, string] => typeof e[1] === 'string'));
+  };
+  return {
+    report: () => cache?.roles,
+    async refresh(dir) {
+      if (cache && cache.dir === dir && now() - cache.at < 30_000) return;
+      try { cache = { dir, at: now(), roles: await read(dir) }; } catch { cache = undefined; }
+    },
+    async write(dir, roles) {
+      const merged: Record<string, string> = await read(dir);
+      for (const [role, value] of Object.entries(roles)) {
+        if (value === null) delete merged[role];
+        else merged[role] = value;
+      }
+      await exec(omp, ['config', 'set', 'modelRoles', JSON.stringify(merged)], { timeout: 10_000, windowsHide: true, env: env(dir) });
+      cache = undefined;
+    },
+  };
+}
+
+const EDITABLE_ROLES = ['task', 'plan', 'advisor'];
+const ROLE_VALUE = /^[A-Za-z0-9][\w.-]*\/[^\s\x00-\x1f\x7f]{1,200}$/;
+
 /** O auxiliar valida cada pedido antes de usar o servidor tmux do usuário. */
-export async function castRound(post: Post, run: CastRun, log: (line: string) => void = () => {}, opts: { port: number; dataDir: string; omp?: string; tmux?: string; list?: () => Promise<string[]> }): Promise<RoundResult> {
-  // As sessões abertas vão junto: o servidor reconstrói quem pode ser dispensado depois de reiniciar.
-  const polled = await post('/api/host/cast/poll', opts.list ? { open: await opts.list() } : {});
+export async function castRound(post: Post, run: CastRun, log: (line: string) => void = () => {}, opts: { port: number; dataDir: string; omp?: string; tmux?: string; list?: () => Promise<string[]>; roles?: OmpRolesIO }): Promise<RoundResult> {
+  // As sessões abertas vão junto: o servidor reconstrói quem pode ser dispensado depois de reiniciar. Os papéis também.
+  const reported = opts.roles?.report();
+  const polled = await post('/api/host/cast/poll', { ...(opts.list ? { open: await opts.list() } : {}), ...(reported ? { roles: reported } : {}) });
   if (!polled) return { state: 'down' };
   const jobs = rec(polled.json)?.jobs;
   if (polled.status !== 200 || !Array.isArray(jobs)) return { state: 'refused', status: polled.status };
+  const rolesDir = rec(polled.json)?.rolesDir;
   const results: BridgeResult[] = [];
   for (const raw of jobs) {
     const job = rec(raw);
     const id = typeof job?.id === 'string' ? job.id : '';
     if (!id) continue;
     try {
+      if (job?.op === 'roles') {
+        const roles = rec(job.roles);
+        if (!opts.roles || typeof job.agentDir !== 'string' || !isAbsolute(job.agentDir) || !isDir(join(job.agentDir, 'sessions')) || !roles || !Object.keys(roles).length
+          || Object.entries(roles).some(([role, value]) => !EDITABLE_ROLES.includes(role) || (value !== null && (typeof value !== 'string' || !ROLE_VALUE.test(value))))) throw new Error(tr('pedido inválido'));
+        await opts.roles.write(job.agentDir, roles as Record<string, string | null>);
+        results.push({ id, ok: true });
+        continue;
+      }
       if (!job || typeof job.cast !== 'string' || !/^[a-z0-9-]{1,40}$/.test(job.cast) || (job.op !== 'start' && job.op !== 'stop') || !opts.tmux) throw new Error(tr('pedido inválido'));
       if (job.op === 'start') {
         if (job.model !== undefined && (typeof job.model !== 'string' || job.model.startsWith('-') || !/^[^\s\x00-\x1f\x7f]{1,200}$/.test(job.model))) throw new Error(tr('pedido inválido'));
@@ -422,6 +470,7 @@ export async function castRound(post: Post, run: CastRun, log: (line: string) =>
     }
   }
   if (results.length) await post('/api/host/cast/ack', { results });
+  if (opts.roles && typeof rolesDir === 'string' && isAbsolute(rolesDir) && isDir(join(rolesDir, 'sessions'))) await opts.roles.refresh(rolesDir);
   return { state: 'ok', results };
 }
 
@@ -537,7 +586,8 @@ async function main(): Promise<void> {
     process.on('SIGTERM', () => process.exit(0));
     const post = httpPost(parsed.port);
     const tmuxBin = findExecutable('tmux', process.env, process.platform);
-    const castOpts = { port: parsed.port, dataDir: process.env.HABBLAUD_DATA_DIR || join(homedir(), '.habblaud'), omp: ompBinFrom(process.env, homedir()), tmux: tmuxBin, list: () => openCasts(tmuxBin) };
+    const ompBin = ompBinFrom(process.env, homedir());
+    const castOpts = { port: parsed.port, dataDir: process.env.HABBLAUD_DATA_DIR || join(homedir(), '.habblaud'), omp: ompBin, tmux: tmuxBin, list: () => openCasts(tmuxBin), roles: ompBin ? ompRoles(ompBin) : undefined };
     const log = (line: string) => console.log(`[codex-bridge] ${line}`);
     let last = '';
     for (;;) {
@@ -563,7 +613,8 @@ async function main(): Promise<void> {
   const claudeBin = runnableClaudeBin(process.env);
   const cli = claudeBin ? createCliRunner(claudeBin) : undefined;
   const tmuxBin = findExecutable('tmux', process.env, process.platform);
-  const castOpts = { port: parsed.port, dataDir: process.env.HABBLAUD_DATA_DIR || join(homedir(), '.habblaud'), omp: ompBinFrom(process.env, homedir()), tmux: tmuxBin, list: () => openCasts(tmuxBin) };
+  const ompBin = ompBinFrom(process.env, homedir());
+  const castOpts = { port: parsed.port, dataDir: process.env.HABBLAUD_DATA_DIR || join(homedir(), '.habblaud'), omp: ompBin, tmux: tmuxBin, list: () => openCasts(tmuxBin), roles: ompBin ? ompRoles(ompBin) : undefined };
   const post = httpPost(parsed.port);
   const download = httpAttachmentDownload(parsed.port);
   const log = (line: string) => console.log(`[codex-bridge] ${line}`);

@@ -12,12 +12,43 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Android:** gravações antigas de conversas não recriam o cache após sair da conta ou trocar de servidor.
+- **Android:** a última sessão segue a ordem das escolhas, mesmo quando gravações antigas terminam depois.
+
+- **Android:** alertas oferecem uma versão genérica quando o sistema oculta conteúdo privado. A exibição depende
+  das configurações do sistema e do usuário.
 - **Terminal:** avisos de envio, ditado e anexos aparecem junto ao estado da sessão, acima da caixa de mensagem.
 - **omp:** a espera (`wait`) diz o que aguarda: o comando em segundo plano, o subagente pelo nome ou os dois, em vez
   de sempre "Esperando os subagentes".
 - **Elenco:** personagens do host usam Moli como navegador headless, inclusive após reiniciar o auxiliar.
+- **Android:** sessão encerrada sai das conversas abertas assim que o servidor a marca como fechada, e o contato
+  fica livre para ser chamado ou retomado na hora, sem esperar os ~20 s em que ela ainda aparece no snapshot.
 
 ### Adicionado
+
+- **Android:** cada autenticação HTTP pede confirmação sobre o risco de enviar senha e sessão sem criptografia.
+- **Android:** conversas ficam guardadas no aparelho e aparecem na hora ao abrir; o servidor manda só o que veio
+  depois da última mensagem guardada (`?after=` no stream do terminal). Elenco e pastas deixam de ser baixados a cada
+  5 s.
+- **Servidor:** streams (`/api/stream`, terminal) e respostas JSON grandes vão com gzip para quem aceita: o snapshot
+  do escritório cai de ~41 KB para ~6,5 KB.
+- **Android:** avatar do contato pulando, com pontos "digitando", no pé da conversa enquanto o agente trabalha.
+- **Android:** subagentes e advisors aparecem num galho abaixo do agente principal na lista de conversas, só enquanto
+  trabalham.
+- **Elenco:** "Novo" em chamar contato abre um agente fora do elenco, com nome e visual sorteados
+  (`POST /api/cast/new`); ele pode ser dispensado e sai sozinho por ociosidade como um personagem.
+- **Android:** Configurações trocam modelo e raciocínio dos papéis `task`, `plan` e `advisor` do omp (modelRoles
+  global da conta padrão). O auxiliar do host grava com `omp config set` e devolve os valores lidos a cada rodada
+  (`GET`/`POST /api/cast/roles`).
+- **Zaplaud:** novo ícone de aplicativo combina conversa e inteligência artificial.
+
+- **Android:** cliente nativo para login remoto, lista de sessões e conversa, envio com anexos, aprovações e
+  interrupção omp, conforme as permissões do servidor. Acompanha o tema claro ou escuro do sistema e mostra Markdown
+  selecionável nas mensagens. HTTP é aceito em qualquer rede, inclusive LAN e VPN. Mensagens, anexos e interrupção
+  precisam do servidor deste fork. O upstream atende no máximo leitura e aprovações, conforme `HABBLAUD_REMOTE_ALLOW`
+  e os recursos ligados nele.
+- **Proteção de sessão:** mensagens e controles aceitam `expectedSessionId` e recusam troca de sessão com
+  `409` e `code: 'session_changed'`. `/api/access` anuncia `messageSessionGuard` quando mensagens estão autorizadas.
 
 - **Elenco:** o auxiliar aceita `--only-cast` para atender apenas personagens, sem iniciar os outros serviços.
 - **Terminal:** o título mostra o modelo e o raciocínio em uso no omp, por exemplo `Opus 5.5 M`.
@@ -131,6 +162,23 @@ do meio (0.**3**.0).
   aparecem o título e o "… +N linhas", que abre num clique (a busca abre sozinha o trecho achado). Saída de até 2
   linhas curtas continua à vista, e a saída com erro mostra as 6 primeiras linhas. A conversa fica cerca de 60% mais
   curta.
+- **Modo de envio ao omp:** em **Configurações › Mensagens ao omp**, escolha como a mensagem entra com o agente
+  trabalhando: **Acrescentar agora** (`aside`, o padrão), **Enfileirar** (`followUp`) ou **Mudar direção** (`steer`).
+  Vale para todos os agentes do omp e fica guardado no navegador. Sessões abertas antes de atualizar a extensão sempre
+  enfileiram.
+- **Abas do terminal com todos os agentes:** as abas da janela de terminal mostram todos os agentes principais do
+  escritório, não só os da sala do agente aberto. A ordem das abas é guardada separada da lista lateral.
+- **Contadores do topo:** clicar em "trabalhando" ou "precisam de você" abre a lista desses agentes, para selecionar
+  um ou abrir o terminal dele.
+- **Olho do advisor no omp:** o olho em pixel art na barra de cima do terminal liga e desliga o advisor da sessão
+  (`/advisor on` e `/advisor off`). O Habblaud não lê o estado real: o olho mostra o último comando enviado.
+- **Custo das sessões do omp:** a gaveta soma `usage.cost.total` do omp ao custo da sessão.
+- **Terminal:** tabelas de Markdown viram tabela de verdade (cabeçalho, alinhamento e Markdown nas células), e links
+  das respostas abrem numa aba nova; endereços soltos também viram link.
+- **Elenco:** `HABBLAUD_CAST_MAX` (1 a 50) limita quantos personagens ficam abertos ao mesmo tempo; sem a variável,
+  não há limite. A lista do elenco agrupa principais, advisors e subagentes, e o **Retomar em…** do histórico também
+  oferece os personagens livres do elenco. Personagens na reserva leem um livro ou mexem no celular.
+- **Entregas:** cada entrega mostra o avatar e o nome do agente da sessão, mesmo depois que ele saiu do escritório.
 
 ### Alterado
 
@@ -152,6 +200,12 @@ do meio (0.**3**.0).
 - **Página com Content-Security-Policy:** o servidor passa a mandar uma CSP junto com a página (só em produção, não no
   `npm run dev`). Scripts só rodam se vierem do próprio Habblaud, e a página não pode ser embutida em outro site. É uma
   barreira extra caso algum texto de agente chegue à tela como HTML. Nada muda no uso.
+- **Chip do agente:** mostra o selo do modelo em uso no lugar da letra da conta.
+- **Lista lateral:** a sala mostra só o nome; o caminho fica na dica.
+- **Arquivos:** a janela fecha só pelo X ou pelo Esc, nunca por clique fora dela.
+- **Terminal:** ao abrir, maximizar ou restaurar, o foco vai para a caixa de mensagem. No celular, a janela sobe com
+  o teclado virtual.
+- **Celular:** a barra do topo não mostra mais os botões de câmera.
 
 ### Corrigido
 
@@ -220,6 +274,10 @@ do meio (0.**3**.0).
 - **Histórico do agente do omp com atividades repetidas:** quando o omp trocava o título da sessão, o Habblaud relia o
   transcript e copiava de novo as atividades já conhecidas para o histórico do agente, que enchia de repetidas e mostrava
   uma linha do tempo mais curta. Agora cada atividade entra uma vez só.
+- **omp: subagente parado numa ferramenta longa** (`wait`, bash de até 1 h) não escreve no arquivo e saía do
+  escritório. Agora ele fica enquanto a última ferramenta segue sem resultado e o agente principal continua batendo.
+- **Acesso remoto:** se a lista de sessões encerradas estiver ilegível quando o servidor sobe, os logins emitidos
+  antes disso deixam de valer (falha fechada), em vez de aceitar tokens que talvez tenham sido revogados.
 
 ## [1.0.3] - 2026-10-16
 

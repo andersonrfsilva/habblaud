@@ -2,6 +2,7 @@
 // Eventos nomeados: snapshot | feed | notice (o `data` é o JSON do protocolo em shared/types.ts).
 // Snapshots saem com throttle (~200 ms); feed e avisos vão em lote logo depois do snapshot.
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { constants, createGzip } from 'node:zlib';
 import type { OfficeSnapshot } from '../../shared/types';
 import type { CommitResult, Office } from '../model/office';
 import { isLoopbackHost } from './guard';
@@ -13,6 +14,8 @@ const MAX_BUFFERED = 8 * 1024 * 1024;
 
 export class Hub {
   private clients = new Set<ServerResponse>();
+  /** Escrita de cada cliente (direta ou pelo gzip, ver openSse). */
+  private writers = new WeakMap<ServerResponse, (chunk: string) => void>();
   /** Clientes que abriram a página por um Host local (os únicos que podem responder pedidos de permissão). */
   private local = new WeakSet<ServerResponse>();
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -80,16 +83,12 @@ export class Hub {
   attach(req: IncomingMessage, res: ServerResponse): void {
     req.socket.setTimeout(0);
     req.socket.setNoDelay(true);
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no',
-    });
+    const write = openSse(req, res);
     const snapshot = this.current();
-    res.write('retry: 2000\n\n');
-    res.write(frame('snapshot', snapshot));
-    res.write(frame('feed', this.office.recentFeed(50)));
+    write('retry: 2000\n\n');
+    write(frame('snapshot', snapshot));
+    write(frame('feed', this.office.recentFeed(50)));
+    this.writers.set(res, write);
     this.clients.add(res);
     if (this.canAnswer(req)) this.local.add(res);
     const drop = () => this.clients.delete(res);
@@ -158,11 +157,37 @@ export class Hub {
         c.destroy();
         continue;
       }
-      c.write(chunk);
+      (this.writers.get(c) ?? ((x: string) => c.write(x)))(chunk);
     }
   }
 }
 
 export function frame(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+}
+
+/**
+ * Cabeçalhos do stream SSE e a função que escreve nele. Com `Accept-Encoding: gzip` (navegador e OkHttp mandam), o
+ * corpo vai comprimido com flush a cada frame: o JSON dos snapshots e da conversa encolhe ~6x, sem atrasar a entrega.
+ */
+export function openSse(req: IncomingMessage, res: ServerResponse): (chunk: string) => void {
+  const gzip = /\bgzip\b/i.test(String(req.headers['accept-encoding'] ?? ''));
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+    ...(gzip ? { 'Content-Encoding': 'gzip', Vary: 'Accept-Encoding' } : {}),
+  });
+  if (!gzip) return (chunk) => void res.write(chunk);
+  const z = createGzip({ flush: constants.Z_SYNC_FLUSH });
+  z.pipe(res);
+  z.on('error', () => res.destroy());
+  res.on('close', () => z.destroy());
+  return (chunk) => {
+    if (z.destroyed || res.destroyed) return;
+    // Cliente lento com gzip: os bytes se acumulam no compressor, não em `res`; mesmo limite do stream sem gzip.
+    if (z.writableLength > MAX_BUFFERED) { res.destroy(); return; }
+    z.write(chunk);
+  };
 }

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
-import { CAST_IDLE_MINUTES, type AgentInfo, type CastJob, type CastJobInfo, type CastMember } from '../../shared/types';
+import { CAST_IDLE_MINUTES, NEW_CAST_PREFIX, OMP_EDITABLE_ROLES, type AgentInfo, type CastJob, type CastJobInfo, type CastMember, type OmpRoles } from '../../shared/types';
 import { tr } from '../../shared/i18n';
 import { HOST_PRESENCE_MS, KEEP_MS, PROMPT_MAX, QUEUED_TIMEOUT_MS, SENT_TIMEOUT_MS } from '../spawn/spawn';
 import { normalizeCwd } from '../model/rooms';
@@ -37,7 +37,8 @@ export class CastLauncher {
     const body = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
     if (!member || member.kind !== 'main' || typeof body.room !== 'string' || (body.mode !== 'new' && body.mode !== 'resume') || (body.prompt !== undefined && (typeof body.prompt !== 'string' || body.prompt.length > PROMPT_MAX || /^\s*-/.test(body.prompt))) || (member.model !== undefined && member.model.startsWith('-'))) return { status: 422, error: tr('pedido inválido') };
     if (this.state(id) || this.opts.agents().some((a) => a.cast === id && a.status !== 'offline' && a.status !== 'done')) return { status: 409, error: tr('personagem ocupado') };
-    if (this.opts.max !== undefined && this.openCount() >= this.opts.max) return { status: 409, error: this.opts.max === 1 ? tr('só 1 personagem trabalha por vez: dispense o atual antes de chamar outro') : tr('limite de {0} personagens trabalhando ao mesmo tempo: dispense um antes de chamar outro', [this.opts.max]) };
+    const limit = this.limitError();
+    if (limit) return limit;
     // Sem salas no personagem vale qualquer pasta absoluta (o auxiliar confere se ela existe no host); com salas, só elas.
     const room = normalizeCwd(body.room);
     if (!isAbsolute(room) || room.length > 1024) return { status: 422, error: tr('informe a pasta do projeto (caminho absoluto)') };
@@ -64,12 +65,56 @@ export class CastLauncher {
     const job: CastJob = { id: randomUUID(), op: 'start', cast: id, folder: room, agentDir, ...(member.model ? { model: member.model } : {}), ...(instructionsFile ? { instructionsFile } : {}), ...(resume ? { resume } : {}), ...(body.prompt ? { prompt: body.prompt as string } : {}) };
     return { job: this.enqueue(job) };
   }
+  /**
+   * "Novo": agente fora do elenco, numa sala livre. O escritório sorteia nome e visual (como numa sessão aberta à mão);
+   * o id `novo-…` só serve para acompanhar a chamada, dispensar e encerrar por ociosidade como um personagem.
+   */
+  startNew(raw: unknown): { job: CastJobInfo } | { status: number; error: string } {
+    const body = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+    if (typeof body.room !== 'string' || (body.account !== undefined && typeof body.account !== 'string') || (body.prompt !== undefined && (typeof body.prompt !== 'string' || body.prompt.length > PROMPT_MAX || /^\s*-/.test(body.prompt)))) return { status: 422, error: tr('pedido inválido') };
+    const limit = this.limitError();
+    if (limit) return limit;
+    const room = normalizeCwd(body.room);
+    if (!isAbsolute(room) || room.length > 1024) return { status: 422, error: tr('informe a pasta do projeto (caminho absoluto)') };
+    if (!this.available()) return { status: 503, error: tr('auxiliar do host desligado (npm run codex:bridge)') };
+    const agentDir = this.opts.account(body.account as string | undefined);
+    if (!agentDir) return { status: 422, error: tr('conta não encontrada') };
+    const cast = `${NEW_CAST_PREFIX}${randomUUID().slice(0, 8)}`;
+    return { job: this.enqueue({ id: randomUUID(), op: 'start', cast, folder: room, agentDir, ...(body.prompt ? { prompt: body.prompt as string } : {}) }) };
+  }
+  private limitError(): { status: number; error: string } | undefined {
+    if (this.opts.max === undefined || this.openCount() < this.opts.max) return undefined;
+    return { status: 409, error: this.opts.max === 1 ? tr('só 1 personagem trabalha por vez: dispense o atual antes de chamar outro') : tr('limite de {0} personagens trabalhando ao mesmo tempo: dispense um antes de chamar outro', [this.opts.max]) };
+  }
   dismiss(agent: AgentInfo | undefined): { job: CastJobInfo } | { status: number; error: string } {
     if (!agent?.cast || !this.opened.has(agent.cast) || agent.kind !== 'main') return { status: 404, error: tr('agente não encontrado') };
     const active = this.state(agent.cast);
     if (active) return { status: 409, error: tr('personagem ocupado') };
     return { job: this.enqueue({ id: randomUUID(), op: 'stop', cast: agent.cast }) };
   }
+  /** Modelos dos papéis editáveis da conta padrão, como o auxiliar leu por último (`omp config get modelRoles`). */
+  roles(): { roles?: Partial<Record<string, string>>; pending: boolean } {
+    const pending = [...this.entries.values()].some((e) => e.job.op === 'roles' && (e.info.status === 'queued' || e.info.status === 'sent'));
+    return { ...(this.lastRoles ? { roles: { ...this.lastRoles } } : {}), pending };
+  }
+  /** Pasta da conta padrão: o auxiliar lê dela os papéis que manda a cada rodada. */
+  rolesDir(): string | undefined { return this.opts.account(undefined); }
+  /** Troca papéis (`{roles: {task: "prov/modelo:nível", plan: null}}`): o auxiliar grava com `omp config set modelRoles`. */
+  setRoles(raw: unknown): { job: CastJobInfo } | { status: number; error: string } {
+    const body = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+    const input = body.roles && typeof body.roles === 'object' && !Array.isArray(body.roles) ? body.roles as Record<string, unknown> : undefined;
+    const roles: OmpRoles = {};
+    for (const [role, value] of Object.entries(input ?? {})) {
+      if (!(OMP_EDITABLE_ROLES as readonly string[]).includes(role) || (value !== null && (typeof value !== 'string' || !ROLE_VALUE.test(value)))) return { status: 422, error: tr('pedido inválido') };
+      roles[role as keyof OmpRoles] = value as string | null;
+    }
+    if (!Object.keys(roles).length) return { status: 422, error: tr('pedido inválido') };
+    if (!this.available()) return { status: 503, error: tr('auxiliar do host desligado (npm run codex:bridge)') };
+    const agentDir = this.rolesDir();
+    if (!agentDir) return { status: 422, error: tr('conta não encontrada') };
+    return { job: this.enqueue({ id: randomUUID(), op: 'roles', cast: '', agentDir, roles }) };
+  }
+  private lastRoles: Partial<Record<string, string>> | undefined;
   /** Abertos agora pelo Habblaud (sessão hb-* ou chamada em andamento); quem já está sendo dispensado não conta. */
   private openCount(): number {
     const casts = new Set([...this.opened.keys()].filter((c) => this.state(c) !== 'dismissing'));
@@ -87,10 +132,15 @@ export class CastLauncher {
    * ser dispensado depois de o servidor reiniciar, e esquece quem fechou a sessão por fora. */
   poll(raw?: unknown): CastJob[] {
     this.hostSeen = this.now();
+    const reported = raw && typeof raw === 'object' && 'roles' in raw && raw.roles && typeof raw.roles === 'object' ? raw.roles as Record<string, unknown> : undefined;
+    if (reported) {
+      const roles = Object.fromEntries(OMP_EDITABLE_ROLES.flatMap((r) => typeof reported[r] === 'string' && ROLE_VALUE.test(reported[r]) ? [[r, reported[r]]] : []));
+      if (JSON.stringify(roles) !== JSON.stringify(this.lastRoles)) { this.lastRoles = roles; this.opts.changed(); }
+    }
     const open = raw && typeof raw === 'object' && 'open' in raw && Array.isArray(raw.open) ? raw.open.filter((c): c is string => typeof c === 'string' && /^[a-z0-9-]{1,40}$/.test(c)) : undefined;
     if (open) {
       let changed = false;
-      for (const cast of open) if (!this.opened.has(cast) && this.opts.member(cast)) { this.opened.set(cast, this.now()); changed = true; }
+      for (const cast of open) if (!this.opened.has(cast) && (this.opts.member(cast) || cast.startsWith(NEW_CAST_PREFIX))) { this.opened.set(cast, this.now()); changed = true; }
       for (const cast of [...this.opened.keys()]) if (!open.includes(cast) && !this.state(cast)) { this.opened.delete(cast); changed = true; }
       if (changed) this.opts.changed();
     }
@@ -106,7 +156,8 @@ export class CastLauncher {
       const r = result && typeof result === 'object' ? result as Record<string, unknown> : {};
       const e = typeof r.id === 'string' ? this.entries.get(r.id) : undefined;
       if (!e || e.info.status !== 'sent') continue;
-      e.info.status = r.ok === true ? 'waiting' : 'failed';
+      // Papéis gravados terminam no ack; chamar e dispensar esperam o agente aparecer ou sumir (tick).
+      e.info.status = r.ok === true ? (e.job.op === 'roles' ? 'done' : 'waiting') : 'failed';
       if (r.ok !== true) e.info.error = typeof r.error === 'string' ? r.error.slice(0, 300) : tr('o auxiliar não abriu a sessão');
       e.at = this.now();
       if (r.ok === true && e.job.op === 'start') this.opened.set(e.job.cast, this.now());
@@ -141,3 +192,6 @@ export class CastLauncher {
     }
   }
 }
+
+/** `provedor/modelo`, com `:nível` de raciocínio opcional (o omp separa o último `:off|…|max`); nada de espaço ou controle. */
+const ROLE_VALUE = /^[A-Za-z0-9][\w.-]*\/[^\s\x00-\x1f\x7f]{1,200}$/;

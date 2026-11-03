@@ -494,6 +494,18 @@ describe('Office: elenco', () => {
     expect(notices.some((n) => n.includes('não trabalha'))).toBe(true);
   });
 
+  it('"Novo" (novo-…): nome sorteado, sem visual de membro, mas o id fica para dispensar; id desconhecido comum não', () => {
+    const { office, now } = makeOffice();
+    office.addMain({ ...main('a', 's1', '/p/api', now()), cast: 'novo-1a2b3c4d' });
+    office.addMain({ ...main('b', 's2', '/p/api', now()), cast: 'sumiu' });
+    expect(office.get('a')).toMatchObject({ cast: 'novo-1a2b3c4d' });
+    expect(office.get('a')?.name).toBeTruthy();
+    expect(office.get('a')?.parts).toBeUndefined();
+    expect(office.get('b')?.cast).toBeUndefined();
+    office.requestCast('b', 'novo-99999999');
+    expect(office.get('b')?.cast).toBe('novo-99999999');
+  });
+
   it('normaliza salas e casa antes de vestir a sessão', () => {
     const { office, now } = makeOffice();
     office.cast.put({ ...ana, home: '/tmp//x/', rooms: ['/tmp/x/', '/tmp//x'] });

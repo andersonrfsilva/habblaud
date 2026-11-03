@@ -8,3 +8,12 @@ scripts/assets/.cache/
 
 # Configurações locais do Claude Code e caches de geração
 .claude/
+
+# Android build outputs and local signing secrets
+android/**/build/
+android/build/
+android/.gradle/
+android/local.properties
+*.jks
+*.keystore
+keystore.properties

@@ -23,6 +23,7 @@ import type {
   TaskItem,
   UpdateStatus,
 } from '../../shared/types';
+import { NEW_CAST_PREFIX } from '../../shared/types';
 import { SHELL_WAIT_TOOL, SPECIAL, type ShellOutcome } from '../../shared/activity';
 import { nameKey } from '../../shared/appearance';
 import { DemoSimulator } from '../../shared/demo/simulator';
@@ -162,6 +163,14 @@ export interface CommitResult {
 }
 
 type NoticeKind = 'arrive' | 'room' | 'wait' | 'deliver' | 'done' | 'leave' | 'shell' | 'shellDone' | 'github' | 'character';
+
+/**
+ * Chamado como "Novo" (fora do elenco): sem membro, o visual e o nome são sorteados, mas o id `novo-…` fica no agente
+ * para o lançador acompanhar a chamada, dispensar e encerrar por ociosidade.
+ */
+function keepNewCast(info: AgentInfo, cast: string | undefined): void {
+  if (!info.cast && cast?.startsWith(NEW_CAST_PREFIX)) info.cast = cast;
+}
 
 /** Pergunta ainda sem resposta (o balão dela já diz que o agente espera você). */
 function isOpenQuestion(a: Activity | undefined): boolean {
@@ -331,6 +340,7 @@ export class Office {
       delete existing.removeAt;
       if (p.cast && p.cast !== this.cast.binding(p.sessionId)) {
         this.applyCast(existing.info, this.castFor({ id: p.id, session: p.sessionId, room: existing.info.roomId, explicit: p.cast }));
+        keepNewCast(existing.info, p.cast);
         this.castFallbackNotice(existing.info, p.cast);
         this.markDirty();
       }
@@ -363,7 +373,7 @@ export class Office {
     if (chosen) {
       info.cast = chosen.id;
       if (chosen.parts) info.parts = { ...chosen.parts };
-    }
+    } else keepNewCast(info, p.cast);
     if (chosen) this.rememberCast(info);
     if (p.status === 'waiting') info.waitingFor = p.waitingFor ?? tr('responder no terminal');
     const rec: AgentRecord = { info, history: [] };
@@ -904,6 +914,7 @@ export class Office {
     const rec = this.agents.get(id);
     if (!rec || rec.info.kind !== 'main') return;
     this.applyCast(rec.info, this.castFor({ id, session: rec.info.sessionId, room: rec.info.roomId, explicit: castId }));
+    keepNewCast(rec.info, castId);
     this.castFallbackNotice(rec.info, castId);
     this.markDirty();
   }

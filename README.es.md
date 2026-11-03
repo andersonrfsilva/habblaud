@@ -633,6 +633,8 @@ principal, asesor o subagente. Para subagentes, indica tipos observados como `re
   permitida, la sesión recibe un personaje sorteado.
 - En omp, `HABBLAUD_CAST=<id>` solicita un miembro para la sesión. El asesor y los subagentes usan miembros
   compatibles con sus tipos. Las salas organizan la elección; no restringen herramientas ni acceso a archivos.
+- `HABBLAUD_CAST_MAX` (1 a 50; sin definir = sin límite) limita cuántos personajes mantiene abiertos Habblaud a la
+  vez. Cuentan las sesiones `hb-*` abiertas y las llamadas en curso; los personajes que se están despidiendo, no.
 
 El elenco se guarda en `~/.habblaud/cast.json`; los vínculos de sesión caducan tras 60 días sin uso. Los personajes
 antiguos de las salas migran automáticamente, con copia en `~/.habblaud/names.json.pre-031`. El elenco sigue el
@@ -691,8 +693,13 @@ límites (5 h, semana, por modelo o grupo; los agotados resaltan).
   también para la sesión abierta con `/new` o `/resume`, y para la reabierta con `omp --resume`/`--restore` (que solo
   vuelve a escribir en el archivo en el siguiente mensaje).
 - **Enviar mensajes:** el cuadro **Enviar mensaje** funciona para omp con la extensión instalada. Con el agente
-  inactivo, el mensaje inicia un turno nuevo; si está trabajando, entra como continuación justo después del turno actual,
-  sin interrumpir lo que está haciendo.
+  inactivo, cualquier modo inicia un turno nuevo. Mientras trabaja, **Añadir ahora** (`aside`, el predeterminado) entra
+  en el siguiente límite de paso sin cortar el lote de herramientas en curso; las llamadas interrumpibles de
+  `wait`/`vibe_wait` son la excepción. **Encolar** (`followUp`) espera al final del turno. **Cambiar dirección**
+  (`steer`) puede saltar herramientas pendientes; no deshace cambios ni garantiza cancelar una operación ya iniciada.
+  Las subidas y la consulta de la extensión (hoy hasta 5 segundos con el agente ocupado) añaden demora. Elige el modo
+  en **Configuración › Mensajes a omp**; vale para todos los agentes de omp y se guarda en el navegador. Este `aside`
+  en el historial principal no es el chat paralelo efímero.
 - **Modelo y razonamiento:** con la extensión instalada, los selectores Modelo y Razonamiento del panel cambian la sesión en vivo (`pi.setModel` / `setThinkingLevel`); desde el celular, solo con `messages` en `HABBLAUD_REMOTE_ALLOW`.
 - **Preguntas (`ask`):** con la extensión, las preguntas que el agente hace con la herramienta `ask` se abren también en
   la tarjeta **Pregunta para ti** de la oficina (desde el celular, con `permissions` en `HABBLAUD_REMOTE_ALLOW`). Vale la

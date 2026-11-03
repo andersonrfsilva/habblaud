@@ -93,7 +93,7 @@ O auxiliar no host (`npm run codex:bridge`) abre sessões omp em `tmux` como `hb
 | `GET /api/health` | `{ok, version, demo, docker, remote, terminal, permissions, pty, messages, codexEvents, ompEvents, semMarca, updates:{state, latest, available}, sources, accounts:[{id, provider?, usageStatus}]}` (`terminal`, `permissions` e `messages` valem para a conexão que perguntou; `pty` nunca vale pela porta remota) |
 | `POST /api/demo` | `{enabled: boolean}` liga/desliga agentes simulados (misturados aos reais) |
 | `POST /api/rooms/rename` | `{id, name}`: renomeia a sala (nome vazio volta ao padrão, o nome da pasta); `200 {name}`, `400`, `404` (sala desconhecida), `403` (terminal desligado ou fora do acesso local); o nome fica em `rooms.json` na pasta de dados |
-| `GET /api/access` | `AccessInfo`: `{remote, local, permissions, messages, terminal, spawn, world}`: o que esta conexão pode usar (a porta remota só vê o que `HABBLAUD_REMOTE_ALLOW` liberar) |
+| `GET /api/access` | `AccessInfo`: `{remote, local, permissions, messages, messageSessionGuard?, terminal, spawn, world}`: o que esta conexão pode usar (a porta remota só vê o que `HABBLAUD_REMOTE_ALLOW` liberar) |
 | `GET /api/mod/summary?account=&session=` | `ModSummary` para o mod do Claude Code: `{version, agents, working, waiting:[{id, name, room, account, waitingFor, since, answerable}]}`, sem o demo e sem a sessão de quem pergunta (ver abaixo) |
 | `GET /api/updates` | `{version, ...UpdateStatus}`: versão em uso e o resultado da verificação de versão nova (ver abaixo) |
 | `POST /api/updates/check` | "Verificar agora": consulta o GitHub (no máximo uma vez a cada 30 s) e devolve `{version, ...UpdateStatus}` |
@@ -102,12 +102,12 @@ O auxiliar no host (`npm run codex:bridge`) abre sessões omp em `tmux` como `hb
 | `GET /api/permissions/:id/wait` | (hook) long-poll de até 25 s (`?timeout=` em segundos): `{status: 'pending' \| 'decided' \| 'released', ...}` |
 | `GET /api/permissions/:id` | (página) detalhe do pedido com os argumentos (`PermissionRequestInfo` com `input`) |
 | `POST /api/permissions/:id/decision` | (página) `PermissionDecision`: `{behavior: 'allow' \| 'deny' \| 'terminal' \| 'answer', message?, interrupt?, suggestion?, answers?}` |
-| `POST /api/messages` | (página) `{agentId, text, attachments?: string[]}`: até cinco IDs; aceita somente anexos; `201 OutboxMessage`; trava `messages` |
+| `POST /api/messages` | (página) `{agentId, text, attachments?: string[], deliverAs?, expectedSessionId?: string}`: até cinco IDs; aceita somente anexos; `201 OutboxMessage`; trava `messages` |
 | `POST /api/messages/attachments` | (página) bytes `application/octet-stream` com headers de nome/tipo: `201 {id, name, size}`; até 15 MiB/arquivo, mesma trava `messages` e Origin; não aceita destino |
 | `GET /api/messages/:id` | (página) situação da mensagem (`OutboxMessage`: `queued` \| `sent` \| `delivered` \| `failed`) |
 | `POST /api/mod/inbox` | (plugin `habblaud-mensagens`) `{session, account?}`: marca a presença da sessão e entrega `{messages: InboxMessage[]}` |
 | `POST /api/mod/inbox/ack` | (plugin) `{session, results: [{id, ok, error?}]}`: confirma cada mensagem entregue (ou a falha) |
-| `POST /api/messages/control` | (página, só omp) `{agentId, model?, thinking?}`: troca o modelo e o raciocínio da sessão viva; mesmas respostas de `POST /api/messages` |
+| `POST /api/messages/control` | (página, só omp) `{agentId, model?, thinking?, stop?, resume?, expectedSessionId?: string}`: controla a sessão viva; mesmas respostas de `POST /api/messages` |
 | `POST /api/codex/events` | (hook do Codex) `{account?, codexHome?, event}`: `200 {ok}`; só pelo computador (a porta remota recebe 403) |
 | `POST /api/codex/bridge/poll` e `/ack` | (auxiliar `npm run codex:bridge`) busca as mensagens para o Codex e confirma cada entrega (`{results: [{id, ok, error?}]}`: `200 {ok: true}`); só pelo computador |
 | `GET /api/codex/bridge/files/:jobId/attachments/:fileId` | bytes de anexo de mensagem ou spawn para o auxiliar; somente arquivo pertencente a um job enviado e ainda vivo, com a mesma proteção local do poll/ack; nunca pela allowlist remota de arquivos |
@@ -122,6 +122,17 @@ O auxiliar no host (`npm run codex:bridge`) abre sessões omp em `tmux` como `hb
 | `GET /api/files` / `GET /api/files/list?path=` / `GET /api/files/raw?path=[&download=1]` | raízes (pastas das salas e `~/projetos`), conteúdo de uma pasta e um arquivo, em stream (`files/browse.ts`, `http/files.ts`); só leitura, mesma trava do terminal; desligado no Docker |
 | `GET /api/pty`, `POST /api/pty`, `GET /api/pty/:id/stream`, `POST /api/pty/:id/input` \| `resize` \| `close`, `POST /api/agents/:id/stop` \| `takeover` | terminal interativo e ações nos agentes (`http/pty.ts`); só com `HABBLAUD_PTY=1`, conexão pelo loopback e `Host` local; nunca pela porta remota |
 | `POST /api/host/spawn/poll` \| `ack`, `/api/host/dictation/poll` \| `ack`, `/api/host/files/poll` \| `ack` | (auxiliar do host, `npm run codex:bridge`) busca e confirma os pedidos do Novo agente, do ditado e dos arquivos das entregas; só pelo computador |
+
+`expectedSessionId` é opcional para compatibilidade dos clientes existentes. Quando presente em uma mensagem ou
+controle, deve ser uma string não vazia dentro do limite de IDs do servidor. O servidor compara esse valor à sessão
+atual do agente antes de enfileirar a operação ou consumir anexos. Se divergir, retorna
+`409 {error: ..., code: 'session_changed'}`. Outros conflitos 409 não recebem esse `code`; clientes devem usá-lo,
+não o texto traduzido, para identificar a troca de sessão. O metadado não é enviado à extensão omp.
+
+`AccessInfo.messageSessionGuard` anuncia a proteção como `true` somente quando mensagens estão habilitadas e
+autorizadas para a conexão. O Android exige esse valor e envia `expectedSessionId` em mensagens e controles; se o campo
+estiver ausente ou não for `true`, mantém essas operações indisponíveis. As travas remotas `terminal`, `permissions` e
+`messages` são independentes.
 
 Anexos de mensagens e do Novo agente compartilham um único depósito de **120 MiB**, incluindo reservas de uploads
 em voo, pendentes e lotes em preparação (`held`). Cada arquivo tem até **15 MiB**; são até cinco por mensagem e oito

@@ -1,6 +1,7 @@
 // Rotas da API (/api/*). Respostas JSON; rotas desconhecidas -> 404 JSON.
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { readdirSync, realpathSync, statSync } from 'node:fs';
+import { gzipSync } from 'node:zlib';
 import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { parseCastMember } from '../model/cast';
 import type { CastLauncher } from '../cast/launcher';
@@ -28,6 +29,7 @@ import type { DeliveryIndex } from '../deliveries/deliveries';
 import type { FileFetcher } from '../deliveries/fetcher';
 import { handleFilesRoute, type BrowseDeps } from './files';
 import { HOST_WAIT_MS } from '../host-wait';
+import { avatarPng } from './avatar';
 
 export interface ApiDeps {
   office: Office;
@@ -184,10 +186,14 @@ export class HttpError extends Error {
 }
 
 export function sendJson(res: ServerResponse, status: number, body: unknown): void {
-  const data = JSON.stringify(body);
+  const json = JSON.stringify(body);
+  // Listas grandes (/api/sessions/recent, /api/cast, /api/snapshot) vão comprimidas a quem aceita gzip; as pequenas não compensam.
+  const gzip = json.length > 1024 && /\bgzip\b/i.test(String(res.req?.headers['accept-encoding'] ?? ''));
+  const data = gzip ? gzipSync(json) : json;
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(data),
+    ...(gzip ? { 'Content-Encoding': 'gzip', Vary: 'Accept-Encoding' } : {}),
     'Cache-Control': 'no-store',
     'X-Content-Type-Options': 'nosniff',
     // A API só é lida pela própria página: nada de leitura "no-cors" por outras origens.
@@ -404,6 +410,18 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       sendJson(res, 403, { error: tr('rota só do próprio computador (hooks, plugins e o auxiliar do host)') });
       return true;
     }
+    if (path === '/api/avatar.png') {
+      if (!isRead) methodNotAllowed(res, 'GET');
+      else {
+        const png = avatarPng(url.searchParams);
+        if (!png) sendJson(res, 400, { error: tr('pedido inválido') });
+        else {
+          res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': png.length, 'Cache-Control': 'private, max-age=86400' });
+          res.end(method === 'HEAD' ? undefined : png);
+        }
+      }
+      return true;
+    }
     if (path === '/api/world' || path.startsWith('/api/world/')) {
       // A conta do Habblaud World age em seu nome: só o próprio computador, como o terminal. O Host local sozinho não
       // basta (o Tailscale chega pelo loopback e o Host se imita): a porta remota nunca passa, nem com login.
@@ -465,6 +483,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
           local: !remote && isLoopbackHost(req.headers.host),
           permissions: !!deps.permissions && trusted(req, 'permissions'),
           messages: !!deps.messages && trusted(req, 'messages'),
+          messageSessionGuard: !!deps.messages && trusted(req, 'messages'),
           terminal: !!terminals && trusted(req, 'terminal'),
           spawn: !!deps.spawn && trusted(req, 'spawn'),
           world: !!deps.world && !!deps.terminal && !remote && isLoopbackHost(req.headers.host),
@@ -531,13 +550,15 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
     }
     const castStart = /^\/api\/cast\/([a-z0-9-]{1,40})\/start$/.exec(path);
     const castDismiss = /^\/api\/agents\/([^/]+)\/dismiss$/.exec(path);
-    if (path === '/api/cast/jobs' || path === '/api/cast/folders' || path === '/api/cast/dirs' || castStart || castDismiss) {
+    if (path === '/api/cast/jobs' || path === '/api/cast/folders' || path === '/api/cast/dirs' || path === '/api/cast/new' || path === '/api/cast/roles' || castStart || castDismiss) {
       const launcher = deps.castLauncher;
       // Mesma trava do terminal: local, ou a porta remota com login e `terminal` em HABBLAUD_REMOTE_ALLOW.
       if (!deps.terminal || !trusted(req, 'terminal') || !launcher) sendJson(res, 403, { error: denied(req, tr('o elenco só pode ser editado pelo próprio computador')) });
       else if (path === '/api/cast/jobs') {
         if (!isRead) methodNotAllowed(res, 'GET');
         else sendJson(res, 200, { jobs: launcher.jobs(), available: launcher.available() });
+      } else if (path === '/api/cast/roles' && isRead) {
+        sendJson(res, 200, { available: launcher.available(), ...launcher.roles() });
       } else if (path === '/api/cast/folders') {
         // Pastas recentes (histórico de sessões + salas) para chamar o personagem, mesmo com "Novo agente" desligado.
         if (!isRead) methodNotAllowed(res, 'GET');
@@ -576,7 +597,8 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
         else sendJson(res, 202, result);
       } else {
         readJson(req).then((body) => {
-          const result = launcher.start(castStart![1], body);
+          // "Novo": mesma trava de chamar um personagem sem salas (qualquer pasta que o auxiliar ache no host).
+          const result = path === '/api/cast/new' ? launcher.startNew(body) : path === '/api/cast/roles' ? launcher.setRoles(body) : launcher.start(castStart![1], body);
           if ('error' in result) sendJson(res, result.status, { error: result.error });
           else sendJson(res, 202, result);
         }).catch((err) => fail(res, err));
@@ -767,7 +789,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       else if (!launcher) sendJson(res, 403, { error: tr('desligado') });
       else if (!trusted(req) || (!deps.inDocker && !isLoopbackAddress(req.socket.remoteAddress))) sendJson(res, 403, { error: denied(req, tr('só o auxiliar do próprio computador')) });
       else readJson(req).then((body) => {
-        if (path === '/api/host/cast/poll') sendJson(res, 200, { jobs: launcher.poll(body) });
+        if (path === '/api/host/cast/poll') sendJson(res, 200, { jobs: launcher.poll(body), rolesDir: launcher.rolesDir() });
         else { launcher.ack(body); sendJson(res, 200, { ok: true }); }
       }).catch((err) => fail(res, err));
       return true;

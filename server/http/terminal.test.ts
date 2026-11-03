@@ -292,6 +292,54 @@ describe('terminal: rota', () => {
     }
   });
 
+  it('init incremental: depois da última entrada guardada só vai o resto; entrada fora da janela manda tudo', async () => {
+    const env = await serve();
+    try {
+      const file = join(env.dir, 't.jsonl');
+      writeLines(file, [line('a'), line('b'), line('c')]);
+      env.paths.set(MAIN, file);
+      const delta = await open(env.base, `${route(MAIN)}?after=b&at=0`);
+      await waitFor(() => expect(inits(delta)).toHaveLength(1));
+      expect(inits(delta)[0]).toMatchObject({ after: 'b', entries: [{ id: 'c' }] });
+      delta.close();
+      // Mesmo id com outro instante não é a mesma entrada; id desconhecido também não: conversa completa, sem `after`.
+      for (const query of ['after=b&at=5', 'after=z&at=0']) {
+        const full = await open(env.base, `${route(MAIN)}?${query}`);
+        await waitFor(() => expect(inits(full)).toHaveLength(1));
+        expect(inits(full)[0].after).toBeUndefined();
+        expect(inits(full)[0].entries.map((e) => e.id)).toEqual(['a', 'b', 'c']);
+        full.close();
+      }
+      // Âncora que aparece duas vezes na janela é ambígua: conversa completa.
+      writeLines(file, [line('a'), line('b'), line('a'), line('c')]);
+      const twice = await open(env.base, `${route(MAIN)}?after=a&at=0`);
+      await waitFor(() => expect(inits(twice)).toHaveLength(1));
+      expect(inits(twice)[0].after).toBeUndefined();
+      twice.close();
+    } finally {
+      await env.close();
+    }
+  });
+
+  it('stream comprimido para quem aceita gzip', async () => {
+    const env = await serve();
+    try {
+      const file = join(env.dir, 't.jsonl');
+      writeLines(file, [line('a')]);
+      env.paths.set(MAIN, file);
+      const ctrl = new AbortController();
+      const res = await fetch(`${env.base}${route(MAIN)}`, { signal: ctrl.signal, headers: { 'Accept-Encoding': 'gzip' } });
+      expect(res.headers.get('content-encoding')).toBe('gzip');
+      const reader = res.body!.getReader();
+      let text = '';
+      while (!text.includes('event: init')) text += new TextDecoder().decode((await reader.read()).value);
+      expect(text).toContain('"id":"a"');
+      ctrl.abort();
+    } finally {
+      await env.close();
+    }
+  });
+
   it(`429 acima de ${MAX_STREAMS} terminais abertos; fechar um libera a vaga`, async () => {
     const env = await serve();
     try {

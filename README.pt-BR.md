@@ -42,6 +42,7 @@ para dar a letra de cada conta). Nada sai do computador: o Habblaud não lê cre
 - [Como é](#como-é)
 - [Instalação](#instalação)
 - [Como usar](#como-usar)
+- [Aplicativo Android (Zaplaud)](#aplicativo-android-zaplaud)
 - [Contas e uso (5 horas e semanal)](#contas-e-uso-5-horas-e-semanal)
 - [Configuração](#configuração)
 - [Habblaud World](#habblaud-world)
@@ -240,6 +241,131 @@ npm run omp:status         # confere
 ```
 
 A extensão vale para as sessões do omp abertas **depois** da instalação. Veja [omp (oh-my-pi)](#omp-oh-my-pi).
+
+### Aplicativo Android (Zaplaud)
+
+O Zaplaud, cliente nativo Android, acompanha sessões e contatos sem a interface do escritório. Requer Android 8.0 (API 26) ou
+superior e uma instalação do Habblaud com login remoto configurado. O endereço deve apontar para a **porta remota**, nunca
+para a porta local sem autenticação. O aplicativo aceita uma instalação por vez; informe endereço, usuário e senha do acesso
+remoto. A senha não é persistida. HTTPS usa a validação normal de certificado e nome do Android.
+
+O código do aplicativo, junto com o servidor compatível, fica no repositório privado
+[andersonrfsilva/HabblaudX](https://github.com/andersonrfsilva/HabblaudX).
+
+O aplicativo acompanha o tema claro ou escuro do sistema. As mensagens exibem Markdown selecionável, incluindo
+listas, tabelas e código; links abrem ao toque. Imagens remotas e HTML não são carregados ou interpretados.
+Para gerar capturas dos dois temas com dados fictícios, execute `scripts/android-screens.sh` com o AVD
+`habblaud034` disponível. As imagens ficam em `/tmp/android-screens/`.
+
+Quando o acesso remoto permite `terminal` e o auxiliar do host está disponível, o aplicativo também chama e dispensa
+contatos (os personagens do elenco do escritório) e retoma sessões omp encerradas com o contato escolhido (o último a usá-la aparece primeiro). Um pedido sem confirmação não é
+reenviado automaticamente. Os avatares usam a mesma arte do escritório e ficam em cache privado no aparelho. O nome
+do contato aparece junto ao avatar; toque longo nos ícones de ação mostra sua função.
+
+#### Compilar e instalar
+
+Instale JDK 17 ou superior e o Android SDK com a plataforma 36 e ferramentas de build. Na raiz do repositório:
+
+```bash
+android/gradlew -p android :app:assembleDebug
+adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+Para gerar o APK release assinado, configure fora do repositório as variáveis `HABBLAUD_KEYSTORE` (caminho do
+keystore), `HABBLAUD_KEYSTORE_PASSWORD`, `HABBLAUD_KEY_ALIAS` e `HABBLAUD_KEY_PASSWORD`. Também podem ser propriedades
+Gradle em `~/.gradle/gradle.properties`. Use uma chave persistente do operador e não versione chaves nem senhas.
+
+```bash
+android/gradlew -p android :app:assembleRelease
+adb install -r android/app/build/outputs/apk/release/app-release.apk
+```
+
+Sem as quatro informações de assinatura, o build release falha. Também é possível instalar o APK assinado diretamente
+no aparelho, permitindo a instalação pelo aplicativo de origem quando o Android solicitar.
+
+#### Testes instrumentados com fixture
+
+A CI Android executa a suíte instrumentada completa em emulador x86_64 isolado com KVM, Java 17, Node 22.12 e SDK
+Android. A fixture escolhe uma porta local dinâmica, encaminhada junto à porta 14748. A CI usa somente a fixture de
+laboratório, nunca um servidor de produção. O processo exige KVM e encerra a fixture e os encaminhamentos ao terminar.
+
+Use um emulador ou aparelho conectado e execute os comandos na raiz do repositório. Em um terminal, mantenha a
+fixture isolada aberta:
+
+```bash
+npx tsx scripts/android-smoke.ts --port 14748 --allow terminal,permissions,messages
+```
+
+Aguarde o JSON com `ready: true`. Anote a porta de `localUrl`, escolhida pela fixture a cada inicialização. Em outro
+terminal, substitua `PORTA_LOCAL` por essa porta e execute:
+
+Em um emulador isolado, instale os APKs:
+
+```bash
+android/gradlew -p android :app:assembleDebug :app:assembleDebugAndroidTest
+adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+adb install -r android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+```
+
+```bash
+adb reverse tcp:14748 tcp:14748
+adb reverse tcp:PORTA_LOCAL tcp:PORTA_LOCAL
+android/gradlew -p android :app:connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.fixture=true \
+  -Pandroid.testInstrumentationRunnerArguments.fixtureLocalPort=PORTA_LOCAL
+```
+
+A instrumentação cria um pedido real pela porta local da fixture, aprova na interface e consulta a decisão registrada.
+As duas portas são exclusivas do laboratório; não as encaminhe para um servidor de produção. Sem fixture ou argumentos,
+os testes falham em vez de serem ignorados. Pare a fixture com `Ctrl+C` ao terminar.
+
+#### Conexão HTTP
+
+O endereço do servidor aceita `http://` ou `https://`, com host e porta, em qualquer rede. Endereço com caminho
+diferente de `/`, usuário embutido, query ou fragmento é recusado.
+
+**HTTP não cifra senha nem cookie.** Quem estiver no caminho da conexão pode interceptar ou alterar esses dados e
+usar a sessão para mandar comandos aos agentes. Cada autenticação HTTP exige confirmação, sem bloquear redes locais
+ou VPN. Uma VPN não garante proteção; HTTPS é recomendado.
+
+#### Recursos e limites
+
+Na porta remota, as travas de `HABBLAUD_REMOTE_ALLOW` são independentes. O aplicativo não as altera:
+
+| Recurso | Autorização remota |
+| --- | --- |
+| Lista de sessões abertas | Login |
+| Recentes e conversas vivas ou históricas | `terminal` |
+| Chamar, dispensar ou retomar contato | `terminal` e auxiliar do host disponível |
+| Mensagens, anexos e interrupção omp | `messages` e `messageSessionGuard` no `/api/access` |
+| Respostas a aprovações e perguntas | `permissions` |
+
+Para usar todos, o operador precisa liberar `terminal,permissions,messages` e habilitar os recursos correspondentes no
+servidor. Um servidor antigo sem `messageSessionGuard` permite leitura conforme as demais travas, mas não recebe
+mensagens ou controles do Android. Veja o contrato em [Servidor](server/README.md#api).
+
+**Compatibilidade com o upstream.** O servidor do upstream ([marmottajr/habblaud](https://github.com/marmottajr/habblaud))
+atende só parte do aplicativo. Login, lista de sessões, recentes, conversas e respostas a aprovações e perguntas
+funcionam, conforme `HABBLAUD_REMOTE_ALLOW` e os recursos ligados no servidor. Mensagens ficam bloqueadas no aplicativo,
+porque o upstream não anuncia `messageSessionGuard` nem confere `expectedSessionId`. Anexos
+(`POST /api/messages/attachments`), interrupção (`POST /api/messages/control`) e sessões omp não existem no upstream.
+Para usar todos os recursos, rode o servidor incluído no HabblaudX.
+
+Recentes cobre até 150 sessões dos últimos 7 dias. A conversa começa com até 500 entradas dos aproximadamente 4 MiB
+finais; pode haver conteúdo anterior não carregado. A janela local também é limitada. Sessões encerradas ficam somente
+para leitura até serem retomadas por um contato elegível. Não há paginação de histórico nem sincronização offline de conversas.
+Rascunhos são locais por sessão; o app não reenvia mensagens automaticamente após perda de conexão. Se o envio não for
+confirmado, confira a conversa antes de tentar novamente: a primeira tentativa pode ter sido aceita.
+
+Mensagens aceitam até 20.000 unidades UTF-16 e cinco anexos de até 15 MiB cada. O aviso de envio desaparece quando
+`delivered` confirma a aceitação pela sessão/runtime; isso não indica leitura nem conclusão. No omp, o app envia mensagens no modo `aside`; a entrega depende da
+extensão carregada. O botão de parar aparece enquanto o agente omp trabalha e não garante efeito imediato.
+A barra da conversa mostra ícones para responder perguntas e aprovar permissões pendentes. O aviso laranja respeita a
+configuração de animações do sistema. Perguntas do omp aceitam escolha única, múltipla e texto livre; omp e Codex
+não aceitam `interrupt` nem `suggestion` nas decisões.
+
+O app não oferece terminal interativo, notificações com o app fechado, fila offline de comandos ou atualização
+automática. As sessões e conversas permanecem no servidor.
 
 ### Abrir no celular (opcional)
 
@@ -603,6 +729,8 @@ principal, advisor ou subagente. Para subagentes, informe os tipos observados, c
   recebe um personagem sorteado.
 - No omp, `HABBLAUD_CAST=<id>` pede um membro para a sessão. O advisor e os subagentes vestem membros compatíveis
   com seus tipos. As salas organizam a escolha do personagem; elas não limitam ferramentas nem acesso a arquivos.
+- `HABBLAUD_CAST_MAX` (1 a 50; ausente = sem limite) limita quantos personagens o Habblaud mantém abertos ao mesmo
+  tempo. Sessões `hb-*` abertas e chamadas em andamento contam; personagens sendo dispensados não.
 
 O elenco fica em `~/.habblaud/cast.json`; vínculos de sessão expiram após 60 dias sem uso. Os personagens antigos
 das salas migram automaticamente, com cópia de segurança em `~/.habblaud/names.json.pre-031`. O elenco segue a trava
@@ -657,9 +785,14 @@ destaque).
   muda no início e no fim de cada turno e, se o processo morrer, o personagem sai em até 30 segundos. Vale também para a
   sessão aberta por `/new` ou `/resume` e para a reaberta com `omp --resume`/`--restore` (que só volta a gravar no
   arquivo na próxima mensagem).
-- **Mandar mensagens:** a caixa **Mandar mensagem** funciona para o omp com a extensão instalada. Com o agente à toa, a
-  mensagem começa um turno novo; trabalhando, entra como continuação logo depois do turno atual, sem interromper o que
-  ele está fazendo.
+- **Mandar mensagens:** a caixa **Mandar mensagem** funciona para o omp com a extensão instalada. Com o agente à toa,
+  qualquer modo começa um turno novo. Com ele trabalhando, **Acrescentar agora** (`aside`, o padrão) entra no próximo
+  limite de passo sem cortar o lote de ferramentas em andamento; chamadas interrompíveis de `wait`/`vibe_wait` são a
+  exceção. **Enfileirar** (`followUp`) espera o fim do turno. **Mudar direção** (`steer`) pode pular ferramentas
+  pendentes; não desfaz alterações nem garante o cancelamento de uma operação já iniciada. Uploads e a consulta da
+  extensão (hoje até 5 segundos com o agente ocupado) somam atraso. Escolha o modo em **Configurações › Mensagens ao
+  omp**; vale para todos os agentes do omp e fica guardado no navegador. Esse `aside` no histórico principal não é o
+  bate-papo paralelo efêmero.
 - **Modelo e raciocínio:** com a extensão instalada, os seletores Modelo e Raciocínio da gaveta trocam a sessão ao vivo (`pi.setModel` / `setThinkingLevel`); pelo celular, só com `messages` em `HABBLAUD_REMOTE_ALLOW`.
 - **Perguntas (`ask`):** com a extensão, as perguntas que o agente faz pela ferramenta `ask` abrem também no cartão
   **Pergunta para você** do escritório (pelo celular, com `permissions` em `HABBLAUD_REMOTE_ALLOW`). Vale a primeira

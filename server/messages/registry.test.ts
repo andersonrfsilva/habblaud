@@ -347,6 +347,38 @@ describe('MessageRegistry: agentes do omp', () => {
     return ctx;
   }
 
+  it('protege a sessão esperada antes de consumir anexos ou enfileirar controles', async () => {
+    const attachments = attachmentStore();
+    const { registry } = setupOmp({ attachments, writeAttachments: async () => ({ paths: ['/tmp/nota.txt'] }) });
+    registry.inbox({ session: OMP_SESSION });
+    for (const expectedSessionId of ['', ' ', null, {}, 'x'.repeat(301)]) {
+      expect(() => registry.send({ agentId: OMP_A, text: 'oi', expectedSessionId })).toThrow(/expectedSessionId/);
+      expect(() => registry.control({ agentId: OMP_A, stop: true, expectedSessionId })).toThrow(/expectedSessionId/);
+    }
+    const attachment = (await uploadAttachment(attachments)).id;
+    expect(registry.send({ agentId: OMP_A, text: '', attachments: [attachment], expectedSessionId: 'outra' })).toEqual({ error: 'unavailable', reason: ERR_SESSION_CHANGED, code: 'session_changed' });
+    expect(registry.control({ agentId: OMP_A, stop: true, expectedSessionId: 'outra' })).toEqual({ error: 'unavailable', reason: ERR_SESSION_CHANGED, code: 'session_changed' });
+    expect(registry.inbox({ session: OMP_SESSION })).toEqual([]);
+    expect(attachments.take([attachment], 5, 'messages')).toHaveLength(1);
+    const id = sent(registry.control({ agentId: OMP_A, stop: true, expectedSessionId: OMP_SESSION }));
+    expect(registry.inbox({ session: OMP_SESSION })).toEqual([{ id, text: '', control: { stop: true } }]);
+    expect('message' in registry.send({ agentId: OMP_A, text: 'oi', expectedSessionId: OMP_SESSION })).toBe(true);
+  });
+  it('recusa envio e stop se a sessão mudar depois da leitura do cliente', async () => {
+    const attachments = attachmentStore();
+    const { registry, office } = setupOmp({ attachments, writeAttachments: async () => ({ paths: ['/tmp/nota.txt'] }) });
+    registry.inbox({ session: OMP_SESSION });
+    const attachment = (await uploadAttachment(attachments)).id;
+    const nextSession = '0199b0c0-9999-7abc-8def-0123456789ab';
+    office.switchSession(OMP_A, nextSession);
+    registry.inbox({ session: nextSession });
+    expect(registry.send({ agentId: OMP_A, text: '', attachments: [attachment], expectedSessionId: OMP_SESSION })).toMatchObject({ code: 'session_changed' });
+    expect(registry.control({ agentId: OMP_A, stop: true, expectedSessionId: OMP_SESSION })).toMatchObject({ code: 'session_changed' });
+    expect(registry.inbox({ session: nextSession })).toEqual([]);
+    expect(attachments.take([attachment], 5, 'messages')).toHaveLength(1);
+  });
+
+
   it('valida e transporta modos OMP, preservando followUp quando omitido e isolamento de sessão', () => {
     const { registry } = setupOmp();
     registry.inbox({ session: OMP_SESSION });

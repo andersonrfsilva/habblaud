@@ -101,7 +101,7 @@ export interface MessageRegistryOptions {
   onSettled?: (id: string, status: 'delivered' | 'failed', error?: string) => void;
 }
 
-export type SendResult = { message: OutboxMessage } | { error: 'not-found' | 'too-many' } | { error: 'unavailable'; reason: string };
+export type SendResult = { message: OutboxMessage } | { error: 'not-found' | 'too-many' } | { error: 'unavailable'; reason: string; code?: 'session_changed' };
 
 /** Mensagem entregue ao auxiliar do Codex no host (POST /api/codex/bridge/poll): ele roda `codex queue` com ela. */
 export interface CodexBridgeMessage {
@@ -158,6 +158,14 @@ function shortStr(v: unknown, max: number): string | undefined {
   return typeof v === 'string' && v.trim() && v.length <= max ? v.trim() : undefined;
 }
 
+function expectedSessionId(r: Rec): string | undefined {
+  if (r.expectedSessionId === undefined) return undefined;
+  if (typeof r.expectedSessionId !== 'string' || !r.expectedSessionId.trim() || r.expectedSessionId.length > ID_MAX) {
+    throw new InvalidRequest('expectedSessionId inválido');
+  }
+  return r.expectedSessionId;
+}
+
 /** Agente que ainda está no escritório (não saiu nem concluiu). */
 function present(a: AgentInfo | undefined): a is AgentInfo {
   return !!a && a.status !== 'offline' && a.status !== 'done';
@@ -180,7 +188,7 @@ function unavailableReason(a: AgentInfo, reachable: boolean): string | undefined
 }
 
 /** Corpo de POST /api/messages: `{agentId, text, deliverAs?}`. O texto não é alterado (nem aparado). */
-export function parseSend(raw: unknown): { agentId: string; text: string; attachments?: string[]; deliverAs?: OmpDeliverAs } {
+export function parseSend(raw: unknown): { agentId: string; text: string; attachments?: string[]; deliverAs?: OmpDeliverAs; expectedSessionId?: string } {
   const r = rec(raw);
   const agentId = shortStr(r?.agentId, ID_MAX);
   if (!r || !agentId || typeof r.text !== 'string') throw new InvalidRequest('esperado {agentId, text}');
@@ -190,27 +198,28 @@ export function parseSend(raw: unknown): { agentId: string; text: string; attach
   if (attachments && attachments.length > MESSAGE_ATTACHMENTS_MAX) throw new InvalidRequest(tr('no máximo {0} anexos por pedido', [MESSAGE_ATTACHMENTS_MAX]));
   if (!r.text.trim() && !attachments?.length) throw new InvalidRequest(tr('a mensagem está vazia'));
   if (r.text.length > MAX_TEXT) throw new InvalidRequest(tr('a mensagem passa de 20.000 caracteres'));
-  return { agentId, text: r.text, attachments, deliverAs: r.deliverAs as OmpDeliverAs | undefined };
+  return { agentId, text: r.text, attachments, deliverAs: r.deliverAs as OmpDeliverAs | undefined, expectedSessionId: expectedSessionId(r) };
 }
 
 /**
  * Corpo de POST /api/messages/control: `{agentId, model?, thinking?, command?}`, com ao menos um deles, ou sozinhos
  * `{agentId, stop: true}` (interrompe o turno em andamento) e `{agentId, resume: <id da sessão do omp>}`.
  */
-export function parseControl(raw: unknown): { agentId: string } & OmpControl {
+export function parseControl(raw: unknown): { agentId: string; expectedSessionId?: string } & OmpControl {
   const r = rec(raw);
   const agentId = shortStr(r?.agentId, ID_MAX);
   if (!r || !agentId) throw new InvalidRequest('esperado {agentId, model?, thinking?, command?}, {agentId, stop: true} ou {agentId, resume}');
+  const expected = expectedSessionId(r);
   const others = (key: 'stop' | 'resume') => ['model', 'thinking', 'command', 'stop', 'resume'].some((k) => k !== key && r[k] !== undefined);
   if (r.stop !== undefined) {
     if (r.stop !== true || others('stop')) throw new InvalidRequest('esperado {agentId, stop: true}, sem outras trocas');
-    return { agentId, stop: true };
+    return { agentId, stop: true, ...(expected !== undefined && { expectedSessionId: expected }) };
   }
   if (r.resume !== undefined) {
     if (typeof r.resume !== 'string' || !OMP_SESSION_ID.test(r.resume) || others('resume')) throw new InvalidRequest('esperado {agentId, resume: <id da sessão do omp>}, sem outras trocas');
-    return { agentId, resume: r.resume.toLowerCase() };
+    return { agentId, resume: r.resume.toLowerCase(), ...(expected !== undefined && { expectedSessionId: expected }) };
   }
-  const out: { agentId: string } & OmpControl = { agentId };
+  const out: { agentId: string; expectedSessionId?: string } & OmpControl = { agentId, ...(expected !== undefined && { expectedSessionId: expected }) };
   if (r.model !== undefined) {
     const model = shortStr(r.model, 200);
     if (!model) throw new InvalidRequest(tr('modelo inválido'));
@@ -319,11 +328,12 @@ export class MessageRegistry {
    * (too-many). Corpo inválido: lança InvalidRequest.
    */
   send(raw: unknown): SendResult {
-    const { agentId, text, attachments, deliverAs } = parseSend(raw);
+    const { agentId, text, attachments, deliverAs, expectedSessionId } = parseSend(raw);
     const real = this.opts.office.get(agentId);
     const demo = real ? undefined : this.opts.demoAgent?.(agentId);
     const agent = real ?? demo;
     if (!agent) return { error: 'not-found' };
+    if (expectedSessionId !== undefined && expectedSessionId !== agent.sessionId) return { error: 'unavailable', reason: ERR_SESSION_CHANGED, code: 'session_changed' };
     if (deliverAs !== undefined && agent.provider !== 'omp') throw new InvalidRequest('deliverAs só é aceito para OMP');
     const reason = unavailableReason(agent, real ? this.canMessage(agentId) : demo!.canMessage === true);
     if (reason) return { error: 'unavailable', reason };
@@ -380,11 +390,12 @@ export class MessageRegistry {
    * resultados de `send`.
    */
   control(raw: unknown): SendResult {
-    const { agentId, ...change } = parseControl(raw);
+    const { agentId, expectedSessionId, ...change } = parseControl(raw);
     const real = this.opts.office.get(agentId);
     const demo = real ? undefined : this.opts.demoAgent?.(agentId);
     const agent = real ?? demo;
     if (!agent) return { error: 'not-found' };
+    if (expectedSessionId !== undefined && expectedSessionId !== agent.sessionId) return { error: 'unavailable', reason: ERR_SESSION_CHANGED, code: 'session_changed' };
     if (agent.provider !== 'omp') return { error: 'unavailable', reason: tr('só agentes do omp trocam de modelo e raciocínio pela gaveta') };
     const reason = unavailableReason(agent, real ? this.canMessage(agentId) : false);
     if (reason) return { error: 'unavailable', reason };

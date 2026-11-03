@@ -603,6 +603,8 @@ main, advisor or subagent. For subagents, enter observed types such as `reviewer
   gets a random character.
 - In omp, `HABBLAUD_CAST=<id>` requests a member for the session. Advisors and subagents use matching members.
   Rooms organize character selection; they do not restrict tools or file access.
+- `HABBLAUD_CAST_MAX` (1 to 50; unset means no limit) caps how many characters Habblaud keeps open at once. Open
+  `hb-*` sessions and pending starts count; characters being dismissed do not.
 
 The cast is stored in `~/.habblaud/cast.json`; session bindings expire after 60 days without use. Old room characters
 migrate automatically, with a backup at `~/.habblaud/names.json.pre-031`. The cast uses the terminal safeguard:

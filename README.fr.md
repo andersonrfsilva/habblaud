@@ -634,6 +634,8 @@ observés, comme `reviewer` ou `Explore`.
   salle non autorisée, la session reçoit un personnage tiré au sort.
 - Dans omp, `HABBLAUD_CAST=<id>` demande un membre pour la session. Le conseiller et les sous-agents utilisent des
   membres correspondant à leurs types. Les salles organisent le choix ; elles ne limitent ni les outils ni les fichiers.
+- `HABBLAUD_CAST_MAX` (1 à 50 ; absent = sans limite) limite le nombre de personnages que Habblaud garde ouverts en
+  même temps. Les sessions `hb-*` ouvertes et les appels en cours comptent ; les personnages en cours de renvoi, non.
 
 La distribution est conservée dans `~/.habblaud/cast.json` ; les liens de session expirent après 60 jours sans
 utilisation. Les anciens personnages des salles migrent automatiquement, avec une sauvegarde dans
@@ -693,8 +695,14 @@ carte les affiche tous, chacun avec toutes ses limites (5 h, semaine, par modèl
   Cela vaut aussi pour la session ouverte par `/new` ou `/resume`, et pour celle rouverte avec `omp --resume`/`--restore`
   (qui n'écrit à nouveau dans le fichier qu'au message suivant).
 - **Envoyer des messages :** la zone **Envoyer un message** fonctionne pour omp avec l'extension installée. Quand
-  l'agent est inactif, le message démarre un nouveau tour ; s'il travaille, il arrive comme suite juste après le tour en
-  cours, sans interrompre ce qu'il fait.
+  l'agent est inactif, tout mode démarre un nouveau tour. Pendant qu'il travaille, **Ajouter maintenant** (`aside`, par
+  défaut) entre à la prochaine limite d'étape sans couper le lot d'outils en cours ; les appels interruptibles de
+  `wait`/`vibe_wait` font exception. **Mettre en file** (`followUp`) attend la fin du tour. **Changer de direction**
+  (`steer`) peut sauter des outils en attente ; il n'annule pas les modifications et ne garantit pas l'arrêt d'une
+  opération déjà lancée. Les envois de fichiers et l'interrogation de l'extension (jusqu'à 5 secondes quand l'agent est
+  occupé) ajoutent du délai. Choisissez le mode dans **Réglages › Messages à omp** ; il vaut pour tous les agents
+  omp et est enregistré dans le navigateur. Cet `aside` dans l'historique principal n'est pas la discussion parallèle
+  éphémère.
 - **Modèle et raisonnement :** avec l'extension installée, les sélecteurs Modèle et Raisonnement du tiroir changent la session en cours (`pi.setModel` / `setThinkingLevel`) ; depuis le téléphone, seulement avec `messages` dans `HABBLAUD_REMOTE_ALLOW`.
 - **Questions (`ask`) :** avec l'extension, les questions que l'agent pose avec l'outil `ask` s'ouvrent aussi dans la
   carte **Question pour vous** du bureau (depuis le téléphone, avec `permissions` dans `HABBLAUD_REMOTE_ALLOW`). La

@@ -43,6 +43,39 @@ describe('CastLauncher', () => {
     expect(launcher.start('ana', { room: '/nunca/aberta//', mode: 'new' })).toHaveProperty('job');
     expect(launcher.poll()).toContainEqual(expect.objectContaining({ op: 'start', folder: '/nunca/aberta' }));
   });
+  it('"Novo": abre fora do elenco com id novo-…, conclui quando o agente aparece e pode ser dispensado', () => {
+    const { launcher, agents } = setup();
+    expect(launcher.startNew({ room: '/x' })).toMatchObject({ status: 503 });
+    launcher.poll();
+    for (const bad of [{ room: 'relativa' }, {}, { room: '/x', prompt: '--x' }]) expect(launcher.startNew(bad)).toMatchObject({ status: 422 });
+    const submitted = launcher.startNew({ room: '/x/' });
+    if (!('job' in submitted)) throw new Error('start failed');
+    const [job] = launcher.poll();
+    expect(job).toMatchObject({ op: 'start', folder: '/x', agentDir: '/tmp' });
+    expect(job.cast).toMatch(/^novo-[0-9a-f]{8}$/);
+    expect(job).not.toHaveProperty('instructionsFile');
+    launcher.ack({ results: [{ id: job.id, ok: true }] });
+    agents.push({ ...agent, cast: job.cast, status: 'working' });
+    launcher.tick();
+    expect(launcher.jobs().find((j) => j.id === job.id)?.status).toBe('done');
+    expect(launcher.dismiss(agents[0])).toHaveProperty('job');
+  });
+  it('papéis: valida no servidor, vai para a conta padrão, termina no ack; o que o auxiliar lê aparece em roles()', () => {
+    const { launcher } = setup();
+    expect(launcher.setRoles({ roles: { task: 'a/b' } })).toMatchObject({ status: 503 });
+    launcher.poll({ roles: { task: 'openai/gpt:high', default: 'x/y', plan: 'sem-barra' } });
+    expect(launcher.roles()).toEqual({ roles: { task: 'openai/gpt:high' }, pending: false });
+    for (const bad of [{}, { roles: {} }, { roles: { default: 'a/b' } }, { roles: { task: 'gpt' } }, { roles: { task: '-x/y' } }, { roles: { task: 'a/b c' } }, { roles: { task: 3 } }])
+      expect(launcher.setRoles(bad)).toMatchObject({ status: 422 });
+    const submitted = launcher.setRoles({ roles: { task: 'openai/gpt-6:low', advisor: null } });
+    if (!('job' in submitted)) throw new Error('roles failed');
+    expect(launcher.roles().pending).toBe(true);
+    const [job] = launcher.poll();
+    expect(job).toEqual({ id: submitted.job.id, op: 'roles', cast: '', agentDir: '/tmp', roles: { task: 'openai/gpt-6:low', advisor: null } });
+    launcher.ack({ results: [{ id: job.id, ok: true }] });
+    expect(launcher.jobs().find((j) => j.id === job.id)?.status).toBe('done');
+    expect(launcher.roles().pending).toBe(false);
+  });
   it('fails a start without a session and queues a stop', () => {
     const { launcher, time } = setup();
     launcher.poll();

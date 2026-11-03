@@ -54,6 +54,12 @@ conditions e atualize sua linha ao terminar.
 | 030  | Upload binário por stream para disco, orçamento compartilhado e auxiliar sem base64 | P1 | L | — (base obrigatória: candidata 029 `c19afb0`) | DONE (código `155e734`, merge `0697614`; revisão `7e164a5` publicada no ambiente pessoal e nos cinco tenants, todos saudáveis. Ver `030-resultado.md`; sem push) |
 | 031  | Elenco de personagens fixos (principais, advisor, subagentes por tipo) com salas permitidas; ocupado = sorteio; salas só organizam | P2 | L | — | DONE (branch `advisor/031-elenco`, `5a2e258`..`ba8bf49`, mesclado no branch `rpg` em `2ff0e3d` (worktree `../habblaud-rpg`); fora de `producao`. Revisão: 188 arquivos / 2283 testes, typecheck, i18n estrito e build ok; smoke de migração e API refeito pelo revisor. Desvios autorizados: montagem da tela em `client/src/ui/index.ts`; fixtures `custom`→`cast` só em `shared/world/projection.test.ts`. `HABBLAUD_CAST` de ponta a ponta não provado com omp real: a extensão instalada é a de produção) |
 | 032  | Chamar (Continuar/Nova) e dispensar personagens do elenco: omp no host via auxiliar + tmux `hb-<id>`, perfil (modelo, instruções), ociosidade; reserva apagada no lounge | P2 | L | 031 | DONE (branch `advisor/032-chamar-dispensar`, `514a1ef`..`5676f9a`, mesclado em `rpg` em `023c71d`. Revisão: 190 arquivos / 2296 testes (1 falha intermitente não identificada em 1 de 4 rodadas), typecheck, i18n estrito e build ok. Prova com omp real: Nova, Dispensar, Continuar (mesmo `sessionId`), 409, auxiliar ausente e reserva no lounge nos dois prédios; ociosidade só por teste com relógio falso. Desvios autorizados: `office.ts`; `-e HABBLAUD_PORT` no tmux; prompt/modelo com `-` inicial recusados; reserva em pufe→poltrona→sofá a 0,55; cartão "escritório vazio" some com reserva. Unidade `deploy/podman/habblaud-bridge.service` não ativada) |
+| 035 | Investigar gravação tardia do cache após limpeza | P1 | M | — | DONE (commit `ef13ee5` mesclado no branch Android; falha de gravação do DataStore não simulada) |
+| 036 | Executar testes instrumentados Android no CI | P1 | M | — | BLOCKED (commit `ae5da53` mesclado; 13 testes passaram localmente; falta execução no GitHub Actions) |
+| 037 | Confirmar login HTTP sem proibir LAN/VPN | P1 | M | — | BLOCKED (commit `ea0a262` mesclado; dois de seis testes falharam em viewport pequeno) |
+| 038 | Investigar ordenação da última sessão Android | P2 | M | 035 | DONE (commit `ef13ee5` mesclado; 24 testes instrumentados passaram antes da integração) |
+| 039 | Ocultar detalhes de notificações na tela bloqueada | P1 | M | — | BLOCKED (commit `9e16291` mesclado; teste instrumentado aprovado; ensaio visual inconclusivo) |
+| 040 | Monitorar dependências Gradle no Dependabot | P2 | S | — | DONE (commit `4150994` mesclado; YAML validado; validação do serviço remoto pendente) |
 
 Em 2026-10-31 o branch `rpg` (elenco 031/032 e o que veio depois) foi promovido a `producao` por fast-forward
 (`759c0f9`): o standalone (`~/apps/habblaud` no branch `producao`) e os cinco tenants rodam essa versão. As notas
@@ -62,6 +68,8 @@ Em 2026-10-31 o branch `rpg` (elenco 031/032 e o que veio depois) foi promovido 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 
 ## Dependency notes
+
+- 035–040: auditoria Android no commit `9469c0b`, 2026-11-03. Todos os commits foram mesclados no branch Android; 036, 037 e 039 mantêm pendências descritas na tabela. A validação do CI e Dependabot no GitHub depende de publicação autorizada.
 
 - 029: isolamento integrado e publicado por `omp-tenant sync` nos cinco tenants; servidor RW e contêiner OMP RO para a mesma raiz de anexos. Credenciais e configurações individuais preservadas; rollback registrado em `030-resultado.md`.
 - Investigação do OOM do 029: `029-upload-lab-results.md`; implementação e provas do servidor completo aprovadas no 030: `030-resultado.md`. O pico máximo independente foi 126,8 MiB, incluindo pagecache, nas cargas descritas.
@@ -96,6 +104,10 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 - Planos 010–013 partem de `fork/main` (o `producao` local está 5 commits atrás).
 
 ## Findings considered and rejected
+
+- Proibir HTTP no Android: contraria a escolha documentada para LAN/VPN; 037 prevê aviso sem remover suporte.
+- Logout deixa de limpar após erro de rede: `HabblaudApi.logout()` captura `IOException` e retorna `false`; falha de rede, isoladamente, não sustenta o achado.
+- Filtro release `VpnGuardTest` inexistente quebraria CI: comando com ambos filtros passou offline; não comprova cobertura VPN.
 
 - Avisar sobre o repositório de atualização do fork (`package.json` `repository` aponta para marmottajr): o cartão só
   informa release nova do upstream, sem atualizar nada sozinho; ao sincronizar o fork com o upstream a versão também
