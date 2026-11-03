@@ -39,7 +39,7 @@ private val sessionIdPattern = Regex("^[0-9a-fA-F][0-9a-fA-F-]{7,199}$")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Boolean, onUnauthorized: () -> Unit, onPermission: () -> Unit, content: @Composable (@Composable () -> Unit, @Composable () -> Unit, @Composable () -> Unit) -> Unit) {
+internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Boolean, openCast: Set<String>, onUnauthorized: () -> Unit, onPermission: () -> Unit, content: @Composable (@Composable () -> Unit, @Composable () -> Unit, @Composable () -> Unit) -> Unit) {
     val scope = rememberCoroutineScope()
     var availability by remember(api) { mutableStateOf("loading") }
     var characters by remember(api) { mutableStateOf(emptyList<CastChoice>()) }
@@ -108,15 +108,17 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
     }
     val current = selected?.cast?.let { id -> characters.find { it.id == id } }
     val activeJob = current?.let { jobs[it.id] in listOf("queued", "sent", "waiting") } == true
-    // Como no histórico da web: qualquer personagem do elenco que trabalha na pasta pode continuar a conversa omp encerrada; o dono vem primeiro.
-    val eligible = if (selected?.project?.startsWith('/') == true) characters.filter { it.rooms.isEmpty() || selected.project in it.rooms } else emptyList()
+    // Só quem está livre (sem agente aberto nem pedido em andamento), como a reserva da web: o servidor recusaria os outros.
+    val free = characters.filter { it.id !in openCast && jobs[it.id] !in listOf("queued", "sent", "waiting") }
+    // Qualquer personagem livre que trabalha na pasta pode continuar a conversa omp encerrada; o dono vem primeiro.
+    val eligible = if (selected?.project?.startsWith('/') == true) free.filter { it.rooms.isEmpty() || selected.project in it.rooms } else emptyList()
     val resumeChoices = eligible.sortedByDescending { it == current }
     val resume = selected != null && selected.agentId == null && selected.key.provider == "omp" &&
         selected.key.sessionId.matches(sessionIdPattern) && resumeChoices.isNotEmpty()
     val dismiss = selected?.agentId != null && selected.castOpened && current != null
     val actions: @Composable () -> Unit = {
         if (availability == "available") {
-            if (resume) ActionIcon(R.string.cast_resume, Icons.Default.PlayArrow, !sending && resumeChoices.any { jobs[it.id] !in listOf("queued", "sent", "waiting") }) { choice = null; dialog = "resume-select" }
+            if (resume) ActionIcon(R.string.cast_resume, Icons.Default.PlayArrow, !sending) { choice = null; dialog = "resume-select" }
             if (dismiss) ActionIcon(R.string.cast_dismiss, Icons.Default.ExitToApp, !sending && !activeJob) { dialog = "dismiss" }
         }
         if (selected?.permission == true) PermissionAttentionButton(selected.permissionQuestion, onPermission)

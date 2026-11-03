@@ -77,7 +77,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
     val selected = state.selected
     var menuExpanded by remember { mutableStateOf(false) }
     BackHandler(enabled = selected != null && permissionSession == null && !menuExpanded) { controller.close() }
-    CastActions(api, selected, state.connection == "connected" && (state.terminalAllowed || selected?.permission == true), onUnauthorized, { permissionSession = selected }) { castActions, castFab, castStatus ->
+    CastActions(api, selected, state.connection == "connected" && (state.terminalAllowed || selected?.permission == true), state.sessions.filter { it.agentId != null }.mapNotNull { it.cast }.toSet(), onUnauthorized, { permissionSession = selected }) { castActions, castFab, castStatus ->
     Scaffold(floatingActionButton = { castFab() }, topBar = {
         TopAppBar(
             title = {
