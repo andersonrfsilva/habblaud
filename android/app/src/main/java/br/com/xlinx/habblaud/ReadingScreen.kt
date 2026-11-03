@@ -91,10 +91,19 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (selected != null) CharacterAvatar(api, selected, 36.dp)
                     Column(Modifier.weight(1f)) {
-                        Text(selected?.title ?: selected?.characterName ?: stringResource(R.string.app_name), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        val projectStatus = selected?.let { listOfNotNull(it.project?.substringAfterLast('/'), statusLabel(it.status ?: it.activity)).joinToString(" · ") }
-                        val subtitle = if (selected == null) stringResource(when (state.connection) { "connected" -> R.string.reading_connected; "connecting" -> R.string.reading_connecting; else -> R.string.reading_offline }) else listOfNotNull(selected.characterName.takeIf { it != null && it != selected.title }, projectStatus?.takeIf { it.isNotEmpty() }).joinToString(" · ")
-                        Text(subtitle, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(selected?.title ?: selected?.characterName ?: stringResource(R.string.app_name), Modifier.weight(1f, fill = false), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (selected == null) {
+                                val statusLabel = stringResource(when (state.connection) { "connected" -> R.string.reading_connected; "connecting" -> R.string.reading_connecting; else -> R.string.reading_offline })
+                                val color = when (state.connection) { "connected" -> Color(0xFF2E7D32); "connecting" -> Color(0xFFEF6C00); else -> Color(0xFFC62828) }
+                                Box(Modifier.size(10.dp).background(color, CircleShape).semantics { contentDescription = statusLabel })
+                            }
+                        }
+                        if (selected != null) {
+                            val projectStatus = listOfNotNull(selected.project?.substringAfterLast('/'), statusLabel(selected.status ?: selected.activity)).joinToString(" · ")
+                            val subtitle = listOfNotNull(selected.characterName.takeIf { it != null && it != selected.title }, projectStatus.takeIf { it.isNotEmpty() }).joinToString(" · ")
+                            Text(subtitle, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
                     }
                 }
             },
