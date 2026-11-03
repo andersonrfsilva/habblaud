@@ -95,10 +95,13 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
             DropdownMenuItem(text = { Text(stringResource(label)) }, leadingIcon = { RadioButton(selected = view == value, onClick = null) }, onClick = { view = value; close() })
         }
     }) { castActions, castFab, castStatus ->
+    var showInfo by remember(selected?.key) { mutableStateOf(false) }
+    if (showInfo && selected != null) SessionInfoSheet(api, selected, state.entries, state.truncated) { showInfo = false }
     Scaffold(floatingActionButton = { castFab() }, topBar = {
         TopAppBar(
             title = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                val infoLabel = stringResource(R.string.session_info)
+                Row(Modifier.then(if (selected != null) Modifier.clickable(onClickLabel = infoLabel) { showInfo = true } else Modifier), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (selected != null) CharacterAvatar(api, selected, 36.dp)
                     Column(Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -434,5 +437,45 @@ internal fun visibleEntries(entries: List<TerminalEntry>, view: String): List<Te
         "prompts" -> entry.kind == "user" || entry.kind == "assistant"
         "no_tools" -> entry.kind != "tool" && entry.kind != "result"
         else -> true
+    }
+}
+
+/** Informações da sessão aberta: quem, onde, qual provedor e conta, identificador e números da conversa carregada. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SessionInfoSheet(api: HabblaudApi, session: SessionItem, entries: List<TerminalEntry>, truncated: Boolean, onClose: () -> Unit) {
+    ModalBottomSheet(onDismissRequest = onClose, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                CharacterAvatar(api, session, 64.dp)
+                Column {
+                    Text(session.title, style = MaterialTheme.typography.titleLarge)
+                    session.characterName?.takeIf { it != session.title }?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                }
+            }
+            val times = entries.mapNotNull { it.at }
+            val count = { kind: String -> entries.count { it.kind == kind } }
+            SelectionContainer {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    InfoRow(R.string.info_state, listOfNotNull(stringResource(if (session.agentId != null) R.string.info_open else R.string.info_closed), statusLabel(session.status), session.activity?.takeIf { session.agentId != null }).joinToString(" · "))
+                    session.project?.let { InfoRow(R.string.info_project, it) }
+                    InfoRow(R.string.info_provider, "${session.key.provider} · ${session.key.account}")
+                    InfoRow(R.string.info_session, session.key.sessionId)
+                    session.lastAt?.let { InfoRow(R.string.info_last_activity, "${entryTime(it)} (${relativeTime(it)})") }
+                    if (times.isNotEmpty()) InfoRow(R.string.info_window, "${entryTime(times.min())} → ${entryTime(times.max())}")
+                    InfoRow(R.string.info_counts, stringResource(R.string.info_counts_value, count("user"), count("assistant"), count("tool"), count("thinking")))
+                    if (truncated) Text(stringResource(R.string.window_truncated), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    InfoRow(R.string.info_server, session.key.origin)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InfoRow(label: Int, value: String) {
+    Column {
+        Text(stringResource(label), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.bodyLarge)
     }
 }

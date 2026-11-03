@@ -126,4 +126,16 @@
     <string name="notify_permission">Pede sua aprovação</string>
     <string name="notify_question">Tem uma pergunta para você</string>
     <string name="notify_done">Terminou o turno</string>
+    <string name="session_info">Informações da sessão</string>
+    <string name="info_state">Estado</string>
+    <string name="info_open">Aberta</string>
+    <string name="info_closed">Encerrada</string>
+    <string name="info_project">Projeto</string>
+    <string name="info_provider">Provedor e conta</string>
+    <string name="info_session">Sessão</string>
+    <string name="info_last_activity">Última atividade</string>
+    <string name="info_window">Período carregado</string>
+    <string name="info_counts">Conversa carregada</string>
+    <string name="info_counts_value">%1$d prompts, %2$d respostas, %3$d ferramentas, %4$d pensamentos</string>
+    <string name="info_server">Servidor</string>
 </resources>
