@@ -110,7 +110,7 @@
     <string name="cast_resume">Retomar conversa</string>
     <string name="cast_dismiss">Dispensar personagem</string>
     <string name="view_all">Mostrar tudo</string>
-    <string name="view_prompts">Só meus prompts</string>
+    <string name="view_prompts">Só prompts</string>
     <string name="view_no_tools">Sem ferramentas</string>
     <string name="cast_dismiss_confirm">Dispensar este personagem e fechar sua sessão no servidor?</string>
     <string name="cast_unavailable">O auxiliar do servidor não está disponível.</string>

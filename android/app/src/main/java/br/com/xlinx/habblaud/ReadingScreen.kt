@@ -77,7 +77,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
     }
     val selected = state.selected
     var menuExpanded by remember { mutableStateOf(false) }
-    // O que a conversa mostra: tudo, só os seus prompts, ou sem ferramentas (e seus resultados).
+    // O que a conversa mostra: tudo, só as mensagens (suas e do agente), ou sem ferramentas (e seus resultados).
     var view by rememberSaveable { mutableStateOf("all") }
     BackHandler(enabled = selected != null && permissionSession == null && !menuExpanded) { controller.close() }
     CastActions(api, selected, state.connection == "connected" && (state.terminalAllowed || selected?.permission == true), state.sessions.filter { it.agentId != null }.mapNotNull { it.cast }.toSet(), onUnauthorized, { permissionSession = selected }, menu = { close ->
@@ -183,7 +183,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                     }
                 }
             }
-            val shown = state.entries.filter { entry -> when (view) { "prompts" -> entry.kind == "user"; "no_tools" -> entry.kind != "tool" && entry.kind != "result"; else -> true } }
+            val shown = state.entries.filter { entry -> when (view) { "prompts" -> entry.kind == "user" || entry.kind == "assistant"; "no_tools" -> entry.kind != "tool" && entry.kind != "result"; else -> true } }
             val lastId = shown.lastOrNull()?.id
             // Ao enviar, volta a seguir o fim: o prompt e a resposta que chegam aparecem sem rolar à mão.
             fun stickToEnd() {
