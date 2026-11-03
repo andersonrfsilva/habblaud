@@ -21,14 +21,28 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import br.com.xlinx.habblaud.data.AccountQuota
+import br.com.xlinx.habblaud.data.ApiException
+import br.com.xlinx.habblaud.data.HabblaudApi
 import br.com.xlinx.habblaud.data.LocalStateStore
+import br.com.xlinx.habblaud.data.UsageLimit
+import br.com.xlinx.habblaud.data.WINDOW_FIVE_HOUR
+import br.com.xlinx.habblaud.data.WINDOW_SEVEN_DAY
+import br.com.xlinx.habblaud.data.WINDOW_SEVEN_DAY_OPUS
+import br.com.xlinx.habblaud.data.WINDOW_SEVEN_DAY_SONNET
+import br.com.xlinx.habblaud.data.parseAccounts
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** Configurações do aparelho. Visualização e modo de envio aqui são o padrão; cada sessão lembra a própria escolha. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(store: LocalStateStore, origin: String, onClose: () -> Unit, onLogout: () -> Unit) {
+fun SettingsScreen(api: HabblaudApi, store: LocalStateStore, onClose: () -> Unit, onLogout: () -> Unit) {
+    val origin = api.origin
     BackHandler(onBack = onClose)
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -40,6 +54,16 @@ fun SettingsScreen(store: LocalStateStore, origin: String, onClose: () -> Unit, 
     LaunchedEffect(Unit) {
         view = store.defaultView(); deliver = store.deliverAs()
         notifications = store.notificationsEnabled(); events = store.notifyEvents()
+    }
+    // Cotas: o servidor manda o uso das contas no snapshot; recarrega a cada minuto enquanto a tela está aberta.
+    var quotas by remember { mutableStateOf<List<AccountQuota>?>(null) }
+    var quotaError by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            try { quotas = parseAccounts(api.request("/api/snapshot")); quotaError = false }
+            catch (e: Exception) { if (e is CancellationException) throw e; if (e is ApiException && e.status == 401) return@LaunchedEffect; quotaError = true }
+            delay(60_000)
+        }
     }
     val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) NotificationService.start(context)
@@ -94,6 +118,15 @@ fun SettingsScreen(store: LocalStateStore, origin: String, onClose: () -> Unit, 
                 Text(stringResource(R.string.background_settings))
             }
 
+            Section(R.string.settings_quotas)
+            when {
+                quotas == null && !quotaError -> Hint(R.string.quota_loading)
+                quotas == null -> Hint(R.string.quota_error)
+                quotas!!.isEmpty() -> Hint(R.string.quota_none)
+                else -> quotas!!.forEach { QuotaCard(it) }
+            }
+            if (quotas != null && quotaError) Hint(R.string.quota_error)
+
             Section(R.string.settings_server)
             Text(origin, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodyLarge)
             TextButton(onClick = onLogout, Modifier.padding(horizontal = 8.dp)) { Text(stringResource(R.string.logout), color = MaterialTheme.colorScheme.error) }
@@ -121,4 +154,58 @@ private fun SwitchRow(label: String, checked: Boolean, enabled: Boolean = true, 
         Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f))
         Switch(checked = checked, onCheckedChange = null, enabled = enabled)
     }
+}
+
+/** Uma conta do servidor: nome, plano e situação; abaixo, cada provedor (omp) ou as janelas fixas, com barra e renovação. */
+@Composable
+private fun QuotaCard(account: AccountQuota) {
+    Surface(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(listOfNotNull(account.name, account.plan).joinToString(" · "), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                when (account.status) {
+                    "stale" -> Text(stringResource(R.string.quota_stale), style = MaterialTheme.typography.labelSmall, color = Color(0xFFEF6C00))
+                    "disabled" -> Text(stringResource(R.string.quota_disabled), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            if (account.noQuota) Text(stringResource(R.string.quota_no_quota), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+            account.groups.forEach { group ->
+                group.provider?.let { provider ->
+                    Text(listOfNotNull(providerLabel(provider), group.plan).joinToString(" · "), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                }
+                group.limits.forEach { LimitRow(it) }
+                group.note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
+            account.fetchedAt?.let { Text(stringResource(R.string.quota_fetched, entryTime(it)), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
+    }
+}
+
+@Composable
+private fun LimitRow(limit: UsageLimit) {
+    val label = when (limit.label) {
+        WINDOW_FIVE_HOUR -> stringResource(R.string.quota_five_hour)
+        WINDOW_SEVEN_DAY -> stringResource(R.string.quota_seven_day)
+        WINDOW_SEVEN_DAY_OPUS -> stringResource(R.string.quota_seven_day_opus)
+        WINDOW_SEVEN_DAY_SONNET -> stringResource(R.string.quota_seven_day_sonnet)
+        else -> limit.label
+    }
+    val used = limit.utilization
+    val fraction = ((used ?: 0.0) / 100).toFloat().coerceIn(0f, 1f)
+    val color = when { limit.exhausted || (used ?: 0.0) >= 90 -> MaterialTheme.colorScheme.error; (used ?: 0.0) >= 70 -> Color(0xFFEF6C00); else -> MaterialTheme.colorScheme.primary }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+            Text(if (used == null) "—" else "${"%.0f".format(used)}%", style = MaterialTheme.typography.bodyMedium, color = if (limit.exhausted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
+        }
+        if (used != null) LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth(), color = color, drawStopIndicator = {})
+        limit.resetsAt?.let { Text(stringResource(R.string.quota_resets, entryTime(it)), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+    }
+}
+
+private fun providerLabel(id: String) = when (id) {
+    "anthropic" -> "Anthropic"
+    "openai-codex" -> "OpenAI Codex"
+    "google-antigravity" -> "Google Antigravity"
+    else -> id
 }

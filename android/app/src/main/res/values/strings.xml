@@ -174,4 +174,17 @@
     <string name="settings_notify_permission">Pedidos de aprovação e perguntas</string>
     <string name="settings_notify_done">Turno concluído</string>
     <string name="settings_server">Servidor</string>
+    <string name="settings_quotas">Cotas dos modelos</string>
+    <string name="quota_loading">Carregando cotas…</string>
+    <string name="quota_error">Não foi possível atualizar as cotas.</string>
+    <string name="quota_none">O servidor não informou nenhuma conta.</string>
+    <string name="quota_stale">desatualizado</string>
+    <string name="quota_disabled">sem dados</string>
+    <string name="quota_no_quota">Sem cota nem créditos para usar agora.</string>
+    <string name="quota_five_hour">Sessão de 5 horas</string>
+    <string name="quota_seven_day">Semanal</string>
+    <string name="quota_seven_day_opus">Semanal (Opus)</string>
+    <string name="quota_seven_day_sonnet">Semanal (Sonnet)</string>
+    <string name="quota_resets">Renova %1$s</string>
+    <string name="quota_fetched">Atualizado às %1$s</string>
 </resources>

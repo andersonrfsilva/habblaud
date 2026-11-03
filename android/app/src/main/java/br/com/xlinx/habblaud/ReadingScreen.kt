@@ -101,7 +101,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
     }
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
     if (settingsOpen) {
-        SettingsScreen(store, api.origin, onClose = { settingsOpen = false }, onLogout = { settingsOpen = false; onLogout() })
+        SettingsScreen(api, store, onClose = { settingsOpen = false }, onLogout = { settingsOpen = false; onLogout() })
         return
     }
     BackHandler(enabled = selected != null && permissionSession == null && !menuExpanded) { controller.close() }
