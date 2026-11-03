@@ -282,8 +282,19 @@ class MessageController(
         mutable.value = state.value.copy(commandResult = "pending")
         scope.launch {
             val result = try {
-                request("/api/messages/control", buildJsonObject { put("agentId", agentId); put("command", "shake"); put("expectedSessionId", key.sessionId) }.toString())
-                "sent"
+                val response = wireJson.parseToJsonElement(request("/api/messages/control", buildJsonObject { put("agentId", agentId); put("command", "shake"); put("expectedSessionId", key.sessionId) }.toString())).jsonObject
+                // O servidor só enfileira: acompanha o pedido até a sessão confirmar (delivered) ou recusar (failed).
+                val id = requireNotNull(response.string("id"))
+                var status = response.string("status")
+                var tries = 0
+                while (status !in setOf("delivered", "failed") && tries++ < 15 && visible && state.value.key == key) {
+                    delay(2000)
+                    status = try {
+                        wireJson.parseToJsonElement(request("/api/messages/${URLEncoder.encode(id, "UTF-8").replace("+", "%20")}", null)).jsonObject.string("status")
+                    } catch (e: ApiException) { if (e.status == 404) "unknown" else throw e }
+                    if (status == "unknown") break
+                }
+                when (status) { "delivered" -> "sent"; "failed" -> "failed"; else -> "unknown" }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 if (e is ApiException && e.code == "session_changed") changed() else if (e is ApiException && e.status == 401) unauthorized()
