@@ -5,6 +5,8 @@ import br.com.xlinx.habblaud.data.castOwner
 import br.com.xlinx.habblaud.data.SessionItem
 import br.com.xlinx.habblaud.data.initKeepsSession
 import br.com.xlinx.habblaud.data.snapshotMatchesSession
+import br.com.xlinx.habblaud.data.liveOrClosed
+import br.com.xlinx.habblaud.data.objects
 import br.com.xlinx.habblaud.data.wireJson
 import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.*
@@ -49,5 +51,29 @@ class SessionIdentityTest {
         assertNull(castOwner(listOf(mira), key))
         assertNull(castOwner(listOf(didiz, member("dup", "/c" to "01a1-sessao")), key))
         assertNull(castOwner(listOf(didiz), key.copy(provider = "claude")))
+    }
+    @Test fun offlineAgentInServerGraceIsAlreadyClosedAndFreesItsContact() {
+        val key = SessionKey("https://example.test", "omp", "account", "s")
+        val live = SessionItem(key, "agent", "t", "/p", "idle", null, canMessage = true, cast = "didiz")
+        assertEquals(live, liveOrClosed(live))
+        val closed = liveOrClosed(live.copy(status = "offline"))
+        assertNull(closed.agentId)
+        assertFalse(closed.canMessage)
+        assertEquals("didiz", closed.cast)
+    }
+    @Test fun onlyWorkingSubagentsAndAdvisorsHangUnderTheirMain() {
+        val agents = wireJson.parseToJsonElement("""{"agents":[
+            {"id":"m","kind":"main","status":"working"},
+            {"id":"m:adv","kind":"sub","parentId":"m","name":"Gandalf","status":"working","role":"__advisor","activity":{"text":"Usando advise"}},
+            {"id":"m:a","kind":"sub","parentId":"m","name":"Linus","status":"waiting","role":"A"},
+            {"id":"m:b","kind":"sub","parentId":"m","name":"Ada","status":"done","role":"B"},
+            {"id":"m:c","kind":"sub","parentId":"m","name":"Bob","status":"idle","role":"C"},
+            {"id":"x:d","kind":"sub","parentId":"x","name":"Eva","status":"working"}
+        ]}""").jsonObject.objects("agents")
+        val subs = br.com.xlinx.habblaud.data.activeSubagents(agents)
+        assertEquals(listOf("Gandalf"), subs["m"]?.map { it.name })
+        assertEquals(listOf(true), subs["m"]?.map { it.advisor })
+        assertEquals("Usando advise", subs["m"]?.first()?.activity)
+        assertEquals(listOf("Eva"), subs["x"]?.map { it.name })
     }
 }

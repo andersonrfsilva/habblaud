@@ -53,8 +53,20 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
     var sending by remember { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
     LaunchedEffect(selected?.key) { result = "" }
+    // Elenco e pastas mudam pouco: carregam ao conectar, depois de cada pedido e ao abrir a escolha; os pedidos, a cada 5 s.
+    suspend fun loadCast() {
+        characters = wireJson.parseToJsonElement(api.request("/api/cast")).jsonObject.objects("members")
+            .filter { it.string("kind") == "main" }.mapNotNull { member ->
+                val id = member.string("id") ?: return@mapNotNull null
+                val name = member.string("name") ?: return@mapNotNull null
+                val rooms = (member["rooms"] as? JsonArray)?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty()
+                CastChoice(id, name, rooms, parseAvatar(member))
+            }
+        folders = wireJson.parseToJsonElement(api.request("/api/cast/folders")).jsonObject.objects("folders").mapNotNull { it.string("path") }
+    }
     LaunchedEffect(api, connected, refresh) {
         if (!connected) { availability = "offline"; return@LaunchedEffect }
+        var castLoaded = false
         while (true) {
             try {
                 val jobResponse = wireJson.parseToJsonElement(api.request("/api/cast/jobs")).jsonObject
@@ -68,22 +80,20 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
                     "done" -> result = "done"
                     "failed" -> result = "failed"
                 }
-                if (availability == "available") {
-                    characters = wireJson.parseToJsonElement(api.request("/api/cast")).jsonObject.objects("members")
-                        .filter { it.string("kind") == "main" }.mapNotNull { member ->
-                            val id = member.string("id") ?: return@mapNotNull null
-                            val name = member.string("name") ?: return@mapNotNull null
-                            val rooms = (member["rooms"] as? JsonArray)?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty()
-                            CastChoice(id, name, rooms, parseAvatar(member))
-                        }
-                    folders = wireJson.parseToJsonElement(api.request("/api/cast/folders")).jsonObject.objects("folders").mapNotNull { it.string("path") }
-                }
+                if (availability == "available" && !castLoaded) { loadCast(); castLoaded = true }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 if (e is ApiException && e.status == 401) { onUnauthorized(); return@LaunchedEffect }
                 availability = if (e is ApiException && e.status == 403) "forbidden" else "offline"
             }
             delay(5_000)
+        }
+    }
+    LaunchedEffect(dialog) {
+        if (dialog != "start" && dialog != "resume-select") return@LaunchedEffect
+        try { loadCast() } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            if (e is ApiException && e.status == 401) onUnauthorized()
         }
     }
     fun submit(path: String, body: JSONObject) {
@@ -108,7 +118,9 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
         }
     }
     val current = selected?.cast?.let { id -> characters.find { it.id == id } }
-    val activeJob = current?.let { jobs[it.id] in listOf("queued", "sent", "waiting") } == true
+    // Quem foi chamado como "Novo" não está no elenco: o pedido e o Dispensar seguem pelo id `novo-…` do agente.
+    val newAgent = selected?.cast?.startsWith(NEW_CAST_PREFIX) == true
+    val activeJob = selected?.cast?.takeIf { current != null || newAgent }?.let { jobs[it] in listOf("queued", "sent", "waiting") } == true
     // Só quem está livre (sem agente aberto nem pedido em andamento), como a reserva da web: o servidor recusaria os outros.
     val free = characters.filter { it.id !in openCast && jobs[it.id] !in listOf("queued", "sent", "waiting") }
     // Qualquer personagem livre que trabalha na pasta pode continuar a conversa omp encerrada; o dono vem primeiro.
@@ -116,7 +128,7 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
     val resumeChoices = eligible.sortedByDescending { it == current }
     val resume = selected != null && selected.agentId == null && selected.key.provider == "omp" &&
         selected.key.sessionId.matches(sessionIdPattern) && resumeChoices.isNotEmpty()
-    val dismiss = selected?.agentId != null && selected.castOpened && current != null
+    val dismiss = selected?.agentId != null && selected.castOpened && (current != null || newAgent)
     val actions: @Composable () -> Unit = {
         if (availability == "available" && resume) ActionIcon(R.string.cast_resume, Icons.Default.PlayArrow, !sending) { choice = null; dialog = "resume-select" }
         if (selected?.permission == true) PermissionAttentionButton(selected.permissionQuestion, onPermission)
@@ -153,17 +165,25 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
     content(actions, fab, status)
     if (dialog == "start") AlertDialog(onDismissRequest = { dialog = "" }, title = { Text(stringResource(if (choice == null) R.string.cast_select_character else R.string.cast_select_folder)) }, text = {
         Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
-            if (choice == null) free.forEach { member ->
-                Row(Modifier.fillMaxWidth().clickable { choice = member }.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    CharacterAvatar(api, member.avatar, member.name, 40.dp)
-                    Text(member.name)
+            if (choice == null) {
+                // "Novo": agente fora do elenco, com nome e visual sorteados pelo servidor.
+                val newLabel = stringResource(R.string.cast_new)
+                Row(Modifier.fillMaxWidth().clickable { choice = CastChoice("", newLabel, emptyList(), null) }.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) { Icon(painterResource(R.drawable.ic_person_add), contentDescription = null) }
+                    Text(newLabel)
+                }
+                free.forEach { member ->
+                    Row(Modifier.fillMaxWidth().clickable { choice = member }.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        CharacterAvatar(api, member.avatar, member.name, 40.dp)
+                        Text(member.name)
+                    }
                 }
             } else {
                 val availableFolders = (folders + choice!!.rooms).distinct().filter { choice!!.rooms.isEmpty() || it in choice!!.rooms }
                 if (availableFolders.isEmpty()) Text(stringResource(R.string.cast_no_folders))
                 availableFolders.forEach { folder -> Text(folder, Modifier.fillMaxWidth().clickable {
-                    val id = URLEncoder.encode(choice!!.id, "UTF-8")
-                    submit("/api/cast/$id/start", JSONObject().put("mode", "new").put("room", folder))
+                    if (choice!!.id.isEmpty()) submit("/api/cast/new", JSONObject().put("room", folder))
+                    else submit("/api/cast/${URLEncoder.encode(choice!!.id, "UTF-8")}/start", JSONObject().put("mode", "new").put("room", folder))
                 }.padding(12.dp)) }
             }
         }
@@ -197,21 +217,27 @@ private fun ActionIcon(labelId: Int, icon: ImageVector, enabled: Boolean = true,
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/** Animações do sistema ligadas (escala diferente de 0); acompanha a mudança nas configurações. */
 @Composable
-private fun PermissionAttentionButton(question: Boolean, onClick: () -> Unit) {
+internal fun animationsEnabled(): Boolean {
     val resolver = LocalContext.current.contentResolver
-    var animationsEnabled by remember { mutableStateOf(Settings.Global.getFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) != 0f) }
+    var enabled by remember { mutableStateOf(Settings.Global.getFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) != 0f) }
     DisposableEffect(resolver) {
         val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean) {
-                animationsEnabled = Settings.Global.getFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) != 0f
+                enabled = Settings.Global.getFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) != 0f
             }
         }
         resolver.registerContentObserver(Settings.Global.getUriFor(Settings.Global.ANIMATOR_DURATION_SCALE), false, observer)
         onDispose { resolver.unregisterContentObserver(observer) }
     }
-    val color = if (animationsEnabled) {
+    return enabled
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PermissionAttentionButton(question: Boolean, onClick: () -> Unit) {
+    val color = if (animationsEnabled()) {
         val transition = rememberInfiniteTransition(label = "permission")
         val animated by transition.animateColor(Color(0xFF984000), Color(0xFFB44C00), infiniteRepeatable(tween(1200), RepeatMode.Reverse), label = "permission color")
         animated

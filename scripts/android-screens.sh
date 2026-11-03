@@ -152,7 +152,8 @@ PY
     adb shell input keyevent 4
 }
 shot() { sleep 1; adb exec-out screencap -p >"$OUT/$1-$THEME.png"; echo "$OUT/$1-$THEME.png"; }
-reset_app() { adb shell pm clear "$PACKAGE" >/dev/null; adb shell am start -n "$PACKAGE/.MainActivity" >/dev/null; wait_text 'Endereço do servidor'; }
+# `pm clear` também tira a permissão de notificações; sem ela, o pedido do sistema cobre a lista depois do login.
+reset_app() { adb shell pm clear "$PACKAGE" >/dev/null; adb shell pm grant "$PACKAGE" android.permission.POST_NOTIFICATIONS 2>/dev/null || true; adb shell am start -n "$PACKAGE/.MainActivity" >/dev/null; wait_text 'Endereço do servidor'; }
 fill_login() {
     enter_text 'Endereço do servidor' "$1"
     enter_text 'Usuário' android-test

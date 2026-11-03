@@ -9,6 +9,24 @@ internal fun castOwner(cast: List<JsonObject>, key: SessionKey): JsonObject? = c
         (member["last"] as? JsonObject)?.values?.any { value -> value.toString().trim('"') == key.sessionId } == true
 }.singleOrNull()
 
+/**
+ * O servidor mantém a sessão encerrada no snapshot por ~20 s com status "offline": ela já é histórico (pode ser
+ * retomada) e o personagem já está livre, como na web; o agentId dela não vale mais para mensagens nem dispensa.
+ */
+internal fun liveOrClosed(item: SessionItem): SessionItem =
+    if (item.status == "offline") item.copy(agentId = null, canMessage = false) else item
+
+/** Subagentes e advisors trabalhando agora, por agente principal; quem terminou ou parou não entra. */
+internal fun activeSubagents(agents: List<JsonObject>): Map<String, List<SubAgent>> = agents
+    .filter { it.string("kind") == "sub" && it.string("status") == "working" }
+    .mapNotNull { o ->
+        val parent = o.string("parentId") ?: return@mapNotNull null
+        val id = o.string("id") ?: return@mapNotNull null
+        val activity = (o["activity"] as? JsonObject)?.let { it.string("summary") ?: it.string("text") }
+        parent to SubAgent(id, o.string("name") ?: id, parseAvatar(o), o.string("role") == "__advisor", activity)
+    }
+    .groupBy({ it.first }, { it.second })
+
 class SessionRepository(private val api: HabblaudApi) {
     private var recent = emptyList<SessionItem>()
     private var open = emptyList<SessionItem>()
@@ -41,8 +59,10 @@ class SessionRepository(private val api: HabblaudApi) {
     fun snapshot(data: String): List<SessionItem> {
         val root = wireJson.parseToJsonElement(data).jsonObject
         val rooms = root.objects("rooms").associate { it.string("id") to (it.string("path") ?: it.string("name")) }
-        open = root.objects("agents").filter { it.string("kind") == "main" && it.string("parentId") == null }.mapNotNull { agent ->
-            item(agent, rooms[agent.string("roomId")])
+        val agents = root.objects("agents")
+        val subs = activeSubagents(agents)
+        open = agents.filter { it.string("kind") == "main" && it.string("parentId") == null }.mapNotNull { agent ->
+            item(agent, rooms[agent.string("roomId")])?.let { it.copy(subagents = it.agentId?.let(subs::get).orEmpty()) }?.let(::liveOrClosed)
         }
         return sessions()
     }

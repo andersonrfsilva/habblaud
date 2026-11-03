@@ -1,5 +1,12 @@
 package br.com.xlinx.habblaud
 
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.background
@@ -211,6 +218,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                 item(key = "search") { OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.search_sessions)) }, singleLine = true) }
                 if (items.isEmpty()) item(key = "empty") { Text(stringResource(R.string.sessions_empty), Modifier.fillMaxWidth().padding(32.dp), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyLarge) }
                 items(items, key = { it.key.serialize() }) { session ->
+                    Column(Modifier.fillMaxWidth().animateContentSize()) {
                     Row(Modifier.fillMaxWidth().clickable { controller.open(session) }.padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         CharacterAvatar(api, session, 48.dp)
                         Column(Modifier.weight(1f)) {
@@ -220,6 +228,9 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                             if (session.permission) TextButton(onClick = { permissionSession = session }) { Text(stringResource(R.string.permission_pending), color = MaterialTheme.colorScheme.error) }
                         }
                         session.lastAt?.let { Text(relativeTime(it), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    }
+                    // Subagentes e advisors pendurados no principal enquanto trabalham; somem sozinhos quando terminam.
+                    session.subagents.forEachIndexed { i, sub -> SubagentBranch(api, sub, last = i == session.subagents.lastIndex) }
                     }
                 }
                 item(key = "filler") { Spacer(Modifier.height(with(density) { fillerPx.toDp() })) }
@@ -260,6 +271,8 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
             }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 LazyColumn(Modifier.fillMaxSize(), state = listState, reverseLayout = true, contentPadding = PaddingValues(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom)) {
+                    // Lista invertida: o primeiro item fica no pé da conversa, logo abaixo da última mensagem.
+                    if (selected.agentId != null && selected.status == "working") item(key = "working") { WorkingIndicator(api, selected) }
                     items(rows.asReversed(), key = { it.first.id }) { (entry, thoughts) ->
                         if (entry.kind != "result" || entry.toolUseId !in tools) EntryView(entry, results[entry.id].orEmpty(), thoughts, recovered = entry.id in recovered) { before, now ->
                             // A lista é invertida: o item cresce para cima. Rola o quanto o cabeçalho tocado andou, para ele voltar ao lugar.
@@ -375,6 +388,43 @@ private fun statusLabel(value: String?): String? = when (value?.lowercase()) {
     "waiting" -> stringResource(R.string.status_waiting)
     "offline", "closed", "stopped" -> stringResource(R.string.status_closed)
     else -> null
+}
+
+/** Galho da árvore sob o avatar do principal (48 dp): linha vertical, curva até o avatar do subagente, nome e atividade. */
+@Composable
+private fun SubagentBranch(api: HabblaudApi, sub: SubAgent, last: Boolean) {
+    val line = MaterialTheme.colorScheme.outlineVariant
+    Row(Modifier.fillMaxWidth().height(44.dp), verticalAlignment = Alignment.CenterVertically) {
+        Canvas(Modifier.width(40.dp).fillMaxHeight()) {
+            val x = 24.dp.toPx(); val mid = size.height / 2; val stroke = 2.dp.toPx()
+            drawLine(line, androidx.compose.ui.geometry.Offset(x, 0f), androidx.compose.ui.geometry.Offset(x, if (last) mid else size.height), stroke)
+            drawLine(line, androidx.compose.ui.geometry.Offset(x, mid), androidx.compose.ui.geometry.Offset(size.width, mid), stroke)
+        }
+        CharacterAvatar(api, sub.avatar, sub.name, 28.dp)
+        Column(Modifier.weight(1f).padding(start = 8.dp)) {
+            Text(if (sub.advisor) stringResource(R.string.advisor_name, sub.name) else sub.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            sub.activity?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+        }
+    }
+}
+
+/** Avatar do contato pulando, com três pontos "digitando", enquanto o agente trabalha (parado com as animações do sistema desligadas). */
+@Composable
+private fun WorkingIndicator(api: HabblaudApi, session: SessionItem) {
+    val label = stringResource(R.string.status_working)
+    val transition = if (animationsEnabled()) rememberInfiniteTransition(label = "working") else null
+    val bounce = transition?.animateFloat(0f, 1f, infiniteRepeatable(tween(600), RepeatMode.Reverse), label = "bounce")
+    Row(Modifier.padding(horizontal = 4.dp).semantics { contentDescription = label }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Box(Modifier.graphicsLayer { translationY = -6.dp.toPx() * (bounce?.value ?: 0f) }) { CharacterAvatar(api, session, 32.dp) }
+        Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
+            Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                repeat(3) { i ->
+                    val dot = transition?.animateFloat(0.3f, 1f, infiniteRepeatable(tween(450, delayMillis = i * 150), RepeatMode.Reverse), label = "dot$i")
+                    Box(Modifier.size(7.dp).graphicsLayer { alpha = dot?.value ?: 1f }.background(MaterialTheme.colorScheme.onSurfaceVariant, CircleShape))
+                }
+            }
+        }
+    }
 }
 
 @Composable

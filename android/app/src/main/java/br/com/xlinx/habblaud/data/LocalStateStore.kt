@@ -6,6 +6,13 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -71,6 +78,28 @@ class LocalStateStore(private val context: Context) : MessageStore {
     suspend fun setLastSession(key: SessionKey?) {
         context.localState.edit { if (key == null) it.remove(sessionKey) else it[sessionKey] = key.serialize() }
     }
+
+    // Conversas guardadas no aparelho: abrir uma sessão mostra o que já foi lido na hora, e o servidor só manda o que
+    // veio depois (init incremental). Arquivos em filesDir, apagados ao sair da conta ou trocar de servidor.
+    private val conversations = java.io.File(context.filesDir, "conversations")
+    private fun conversationFile(key: SessionKey) = java.io.File(conversations, hashed("", key).name + ".json")
+    suspend fun conversation(key: SessionKey): CachedConversation? = withContext(Dispatchers.IO) {
+        runCatching { decodeConversation(conversationFile(key).readText()) }.getOrNull()
+    }
+    // Uma gravação por vez: as do fechamento da tela e as adiadas usam o mesmo `.tmp` e não podem se cruzar.
+    private val conversationLock = kotlinx.coroutines.sync.Mutex()
+    suspend fun setConversation(key: SessionKey, entries: List<TerminalEntry>, truncated: Boolean) = conversationLock.withLock {
+        withContext(Dispatchers.IO) {
+            runCatching {
+                conversations.mkdirs()
+                val tmp = java.io.File(conversations, "${conversationFile(key).name}.tmp")
+                tmp.writeText(encodeConversation(entries, truncated))
+                tmp.renameTo(conversationFile(key))
+            }
+            Unit
+        }
+    }
+    private suspend fun clearConversations() = conversationLock.withLock { withContext(Dispatchers.IO) { conversations.deleteRecursively(); Unit } }
     private fun retryKey(origin: String) = longPreferencesKey("retry_" + java.security.MessageDigest.getInstance("SHA-256").digest(origin.toByteArray()).joinToString("") { "%02x".format(it) })
 
     suspend fun retryUntil(origin: String): Long = context.rateState.data.first()[retryKey(origin)] ?: 0
@@ -86,6 +115,7 @@ class LocalStateStore(private val context: Context) : MessageStore {
 
     suspend fun setConnection(origin: String) {
         migrateLegacySettings()
+        if (connection()?.origin != origin) clearConversations()
         context.localState.edit { data ->
             if (data[originKey] != origin) data.clear()
             data[originKey] = origin
@@ -125,7 +155,7 @@ class LocalStateStore(private val context: Context) : MessageStore {
     suspend fun sessionDeliverAs(key: SessionKey): String = context.localState.data.first()[hashed("deliver_", key)]?.takeIf { it in DELIVER_MODES } ?: deliverAs()
     suspend fun setSessionDeliverAs(key: SessionKey, mode: String) { if (mode in DELIVER_MODES) context.localState.edit { it[hashed("deliver_", key)] = mode } }
 
-    suspend fun clear() { migrateLegacySettings(); context.localState.edit { it.clear() } }
+    suspend fun clear() { migrateLegacySettings(); clearConversations(); context.localState.edit { it.clear() } }
 
     /** Leva notificações e modo de envio antigos de local_state para settings antes de local_state ser apagado. */
     private suspend fun migrateLegacySettings() {
@@ -141,3 +171,24 @@ val DELIVER_MODES = listOf("aside", "followUp", "steer")
 val VIEWS = listOf("all", "prompts", "no_tools")
 val THEMES = listOf("system", "light", "dark")
 
+
+data class CachedConversation(val entries: List<TerminalEntry>, val truncated: Boolean)
+
+/** Guarda as últimas 500 entradas (a janela do `init` do servidor): o arquivo não cresce sem limite. */
+internal fun encodeConversation(entries: List<TerminalEntry>, truncated: Boolean): String = buildJsonObject {
+    put("truncated", truncated || entries.size > 500)
+    put("entries", buildJsonArray {
+        entries.takeLast(500).forEach { e ->
+            add(buildJsonObject {
+                put("id", e.id); put("kind", e.kind); put("text", e.text)
+                e.title?.let { put("title", it) }; e.toolUseId?.let { put("toolUseId", it) }
+                if (e.truncated) put("truncated", true); e.at?.let { put("at", it) }
+            })
+        }
+    })
+}.toString()
+
+internal fun decodeConversation(text: String): CachedConversation {
+    val root = wireJson.parseToJsonElement(text).jsonObject
+    return CachedConversation(root.objects("entries").mapNotNull(TerminalEntry::parse), root.flag("truncated"))
+}

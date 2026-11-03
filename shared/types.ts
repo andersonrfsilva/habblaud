@@ -39,15 +39,24 @@ export interface CastMember {
 
 /** Ociosidade padrão de um personagem do elenco aberto pelo Habblaud. */
 export const CAST_IDLE_MINUTES = 120;
+/** Prefixo do id de quem foi chamado como "Novo" (fora do elenco): POST /api/cast/new; nome e visual são sorteados. */
+export const NEW_CAST_PREFIX = 'novo-';
+
+/** Papéis do omp que a tela de Configurações troca (modelRoles global da conta padrão, `omp config`). */
+export const OMP_EDITABLE_ROLES = ['task', 'plan', 'advisor'] as const;
+export type OmpEditableRole = (typeof OMP_EDITABLE_ROLES)[number];
+/** Valor de um papel: `provedor/modelo` com `:raciocínio` opcional; null apaga o papel (volta ao padrão do omp). */
+export type OmpRoles = Partial<Record<OmpEditableRole, string | null>>;
 
 export type CastJob =
   | { id: string; op: 'start'; cast: string; folder: string; agentDir: string; model?: string; instructionsFile?: string; resume?: string; prompt?: string }
-  | { id: string; op: 'stop'; cast: string };
+  | { id: string; op: 'stop'; cast: string }
+  | { id: string; op: 'roles'; cast: ''; agentDir: string; roles: OmpRoles };
 
 export interface CastJobInfo {
   id: string;
   cast: string;
-  op: 'start' | 'stop';
+  op: 'start' | 'stop' | 'roles';
   status: 'queued' | 'sent' | 'waiting' | 'done' | 'failed';
   error?: string;
 }
@@ -643,13 +652,19 @@ export type TerminalEntry =
   /** Evento da sessão: compactação, interrupção, resultado em segundo plano, erro da API... */
   | { kind: 'system'; id: string; at: number; text: string; detail?: string; level?: 'info' | 'warn' | 'error' };
 
-/** Evento `init` do stream do terminal: a conversa recente (substitui tudo o que o cliente tiver). */
+/**
+ * Evento `init` do stream do terminal: a conversa recente (substitui tudo o que o cliente tiver). Com `?after=<id>&at=<ms>`
+ * na URL (a última entrada que o cliente guardou) e essa entrada na janela lida, `after` volta preenchido e `entries`
+ * traz só o que veio depois dela: o cliente soma ao que já tem em vez de substituir.
+ */
 export interface TerminalInit {
   agentId: string;
   /** Da mais antiga para a mais recente. */
   entries: TerminalEntry[];
   /** Há conversa anterior que não foi carregada (o transcript é maior do que a janela lida). */
   truncated: boolean;
+  /** Id da entrada depois da qual `entries` começa (init incremental); ausente = conversa completa. */
+  after?: string;
 }
 
 /**

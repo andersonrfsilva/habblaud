@@ -11,6 +11,9 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import java.net.URLEncoder
 
+/** Gravações do cache de conversas: duram o processo, não a tela (o descarte cancela o escopo da tela). */
+private val persistScope = CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+
  data class ReadingState(
     val sessions: List<SessionItem> = emptyList(), val selected: SessionItem? = null,
     val entries: List<TerminalEntry> = emptyList(), val truncated: Boolean = false,
@@ -97,8 +100,23 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         }
         mutable.value.selected?.let { open(it) }
     }
-    fun stop() { active = false; generation++; stateJob?.cancel(); conversationJob?.cancel(); messages.stop(); api.cancelCalls(); mutable.value = mutable.value.copy(connection = "offline", readingError = if (mutable.value.selected != null && mutable.value.readingError == null) "network" else mutable.value.readingError) }
-    fun close() { generation++; conversationJob?.cancel(); messages.close(); restore = null; scope.launch { store.setLastSession(null) }; mutable.value = mutable.value.copy(selected = null, entries = emptyList(), error = null, readingError = null) }
+    fun stop() { persist(); active = false; generation++; stateJob?.cancel(); conversationJob?.cancel(); messages.stop(); api.cancelCalls(); mutable.value = mutable.value.copy(connection = "offline", readingError = if (mutable.value.selected != null && mutable.value.readingError == null) "network" else mutable.value.readingError) }
+    fun close() { persist(); cachedKey = null; generation++; conversationJob?.cancel(); messages.close(); restore = null; scope.launch { store.setLastSession(null) }; mutable.value = mutable.value.copy(selected = null, entries = emptyList(), error = null, readingError = null) }
+    /** Sessão cuja conversa está em `conversation` (veio do aparelho ou do servidor) e pode ser guardada. */
+    private var cachedKey: SessionKey? = null
+    private var saveJob: Job? = null
+    /** Guarda a conversa aberta no aparelho: na hora, ou alguns segundos depois da última novidade. */
+    private fun persist(delayMs: Long = 0) {
+        val key = cachedKey ?: return
+        saveJob?.cancel()
+        if (delayMs == 0L) save(key) else saveJob = scope.launch { delay(delayMs); if (cachedKey == key) save(key) }
+    }
+    private fun save(key: SessionKey) {
+        val entries = conversation.snapshot().toList()
+        val truncated = conversation.truncated
+        // Escopo próprio: stop()/close() rodam no descarte da tela, quando `scope` já foi cancelado.
+        persistScope.launch { store.setConversation(key, entries, truncated) }
+    }
     private fun changed() { close(); mutable.value = mutable.value.copy(error = "changed") }
     private fun failure(event: StreamEvent.Failure, conversation: Boolean) {
         if (event.status == 401) { unauthorized(); return }
@@ -111,14 +129,25 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         if (item != null) open(item) else { restore = key; restoreLoaded = true }
     }
     fun open(item: SessionItem) {
+        persist(); cachedKey = null
         generation++; val token = generation
         conversationJob?.cancel()
         mutable.value = mutable.value.copy(selected = item, entries = emptyList(), truncated = false, reduced = false, error = null, readingError = null)
         messages.open(item.key)
         if (!active || !repository.terminalAllowed) return
-        val path = if (item.agentId != null) "/api/agents/${encode(item.agentId)}/terminal" else "/api/sessions/${encode(item.key.account)}/${encode(item.key.sessionId)}/terminal"
+        val base = if (item.agentId != null) "/api/agents/${encode(item.agentId)}/terminal" else "/api/sessions/${encode(item.key.account)}/${encode(item.key.sessionId)}/terminal"
         scope.launch { store.setLastSession(item.key) }
         conversationJob = scope.launch {
+            // O que já foi lido aparece na hora; o servidor manda só o que veio depois da última entrada guardada.
+            val cached = store.conversation(item.key)
+            if (token != generation) return@launch
+            val last = cached?.entries?.lastOrNull { it.at != null }
+            if (cached != null && cached.entries.isNotEmpty()) {
+                conversation.init(cached.entries, cached.truncated)
+                cachedKey = item.key
+                mutable.value = mutable.value.copy(entries = conversation.snapshot(), truncated = conversation.truncated, reduced = conversation.reduced)
+            }
+            val path = if (last == null) base else "$base?after=${encode(last.id)}&at=${last.at}"
             var initialized = false
             streams.stream(path).collect { event ->
                 if (token != generation) return@collect
@@ -152,11 +181,16 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                                 }
                             }
                             val obj = wireJson.parseToJsonElement(event.data).jsonObject
-                            conversation.init(obj.objects("entries").mapNotNull(TerminalEntry::parse), obj.flag("truncated"))
+                            val items = obj.objects("entries").mapNotNull(TerminalEntry::parse)
+                            // `after` = o servidor achou a última entrada guardada e mandou só o resto: soma ao que já está na tela.
+                            if (obj["after"] != null && cachedKey == item.key) conversation.append(items)
+                            else conversation.init(items, obj.flag("truncated"))
+                            cachedKey = item.key
                             initialized = true
                         } else if (event.type == "append" && initialized) {
                             conversation.append(wireJson.parseToJsonElement(event.data).jsonArray.mapNotNull { (it as? kotlinx.serialization.json.JsonObject)?.let(TerminalEntry::parse) })
                         }
+                        persist(3_000)
                         mutable.value = mutable.value.copy(entries = conversation.snapshot(), truncated = conversation.truncated, reduced = conversation.reduced)
                     } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; mutable.value = mutable.value.copy(readingError = "oversize"); conversationJob?.cancel() }
                 }

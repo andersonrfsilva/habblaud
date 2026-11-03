@@ -174,8 +174,8 @@ describe('API HTTP', () => {
     await readUntil(/event: feed\n/);
     expect(text).toMatch(/^retry: 2000\n\nevent: snapshot\ndata: \{/);
     env.office.addActivity('.claude:1', { id: 'act-x', at: Date.now(), kind: 'read', icon: '📖', text: 'Lendo a.ts' }, true);
-    await readUntil(/"id":"act-x"/);
-    expect(text).toContain('event: feed\ndata: [{"id":"act-x"');
+    // Com gzip, snapshot e feed chegam em pedaços separados: espera o frame do feed, não só o id no snapshot.
+    await readUntil(/event: feed\ndata: \[\{"id":"act-x"/);
     ctrl.abort();
   });
 

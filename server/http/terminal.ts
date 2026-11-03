@@ -18,7 +18,7 @@ import type { Office } from '../model/office';
 import { FileTail } from '../sources/tail';
 import { createTerminalParser, type TerminalParser } from '../sources/terminal';
 import { sendJson } from './app';
-import { frame } from './sse';
+import { frame, openSse } from './sse';
 import { tr } from '../../shared/i18n';
 
 /** Terminais abertos ao mesmo tempo (cada um lê o transcript por conta própria). */
@@ -185,6 +185,7 @@ class DemoSource implements ConversationSource {
 
 interface Stream {
   res: ServerResponse;
+  write: (chunk: string) => void;
   timer: ReturnType<typeof setInterval> | null;
 }
 
@@ -259,16 +260,10 @@ export class TerminalStreams {
     }
     req.socket.setTimeout(0);
     req.socket.setNoDelay(true);
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no',
-    });
-    res.write('retry: 2000\n\n');
-    const s: Stream = { res, timer: null };
+    const s: Stream = { res, write: openSse(req, res), timer: null };
+    s.write('retry: 2000\n\n');
     this.streams.add(s);
-    this.write(s, frame('init', init));
+    this.write(s, frame('init', sinceCached(init, req)));
     s.timer = setInterval(() => this.pump(s, source, id), source.intervalMs);
     s.timer.unref?.();
     const drop = () => this.drop(s);
@@ -327,7 +322,7 @@ export class TerminalStreams {
       res.destroy();
       return;
     }
-    res.write(chunk);
+    s.write(chunk);
   }
 
   private drop(s: Stream): void {
@@ -339,4 +334,19 @@ export class TerminalStreams {
       this.pinger = null;
     }
   }
+}
+
+/**
+ * Init incremental: o cliente que guardou a conversa manda a última entrada (`after` + `at`); achada na janela lida,
+ * só o que veio depois dela vai. O `at` confere que é a mesma entrada (ids sem uuid no transcript são sequenciais).
+ */
+export function sinceCached(init: TerminalInit, req: IncomingMessage): TerminalInit {
+  const query = new URL(req.url ?? '/', 'http://x').searchParams;
+  const after = query.get('after');
+  const at = Number(query.get('at'));
+  if (!after || !Number.isFinite(at)) return init;
+  const i = init.entries.findIndex((e) => e.id === after && e.at === at);
+  // Âncora repetida na janela (ids sequenciais relidos de outro ponto) não é confiável: manda tudo.
+  if (i >= 0 && init.entries.findIndex((e, j) => j > i && e.id === after && e.at === at) >= 0) return init;
+  return i < 0 ? init : { ...init, entries: init.entries.slice(i + 1), after };
 }

@@ -16,8 +16,24 @@ do meio (0.**3**.0).
 - **omp:** a espera (`wait`) diz o que aguarda: o comando em segundo plano, o subagente pelo nome ou os dois, em vez
   de sempre "Esperando os subagentes".
 - **Elenco:** personagens do host usam Moli como navegador headless, inclusive após reiniciar o auxiliar.
+- **Android:** sessão encerrada sai das conversas abertas assim que o servidor a marca como fechada, e o contato
+  fica livre para ser chamado ou retomado na hora, sem esperar os ~20 s em que ela ainda aparece no snapshot.
 
 ### Adicionado
+
+- **Android:** conversas ficam guardadas no aparelho e aparecem na hora ao abrir; o servidor manda só o que veio
+  depois da última mensagem guardada (`?after=` no stream do terminal). Elenco e pastas deixam de ser baixados a cada
+  5 s.
+- **Servidor:** streams (`/api/stream`, terminal) e respostas JSON grandes vão com gzip para quem aceita: o snapshot
+  do escritório cai de ~41 KB para ~6,5 KB.
+- **Android:** avatar do contato pulando, com pontos "digitando", no pé da conversa enquanto o agente trabalha.
+- **Android:** subagentes e advisors aparecem num galho abaixo do agente principal na lista de conversas, só enquanto
+  trabalham.
+- **Elenco:** "Novo" em chamar contato abre um agente fora do elenco, com nome e visual sorteados
+  (`POST /api/cast/new`); ele pode ser dispensado e sai sozinho por ociosidade como um personagem.
+- **Android:** Configurações trocam modelo e raciocínio dos papéis `task`, `plan` e `advisor` do omp (modelRoles
+  global da conta padrão). O auxiliar do host grava com `omp config set` e devolve os valores lidos a cada rodada
+  (`GET`/`POST /api/cast/roles`).
 
 - **Android:** cliente nativo para login remoto, lista de sessões e conversa, envio com anexos, aprovações e
   interrupção omp, conforme as permissões do servidor. Acompanha o tema claro ou escuro do sistema e mostra Markdown

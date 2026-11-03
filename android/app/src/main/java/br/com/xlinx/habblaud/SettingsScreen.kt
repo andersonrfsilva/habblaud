@@ -33,7 +33,17 @@ import br.com.xlinx.habblaud.data.WINDOW_FIVE_HOUR
 import br.com.xlinx.habblaud.data.WINDOW_SEVEN_DAY
 import br.com.xlinx.habblaud.data.WINDOW_SEVEN_DAY_OPUS
 import br.com.xlinx.habblaud.data.WINDOW_SEVEN_DAY_SONNET
+import br.com.xlinx.habblaud.data.EDITABLE_ROLES
+import br.com.xlinx.habblaud.data.ROLE_MODEL
+import br.com.xlinx.habblaud.data.joinRole
 import br.com.xlinx.habblaud.data.parseAccounts
+import br.com.xlinx.habblaud.data.snapshotModels
+import br.com.xlinx.habblaud.data.splitRole
+import br.com.xlinx.habblaud.data.string
+import br.com.xlinx.habblaud.data.wireJson
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
+import org.json.JSONObject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -58,11 +68,42 @@ fun SettingsScreen(api: HabblaudApi, store: LocalStateStore, onClose: () -> Unit
     // Cotas: o servidor manda o uso das contas no snapshot; recarrega a cada minuto enquanto a tela está aberta.
     var quotas by remember { mutableStateOf<List<AccountQuota>?>(null) }
     var quotaError by remember { mutableStateOf(false) }
+    // Modelos que os agentes omp abertos anunciam: são as opções do seletor dos papéis.
+    var models by remember { mutableStateOf(emptyList<String>()) }
     LaunchedEffect(Unit) {
         while (true) {
-            try { quotas = parseAccounts(api.request("/api/snapshot")); quotaError = false }
+            try { val snapshot = api.request("/api/snapshot"); quotas = parseAccounts(snapshot); models = snapshotModels(snapshot); quotaError = false }
             catch (e: Exception) { if (e is CancellationException) throw e; if (e is ApiException && e.status == 401) return@LaunchedEffect; quotaError = true }
             delay(60_000)
+        }
+    }
+    // Papéis do omp (global): o auxiliar do host lê e grava o modelRoles; recarrega enquanto a tela está aberta.
+    var roles by remember { mutableStateOf<Map<String, String>?>(null) }
+    var rolesStatus by remember { mutableStateOf("loading") }
+    var rolesPending by remember { mutableStateOf(false) }
+    var rolesRefresh by remember { mutableIntStateOf(0) }
+    LaunchedEffect(rolesRefresh) {
+        while (true) {
+            try {
+                val r = wireJson.parseToJsonElement(api.request("/api/cast/roles")).jsonObject
+                roles = (r["roles"] as? JsonObject)?.let { o -> EDITABLE_ROLES.mapNotNull { role -> o.string(role)?.let { role to it } }.toMap() }
+                rolesPending = r["pending"]?.toString() == "true"
+                rolesStatus = if (r["available"]?.toString() == "true") "available" else "unavailable"
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                if (e is ApiException && e.status == 401) return@LaunchedEffect
+                rolesStatus = if (e is ApiException && e.status == 403) "forbidden" else "error"
+            }
+            delay(if (rolesPending) 1_500 else 10_000)
+        }
+    }
+    var editingRole by remember { mutableStateOf<String?>(null) }
+    var rolesError by remember { mutableStateOf(false) }
+    fun saveRole(role: String, value: String) {
+        rolesError = false; rolesPending = true
+        scope.launch {
+            try { api.request("/api/cast/roles", JSONObject().put("roles", JSONObject().put(role, value))); rolesRefresh++ }
+            catch (e: Exception) { if (e is CancellationException) throw e; rolesPending = false; rolesError = true }
         }
     }
     val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -97,6 +138,32 @@ fun SettingsScreen(api: HabblaudApi, store: LocalStateStore, onClose: () -> Unit
                 }
             }
             Hint(R.string.settings_per_session)
+
+            Section(R.string.settings_roles)
+            when (rolesStatus) {
+                "loading" -> Hint(R.string.quota_loading)
+                "forbidden" -> Hint(R.string.cast_forbidden)
+                "error" -> Hint(R.string.quota_error)
+                else -> {
+                    EDITABLE_ROLES.forEach { role ->
+                        val current = roles?.get(role)
+                        val (model, level) = current?.let(::splitRole) ?: (null to null)
+                        Row(Modifier.fillMaxWidth().clickable(enabled = rolesStatus == "available" && !rolesPending) { editingRole = role }.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                            Column(Modifier.weight(1f)) {
+                                Text(stringResource(roleLabel(role)), style = MaterialTheme.typography.bodyLarge)
+                                Text(listOfNotNull(model?.substringAfter('/') ?: stringResource(R.string.role_default), level?.let { thinkingLabel(it) }).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                    if (rolesStatus == "unavailable") Hint(R.string.cast_unavailable)
+                    if (rolesPending) Hint(R.string.roles_saving)
+                    if (rolesError) Hint(R.string.roles_error)
+                    Hint(R.string.roles_hint)
+                }
+            }
+            editingRole?.let { role ->
+                RoleDialog(role, roles?.get(role), models, onDismiss = { editingRole = null }) { value -> editingRole = null; saveRole(role, value) }
+            }
 
             Section(R.string.notifications)
             notifications?.let { on ->
@@ -154,6 +221,38 @@ private fun SwitchRow(label: String, checked: Boolean, enabled: Boolean = true, 
         Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f))
         Switch(checked = checked, onCheckedChange = null, enabled = enabled)
     }
+}
+
+private fun roleLabel(role: String) = when (role) {
+    "task" -> R.string.role_task
+    "plan" -> R.string.role_plan
+    else -> R.string.role_advisor
+}
+
+/** Escolhe o modelo (os anunciados pelos agentes, o atual ou um `provedor/modelo` digitado) e depois o raciocínio do papel. */
+@Composable
+private fun RoleDialog(role: String, current: String?, models: List<String>, onDismiss: () -> Unit, onSave: (String) -> Unit) {
+    val (currentModel, currentLevel) = current?.let(::splitRole) ?: (null to null)
+    var model by remember { mutableStateOf<String?>(null) }
+    var typed by remember { mutableStateOf("") }
+    AlertDialog(onDismissRequest = onDismiss, title = { Text(stringResource(roleLabel(role))) }, text = {
+        Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+            if (model == null) {
+                Text(stringResource(R.string.role_pick_model), style = MaterialTheme.typography.titleSmall)
+                (listOfNotNull(currentModel) + models).distinct().forEach { m -> RadioRow(m.substringAfter('/'), m == currentModel) { model = m } }
+                if (models.isEmpty()) Text(stringResource(R.string.role_no_models), style = MaterialTheme.typography.bodySmall)
+                // Sem agente aberto não há lista: o modelo também pode ser digitado (o servidor confere o formato).
+                // Só `provedor/modelo`: o raciocínio vem no passo seguinte, sem duplicar o `:nível`.
+                val valid = ROLE_MODEL.matches(typed.trim()) && splitRole(typed.trim()).second == null
+                OutlinedTextField(typed, { typed = it }, Modifier.fillMaxWidth().padding(top = 8.dp), label = { Text(stringResource(R.string.role_type_model)) }, singleLine = true, isError = typed.isNotBlank() && !valid,
+                    trailingIcon = { TextButton(onClick = { model = typed.trim() }, enabled = valid) { Text(stringResource(R.string.role_use)) } })
+            } else {
+                Text(stringResource(R.string.role_pick_thinking), style = MaterialTheme.typography.titleSmall)
+                RadioRow(stringResource(R.string.role_default), model == currentModel && currentLevel == null) { onSave(joinRole(model!!, null)) }
+                THINKING_LEVELS.forEach { level -> RadioRow(thinkingLabel(level), model == currentModel && level == currentLevel) { onSave(joinRole(model!!, level)) } }
+            }
+        }
+    }, confirmButton = {}, dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } })
 }
 
 /** Uma conta do servidor: nome, plano e situação; abaixo, cada provedor (omp) ou as janelas fixas, com barra e renovação. */

@@ -8,7 +8,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import type { AddressInfo } from 'node:net';
 import { dirname, isAbsolute, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { castRound, checkMessage, cleanupAttachmentStaging, dictationRound, downloadAttachments, filesRound, httpAttachmentDownload, httpPost, parseArgs, round, spawnRound, type Post } from '../../scripts/codex-bridge';
+import { castRound, checkMessage, cleanupAttachmentStaging, dictationRound, downloadAttachments, filesRound, httpAttachmentDownload, httpPost, ompRoles, parseArgs, round, spawnRound, type OmpRolesIO, type Post } from '../../scripts/codex-bridge';
 import { spawnUrl } from '../spawn/spawn';
 import { AccountsService } from '../accounts/service';
 import { createApiHandler } from '../http/app';
@@ -111,6 +111,34 @@ describe('rodada do elenco', () => {
     const post: Post = async (path, body) => { bodies.push({ path, body }); return { status: 200, json: path.endsWith('/poll') ? { jobs: [] } : {} }; };
     await castRound(post, async () => {}, () => {}, { port: 12345, dataDir: tmp.dir, tmux: '/bin/tmux', list: async () => ['melissa', 'giovana'] });
     expect(bodies[0]).toEqual({ path: '/api/host/cast/poll', body: { open: ['melissa', 'giovana'] } });
+  });
+  it('papéis: grava só task/plan/advisor válidos, relê a conta do servidor e manda no próximo poll', async () => {
+    const writes: unknown[] = [];
+    let current: Record<string, string> | undefined;
+    const roles: OmpRolesIO = { report: () => current, refresh: async (dir) => { current = { task: `lido de ${dir}` }; }, write: async (dir, r) => { writes.push({ dir, r }); } };
+    const jobs = [
+      { id: 'ok', op: 'roles', cast: '', agentDir: codexHome, roles: { task: 'openai-codex/gpt-6-luna:high', plan: null } },
+      { id: 'role', op: 'roles', cast: '', agentDir: codexHome, roles: { default: 'a/b' } },
+      { id: 'value', op: 'roles', cast: '', agentDir: codexHome, roles: { task: '--x' } },
+      { id: 'dir', op: 'roles', cast: '', agentDir: join(tmp.dir, 'missing'), roles: { task: 'a/b' } },
+    ];
+    const bodies: unknown[] = [];
+    const post: Post = async (path, body) => { bodies.push(body); return { status: 200, json: path.endsWith('/poll') ? { jobs, rolesDir: codexHome } : {} }; };
+    const result = await castRound(post, async () => {}, () => {}, { port: 12345, dataDir: tmp.dir, tmux: '/bin/tmux', roles });
+    expect(result).toMatchObject({ results: [{ id: 'ok', ok: true }, { id: 'role', ok: false }, { id: 'value', ok: false }, { id: 'dir', ok: false }] });
+    expect(writes).toEqual([{ dir: codexHome, r: { task: 'openai-codex/gpt-6-luna:high', plan: null } }]);
+    expect(bodies[0]).toEqual({});
+    await castRound(async (path, body) => { bodies.push(body); return { status: 200, json: path.endsWith('/poll') ? { jobs: [] } : {} }; }, async () => {}, () => {}, { port: 12345, dataDir: tmp.dir, roles });
+    expect(bodies.at(-1)).toEqual({ roles: { task: `lido de ${codexHome}` } });
+  });
+  it('ompRoles: junta ao modelRoles atual, apaga com null e grava o mapa inteiro pela conta pedida', async () => {
+    const log = join(tmp.dir, 'omp.log');
+    const omp = join(tmp.dir, 'omp');
+    writeFileSync(omp, `#!/bin/sh\necho "$PI_CODING_AGENT_DIR $*" >> '${log}'\n[ "$2" = get ] && echo '{"key":"modelRoles","value":{"default":"a/b","plan":"c/d","task":"e/f"}}'\nexit 0\n`, { mode: 0o755 });
+    await ompRoles(omp).write(codexHome, { task: 'x/y:high', plan: null, advisor: 'z/w' });
+    const lines = readFileSync(log, 'utf8').trim().split('\n');
+    expect(lines[0]).toBe(`${codexHome} config get modelRoles --json`);
+    expect(lines[1]).toBe(`${codexHome} config set modelRoles {"default":"a/b","task":"x/y:high","advisor":"z/w"}`);
   });
 });
 
