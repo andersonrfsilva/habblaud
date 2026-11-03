@@ -33,4 +33,14 @@ class NotificationRulesTest {
         assertTrue(agentEvents(emptyMap(), listOf(session("waiting", "p1"))).single() is AgentEvent.Permission)
         assertEquals(emptyList<AgentEvent>(), agentEvents(emptyMap(), listOf(session("idle"))))
     }
+
+    @Test fun changesDuringADisconnectNotifyAgainstTheLastBaselineWithoutRepeatingOldRequests() {
+        // Antes da queda: um agente trabalhando e outro já com o pedido p1 avisado.
+        val other = SessionKey("http://servidor:4747", "omp", ".omp", "s2")
+        val before = watchOf(listOf(session("working"), session("waiting", "p1").copy(key = other)))
+        // Depois da reconexão: o primeiro terminou; o segundo segue no mesmo p1.
+        val events = agentEvents(before, listOf(session("idle"), session("waiting", "p1").copy(key = other)))
+        assertEquals(listOf(key), events.map { it.session.key })
+        assertTrue(events.single() is AgentEvent.TurnDone)
+    }
 }

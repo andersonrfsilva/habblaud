@@ -153,11 +153,12 @@ class MainActivity : ComponentActivity() {
                         if (!revoked) message = getString(R.string.logout_unconfirmed)
                     }
                 }) { Text(stringResource(R.string.confirm)) } }, dismissButton = { TextButton(onClick = { confirmLogout = false }) { Text(stringResource(R.string.cancel)) } })
-                val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+                // Sem permissão de notificar, o serviço só gastaria bateria: inicia apenas com ela concedida.
+                val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) NotificationService.start(applicationContext) }
                 LaunchedEffect(connected) {
                     if (!connected || !store.notificationsEnabled()) return@LaunchedEffect
-                    if (Build.VERSION.SDK_INT >= 33) askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    NotificationService.start(applicationContext)
+                    if (NotificationService.allowed(applicationContext)) NotificationService.start(applicationContext)
+                    else if (Build.VERSION.SDK_INT >= 33) askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
                 }
                 if (connected && api != null) {
                     ReadingScreen(api!!, store, onUnauthorized = { connected = false; message = getString(R.string.login_error) }, onLogout = { confirmLogout = true })

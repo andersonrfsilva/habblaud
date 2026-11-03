@@ -37,7 +37,7 @@ class NotificationService : Service() {
             .setSmallIcon(android.R.drawable.stat_notify_chat)
             .setContentTitle(getString(R.string.notifications_running))
             .setContentIntent(open).setOngoing(true).setSilent(true).build()
-        val type = if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING else 0
+        val type = if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
         ServiceCompat.startForeground(this, ONGOING_ID, ongoing, type)
     }
 
@@ -111,7 +111,9 @@ class NotificationService : Service() {
             manager.createNotificationChannel(NotificationChannel(CHANNEL_CONNECTION, context.getString(R.string.channel_connection), NotificationManager.IMPORTANCE_MIN))
         }
 
-        fun start(context: Context) = ContextCompat.startForegroundService(context, Intent(context, NotificationService::class.java))
+        fun start(context: Context) { if (allowed(context)) ContextCompat.startForegroundService(context, Intent(context, NotificationService::class.java)) }
+        fun allowed(context: Context) = Build.VERSION.SDK_INT < 33 ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
         fun stop(context: Context) = context.stopService(Intent(context, NotificationService::class.java))
     }
 }

@@ -53,6 +53,12 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
     val context = androidx.compose.ui.platform.LocalContext.current
     val pending by MainActivity.pendingSession.collectAsStateWithLifecycle()
     LaunchedEffect(pending) { pending?.let { controller.openKey(it); MainActivity.pendingSession.value = null } }
+    var notificationsOn by remember { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(Unit) { notificationsOn = store.notificationsEnabled() }
+    val askNotifications = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) NotificationService.start(context)
+        else { notificationsOn = false; scope.launch { store.setNotificationsEnabled(false) } }
+    }
     val owner = LocalLifecycleOwner.current
     DisposableEffect(owner, controller) {
         val observer = LifecycleEventObserver { _, event ->
@@ -122,13 +128,15 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                     val menuLabel = stringResource(R.string.menu)
                     IconButton(onClick = { menuExpanded = true }, modifier = Modifier.semantics { contentDescription = menuLabel }) { Text("⋮", style = MaterialTheme.typography.headlineMedium) }
                     DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                        var notificationsOn by remember { mutableStateOf<Boolean?>(null) }
-                        LaunchedEffect(Unit) { notificationsOn = store.notificationsEnabled() }
                         notificationsOn?.let { on ->
                             DropdownMenuItem(text = { Text(stringResource(R.string.notifications)) }, trailingIcon = { Switch(checked = on, onCheckedChange = null) }, onClick = {
                                 notificationsOn = !on
                                 scope.launch { store.setNotificationsEnabled(!on) }
-                                if (on) NotificationService.stop(context) else NotificationService.start(context)
+                                when {
+                                    on -> NotificationService.stop(context)
+                                    NotificationService.allowed(context) -> NotificationService.start(context)
+                                    android.os.Build.VERSION.SDK_INT >= 33 -> askNotifications.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                                }
                             })
                         }
                         DropdownMenuItem(text = { Text(stringResource(R.string.background_settings)) }, onClick = {
