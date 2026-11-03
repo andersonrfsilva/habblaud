@@ -58,7 +58,12 @@ class NotificationPrivacyInstrumentedTest {
             scenario = ActivityScenario.launch(MainActivity::class.java)
             MainActivity.pendingSession.value = null
             notifications[0].second.contentIntent.send()
-            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            // O PendingIntent passa pelo sistema antes de chegar à atividade: o idle do processo pode vir antes da entrega.
+            val deadline = System.currentTimeMillis() + 5_000
+            while (MainActivity.pendingSession.value == null && System.currentTimeMillis() < deadline) {
+                InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+                Thread.sleep(50)
+            }
             assertEquals(events[0].session.key, MainActivity.pendingSession.value)
         } finally {
             scenario?.close()
