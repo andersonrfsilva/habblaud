@@ -41,7 +41,12 @@ class HabblaudApi(context: Context, val origin: String) : AutoCloseable {
         require(path.startsWith("/api/") && !path.startsWith("//"))
         val builder = Request.Builder().url(origin + path)
         if (body != null) builder.post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
-        client().newCall(builder.build()).execute().use { response ->
+        // O servidor fecha conexões paradas há 5 s e o pool do OkHttp ainda as reaproveita: um GET (idempotente) que
+        // falha antes de qualquer resposta tenta uma vez numa conexão nova. POST não repete (poderia duplicar o pedido).
+        val firstCall = client().newCall(builder.build())
+        val first = try { firstCall.execute() } catch (e: IOException) { if (body != null || firstCall.isCanceled()) throw e; null }
+        val call = { client().newCall(builder.build()).execute() }
+        (first ?: call()).use { response ->
             if (response.code in 300..399) throw RedirectException()
             if (response.code == 401) { cancelCalls(); cookies.clear() }
             if (!response.isSuccessful) {

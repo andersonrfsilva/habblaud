@@ -12,6 +12,7 @@
     <string name="roles_saving">Gravando no computador…</string>
     <string name="roles_error">Não foi possível gravar o papel.</string>
     <string name="roles_hint">Vale para todas as sessões omp novas da conta padrão do servidor.</string>
+    <string name="roles_load_error">Não foi possível ler os papéis do omp.</string>
     <string name="role_type_model">Ou digite provedor/modelo</string>
     <string name="role_use">Usar</string>
     <string name="app_name">Zaplaud</string>

@@ -92,7 +92,8 @@ fun SettingsScreen(api: HabblaudApi, store: LocalStateStore, onClose: () -> Unit
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 if (e is ApiException && e.status == 401) return@LaunchedEffect
-                rolesStatus = if (e is ApiException && e.status == 403) "forbidden" else "error"
+                // Falha passageira com papéis já lidos: mantém a lista na tela e tenta de novo na próxima rodada.
+                if (e is ApiException && e.status == 403) rolesStatus = "forbidden" else if (roles == null) rolesStatus = "error"
             }
             delay(if (rolesPending) 1_500 else 10_000)
         }
@@ -143,7 +144,7 @@ fun SettingsScreen(api: HabblaudApi, store: LocalStateStore, onClose: () -> Unit
             when (rolesStatus) {
                 "loading" -> Hint(R.string.quota_loading)
                 "forbidden" -> Hint(R.string.cast_forbidden)
-                "error" -> Hint(R.string.quota_error)
+                "error" -> Hint(R.string.roles_load_error)
                 else -> {
                     EDITABLE_ROLES.forEach { role ->
                         val current = roles?.get(role)
