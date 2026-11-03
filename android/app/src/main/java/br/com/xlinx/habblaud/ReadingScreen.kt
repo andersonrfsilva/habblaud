@@ -543,6 +543,7 @@ private fun InfoLine(label: Int, value: String) {
     }
 }
 
+/** Cópia de OMP_THINKING_LEVELS em shared/messages.ts: o servidor recusa qualquer outro valor. */
 internal val THINKING_LEVELS = listOf("off", "minimal", "low", "medium", "high", "xhigh", "max")
 
 @Composable
