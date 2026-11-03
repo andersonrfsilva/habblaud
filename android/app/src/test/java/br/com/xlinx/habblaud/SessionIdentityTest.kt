@@ -2,6 +2,8 @@ package br.com.xlinx.habblaud
 
 import br.com.xlinx.habblaud.data.SessionKey
 import br.com.xlinx.habblaud.data.castOwner
+import br.com.xlinx.habblaud.data.SessionItem
+import br.com.xlinx.habblaud.data.initKeepsSession
 import br.com.xlinx.habblaud.data.snapshotMatchesSession
 import br.com.xlinx.habblaud.data.wireJson
 import kotlinx.serialization.json.jsonObject
@@ -25,6 +27,17 @@ class SessionIdentityTest {
         assertFalse(snapshotMatchesSession(snapshot("old", "claude"), key, "agent"))
         assertFalse(snapshotMatchesSession(snapshot("old"), key, "other"))
         assertFalse(snapshotMatchesSession("""{"agents":[]}""", key, "agent"))
+    }
+    @Test fun repeatedInitOfTheSameSessionKeepsItButAMovedAgentLeaves() {
+        // O /shake reescreve o arquivo e o servidor manda um segundo init da MESMA sessão: a tela continua.
+        val key = SessionKey("https://example.test", "omp", "account", "old")
+        val item = SessionItem(key, "agent", "t", "/p", "idle", null)
+        val sameSession = """{"agents":[{"id":"agent","kind":"main","account":"account","provider":"omp","sessionId":"old"}]}"""
+        assertTrue(initKeepsSession(snapshotMatchesSession(sameSession, key, "agent"), listOf(item), item))
+        // /clear: o agente foi para outra sessão, no snapshot e na lista.
+        val moved = """{"agents":[{"id":"agent","kind":"main","account":"account","provider":"omp","sessionId":"new"}]}"""
+        assertFalse(initKeepsSession(snapshotMatchesSession(moved, key, "agent"), listOf(item), item))
+        assertFalse(initKeepsSession(true, listOf(item.copy(key = key.copy(sessionId = "new"))), item))
     }
     @Test fun closedOmpSessionBelongsOnlyToTheSingleCastMemberThatLastUsedIt() {
         fun member(id: String, vararg last: Pair<String, String>) = wireJson.parseToJsonElement(

@@ -37,6 +37,13 @@ internal fun snapshotMatchesSession(snapshot: String, key: SessionKey, agentId: 
     }
 }
 
+/**
+ * Decide, a cada `init` da conversa de um agente aberto, se a tela continua na sessão. Vale igual para o primeiro
+ * `init` e para os repetidos (reconexão, /shake, arquivo reescrito): só sai se o servidor mostra o agente noutra sessão.
+ */
+internal fun initKeepsSession(snapshotMatches: Boolean, sessions: List<SessionItem>, item: SessionItem): Boolean =
+    snapshotMatches && sessions.none { it.agentId == item.agentId && it.key != item.key }
+
 class ReadingController(private val api: HabblaudApi, private val store: LocalStateStore, private val scope: CoroutineScope, private val unauthorized: () -> Unit) {
     private val repository = SessionRepository(api)
     private val streams = ConversationRepository(api)
@@ -140,7 +147,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                                     }
                                 }
                                 if (token != generation) return@collect
-                                if (matches != true || mutable.value.sessions.any { it.agentId == item.agentId && it.key != item.key }) {
+                                if (!initKeepsSession(matches == true, mutable.value.sessions, item)) {
                                     changed(); return@collect
                                 }
                             }
