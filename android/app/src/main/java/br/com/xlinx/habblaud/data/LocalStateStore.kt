@@ -22,6 +22,16 @@ private val Context.rateState by preferencesDataStore(name = "login_rate")
 /** Configurações do aparelho: sobrevivem a sair da conta e a trocar de servidor (local_state é apagado nesses casos). */
 private val Context.appSettings by preferencesDataStore(name = "settings")
 
+private class ConversationCoordinator {
+    val lock = kotlinx.coroutines.sync.Mutex()
+    var epoch = 0L
+    var sequence = 0L
+    var sessionWritten = 0L
+    val written = mutableMapOf<SessionKey, Long>()
+}
+private val conversationCoordinators = mutableMapOf<String, ConversationCoordinator>()
+internal data class ConversationWrite(val epoch: Long, val sequence: Long)
+
 data class ConnectionSettings(val origin: String)
 data class MessageDraft(val text: String = "", val revision: Long = 0, val attachments: List<Attachment> = emptyList())
 data class MessageOperation(val id: String? = null, val status: String = "unknown", val revision: Long = 0, val error: String? = null)
@@ -78,28 +88,68 @@ class LocalStateStore(private val context: Context) : MessageStore {
     suspend fun setLastSession(key: SessionKey?) {
         context.localState.edit { if (key == null) it.remove(sessionKey) else it[sessionKey] = key.serialize() }
     }
+    internal suspend fun setLastSession(key: SessionKey?, write: ConversationWrite) = coordinator.lock.withLock {
+        if (synchronized(coordinator) { write.epoch != coordinator.epoch } || write.sequence <= coordinator.sessionWritten) return@withLock
+        context.localState.edit { data ->
+            if (key == null) data.remove(sessionKey) else data[sessionKey] = key.serialize()
+        }
+        coordinator.sessionWritten = write.sequence
+    }
 
     // Conversas guardadas no aparelho: abrir uma sessão mostra o que já foi lido na hora, e o servidor só manda o que
     // veio depois (init incremental). Arquivos em filesDir, apagados ao sair da conta ou trocar de servidor.
     private val conversations = java.io.File(context.filesDir, "conversations")
-    private fun conversationFile(key: SessionKey) = java.io.File(conversations, hashed("", key).name + ".json")
-    suspend fun conversation(key: SessionKey): CachedConversation? = withContext(Dispatchers.IO) {
-        runCatching { decodeConversation(conversationFile(key).readText()) }.getOrNull()
+    private val cacheGenerationKey = stringPreferencesKey("conversation_generation")
+    private val coordinator = synchronized(conversationCoordinators) {
+        conversationCoordinators.getOrPut(conversations.absolutePath) { ConversationCoordinator() }
     }
-    // Uma gravação por vez: as do fechamento da tela e as adiadas usam o mesmo `.tmp` e não podem se cruzar.
-    private val conversationLock = kotlinx.coroutines.sync.Mutex()
-    suspend fun setConversation(key: SessionKey, entries: List<TerminalEntry>, truncated: Boolean) = conversationLock.withLock {
+    internal fun conversationEpoch(): Long = synchronized(coordinator) { coordinator.epoch }
+    internal fun conversationWrite(epoch: Long): ConversationWrite = synchronized(coordinator) {
+        ConversationWrite(epoch, ++coordinator.sequence)
+    }
+    private fun conversationFile(key: SessionKey, generation: String?): java.io.File =
+        java.io.File(if (generation == null) conversations else java.io.File(conversations, generation), hashed("", key).name + ".json")
+    suspend fun conversation(key: SessionKey): CachedConversation? = coordinator.lock.withLock {
+        val data = context.localState.data.first()
+        if (data[originKey] != key.origin) return@withLock null
         withContext(Dispatchers.IO) {
-            runCatching {
-                conversations.mkdirs()
-                val tmp = java.io.File(conversations, "${conversationFile(key).name}.tmp")
-                tmp.writeText(encodeConversation(entries, truncated))
-                tmp.renameTo(conversationFile(key))
-            }
-            Unit
+            runCatching { decodeConversation(conversationFile(key, data[cacheGenerationKey]).readText()) }.getOrNull()
         }
     }
-    private suspend fun clearConversations() = conversationLock.withLock { withContext(Dispatchers.IO) { conversations.deleteRecursively(); Unit } }
+    // Uma gravação por vez: as do fechamento da tela e as adiadas usam o mesmo `.tmp` e não podem se cruzar.
+    internal var beforeConversationWrite: suspend () -> Unit = {}
+    internal var afterConversationWrite: () -> Unit = {}
+    internal suspend fun setConversation(key: SessionKey, entries: List<TerminalEntry>, truncated: Boolean, write: ConversationWrite) {
+        try {
+            beforeConversationWrite()
+            coordinator.lock.withLock {
+                if (synchronized(coordinator) { write.epoch != coordinator.epoch }) return@withLock
+                val data = context.localState.data.first()
+                if (data[originKey] != key.origin || write.sequence <= (coordinator.written[key] ?: 0)) return@withLock
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        val file = conversationFile(key, data[cacheGenerationKey])
+                        file.parentFile!!.mkdirs()
+                        val tmp = java.io.File(file.parentFile, "${file.name}.tmp")
+                        tmp.writeText(encodeConversation(entries, truncated))
+                        check(tmp.renameTo(file))
+                        coordinator.written[key] = write.sequence
+                    }
+                }
+            }
+        } finally {
+            afterConversationWrite()
+        }
+    }
+    private fun invalidateConversations() = synchronized(coordinator) {
+        coordinator.epoch++
+        coordinator.written.clear()
+    }
+    private suspend fun removeObsoleteConversations(generation: String?) = withContext(Dispatchers.IO) {
+        val files = if (conversations.exists()) checkNotNull(conversations.listFiles()) { "Could not list conversation cache" } else emptyArray()
+        val failures = files.filter { if (generation == null) it.isDirectory else it.name != generation }.filterNot { it.deleteRecursively() }
+        check(failures.isEmpty()) { "Could not remove old conversation cache" }
+    }
     private fun retryKey(origin: String) = longPreferencesKey("retry_" + java.security.MessageDigest.getInstance("SHA-256").digest(origin.toByteArray()).joinToString("") { "%02x".format(it) })
 
     suspend fun retryUntil(origin: String): Long = context.rateState.data.first()[retryKey(origin)] ?: 0
@@ -113,13 +163,22 @@ class LocalStateStore(private val context: Context) : MessageStore {
         return data[originKey]?.let { ConnectionSettings(it) }
     }
 
-    suspend fun setConnection(origin: String) {
-        migrateLegacySettings()
-        if (connection()?.origin != origin) clearConversations()
-        context.localState.edit { data ->
-            if (data[originKey] != origin) data.clear()
-            data[originKey] = origin
-            legacyKeys.forEach { data.remove(it) }
+    suspend fun setConnection(origin: String) = withContext(kotlinx.coroutines.NonCancellable) {
+        coordinator.lock.withLock {
+            migrateLegacySettings()
+            val previous = context.localState.data.first()
+            val changed = previous[originKey] != origin
+            val generation = if (changed) java.util.UUID.randomUUID().toString() else previous[cacheGenerationKey]
+            context.localState.edit { data ->
+                if (changed) {
+                    data.clear()
+                    data[cacheGenerationKey] = generation!!
+                }
+                data[originKey] = origin
+                legacyKeys.forEach { data.remove(it) }
+            }
+            if (changed) invalidateConversations()
+            removeObsoleteConversations(generation)
         }
     }
 
@@ -155,7 +214,15 @@ class LocalStateStore(private val context: Context) : MessageStore {
     suspend fun sessionDeliverAs(key: SessionKey): String = context.localState.data.first()[hashed("deliver_", key)]?.takeIf { it in DELIVER_MODES } ?: deliverAs()
     suspend fun setSessionDeliverAs(key: SessionKey, mode: String) { if (mode in DELIVER_MODES) context.localState.edit { it[hashed("deliver_", key)] = mode } }
 
-    suspend fun clear() { migrateLegacySettings(); clearConversations(); context.localState.edit { it.clear() } }
+    suspend fun clear() = withContext(kotlinx.coroutines.NonCancellable) {
+        coordinator.lock.withLock {
+            migrateLegacySettings()
+            val generation = java.util.UUID.randomUUID().toString()
+            context.localState.edit { data -> data.clear(); data[cacheGenerationKey] = generation }
+            invalidateConversations()
+            removeObsoleteConversations(generation)
+        }
+    }
 
     /** Leva notificações e modo de envio antigos de local_state para settings antes de local_state ser apagado. */
     private suspend fun migrateLegacySettings() {

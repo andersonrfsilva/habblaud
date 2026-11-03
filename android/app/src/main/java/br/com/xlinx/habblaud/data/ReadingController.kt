@@ -57,6 +57,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
     private var generation = 0
     private var active = false
     private val conversation = ConversationState()
+    private val conversationEpoch = store.conversationEpoch()
     val messages = MessageController(api, store, scope, ::canSend, ::changed, unauthorized)
     private fun canSend(key: SessionKey, agentId: String): Boolean {
         val current = mutable.value
@@ -105,7 +106,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         mutable.value.selected?.let { open(it) }
     }
     fun stop() { persist(); active = false; generation++; stateJob?.cancel(); conversationJob?.cancel(); messages.stop(); api.cancelCalls(); mutable.value = mutable.value.copy(connection = "offline", readingError = if (mutable.value.selected != null && mutable.value.readingError == null) "network" else mutable.value.readingError) }
-    fun close() { persist(); cachedKey = null; generation++; conversationJob?.cancel(); messages.close(); restore = null; scope.launch { store.setLastSession(null) }; mutable.value = mutable.value.copy(selected = null, entries = emptyList(), error = null, readingError = null) }
+    fun close() { persist(); cachedKey = null; generation++; conversationJob?.cancel(); messages.close(); restore = null; val write = store.conversationWrite(conversationEpoch); scope.launch { store.setLastSession(null, write) }; mutable.value = mutable.value.copy(selected = null, entries = emptyList(), error = null, readingError = null) }
     /** Sessão cuja conversa está em `conversation` (veio do aparelho ou do servidor) e pode ser guardada. */
     private var cachedKey: SessionKey? = null
     private var saveJob: Job? = null
@@ -118,8 +119,9 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
     private fun save(key: SessionKey) {
         val entries = conversation.snapshot().toList()
         val truncated = conversation.truncated
+        val write = store.conversationWrite(conversationEpoch)
         // Escopo próprio: stop()/close() rodam no descarte da tela, quando `scope` já foi cancelado.
-        persistScope.launch { store.setConversation(key, entries, truncated) }
+        persistScope.launch { store.setConversation(key, entries, truncated, write) }
     }
     private fun changed() { close(); mutable.value = mutable.value.copy(error = "changed") }
     private fun failure(event: StreamEvent.Failure, conversation: Boolean) {
@@ -140,7 +142,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         messages.open(item.key)
         if (!active || !repository.terminalAllowed) return
         val base = if (item.agentId != null) "/api/agents/${encode(item.agentId)}/terminal" else "/api/sessions/${encode(item.key.account)}/${encode(item.key.sessionId)}/terminal"
-        if (!item.sub) scope.launch { store.setLastSession(item.key) }
+        if (!item.sub) { val write = store.conversationWrite(conversationEpoch); scope.launch { store.setLastSession(item.key, write) } }
         conversationJob = scope.launch {
             // O que já foi lido aparece na hora; o servidor manda só o que veio depois da última entrada guardada.
             // Subagentes não ficam guardados: são conversas curtas, e cada uma viraria um arquivo a mais no aparelho.
