@@ -11,6 +11,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import kotlinx.coroutines.flow.Flow
@@ -119,7 +121,7 @@ class LocalStateStore(private val context: Context) : MessageStore {
     // Uma gravação por vez: as do fechamento da tela e as adiadas usam o mesmo `.tmp` e não podem se cruzar.
     internal var beforeConversationWrite: suspend () -> Unit = {}
     internal var afterConversationWrite: () -> Unit = {}
-    internal suspend fun setConversation(key: SessionKey, entries: List<TerminalEntry>, truncated: Boolean, write: ConversationWrite) {
+    internal suspend fun setConversation(key: SessionKey, entries: List<TerminalEntry>, truncated: Boolean, write: ConversationWrite, summaries: Map<String, String> = emptyMap()) {
         try {
             beforeConversationWrite()
             coordinator.lock.withLock {
@@ -131,7 +133,7 @@ class LocalStateStore(private val context: Context) : MessageStore {
                         val file = conversationFile(key, data[cacheGenerationKey])
                         file.parentFile!!.mkdirs()
                         val tmp = java.io.File(file.parentFile, "${file.name}.tmp")
-                        tmp.writeText(encodeConversation(entries, truncated))
+                        tmp.writeText(encodeConversation(entries, truncated, summaries))
                         check(tmp.renameTo(file))
                         coordinator.written[key] = write.sequence
                     }
@@ -244,13 +246,20 @@ val VIEWS = listOf("all", "prompts", "no_tools")
 val THEMES = listOf("system", "light", "dark")
 
 
-data class CachedConversation(val entries: List<TerminalEntry>, val truncated: Boolean)
+data class CachedConversation(val entries: List<TerminalEntry>, val truncated: Boolean, val summaries: Map<String, String> = emptyMap())
 
-/** Guarda as últimas 500 entradas (a janela do `init` do servidor): o arquivo não cresce sem limite. */
-internal fun encodeConversation(entries: List<TerminalEntry>, truncated: Boolean): String = buildJsonObject {
+/** Chave do resumo de uma entrada: o id e o texto (uma entrada reescrita pede outro resumo). */
+internal fun summaryKey(entry: TerminalEntry): String = "${entry.id}:${entry.text.hashCode()}"
+
+/**
+ * Guarda as últimas 500 entradas (a janela do `init` do servidor): o arquivo não cresce sem limite. Os resumos vão
+ * junto, só os das entradas que ficaram.
+ */
+internal fun encodeConversation(entries: List<TerminalEntry>, truncated: Boolean, summaries: Map<String, String> = emptyMap()): String = buildJsonObject {
+    val kept = entries.takeLast(500)
     put("truncated", truncated || entries.size > 500)
     put("entries", buildJsonArray {
-        entries.takeLast(500).forEach { e ->
+        kept.forEach { e ->
             add(buildJsonObject {
                 put("id", e.id); put("kind", e.kind); put("text", e.text)
                 e.title?.let { put("title", it) }; e.toolUseId?.let { put("toolUseId", it) }
@@ -258,9 +267,13 @@ internal fun encodeConversation(entries: List<TerminalEntry>, truncated: Boolean
             })
         }
     })
+    if (summaries.isNotEmpty()) put("summaries", buildJsonObject {
+        kept.forEach { e -> val key = summaryKey(e); summaries[key]?.let { put(key, it) } }
+    })
 }.toString()
 
 internal fun decodeConversation(text: String): CachedConversation {
     val root = wireJson.parseToJsonElement(text).jsonObject
-    return CachedConversation(root.objects("entries").mapNotNull(TerminalEntry::parse), root.flag("truncated"))
+    val summaries = (root["summaries"] as? JsonObject)?.mapNotNull { (key, value) -> (value as? JsonPrimitive)?.takeIf { it.isString }?.let { key to it.content } }?.toMap().orEmpty()
+    return CachedConversation(root.objects("entries").mapNotNull(TerminalEntry::parse), root.flag("truncated"), summaries)
 }

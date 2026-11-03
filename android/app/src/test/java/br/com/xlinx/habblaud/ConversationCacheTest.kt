@@ -3,6 +3,7 @@ package br.com.xlinx.habblaud
 import br.com.xlinx.habblaud.data.TerminalEntry
 import br.com.xlinx.habblaud.data.decodeConversation
 import br.com.xlinx.habblaud.data.encodeConversation
+import br.com.xlinx.habblaud.data.summaryKey
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -24,5 +25,12 @@ class ConversationCacheTest {
         assertEquals(500, back.entries.size)
         assertEquals("e101", back.entries.first().id)
         assertTrue(back.truncated)
+    }
+
+    @Test fun summariesComeBackOnlyForTheEntriesThatWereKept() {
+        val entries = (1..501).map { TerminalEntry("e$it", "assistant", "texto $it", at = it.toLong()) }
+        val summaries = mapOf(summaryKey(entries[0]) to "cortada", summaryKey(entries[500]) to "fica", "e501:outro-texto" to "velha")
+        val back = decodeConversation(encodeConversation(entries, truncated = false, summaries = summaries))
+        assertEquals(mapOf(summaryKey(entries[500]) to "fica"), back.summaries)
     }
 }

@@ -13,7 +13,8 @@ do meio (0.**3**.0).
 ### Adicionado
 
 - **Android:** Configurações › Resumos liga o resumo das respostas do agente. O papel `tiny` do omp resume cada
-  resposta longa em até 5 frases; tocar no resumo mostra a resposta completa. Desligado por padrão.
+  resposta longa em até 5 frases; tocar no resumo mostra a resposta completa. Desligado por padrão. Os resumos ficam
+  guardados no aparelho junto da conversa: reabrir a sessão não pede de novo.
 - **Android:** o papel `tiny` do omp entra nos modelos configuráveis. O seletor agrupa os modelos por provedor, com
   a versão mais nova primeiro, e esconde as variantes `:batch` e as cópias datadas de um modelo que também aparece
   sem data. A linha de cada papel mostra o provedor.

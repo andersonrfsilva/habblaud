@@ -106,10 +106,22 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         mutable.value.selected?.let { open(it) }
     }
     fun stop() { persist(); active = false; generation++; stateJob?.cancel(); conversationJob?.cancel(); messages.stop(); api.cancelCalls(); mutable.value = mutable.value.copy(connection = "offline", readingError = if (mutable.value.selected != null && mutable.value.readingError == null) "network" else mutable.value.readingError) }
-    fun close() { persist(); cachedKey = null; generation++; conversationJob?.cancel(); messages.close(); restore = null; val write = store.conversationWrite(conversationEpoch); scope.launch { store.setLastSession(null, write) }; mutable.value = mutable.value.copy(selected = null, entries = emptyList(), error = null, readingError = null) }
+    fun close() { persist(); cachedKey = null; summaries.clear(); generation++; conversationJob?.cancel(); messages.close(); restore = null; val write = store.conversationWrite(conversationEpoch); scope.launch { store.setLastSession(null, write) }; mutable.value = mutable.value.copy(selected = null, entries = emptyList(), error = null, readingError = null) }
     /** Sessão cuja conversa está em `conversation` (veio do aparelho ou do servidor) e pode ser guardada. */
     private var cachedKey: SessionKey? = null
     private var saveJob: Job? = null
+    /** Resumos da conversa aberta (`summaryKey` → resumo): gravados no mesmo arquivo dela, para não pedir de novo. */
+    private val summaries = HashMap<String, String>()
+    fun summary(entry: TerminalEntry): String? = summaries[summaryKey(entry)]
+    /** Pede o resumo ao servidor e guarda na conversa aberta, se ela ainda for a mesma quando a resposta chegar. */
+    suspend fun summarize(entry: TerminalEntry, text: String): String {
+        val key = summaryKey(entry)
+        summaries[key]?.let { return it }
+        val token = generation
+        val result = api.summary(text)
+        if (token == generation) { summaries[key] = result; persist(3_000) }
+        return result
+    }
     /** Guarda a conversa aberta no aparelho: na hora, ou alguns segundos depois da última novidade. */
     private fun persist(delayMs: Long = 0) {
         val key = cachedKey ?: return
@@ -119,9 +131,10 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
     private fun save(key: SessionKey) {
         val entries = conversation.snapshot().toList()
         val truncated = conversation.truncated
+        val kept = HashMap(summaries)
         val write = store.conversationWrite(conversationEpoch)
         // Escopo próprio: stop()/close() rodam no descarte da tela, quando `scope` já foi cancelado.
-        persistScope.launch { store.setConversation(key, entries, truncated, write) }
+        persistScope.launch { store.setConversation(key, entries, truncated, write, kept) }
     }
     private fun changed() { close(); mutable.value = mutable.value.copy(error = "changed") }
     private fun failure(event: StreamEvent.Failure, conversation: Boolean) {
@@ -135,7 +148,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         if (item != null) open(item) else { restore = key; restoreLoaded = true }
     }
     fun open(item: SessionItem) {
-        persist(); cachedKey = null
+        persist(); cachedKey = null; summaries.clear()
         generation++; val token = generation
         conversationJob?.cancel()
         mutable.value = mutable.value.copy(selected = item, entries = emptyList(), truncated = false, reduced = false, error = null, readingError = null)
@@ -151,6 +164,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
             val last = cached?.entries?.lastOrNull { it.at != null }
             if (cached != null && cached.entries.isNotEmpty()) {
                 conversation.init(cached.entries, cached.truncated)
+                summaries.putAll(cached.summaries)
                 cachedKey = item.key
                 mutable.value = mutable.value.copy(entries = conversation.snapshot(), truncated = conversation.truncated, reduced = conversation.reduced)
             }

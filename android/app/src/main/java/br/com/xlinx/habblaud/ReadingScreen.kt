@@ -275,7 +275,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                     // Lista invertida: o primeiro item fica no pé da conversa, logo abaixo da última mensagem.
                     if (selected.agentId != null && selected.status == "working") item(key = "working") { WorkingIndicator(api, selected) }
                     items(rows.asReversed(), key = { it.first.id }) { (entry, thoughts) ->
-                        if (entry.kind != "result" || entry.toolUseId !in tools) EntryView(entry, results[entry.id].orEmpty(), thoughts, recovered = entry.id in recovered, summarize = if (summarizeReplies) api::summary else null) { before, now ->
+                        if (entry.kind != "result" || entry.toolUseId !in tools) EntryView(entry, results[entry.id].orEmpty(), thoughts, recovered = entry.id in recovered, cachedSummary = controller.summary(entry), summarize = if (summarizeReplies) { text -> controller.summarize(entry, text) } else null) { before, now ->
                             // A lista é invertida: o item cresce para cima. Rola o quanto o cabeçalho tocado andou, para ele voltar ao lugar.
                             scope.launch { repeat(2) { withFrameNanos { } }; listState.scrollBy(before - now()) }
                         }
@@ -453,13 +453,9 @@ private fun ChatBanner(message: String) {
 private const val SUMMARY_MIN_CHARS = 500
 /** O servidor aceita até 32 Ki caracteres; o resumo de uma resposta maior olha só o começo dela. */
 private const val SUMMARY_MAX_CHARS = 32 * 1024
-/** Resumos já recebidos (id e hash do texto), para não pedir de novo ao rolar ou reabrir a conversa; só na thread da tela. */
-private val summaryCache = object : LinkedHashMap<String, String>(64, 0.75f, true) {
-    override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?) = size > 300
-}
 
 @Composable
-private fun EntryView(entry: TerminalEntry, results: List<TerminalEntry>, thoughts: Int = 1, recovered: Boolean = false, summarize: (suspend (String) -> String)? = null, keepPlace: (before: Float, now: () -> Float) -> Unit = { _, _ -> }) {
+private fun EntryView(entry: TerminalEntry, results: List<TerminalEntry>, thoughts: Int = 1, recovered: Boolean = false, cachedSummary: String? = null, summarize: (suspend (String) -> String)? = null, keepPlace: (before: Float, now: () -> Float) -> Unit = { _, _ -> }) {
     var expanded by remember(entry.id) { mutableStateOf(false) }
     var headerY by remember { mutableFloatStateOf(0f) }
     if (entry.kind == "system") {
@@ -498,12 +494,12 @@ private fun EntryView(entry: TerminalEntry, results: List<TerminalEntry>, though
                 } else {
                     // Resposta longa com "Resumir respostas" ligado: mostra o resumo; tocar alterna com a resposta completa.
                     // Sem resumo (curta, servidor recusou ou falhou), fica a resposta completa como sempre.
-                    val summaryKey = "${entry.id}:${entry.text.hashCode()}"
+                    val key = summaryKey(entry)
                     val wantsSummary = summarize != null && entry.kind == "assistant" && entry.text.length > SUMMARY_MIN_CHARS
-                    var summary by remember(summaryKey) { mutableStateOf(summaryCache[summaryKey]) }
-                    var summaryFailed by remember(summaryKey) { mutableStateOf(false) }
-                    if (wantsSummary && summary == null && !summaryFailed) LaunchedEffect(summaryKey) {
-                        try { summarize!!(entry.text.take(SUMMARY_MAX_CHARS)).let { summaryCache[summaryKey] = it; summary = it } }
+                    var summary by remember(key) { mutableStateOf(cachedSummary) }
+                    var summaryFailed by remember(key) { mutableStateOf(false) }
+                    if (wantsSummary && summary == null && !summaryFailed) LaunchedEffect(key) {
+                        try { summary = summarize!!(entry.text.take(SUMMARY_MAX_CHARS)) }
                         catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; summaryFailed = true }
                     }
                     val summarized = wantsSummary && !summaryFailed
