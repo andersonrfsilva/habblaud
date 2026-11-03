@@ -85,6 +85,7 @@ class LocalStateStore(private val context: Context) : MessageStore {
     }
 
     suspend fun setConnection(origin: String) {
+        migrateLegacySettings()
         context.localState.edit { data ->
             if (data[originKey] != origin) data.clear()
             data[originKey] = origin
@@ -124,7 +125,16 @@ class LocalStateStore(private val context: Context) : MessageStore {
     suspend fun sessionDeliverAs(key: SessionKey): String = context.localState.data.first()[hashed("deliver_", key)]?.takeIf { it in DELIVER_MODES } ?: deliverAs()
     suspend fun setSessionDeliverAs(key: SessionKey, mode: String) { if (mode in DELIVER_MODES) context.localState.edit { it[hashed("deliver_", key)] = mode } }
 
-    suspend fun clear() { context.localState.edit { it.clear() } }
+    suspend fun clear() { migrateLegacySettings(); context.localState.edit { it.clear() } }
+
+    /** Leva notificações e modo de envio antigos de local_state para settings antes de local_state ser apagado. */
+    private suspend fun migrateLegacySettings() {
+        val old = context.localState.data.first()
+        context.appSettings.edit { settings ->
+            if (settings[notificationsKey] == null) old[notificationsKey]?.let { settings[notificationsKey] = it }
+            if (settings[deliverAsKey] == null) old[deliverAsKey]?.let { settings[deliverAsKey] = it }
+        }
+    }
 }
 
 val DELIVER_MODES = listOf("aside", "followUp", "steer")

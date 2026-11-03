@@ -85,13 +85,19 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
     val selected = state.selected
     var menuExpanded by remember { mutableStateOf(false) }
     // O que a conversa mostra (tudo, só prompts ou sem ferramentas) e o modo de envio: cada sessão lembra os seus.
-    var view by remember { mutableStateOf("all") }
-    var deliverMode by remember { mutableStateOf("aside") }
+    // Cada valor guarda a sessão a que pertence: ao trocar de sessão, o valor da anterior não vale nem é salvo na nova.
+    var viewFor by remember { mutableStateOf<Pair<SessionKey, String>?>(null) }
+    var deliverFor by remember { mutableStateOf<Pair<SessionKey, String>?>(null) }
+    val loaded = selected != null && viewFor?.first == selected.key && deliverFor?.first == selected.key
+    val view = viewFor?.takeIf { it.first == selected?.key }?.second ?: "all"
+    val deliverMode = deliverFor?.takeIf { it.first == selected?.key }?.second ?: "aside"
+    SideEffect { controller.messages.deliverAs = deliverMode }
     LaunchedEffect(selected?.key) {
         val key = selected?.key ?: return@LaunchedEffect
-        view = store.sessionView(key)
-        deliverMode = store.sessionDeliverAs(key)
-        controller.messages.deliverAs = deliverMode
+        val savedView = store.sessionView(key)
+        val savedDeliver = store.sessionDeliverAs(key)
+        if (viewFor?.first != key) viewFor = key to savedView
+        if (deliverFor?.first != key) deliverFor = key to savedDeliver
     }
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
     if (settingsOpen) {
@@ -114,21 +120,19 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
         val deliverLabels = listOf("aside" to R.string.deliver_aside, "followUp" to R.string.deliver_follow_up, "steer" to R.string.deliver_steer)
         when (page) {
             "view" -> { Back(); viewLabels.forEach { (value, label) -> Choice(stringResource(label), view == value) {
-                view = value
-                selected?.key?.let { key -> scope.launch { store.setSessionView(key, value) } }
+                selected?.key?.let { key -> viewFor = key to value; scope.launch { store.setSessionView(key, value) } }
                 close()
             } } }
             "deliver" -> { Back(); deliverLabels.forEach { (mode, label) -> Choice(stringResource(label), deliverMode == mode) {
-                deliverMode = mode; controller.messages.deliverAs = mode
-                selected?.key?.let { key -> scope.launch { store.setSessionDeliverAs(key, mode) } }
+                selected?.key?.let { key -> deliverFor = key to mode; scope.launch { store.setSessionDeliverAs(key, mode) } }
                 close()
             } } }
             "model" -> { Back(); selected!!.models.forEach { model -> Choice(model.substringAfter('/'), model == selected.model || model.substringAfter('/') == selected.model) { controller.messages.setModel(agentId!!, model); close() } } }
             "thinking" -> { Back(); THINKING_LEVELS.forEach { level -> Choice(thinkingLabel(level), level == selected!!.thinking) { controller.messages.setThinking(agentId!!, level); close() } } }
             else -> {
-                Group(R.string.view_menu, viewLabels.firstOrNull { it.first == view }?.let { stringResource(it.second) }, "view")
+                Group(R.string.view_menu, viewLabels.firstOrNull { it.first == view }?.let { stringResource(it.second) }, "view", loaded)
                 if (omp) {
-                    Group(R.string.deliver_mode, deliverLabels.firstOrNull { it.first == deliverMode }?.let { stringResource(it.second) }, "deliver")
+                    Group(R.string.deliver_mode, deliverLabels.firstOrNull { it.first == deliverMode }?.let { stringResource(it.second) }, "deliver", loaded)
                     if (selected!!.models.isNotEmpty()) Group(R.string.model_menu, selected.model?.substringAfter('/'), "model", canControl)
                     Group(R.string.thinking_menu, selected.thinking?.let { thinkingLabel(it) }, "thinking", canControl)
                     DropdownMenuItem(text = { Text(stringResource(R.string.shake)) }, enabled = canControl, onClick = { controller.messages.shake(agentId!!); close() })
