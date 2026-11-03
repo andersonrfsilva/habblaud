@@ -24,7 +24,10 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # O pacote padrão `tools` saiu do repositório do SDK (o sdkmanager falha ao procurá-lo).
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          packages: platform-tools
 
       - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
       - run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
@@ -47,6 +50,8 @@ jobs:
           cache: npm
       - run: npm ci
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          packages: platform-tools
       - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
       - name: Enable KVM
         run: |

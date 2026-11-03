@@ -3,7 +3,7 @@ import { dirname, isAbsolute, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FileFetcher, HOST_PRESENCE_MS, WAIT_MS } from './fetcher';
 import { ATTACHMENT_MAX_BYTES } from '../spawn/attachments';
-import { tempDir } from '../test/fixtures';
+import { HAS_POSIX_MODES, tempDir } from '../test/fixtures';
 import { createServer } from 'node:http';
 import type { Attachment } from '../spawn/attachments';
 
@@ -83,8 +83,10 @@ describe('FileFetcher', () => {
       expect(isAbsolute(a.paths[0])).toBe(true);
       expect(a.paths[0]).not.toBe(b.paths[0]);
       expect(readFileSync(a.paths[0], 'utf8')).toBe('bytes intactos');
-      expect(statSync(a.paths[0]).mode & 0o777).toBe(0o600);
-      expect(statSync(dirname(a.paths[0])).mode & 0o777).toBe(0o700);
+      if (HAS_POSIX_MODES) {
+        expect(statSync(a.paths[0]).mode & 0o777).toBe(0o600);
+        expect(statSync(dirname(a.paths[0])).mode & 0o777).toBe(0o700);
+      }
       const blocked = join(tmp.dir, 'blocked');
       writeFileSync(blocked, 'não é pasta');
       vi.stubEnv('HABBLAUD_ATTACHMENTS_DIR', blocked);

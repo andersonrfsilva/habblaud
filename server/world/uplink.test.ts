@@ -4,6 +4,7 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { resolveWorldTheme } from './theme';
 import { afterEach, describe, expect, it } from 'vitest';
 import { hash32 } from '../../shared/hash';
 import { SPECIAL } from '../../shared/activity';
@@ -410,10 +411,13 @@ describe('BuildingUplink: conexão e remessas', () => {
     const h = await start({ tokensVisible: false });
     await waitFor(() => h.world.ws.uplinks.length === 1, 'primeira');
     expect(h.world.ws.uplinks[0].uplink.tokens).toBeUndefined();
-    h.store.setTheme('christmas');
+    // Um tema diferente do que o automático dá hoje: de novembro a 26 de dezembro o automático já é o de Natal, e
+    // trocar para ele não muda o pacote.
+    const theme = resolveWorldTheme('auto', new Date()) === 'christmas' ? 'halloween' : 'christmas';
+    h.store.setTheme(theme);
     h.uplink.themeChanged();
     await waitFor(() => h.world.ws.uplinks.length === 2, 'tema');
-    expect(h.world.ws.uplinks[1].uplink.theme).toBe('christmas');
+    expect(h.world.ws.uplinks[1].uplink.theme).toBe(theme);
   });
 
   it('welcome.building: andares e agentes do mundo até a primeira remessa daqui', async () => {

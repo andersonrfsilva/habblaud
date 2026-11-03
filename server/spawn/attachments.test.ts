@@ -1,5 +1,5 @@
 import { chmodSync, readdirSync, readFileSync, statSync, existsSync, writeFileSync, rmSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { PassThrough, Readable } from 'node:stream';
 import type { IncomingMessage } from 'node:http';
 import { createHash } from 'node:crypto';
@@ -124,7 +124,7 @@ describe('anexos em disco', () => {
     const b = await uploadAttachment(store, 'two', 'ação.txt');
     const files = take(store, [a.id, b.id]);
     const paths = await writeAttachments(root, 'job', files);
-    expect(paths.map(path => path.split('/').pop())).toEqual(['ação.txt', 'ação-2.txt']);
+    expect(paths.map(path => basename(path))).toEqual(['ação.txt', 'ação-2.txt']);
     expect(readFileSync(paths[1], 'utf8')).toBe('two');
     if (HAS_POSIX_MODES) {
       expect(statSync(root).mode & 0o777).toBe(0o750);
@@ -142,7 +142,7 @@ describe('anexos em disco', () => {
     const b = await uploadAttachment(store, 'new');
     const files = take(store, [b.id]);
     await expect(writeAttachments(root, 'bad', [...files, { ...files[0], path: '/not-existing' }])).rejects.toThrow();
-    expect(readdirSync(root).filter(name => name !== '.pending')).toEqual([dirname(old).split('/').pop()]);
+    expect(readdirSync(root).filter(name => name !== '.pending')).toEqual([basename(dirname(old))]);
     expect(readFileSync(old, 'utf8')).toBe('old');
     store.release(files);
     expect(store.usedBytes).toBe(3); // lote antigo ainda held; TTL nunca libera held.

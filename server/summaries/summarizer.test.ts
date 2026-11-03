@@ -82,7 +82,8 @@ describe('Summarizer', () => {
   });
 });
 
-describe('rpcSummaryRunner', () => {
+// O omp de mentira é um script com shebang: no Windows o spawn não o executa.
+describe.runIf(process.platform !== 'win32')('rpcSummaryRunner', () => {
   it('devolve o texto da resposta e reaproveita o mesmo processo', async () => {
     const { bin, dir } = fakeOmp('ok');
     const run = rpcSummaryRunner(1);
