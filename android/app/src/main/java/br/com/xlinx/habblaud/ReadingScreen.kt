@@ -185,6 +185,11 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
             }
             val shown = state.entries.filter { entry -> when (view) { "prompts" -> entry.kind == "user"; "no_tools" -> entry.kind != "tool" && entry.kind != "result"; else -> true } }
             val lastId = shown.lastOrNull()?.id
+            // Ao enviar, volta a seguir o fim: o prompt e a resposta que chegam aparecem sem rolar à mão.
+            fun stickToEnd() {
+                userScrolled = false; unread = 0
+                if (shown.isNotEmpty()) scope.launch { listState.scrollToItem(shown.lastIndex + if (state.truncated) 1 else 0) }
+            }
             LaunchedEffect(shown.size, lastId, state.truncated) {
                 val count = shown.size
                 if (count > 0) {
@@ -262,7 +267,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                     onDismissRequest = { controller.messages.dismissConfirmation() },
                     title = { Text(stringResource(R.string.message_retry_title)) },
                     text = { Text(stringResource(R.string.message_retry_warning)) },
-                    confirmButton = { TextButton(onClick = { controller.messages.send(agentId, confirmed = true) }) { Text(stringResource(R.string.confirm)) } },
+                    confirmButton = { TextButton(onClick = { stickToEnd(); controller.messages.send(agentId, confirmed = true) }) { Text(stringResource(R.string.confirm)) } },
                     dismissButton = { TextButton(onClick = { controller.messages.dismissConfirmation() }) { Text(stringResource(R.string.cancel)) } }
                 )
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -282,7 +287,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                         }
                     }
                     val sendLabel = stringResource(R.string.send_message)
-                    FilledIconButton(onClick = { if (agentId != null) controller.messages.send(agentId) }, enabled = enabled && !composer.loading && !composer.sending && composer.unavailable.isEmpty() && (composer.draft.text.isNotBlank() || composer.draft.attachments.isNotEmpty()), modifier = Modifier.semantics { contentDescription = sendLabel }) { Text("➤") }
+                    FilledIconButton(onClick = { if (agentId != null) { stickToEnd(); controller.messages.send(agentId) } }, enabled = enabled && !composer.loading && !composer.sending && composer.unavailable.isEmpty() && (composer.draft.text.isNotBlank() || composer.draft.attachments.isNotEmpty()), modifier = Modifier.semantics { contentDescription = sendLabel }) { Text("➤") }
                 }
                 }
             }
