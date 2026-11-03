@@ -108,15 +108,15 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
     }
     val current = selected?.cast?.let { id -> characters.find { it.id == id } }
     val activeJob = current?.let { jobs[it.id] in listOf("queued", "sent", "waiting") } == true
-    // O elenco roda pelo omp (--resume com a pasta de agente do personagem): só o dono da sessão consegue retomá-la.
+    // Como no histórico da web: qualquer personagem do elenco que trabalha na pasta pode continuar a conversa omp encerrada; o dono vem primeiro.
     val eligible = if (selected?.project?.startsWith('/') == true) characters.filter { it.rooms.isEmpty() || selected.project in it.rooms } else emptyList()
-    val resumeChoices = current?.takeIf { it in eligible }?.let { listOf(it) }.orEmpty()
+    val resumeChoices = eligible.sortedByDescending { it == current }
     val resume = selected != null && selected.agentId == null && selected.key.provider == "omp" &&
         selected.key.sessionId.matches(sessionIdPattern) && resumeChoices.isNotEmpty()
     val dismiss = selected?.agentId != null && selected.castOpened && current != null
     val actions: @Composable () -> Unit = {
         if (availability == "available") {
-            if (resume) ActionIcon(R.string.cast_resume, Icons.Default.PlayArrow, !sending && !activeJob) { choice = current?.takeIf { it in resumeChoices }; dialog = if (choice != null) "resume" else "resume-select" }
+            if (resume) ActionIcon(R.string.cast_resume, Icons.Default.PlayArrow, !sending && resumeChoices.any { jobs[it.id] !in listOf("queued", "sent", "waiting") }) { choice = null; dialog = "resume-select" }
             if (dismiss) ActionIcon(R.string.cast_dismiss, Icons.Default.ExitToApp, !sending && !activeJob) { dialog = "dismiss" }
         }
         if (selected?.permission == true) PermissionAttentionButton(selected.permissionQuestion, onPermission)
