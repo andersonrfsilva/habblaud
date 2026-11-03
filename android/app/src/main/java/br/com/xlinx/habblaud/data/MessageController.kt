@@ -21,7 +21,9 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.add
 import okhttp3.RequestBody
 
-data class ComposerState(val key: SessionKey? = null, val draft: MessageDraft = MessageDraft(), val operation: MessageOperation? = null, val control: MessageOperation? = null, val controlError: String? = null, val loading: Boolean = false, val sending: Boolean = false, val error: String? = null, val progress: String? = null, val unavailable: Set<String> = emptySet(), val commandResult: String? = null)
+/** Comando omp pelo menu (shake, modelo, raciocínio): `kind` diz qual, `status` vai de pending a sent/failed/unknown. */
+data class CommandResult(val kind: String, val status: String)
+data class ComposerState(val key: SessionKey? = null, val draft: MessageDraft = MessageDraft(), val operation: MessageOperation? = null, val control: MessageOperation? = null, val controlError: String? = null, val loading: Boolean = false, val sending: Boolean = false, val error: String? = null, val progress: String? = null, val unavailable: Set<String> = emptySet(), val commandResult: CommandResult? = null)
 
 class MessageController(
     private val request: suspend (String, String?) -> String,
@@ -275,14 +277,21 @@ class MessageController(
     }
     fun dismissControlConfirmation() { mutable.value = mutable.value.copy(controlError = null) }
 
-    /** /shake do omp (elide e thinking): libera contexto trocando blocos antigos por referências. Sem retry automático. */
-    fun shake(agentId: String) {
+    /** /shake do omp (elide e thinking): libera contexto trocando blocos antigos por referências. */
+    fun shake(agentId: String) = ompControl(agentId, "shake") { put("command", "shake") }
+    /** Troca o modelo da sessão omp (um dos `models` que ela aceita). */
+    fun setModel(agentId: String, model: String) = ompControl(agentId, "model") { put("model", model) }
+    /** Troca o nível de raciocínio da sessão omp. */
+    fun setThinking(agentId: String, level: String) = ompControl(agentId, "thinking") { put("thinking", level) }
+
+    /** Pedido de controle à sessão omp, acompanhado até ela confirmar ou recusar. Sem retry automático. */
+    private fun ompControl(agentId: String, kind: String, fields: kotlinx.serialization.json.JsonObjectBuilder.() -> Unit) {
         val key = state.value.key ?: return
         if (key.provider != "omp" || !visible || !eligible(key, agentId)) return
-        mutable.value = state.value.copy(commandResult = "pending")
+        mutable.value = state.value.copy(commandResult = CommandResult(kind, "pending"))
         scope.launch {
             val result = try {
-                val response = wireJson.parseToJsonElement(request("/api/messages/control", buildJsonObject { put("agentId", agentId); put("command", "shake"); put("expectedSessionId", key.sessionId) }.toString())).jsonObject
+                val response = wireJson.parseToJsonElement(request("/api/messages/control", buildJsonObject { put("agentId", agentId); fields(); put("expectedSessionId", key.sessionId) }.toString())).jsonObject
                 // O servidor só enfileira: acompanha o pedido até a sessão confirmar (delivered) ou recusar (failed).
                 val id = requireNotNull(response.string("id"))
                 var status = response.string("status")
@@ -300,7 +309,7 @@ class MessageController(
                 if (e is ApiException && e.code == "session_changed") changed() else if (e is ApiException && e.status == 401) unauthorized()
                 if (e is ApiException && e.status in 400..499) "failed" else "unknown"
             }
-            if (state.value.key == key) mutable.value = state.value.copy(commandResult = result)
+            if (state.value.key == key) mutable.value = state.value.copy(commandResult = CommandResult(kind, result))
         }
     }
     fun dismissCommandResult() { mutable.value = mutable.value.copy(commandResult = null) }

@@ -65,7 +65,9 @@ class SessionRepository(private val api: HabblaudApi) {
         val permission = o["permission"] as? JsonObject
         val context = o["context"] as? JsonObject
         return SessionItem(key, agent, o.string("title") ?: o.string("name") ?: id, project ?: o.string("project"), o.string("status"), activity, permission != null, o.string("name"), o.flag("canMessage"), permission?.string("id"), (o.string("lastEventAt") ?: o.string("lastAt"))?.toLongOrNull(), parseAvatar(o), o.string("cast"), o.flag("castOpened"), permission?.objects("questions")?.isNotEmpty() == true, o.string("name")?.takeIf { o.string("kind") == "main" },
-            contextTokens = context?.string("tokens")?.toLongOrNull()?.takeIf { it >= 0 }, contextWindow = context?.string("window")?.toLongOrNull()?.takeIf { it > 0 })
+            contextTokens = context?.string("tokens")?.toLongOrNull()?.takeIf { it >= 0 }, contextWindow = context?.string("window")?.toLongOrNull()?.takeIf { it > 0 },
+            model = o.string("model"), thinking = o.string("thinking"),
+            models = (o["models"] as? kotlinx.serialization.json.JsonArray)?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { p -> p.isString }?.content }.orEmpty())
     }
 
 }

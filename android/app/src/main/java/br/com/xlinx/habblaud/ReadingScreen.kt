@@ -92,24 +92,37 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
     BackHandler(enabled = selected != null && permissionSession == null && !menuExpanded) { controller.close() }
     var deliverMode by remember { mutableStateOf("aside") }
     LaunchedEffect(controller) { deliverMode = store.deliverAs(); controller.messages.deliverAs = deliverMode }
-    CastActions(api, selected, state.connection == "connected" && (state.terminalAllowed || selected?.permission == true), state.sessions.filter { it.agentId != null }.mapNotNull { it.cast }.toSet(), onUnauthorized, { permissionSession = selected }, menu = { close ->
-        listOf("all" to R.string.view_all, "prompts" to R.string.view_prompts, "no_tools" to R.string.view_no_tools).forEach { (value, label) ->
-            DropdownMenuItem(text = { Text(stringResource(label)) }, leadingIcon = { RadioButton(selected = view == value, onClick = null) }, onClick = { view = value; close() })
-        }
+    CastActions(api, selected, state.connection == "connected" && (state.terminalAllowed || selected?.permission == true), state.sessions.filter { it.agentId != null }.mapNotNull { it.cast }.toSet(), onUnauthorized, { permissionSession = selected }, menu = { close, dismissItem ->
+        // Menu em páginas: a principal lista os grupos; tocar num grupo troca o conteúdo pela lista dele, com "‹ Voltar".
+        var page by remember { mutableStateOf("") }
         val agentId = selected?.agentId
-        if (selected?.key?.provider == "omp" && agentId != null) {
-            HorizontalDivider()
-            val canControl = selected.canMessage && state.messagesAllowed && state.messageGuard && state.connection == "connected"
-            DropdownMenuItem(text = { Text(stringResource(R.string.shake)) }, enabled = canControl, onClick = { controller.messages.shake(agentId); close() })
-            // Submenu: os três modos de entrega abrem dentro do próprio menu.
-            var modesOpen by remember { mutableStateOf(false) }
-            DropdownMenuItem(text = { Text(stringResource(R.string.deliver_mode)) }, trailingIcon = { Text(if (modesOpen) "▾" else "▸") }, onClick = { modesOpen = !modesOpen })
-            if (modesOpen) listOf("aside" to R.string.deliver_aside, "followUp" to R.string.deliver_follow_up, "steer" to R.string.deliver_steer).forEach { (mode, label) ->
-                DropdownMenuItem(text = { Text(stringResource(label)) }, leadingIcon = { RadioButton(selected = deliverMode == mode, onClick = null) }, contentPadding = PaddingValues(start = 28.dp, end = 12.dp), onClick = {
-                    deliverMode = mode; controller.messages.deliverAs = mode
-                    scope.launch { store.setDeliverAs(mode) }
-                    close()
-                })
+        val omp = selected?.key?.provider == "omp" && agentId != null
+        val canControl = omp && selected!!.canMessage && state.messagesAllowed && state.messageGuard && state.connection == "connected"
+        @Composable fun Back() = DropdownMenuItem(text = { Text(stringResource(R.string.back), style = MaterialTheme.typography.labelLarge) }, leadingIcon = { Text("‹", style = MaterialTheme.typography.titleMedium) }, onClick = { page = "" })
+        @Composable fun Group(label: Int, value: String?, target: String, enabled: Boolean = true) = DropdownMenuItem(
+            text = { Column { Text(stringResource(label)); value?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) } } },
+            trailingIcon = { Text("›", style = MaterialTheme.typography.titleMedium) }, enabled = enabled, onClick = { page = target })
+        @Composable fun Choice(label: String, checked: Boolean, onClick: () -> Unit) = DropdownMenuItem(text = { Text(label) }, leadingIcon = { RadioButton(selected = checked, onClick = null) }, onClick = onClick)
+        val viewLabels = listOf("all" to R.string.view_all, "prompts" to R.string.view_prompts, "no_tools" to R.string.view_no_tools)
+        val deliverLabels = listOf("aside" to R.string.deliver_aside, "followUp" to R.string.deliver_follow_up, "steer" to R.string.deliver_steer)
+        when (page) {
+            "view" -> { Back(); viewLabels.forEach { (value, label) -> Choice(stringResource(label), view == value) { view = value; close() } } }
+            "deliver" -> { Back(); deliverLabels.forEach { (mode, label) -> Choice(stringResource(label), deliverMode == mode) {
+                deliverMode = mode; controller.messages.deliverAs = mode
+                scope.launch { store.setDeliverAs(mode) }
+                close()
+            } } }
+            "model" -> { Back(); selected!!.models.forEach { model -> Choice(model.substringAfter('/'), model == selected.model || model.substringAfter('/') == selected.model) { controller.messages.setModel(agentId!!, model); close() } } }
+            "thinking" -> { Back(); THINKING_LEVELS.forEach { level -> Choice(thinkingLabel(level), level == selected!!.thinking) { controller.messages.setThinking(agentId!!, level); close() } } }
+            else -> {
+                Group(R.string.view_menu, viewLabels.firstOrNull { it.first == view }?.let { stringResource(it.second) }, "view")
+                if (omp) {
+                    Group(R.string.deliver_mode, deliverLabels.firstOrNull { it.first == deliverMode }?.let { stringResource(it.second) }, "deliver")
+                    if (selected!!.models.isNotEmpty()) Group(R.string.model_menu, selected.model?.substringAfter('/'), "model", canControl)
+                    Group(R.string.thinking_menu, selected.thinking?.let { thinkingLabel(it) }, "thinking", canControl)
+                    DropdownMenuItem(text = { Text(stringResource(R.string.shake)) }, enabled = canControl, onClick = { controller.messages.shake(agentId!!); close() })
+                }
+                dismissItem()
             }
         }
     }) { castActions, castFab, castStatus ->
@@ -298,8 +311,9 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                     else -> R.string.message_unknown
                 })) }
                 composer.commandResult?.let { result ->
-                    LaunchedEffect(result) { if (result == "sent") { kotlinx.coroutines.delay(4000); controller.messages.dismissCommandResult() } }
-                    ChatBanner(stringResource(when (result) { "pending" -> R.string.shake_pending; "sent" -> R.string.shake_sent; "failed" -> R.string.shake_failed; else -> R.string.shake_unknown }))
+                    LaunchedEffect(result) { if (result.status == "sent") { kotlinx.coroutines.delay(4000); controller.messages.dismissCommandResult() } }
+                    val what = stringResource(when (result.kind) { "model" -> R.string.model_menu; "thinking" -> R.string.thinking_menu; else -> R.string.shake_short })
+                    ChatBanner(stringResource(when (result.status) { "pending" -> R.string.command_pending; "sent" -> R.string.command_sent; "failed" -> R.string.command_failed; else -> R.string.command_unknown }, what))
                 }
                 composer.error?.let { error -> if (error != "confirm") Text(stringResource(when (error) { "storage" -> R.string.storage_error; "unknown" -> R.string.message_unknown; "attachment" -> R.string.attachment_error; "attachments_expired" -> R.string.attachments_expired; else -> R.string.message_send_error }), color = MaterialTheme.colorScheme.error) }
                 if (composer.error == "confirm" && agentId != null) AlertDialog(
@@ -475,42 +489,70 @@ internal fun visibleEntries(entries: List<TerminalEntry>, view: String): List<Te
     }
 }
 
-/** Informações da sessão aberta: quem, onde, qual provedor e conta, identificador e números da conversa carregada. */
+/** Informações da sessão: cabeçalho, um cartão com o essencial e os detalhes técnicos recolhidos. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SessionInfoSheet(api: HabblaudApi, session: SessionItem, entries: List<TerminalEntry>, truncated: Boolean, onClose: () -> Unit) {
     ModalBottomSheet(onDismissRequest = onClose, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(Modifier.fillMaxWidth().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                CharacterAvatar(api, session, 64.dp)
-                Column {
-                    Text(session.title, style = MaterialTheme.typography.titleLarge)
-                    session.characterName?.takeIf { it != session.title }?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                CharacterAvatar(api, session, 72.dp)
+                Text(session.title, style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                val subtitle = listOfNotNull(session.characterName?.takeIf { it != session.title }, session.project?.substringAfterLast('/')).joinToString(" · ")
+                if (subtitle.isNotEmpty()) Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                val state = if (session.agentId == null) stringResource(R.string.info_closed) else statusLabel(session.status) ?: stringResource(R.string.info_open)
+                Surface(shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.secondaryContainer) {
+                    Text(state, Modifier.padding(horizontal = 12.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium)
                 }
             }
-            val times = entries.mapNotNull { it.at }
-            val count = { kind: String -> entries.count { it.kind == kind } }
-            SelectionContainer {
+            Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    session.model?.let { InfoLine(R.string.model_menu, it.substringAfter('/')) }
+                    session.thinking?.let { InfoLine(R.string.thinking_menu, thinkingLabel(it)) }
+                    if (session.contextTokens != null && session.contextWindow != null) {
+                        val fraction = (session.contextTokens.toFloat() / session.contextWindow).coerceIn(0f, 1f)
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            InfoLine(R.string.info_context, "${(fraction * 100).toInt()}% · ${session.contextTokens / 1000} mil de ${session.contextWindow / 1000} mil")
+                            LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth(), drawStopIndicator = {})
+                        }
+                    }
+                    session.lastAt?.let { InfoLine(R.string.info_last_activity, relativeTime(it)) }
+                    InfoLine(R.string.info_loaded, stringResource(R.string.info_loaded_value, entries.count { it.kind == "user" }, entries.count { it.kind == "assistant" }) + if (truncated) " · " + stringResource(R.string.info_partial) else "")
+                }
+            }
+            var details by remember { mutableStateOf(false) }
+            TextButton(onClick = { details = !details }) { Text(stringResource(if (details) R.string.info_hide_details else R.string.info_show_details)) }
+            if (details) SelectionContainer {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    InfoRow(R.string.info_state, listOfNotNull(stringResource(if (session.agentId != null) R.string.info_open else R.string.info_closed), statusLabel(session.status), session.activity?.takeIf { session.agentId != null }).joinToString(" · "))
-                    session.project?.let { InfoRow(R.string.info_project, it) }
-                    InfoRow(R.string.info_provider, "${session.key.provider} · ${session.key.account}")
-                    InfoRow(R.string.info_session, session.key.sessionId)
-                    session.lastAt?.let { InfoRow(R.string.info_last_activity, "${entryTime(it)} (${relativeTime(it)})") }
-                    if (times.isNotEmpty()) InfoRow(R.string.info_window, "${entryTime(times.min())} → ${entryTime(times.max())}")
-                    InfoRow(R.string.info_counts, stringResource(R.string.info_counts_value, count("user"), count("assistant"), count("tool"), count("thinking")))
-                    if (truncated) Text(stringResource(R.string.window_truncated), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    InfoRow(R.string.info_server, session.key.origin)
+                    session.project?.let { InfoLine(R.string.info_project, it) }
+                    InfoLine(R.string.info_provider, "${session.key.provider} · ${session.key.account}")
+                    InfoLine(R.string.info_session, session.key.sessionId)
+                    InfoLine(R.string.info_server, session.key.origin)
                 }
             }
         }
     }
 }
 
+/** Rótulo à esquerda, valor à direita, numa linha. */
 @Composable
-private fun InfoRow(label: Int, value: String) {
-    Column {
-        Text(stringResource(label), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.bodyLarge)
+private fun InfoLine(label: Int, value: String) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
+        Text(stringResource(label), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.End)
     }
+}
+
+internal val THINKING_LEVELS = listOf("off", "minimal", "low", "medium", "high", "xhigh", "max")
+
+@Composable
+internal fun thinkingLabel(level: String): String = when (level) {
+    "off" -> stringResource(R.string.thinking_off)
+    "minimal" -> stringResource(R.string.thinking_minimal)
+    "low" -> stringResource(R.string.thinking_low)
+    "medium" -> stringResource(R.string.thinking_medium)
+    "high" -> stringResource(R.string.thinking_high)
+    "xhigh" -> stringResource(R.string.thinking_xhigh)
+    "max" -> stringResource(R.string.thinking_max)
+    else -> level
 }

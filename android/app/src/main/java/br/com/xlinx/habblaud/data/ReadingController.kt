@@ -113,15 +113,15 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         scope.launch { store.setLastSession(item.key) }
         conversationJob = scope.launch {
             var initialized = false
-            var awaitingInit = true
             streams.stream(path).collect { event ->
                 if (token != generation) return@collect
                 when (event) {
-                    is StreamEvent.Connected -> { awaitingInit = true; mutable.value = mutable.value.conversationConnected() }
+                    is StreamEvent.Connected -> mutable.value = mutable.value.conversationConnected()
                     is StreamEvent.Failure -> failure(event, conversation = true)
                     is StreamEvent.Data -> try {
                         if (event.type == "init") {
-                            if (initialized && !awaitingInit) { changed(); return@collect }
+                            // Reenvio da conversa (reconexão, /shake ou arquivo reescrito) não é troca de sessão: a
+                            // conferência abaixo pergunta ao servidor e só fecha se o agente estiver em outra sessão.
                             if (item.agentId != null) {
                                 // A conferência da sessão também tolera falha passageira: até 3 tentativas antes de desistir.
                                 var matches: Boolean? = null
@@ -146,7 +146,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                             }
                             val obj = wireJson.parseToJsonElement(event.data).jsonObject
                             conversation.init(obj.objects("entries").mapNotNull(TerminalEntry::parse), obj.flag("truncated"))
-                            initialized = true; awaitingInit = false
+                            initialized = true
                         } else if (event.type == "append" && initialized) {
                             conversation.append(wireJson.parseToJsonElement(event.data).jsonArray.mapNotNull { (it as? kotlinx.serialization.json.JsonObject)?.let(TerminalEntry::parse) })
                         }

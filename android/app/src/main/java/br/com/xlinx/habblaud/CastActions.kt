@@ -40,7 +40,7 @@ private val sessionIdPattern = Regex("^[0-9a-fA-F][0-9a-fA-F-]{7,199}$")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Boolean, openCast: Set<String>, onUnauthorized: () -> Unit, onPermission: () -> Unit, menu: @Composable (close: () -> Unit) -> Unit, content: @Composable (@Composable () -> Unit, @Composable () -> Unit, @Composable () -> Unit) -> Unit) {
+internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Boolean, openCast: Set<String>, onUnauthorized: () -> Unit, onPermission: () -> Unit, menu: @Composable (close: () -> Unit, dismissItem: @Composable () -> Unit) -> Unit, content: @Composable (@Composable () -> Unit, @Composable () -> Unit, @Composable () -> Unit) -> Unit) {
     val scope = rememberCoroutineScope()
     var availability by remember(api) { mutableStateOf("loading") }
     var characters by remember(api) { mutableStateOf(emptyList<CastChoice>()) }
@@ -125,13 +125,15 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
             val menuLabel = stringResource(R.string.menu)
             IconButton(onClick = { open = true }) { Icon(Icons.Default.MoreVert, contentDescription = menuLabel) }
             DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-                if (availability == "available" && dismiss) DropdownMenuItem(
-                    text = { Text(stringResource(R.string.cast_dismiss)) },
-                    leadingIcon = { Icon(Icons.Default.ExitToApp, contentDescription = null) },
-                    enabled = !sending && !activeJob,
-                    onClick = { open = false; dialog = "dismiss" },
-                )
-                menu { open = false }
+                // A tela decide onde o "Dispensar" entra: só na página principal do menu, não nos submenus.
+                menu({ open = false }) {
+                    if (availability == "available" && dismiss) DropdownMenuItem(
+                        text = { Text(stringResource(R.string.cast_dismiss)) },
+                        leadingIcon = { Icon(Icons.Default.ExitToApp, contentDescription = null) },
+                        enabled = !sending && !activeJob,
+                        onClick = { open = false; dialog = "dismiss" },
+                    )
+                }
             }
         }
     }
