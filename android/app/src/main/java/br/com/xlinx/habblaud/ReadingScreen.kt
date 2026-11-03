@@ -407,14 +407,22 @@ private fun EntryView(entry: TerminalEntry, results: List<TerminalEntry>, though
     }
 }
 
-/** Pensamentos seguidos viram uma linha só, com a contagem; ao expandir, mostra o texto de todos. */
+/**
+ * Os pensamentos de um turno (até a próxima mensagem sua) viram uma linha só, no lugar do primeiro, com a contagem;
+ * ao expandir, mostra o texto de todos. Os transcripts intercalam pensamento e ferramenta, então juntar só os seguidos não basta.
+ */
 internal fun groupThinking(entries: List<TerminalEntry>): List<Pair<TerminalEntry, Int>> {
     val rows = mutableListOf<Pair<TerminalEntry, Int>>()
+    var turnThinking = -1
     for (entry in entries) {
-        val (last, count) = rows.lastOrNull() ?: (null to 0)
-        if (entry.kind == "thinking" && last?.kind == "thinking") {
-            rows[rows.lastIndex] = last.copy(text = listOf(last.text, entry.text).filter { it.isNotBlank() }.joinToString("\n\n"), at = entry.at ?: last.at) to count + 1
-        } else rows += entry to 1
+        if (entry.kind == "user") turnThinking = -1
+        if (entry.kind == "thinking" && turnThinking >= 0) {
+            val (first, count) = rows[turnThinking]
+            rows[turnThinking] = first.copy(text = listOf(first.text, entry.text).filter { it.isNotBlank() }.joinToString("\n\n"), at = entry.at ?: first.at) to count + 1
+        } else {
+            if (entry.kind == "thinking") turnThinking = rows.size
+            rows += entry to 1
+        }
     }
     return rows
 }

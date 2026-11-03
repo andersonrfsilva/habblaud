@@ -12,12 +12,13 @@ class ConversationViewTest {
     @Test fun noToolsKeepsThinkingAndSystem() = assertEquals(listOf("user", "thinking", "assistant", "system"), kinds("no_tools"))
     @Test fun allShowsEverything() = assertEquals(entries.map { it.kind }, kinds("all"))
 
-    @Test fun consecutiveThinkingBecomesOneCountedRowWithAllText() {
+    @Test fun thinkingOfATurnBecomesOneCountedRowWithAllText() {
         val rows = groupThinking(listOf(
-            TerminalEntry("t1", "thinking", "um"), TerminalEntry("t2", "thinking", ""), TerminalEntry("t3", "thinking", "três"),
-            TerminalEntry("a", "assistant", "ok"), TerminalEntry("t4", "thinking", "quatro"),
+            TerminalEntry("t1", "thinking", "um"), TerminalEntry("x", "tool", "ls"), TerminalEntry("t2", "thinking", ""),
+            TerminalEntry("t3", "thinking", "três"), TerminalEntry("a", "assistant", "ok"),
+            TerminalEntry("u", "user", "próximo"), TerminalEntry("t4", "thinking", "quatro"),
         ))
-        assertEquals(listOf("t1" to 3, "a" to 1, "t4" to 1), rows.map { it.first.id to it.second })
+        assertEquals(listOf("t1" to 3, "x" to 1, "a" to 1, "u" to 1, "t4" to 1), rows.map { it.first.id to it.second })
         assertEquals("um\n\ntrês", rows[0].first.text)
     }
 }
