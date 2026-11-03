@@ -85,7 +85,7 @@ describe('Summarizer', () => {
 describe('rpcSummaryRunner', () => {
   it('devolve o texto da resposta e reaproveita o mesmo processo', async () => {
     const { bin, dir } = fakeOmp('ok');
-    const run = rpcSummaryRunner();
+    const run = rpcSummaryRunner(1);
     const first = await run(bin, dir, 'a');
     expect(first).toMatch(/^pid \d+$/);
     expect(await run(bin, dir, 'b')).toBe(first);
@@ -93,7 +93,7 @@ describe('rpcSummaryRunner', () => {
 
   it('o omp que sai no meio vira erro, e o próximo resumo abre outro', async () => {
     const { bin, dir } = fakeOmp('exit');
-    const run = rpcSummaryRunner();
+    const run = rpcSummaryRunner(1);
     await expect(run(bin, dir, 'a')).rejects.toThrow('omp saiu');
     await expect(run(bin, dir, 'b')).rejects.toThrow('omp saiu');
   });

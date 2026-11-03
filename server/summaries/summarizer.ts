@@ -12,8 +12,6 @@ import { tr } from '../../shared/i18n';
 // Em caracteres; escapado em JSON ainda cabe no corpo de 256 KiB do readJson.
 export const SUMMARY_INPUT_MAX = 32 * 1024;
 const TIMEOUT_MS = 90_000;
-/** Processo parado há tanto tempo fecha (cada omp aberto ocupa memória). */
-const IDLE_MS = 10 * 60_000;
 const PROMPT =
   'O usuário envia a resposta que um agente de programação deu. Não responda a ela nem converse: resuma-a em no ' +
   'máximo 5 frases, no mesmo idioma dela. Mantenha exatos os nomes, números, arquivos, comandos e erros que importam. ' +
@@ -32,14 +30,15 @@ class RpcWorker {
   private seq = 0;
   dead = false;
   readonly ready: Promise<void>;
-  idle?: NodeJS.Timeout;
+  /** Já terminou de abrir (mandou `ready`). */
+  started = false;
   constructor(readonly bin: string, readonly agentDir: string, readonly config: number, onExit?: () => void) {
     const args = ['--mode', 'rpc', '--no-session', '--no-tools', '--no-lsp', '--no-extensions', '--no-skills', '--no-rules', '--model', '@tiny', '--system-prompt', PROMPT];
     this.child = spawn(bin, args, { env: { ...process.env, PI_CODING_AGENT_DIR: agentDir }, stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
     const { promise, resolve, reject } = Promise.withResolvers<void>();
     this.ready = promise;
     promise.catch(() => {});
-    this.waiters.set('ready', (frame) => frame.type === 'dead' ? reject(new Error('omp saiu')) : resolve());
+    this.waiters.set('ready', (frame) => { if (frame.type === 'dead') reject(new Error('omp saiu')); else { this.started = true; resolve(); } });
     this.child.on('error', () => this.kill());
     // Saiu sozinho (não foi fechado por aqui): quem mantém o processo aberto abre outro.
     this.child.on('exit', () => { const unexpected = !this.dead; this.kill(); if (unexpected) onExit?.(); });
@@ -56,7 +55,6 @@ class RpcWorker {
   kill(): void {
     if (this.dead) return;
     this.dead = true;
-    clearTimeout(this.idle);
     this.child.kill('SIGKILL');
     for (const waiter of this.waiters.values()) waiter({ type: 'dead' });
     this.waiters.clear();
@@ -118,22 +116,14 @@ export function tinyRoleReader(): ReadTinyRole {
 }
 
 /**
- * Guarda os omp parados para o próximo resumo. Um fica sempre aberto (até o primeiro resumo depois de o servidor subir
- * não espera o omp abrir); os outros fecham após IDLE_MS parados. Quem morre ou leu outra configuração é trocado.
+ * Mantém `size` omp abertos e parados à espera do próximo resumo (`size` = resumos ao mesmo tempo): nem o primeiro
+ * resumo depois de o servidor subir, nem o segundo de uma rajada, esperam o omp abrir (uns 6 s). Quem morre ou leu
+ * outra configuração é trocado.
  */
-export function rpcSummaryRunner(): RunSummary & { warm(bin: string, agentDir: string): void } {
+export function rpcSummaryRunner(size = 2): RunSummary & { warm(bin: string, agentDir: string): void } {
   const idle: RpcWorker[] = [];
-  const park = (worker: RpcWorker) => {
-    worker.idle = setTimeout(() => {
-      // Só fecha os que sobram: o último parado continua aberto.
-      if (idle.length <= 1) return;
-      const i = idle.indexOf(worker);
-      if (i >= 0) idle.splice(i, 1);
-      worker.kill();
-    }, IDLE_MS);
-    worker.idle.unref();
-    idle.push(worker);
-  };
+  let busy = 0;
+  const current = (w: RpcWorker, bin: string, agentDir: string) => !w.dead && w.bin === bin && w.agentDir === agentDir && w.config === configStamp(agentDir);
   const spawnWorker = (bin: string, agentDir: string): RpcWorker => {
     const worker: RpcWorker = new RpcWorker(bin, agentDir, configStamp(agentDir), () => {
       const i = idle.indexOf(worker);
@@ -143,19 +133,20 @@ export function rpcSummaryRunner(): RunSummary & { warm(bin: string, agentDir: s
     });
     return worker;
   };
+  /** Fecha os parados que morreram ou leram outra configuração. */
+  const prune = (bin: string, agentDir: string) => {
+    for (const w of idle.filter((w) => !current(w, bin, agentDir))) { idle.splice(idle.indexOf(w), 1); w.kill(); }
+  };
   const warm = (bin: string, agentDir: string) => {
-    if (idle.some((w) => !w.dead && w.bin === bin && w.agentDir === agentDir && w.config === configStamp(agentDir))) return;
-    park(spawnWorker(bin, agentDir));
+    prune(bin, agentDir);
+    while (idle.length + busy < size) idle.push(spawnWorker(bin, agentDir));
   };
   const run: RunSummary = async (bin, agentDir, text) => {
-    const config = configStamp(agentDir);
-    let worker: RpcWorker | undefined;
-    while ((worker = idle.pop())) {
-      clearTimeout(worker.idle);
-      if (!worker.dead && worker.bin === bin && worker.agentDir === agentDir && worker.config === config) break;
-      worker.kill();
-    }
-    worker ??= spawnWorker(bin, agentDir);
+    prune(bin, agentDir);
+    // Prefere um que já abriu: o recém-aberto para repor a fila ainda leva uns segundos.
+    const open = idle.filter((w) => w.started).at(-1);
+    const worker = (open ? idle.splice(idle.indexOf(open), 1)[0] : idle.pop()) ?? spawnWorker(bin, agentDir);
+    busy++;
     let timedOut = false;
     const timer = setTimeout(() => { timedOut = true; worker.kill(); }, TIMEOUT_MS);
     try {
@@ -165,8 +156,9 @@ export function rpcSummaryRunner(): RunSummary & { warm(bin: string, agentDir: s
       throw timedOut ? new Error(`timeout (${TIMEOUT_MS / 1000} s)`) : err;
     } finally {
       clearTimeout(timer);
-      if (!worker.dead) park(worker);
-      else if (!idle.length) warm(bin, agentDir);
+      busy--;
+      if (!worker.dead) idle.push(worker);
+      warm(bin, agentDir);
     }
   };
   return Object.assign(run, { warm });
@@ -191,7 +183,7 @@ export class Summarizer {
   private readonly run: RunSummary & { warm?(bin: string, agentDir: string): void };
   private readonly tiny: ReadTinyRole;
   constructor(private readonly opts: Options) {
-    this.run = opts.run ?? rpcSummaryRunner();
+    this.run = opts.run ?? rpcSummaryRunner(opts.concurrency ?? 2);
     this.tiny = opts.tiny ?? tinyRoleReader();
   }
 

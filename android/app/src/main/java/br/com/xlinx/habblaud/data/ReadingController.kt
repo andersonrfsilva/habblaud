@@ -1,7 +1,9 @@
 package br.com.xlinx.habblaud.data
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
@@ -110,7 +112,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         mutable.value.selected?.let { open(it) }
     }
     fun stop() { persist(); saveSeen(0); active = false; generation++; stateJob?.cancel(); conversationJob?.cancel(); messages.stop(); api.cancelCalls(); mutable.value = mutable.value.copy(connection = "offline", readingError = if (mutable.value.selected != null && mutable.value.readingError == null) "network" else mutable.value.readingError) }
-    fun close() { persist(); cachedKey = null; summaries.clear(); generation++; conversationJob?.cancel(); messages.close(); restore = null; val write = store.conversationWrite(conversationEpoch); scope.launch { store.setLastSession(null, write) }; mutable.value = mutable.value.copy(selected = null, entries = emptyList(), error = null, readingError = null); refreshUnread() }
+    fun close() { persist(); cachedKey = null; dropSummaries(); generation++; conversationJob?.cancel(); messages.close(); restore = null; val write = store.conversationWrite(conversationEpoch); scope.launch { store.setLastSession(null, write) }; mutable.value = mutable.value.copy(selected = null, entries = emptyList(), error = null, readingError = null); refreshUnread() }
     /** Até quando cada conversa foi lida (`LocalStateStore.seenId` → hora do servidor); null até ler do aparelho. */
     private var seen: Map<String, Long>? = null
     private var seenJob: Job? = null
@@ -137,15 +139,23 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
     /** Resumos da conversa aberta (`summaryKey` → resumo): gravados no mesmo arquivo dela, para não pedir de novo. */
     private val summaries = HashMap<String, String>()
     fun summary(entry: TerminalEntry): String? = summaries[summaryKey(entry)]
-    /** Pede o resumo ao servidor e guarda na conversa aberta, se ela ainda for a mesma quando a resposta chegar. */
+    /** Resumos pedidos e ainda sem resposta: o mesmo item não pede duas vezes. */
+    private val pendingSummaries = HashMap<String, Deferred<Result<String>>>()
+    /**
+     * Pede o resumo ao servidor e guarda na conversa aberta, se ela ainda for a mesma quando a resposta chegar. O
+     * pedido roda no escopo do controlador: o item sair da tela ao rolar não cancela, e o resumo fica guardado.
+     */
     suspend fun summarize(entry: TerminalEntry, text: String): String {
         val key = summaryKey(entry)
         summaries[key]?.let { return it }
         val token = generation
-        val result = api.summary(text)
-        if (token == generation) { summaries[key] = result; persist(3_000) }
-        return result
+        // runCatching: a falha volta para quem espera sem derrubar o escopo do controlador.
+        val job = pendingSummaries[key] ?: scope.async {
+            runCatching { api.summary(text) }.onSuccess { if (token == generation) { summaries[key] = it; persist(3_000) } }
+        }.also { job -> pendingSummaries[key] = job; job.invokeOnCompletion { pendingSummaries.remove(key, job) } }
+        return job.await().getOrThrow()
     }
+    private fun dropSummaries() { summaries.clear(); pendingSummaries.values.forEach { it.cancel() }; pendingSummaries.clear() }
     /** Guarda a conversa aberta no aparelho: na hora, ou alguns segundos depois da última novidade. */
     private fun persist(delayMs: Long = 0) {
         val key = cachedKey ?: return
@@ -172,7 +182,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         if (item != null) open(item) else { restore = key; restoreLoaded = true }
     }
     fun open(item: SessionItem) {
-        persist(); cachedKey = null; summaries.clear()
+        persist(); cachedKey = null; dropSummaries()
         generation++; val token = generation
         conversationJob?.cancel()
         mutable.value = mutable.value.copy(selected = item, entries = emptyList(), truncated = false, reduced = false, error = null, readingError = null)

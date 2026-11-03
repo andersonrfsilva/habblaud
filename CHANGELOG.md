@@ -29,6 +29,9 @@ do meio (0.**3**.0).
   e sem ficarem escondidos; expandir um item ou o resumo deixa o ponto tocado no lugar mesmo quando o texto cresce
   depois. Na lista de conversas, a que sobe para o topo aparece em vez de ficar acima da tela, e voltar de uma
   conversa mantém a aba, a busca e a posição.
+- **Resumos:** o servidor mantém dois omp abertos (um por resumo simultâneo), então o segundo resumo de uma rajada
+  não espera mais o omp abrir. No app, o pedido não é cancelado quando o item sai da tela, e o resumo fica guardado
+  mesmo assim; o mesmo item não pede o resumo duas vezes.
 - **Android:** gravações antigas de conversas não recriam o cache após sair da conta ou trocar de servidor.
 - **Android:** a última sessão segue a ordem das escolhas, mesmo quando gravações antigas terminam depois.
 
