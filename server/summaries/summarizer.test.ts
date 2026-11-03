@@ -1,5 +1,26 @@
+import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { Summarizer, SummaryUnavailable } from './summarizer';
+import { rpcSummaryRunner, Summarizer, SummaryUnavailable } from './summarizer';
+
+/** Um "omp --mode rpc" de mentira: responde com o pid (para ver se o processo foi reaproveitado) ou sai no meio. */
+function fakeOmp(mode: 'ok' | 'exit'): { bin: string; dir: string } {
+  const dir = mkdtempSync(join(tmpdir(), 'hb-sum-'));
+  const bin = join(dir, 'omp');
+  writeFileSync(bin, `#!/usr/bin/env node
+const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
+out({ type: 'ready' });
+require('node:readline').createInterface({ input: process.stdin }).on('line', (line) => {
+  const c = JSON.parse(line);
+  if (c.type === 'prompt' && ${JSON.stringify(mode)} === 'exit') process.exit(3);
+  out({ id: c.id, type: 'response', command: c.type, success: true, data: c.type === 'get_last_assistant_text' ? { text: ' pid ' + process.pid + ' ' } : undefined });
+  if (c.type === 'prompt') out({ id: c.id, type: 'prompt_result', status: 'completed' });
+});
+`);
+  chmodSync(bin, 0o755);
+  return { bin, dir };
+}
 
 function deferred() {
   const calls: { text: string; resolve(v: string): void; reject(e: Error): void }[] = [];
@@ -50,5 +71,22 @@ describe('Summarizer', () => {
     const s = new Summarizer({ bin: () => undefined, agentDir: () => '/a', run });
     await expect(s.summarize('x')).rejects.toBeInstanceOf(SummaryUnavailable);
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe('rpcSummaryRunner', () => {
+  it('devolve o texto da resposta e reaproveita o mesmo processo', async () => {
+    const { bin, dir } = fakeOmp('ok');
+    const run = rpcSummaryRunner();
+    const first = await run(bin, dir, 'a');
+    expect(first).toMatch(/^pid \d+$/);
+    expect(await run(bin, dir, 'b')).toBe(first);
+  });
+
+  it('o omp que sai no meio vira erro, e o próximo resumo abre outro', async () => {
+    const { bin, dir } = fakeOmp('exit');
+    const run = rpcSummaryRunner();
+    await expect(run(bin, dir, 'a')).rejects.toThrow('omp saiu');
+    await expect(run(bin, dir, 'b')).rejects.toThrow('omp saiu');
   });
 });
