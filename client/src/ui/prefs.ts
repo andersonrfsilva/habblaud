@@ -14,8 +14,10 @@ export interface UiPrefs {
   /** Ciclo dia/noite: automático (hora local), sempre dia ou sempre noite. */
   daylight: DaylightMode;
   theme: NonNullable<WorldOptions['theme']>;
-  /** Economia de energia: escritório desenhado em densidade 1 (desligada por padrão). */
+  /** Economia de energia: escritório desenhado em densidade 1 (ligada por padrão no Android). */
   powerSave: boolean;
+  /** Pausa das animações do escritório (ligada por padrão no Android). */
+  animationsPaused: boolean;
   /** Salas comuns: completas ou compactas (vale ao recarregar a página). */
   coreLayout: CoreLayout;
   /** Sons sintetizados (interruptor geral; desligado por padrão). */
@@ -41,6 +43,7 @@ export const DEFAULT_PREFS: UiPrefs = {
   daylight: 'auto',
   theme: 'auto',
   powerSave: false,
+  animationsPaused: false,
   coreLayout: 'full',
   sound: false,
   sounds: DEFAULT_SOUND_SETTINGS,
@@ -59,9 +62,9 @@ const oneOf = <T extends string>(v: unknown, allowed: readonly T[], fallback: T)
 const bool = (v: unknown, fallback: boolean): boolean => (typeof v === 'boolean' ? v : fallback);
 
 /** Valida campo a campo: valores desconhecidos ou corrompidos caem no padrão. */
-export function sanitizePrefs(raw: unknown): UiPrefs {
+export function sanitizePrefs(raw: unknown, defaults: UiPrefs = DEFAULT_PREFS): UiPrefs {
   const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
-  const d = DEFAULT_PREFS;
+  const d = defaults;
   return {
     showNames: bool(o.showNames, d.showNames),
     bubbles: oneOf(o.bubbles, ['all', 'important', 'none'] as const, d.bubbles),
@@ -70,6 +73,7 @@ export function sanitizePrefs(raw: unknown): UiPrefs {
     daylight: oneOf(o.daylight, ['auto', 'day', 'night'] as const, o.dayNight === false ? 'day' : d.daylight),
     theme: oneOf(o.theme, ['auto', 'none', 'christmas', 'halloween'] as const, d.theme),
     powerSave: bool(o.powerSave, d.powerSave),
+    animationsPaused: bool(o.animationsPaused, d.animationsPaused),
     coreLayout: oneOf(o.coreLayout, ['full', 'compact'] as const, d.coreLayout),
     sound: bool(o.sound, d.sound),
     sounds: sanitizeSoundSettings(o.sounds),
@@ -82,13 +86,15 @@ export function sanitizePrefs(raw: unknown): UiPrefs {
   };
 }
 
-export function loadPrefs(storage: StorageLike | null): UiPrefs {
-  if (!storage) return { ...DEFAULT_PREFS };
+export function loadPrefs(storage: StorageLike | null, userAgent = typeof navigator === 'undefined' ? '' : navigator.userAgent): UiPrefs {
+  const android = /Android/i.test(userAgent);
+  const defaults = { ...DEFAULT_PREFS, powerSave: android, animationsPaused: android };
+  if (!storage) return defaults;
   try {
     const raw = storage.getItem(PREFS_KEY);
-    return sanitizePrefs(raw ? JSON.parse(raw) : null);
+    return sanitizePrefs(raw ? JSON.parse(raw) : null, defaults);
   } catch {
-    return { ...DEFAULT_PREFS };
+    return defaults;
   }
 }
 

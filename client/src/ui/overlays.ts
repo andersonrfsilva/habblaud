@@ -191,21 +191,24 @@ export class ConnectionBanner implements UiComponent {
 /** Canto inferior direito: pausa e retoma as animações do escritório (some no timelapse e na cidade, pelo CSS). */
 export class AnimationToggle implements UiComponent {
   readonly el: HTMLButtonElement;
-  private paused = false;
 
   constructor(private readonly ctx: UiContext) {
     this.el = iconButton(TIMELAPSE_ICONS.pause, tr('Pausar animações'), () => this.toggle(), 'ui-anim-toggle');
+    this.render();
   }
 
   private toggle(): void {
-    this.paused = !this.paused;
-    this.ctx.world.setPaused?.(this.paused);
-    this.el.innerHTML = this.paused ? TIMELAPSE_ICONS.play : TIMELAPSE_ICONS.pause;
-    const label = this.paused ? tr('Retomar animações') : tr('Pausar animações');
-    setTitle(this.el, label);
-    this.el.setAttribute('aria-label', label);
-    this.el.setAttribute('aria-pressed', String(this.paused));
+    this.ctx.updatePrefs({ animationsPaused: !this.ctx.prefs.animationsPaused });
   }
 
-  render(): void {}
+  render(): void {
+    const paused = this.ctx.prefs.animationsPaused;
+    this.ctx.world.setPaused?.(paused);
+    this.el.innerHTML = paused ? TIMELAPSE_ICONS.play : TIMELAPSE_ICONS.pause;
+    const label = paused ? tr('Retomar animações') : tr('Pausar animações');
+    setTitle(this.el, label);
+    this.el.setAttribute('aria-label', label);
+    this.el.setAttribute('aria-pressed', String(paused));
+  }
+
 }

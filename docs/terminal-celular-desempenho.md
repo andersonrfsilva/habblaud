@@ -3,9 +3,20 @@
 Registro da investigação de outubro de 2026 sobre o terminal lento no celular (digitação com atraso, rolagem
 travando com histórico grande): o que causava, o que mudou, quanto cada mudança rendeu e como medir de novo.
 
-**Situação hoje:** digitar e rolar o histórico estão leves no celular. Duas mudanças explicam quase toda a melhora:
-pausar o escritório atrás do terminal e tirar o `backdrop-filter` do terminal. O `contain: content` nas linhas não
-mostrou ganho claro (veja [Pontos em aberto](#pontos-em-aberto)).
+**Resultado da investigação:** a emulação mostrou melhora na digitação e na rolagem com o escritório pausado atrás
+do terminal e sem `backdrop-filter`. Isso não comprova fluidez no aparelho real; ainda há relato de lentidão.
+O `contain: content` nas linhas não mostrou ganho claro (veja [Pontos em aberto](#pontos-em-aberto)).
+
+## Padrões no Android
+
+No Android, incluindo tablets, a economia de energia e a pausa das animações do escritório começam ligadas.
+A economia usa cenário em resolução menor e reduz o ritmo para 10 quadros por segundo (5 sem foco), fora dos
+períodos de interação com a câmera. A pausa congela as animações, sem impedir os cliques e o movimento da câmera.
+
+As escolhas já salvas em `habblaud:prefs` são preservadas. A economia pode ser alterada em **Configurações ›
+Escritório**; a pausa, no botão do canto inferior direito. Ambas persistem ao recarregar. Sem armazenamento
+disponível, os padrões econômicos continuam valendo no Android, mas alterações duram apenas naquela página.
+Outras plataformas mantêm os padrões anteriores.
 
 ## Causas
 
