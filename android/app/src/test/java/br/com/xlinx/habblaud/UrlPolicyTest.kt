@@ -19,6 +19,7 @@ class UrlPolicyTest {
         assertNull(UrlPolicy.origin("https://user@example.com"))
         assertNull(UrlPolicy.origin("https://example.com/?a=1"))
         assertNull(UrlPolicy.origin("100.83.131.11:4747"))
+        assertNull(UrlPolicy.origin("ftp://example.com"))
         assertNull(UrlPolicy.origin(""))
     }
 }
