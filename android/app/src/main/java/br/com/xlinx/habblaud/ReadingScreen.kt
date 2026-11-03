@@ -130,7 +130,15 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
             val items = state.sessions.filter { (recent || it.agentId != null) && listOfNotNull(it.title, it.characterName, it.agentName, it.project, it.key.provider, it.key.account).any { value -> value.contains(query, true) } }
             // A busca é o primeiro item e começa fora da tela: aparece ao puxar a lista para baixo no topo.
             val sessionsList = rememberLazyListState(initialFirstVisibleItemIndex = 1)
-            LazyColumn(state = sessionsList, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            val density = androidx.compose.ui.platform.LocalDensity.current
+            // Lista curta não rola: um espaço no fim completa a altura para a busca caber acima da tela.
+            val fillerPx by remember { derivedStateOf {
+                val info = sessionsList.layoutInfo
+                val content = info.visibleItemsInfo.filter { it.key != "search" && it.key != "filler" }.sumOf { it.size + with(density) { 8.dp.roundToPx() } }
+                (info.viewportSize.height - content).coerceAtLeast(0)
+            } }
+            LaunchedEffect(recent) { if (query.isEmpty()) { withFrameNanos { }; sessionsList.scrollToItem(1) } }
+            LazyColumn(state = sessionsList, modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 item(key = "search") { OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.search_sessions)) }, singleLine = true) }
                 if (items.isEmpty()) item(key = "empty") { Text(stringResource(R.string.sessions_empty), Modifier.fillMaxWidth().padding(32.dp), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyLarge) }
                 items(items, key = { it.key.serialize() }) { session ->
@@ -145,6 +153,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                         session.lastAt?.let { Text(relativeTime(it), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
                 }
+                item(key = "filler") { Spacer(Modifier.height(with(density) { fillerPx.toDp() })) }
             }
         } else {
             Spacer(Modifier.height(1.dp))
