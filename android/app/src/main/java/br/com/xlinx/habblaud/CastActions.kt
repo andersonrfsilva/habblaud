@@ -139,7 +139,7 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
     content(actions, fab, status)
     if (dialog == "start") AlertDialog(onDismissRequest = { dialog = "" }, title = { Text(stringResource(if (choice == null) R.string.cast_select_character else R.string.cast_select_folder)) }, text = {
         Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
-            if (choice == null) characters.filter { jobs[it.id] !in listOf("queued", "sent", "waiting") }.forEach { member ->
+            if (choice == null) free.forEach { member ->
                 Row(Modifier.fillMaxWidth().clickable { choice = member }.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     CharacterAvatar(api, member.avatar, member.name, 40.dp)
                     Text(member.name)
@@ -156,7 +156,7 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
     }, confirmButton = {}, dismissButton = { TextButton(onClick = { dialog = "" }) { Text(stringResource(R.string.cancel)) } })
     if (dialog == "resume-select") AlertDialog(onDismissRequest = { dialog = "" }, title = { Text(stringResource(R.string.cast_select_character)) }, text = {
         Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
-            resumeChoices.filter { jobs[it.id] !in listOf("queued", "sent", "waiting") }.forEach { member ->
+            resumeChoices.forEach { member ->
                 Row(Modifier.fillMaxWidth().clickable { choice = member; dialog = "resume" }.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     CharacterAvatar(api, member.avatar, member.name, 40.dp)
                     Text(member.name)
