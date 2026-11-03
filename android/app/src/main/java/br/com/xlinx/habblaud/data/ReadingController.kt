@@ -124,11 +124,16 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                                     try { matches = snapshotMatchesSession(api.request("/api/snapshot"), item.key, item.agentId) } catch (e: Exception) {
                                         if (e is kotlinx.coroutines.CancellationException) throw e
                                         if (e is ApiException && e.status == 401) { unauthorized(); return@collect }
-                                        if (++attempt >= FAILURES_BEFORE_NOTICE || (e is ApiException && e.status in 400..499)) {
+                                        val transient = when (e) {
+                                            is ApiException -> e.status >= 500 || e.status == 408 || e.status == 429
+                                            is VpnRequiredException -> false
+                                            else -> e is java.io.IOException
+                                        }
+                                        if (!transient || ++attempt >= FAILURES_BEFORE_NOTICE) {
                                             close(); mutable.value = mutable.value.copy(error = if (e is VpnRequiredException) "vpn_required" else "network")
                                             return@collect
                                         }
-                                        delay(1000L * attempt)
+                                        delay(maxOf(1000L * attempt, retryAfterMillis((e as? ApiException)?.retryAfter)))
                                         if (token != generation) return@collect
                                     }
                                 }
