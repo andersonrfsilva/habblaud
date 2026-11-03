@@ -93,6 +93,13 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
     }
     val selected = state.selected
     var menuExpanded by remember { mutableStateOf(false) }
+    // Estado da lista de conversas fora do `if`: voltar de uma conversa mantém a aba, a busca e a posição.
+    var query by remember { mutableStateOf("") }
+    var recent by remember { mutableStateOf(false) }
+    // A busca é o primeiro item e começa fora da tela: aparece ao puxar a lista para baixo no topo.
+    val sessionsList = rememberLazyListState(initialFirstVisibleItemIndex = 1)
+    /** Conversa que estava no topo na última composição (sem ser estado: mudar não recompõe). */
+    val sessionsTop = remember { arrayOfNulls<String>(1) }
     // O que a conversa mostra (tudo, só prompts ou sem ferramentas) e o modo de envio: cada sessão lembra os seus.
     // Cada valor guarda a sessão a que pertence: ao trocar de sessão, o valor da anterior não vale nem é salvo na nova.
     var viewFor by remember { mutableStateOf<Pair<SessionKey, String>?>(null) }
@@ -198,17 +205,22 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
         state.error?.let { error -> Text(stringResource(when (error) { "changed" -> R.string.session_changed; "forbidden" -> R.string.terminal_blocked; "missing" -> R.string.reading_missing; "oversize" -> R.string.reading_oversize; else -> R.string.network_error }), color = MaterialTheme.colorScheme.error) }
         castStatus()
         if (selected == null) {
-            var query by remember { mutableStateOf("") }
-            var recent by remember { mutableStateOf(false) }
+            // Trocar de aba volta ao topo, com a busca escondida.
+            fun showTab(value: Boolean) { recent = value; if (query.isEmpty()) scope.launch { withFrameNanos { }; sessionsList.scrollToItem(1) } }
             TabRow(selectedTabIndex = if (recent) 1 else 0) {
-                Tab(selected = !recent, onClick = { recent = false }, text = { Text(stringResource(R.string.open_sessions)) })
-                Tab(selected = recent, onClick = { recent = true }, text = { Text(stringResource(R.string.recent_sessions)) })
+                Tab(selected = !recent, onClick = { showTab(false) }, text = { Text(stringResource(R.string.open_sessions)) })
+                Tab(selected = recent, onClick = { showTab(true) }, text = { Text(stringResource(R.string.recent_sessions)) })
             }
             if (!state.terminalAllowed) Text(stringResource(R.string.terminal_blocked))
             // Como num chat: a conversa com a resposta mais nova no topo.
             val items = byLastMessage(state.sessions.filter { (recent || it.agentId != null) && listOfNotNull(it.title, it.characterName, it.agentName, it.project, it.key.provider, it.key.account).any { value -> value.contains(query, true) } })
-            // A busca é o primeiro item e começa fora da tela: aparece ao puxar a lista para baixo no topo.
-            val sessionsList = rememberLazyListState(initialFirstVisibleItemIndex = 1)
+            // Outra conversa subiu para o topo com a lista no topo: sem isto, a lista segura a que estava em cima (pela
+            // chave) e a nova fica escondida acima dela.
+            val top = items.firstOrNull()?.key?.serialize()
+            if (top != sessionsTop[0]) {
+                if (sessionsTop[0] != null && sessionsList.firstVisibleItemIndex == 1) sessionsList.requestScrollToItem(1, sessionsList.firstVisibleItemScrollOffset)
+                sessionsTop[0] = top
+            }
             val density = androidx.compose.ui.platform.LocalDensity.current
             // Lista curta não rola: um espaço no fim completa a altura para a busca caber acima da tela.
             val fillerPx by remember { derivedStateOf {
@@ -216,7 +228,6 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                 val content = info.visibleItemsInfo.filter { it.key != "search" && it.key != "filler" }.sumOf { it.size + with(density) { 8.dp.roundToPx() } }
                 (info.viewportSize.height - content).coerceAtLeast(0)
             } }
-            LaunchedEffect(recent) { if (query.isEmpty()) { withFrameNanos { }; sessionsList.scrollToItem(1) } }
             LazyColumn(state = sessionsList, modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 item(key = "search") { OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.search_sessions)) }, singleLine = true) }
                 if (items.isEmpty()) item(key = "empty") { Text(stringResource(R.string.sessions_empty), Modifier.fillMaxWidth().padding(32.dp), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyLarge) }
@@ -267,29 +278,44 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
             val rows = groupThinking(shown)
             val recovered = recoveredErrors(state.entries)
             val lastId = shown.lastOrNull()?.id
+            val working = selected.agentId != null && selected.status == "working"
             LaunchedEffect(following) { if (following) unread = 0 }
             // Ao enviar, volta a seguir o fim: o prompt e a resposta que chegam aparecem sem rolar à mão.
             fun stickToEnd() { unread = 0; scope.launch { listState.scrollToItem(0) } }
-            // Lido na composição, antes de o item novo entrar na lista e deslocar o primeiro visível.
+            // Item novo no pé (entrada ou o indicador de trabalho) seguindo o fim: a lista seguraria o item que estava
+            // no pé, pela chave, e o novo ficaria escondido abaixo. Pedido ainda na composição, antes da medida que o
+            // insere: sem um quadro com o botão "↓" piscando.
+            val bottom = if (working) "working" else rows.lastOrNull()?.first?.id
+            val bottomSeen = remember(selected.key) { arrayOfNulls<String>(1) }
             val wasFollowing = following
+            if (bottom != bottomSeen[0]) {
+                if (wasFollowing) listState.requestScrollToItem(0)
+                bottomSeen[0] = bottom
+            }
             LaunchedEffect(lastId) {
                 val before = previousLastId
                 previousLastId = lastId
-                if (before == null || lastId == null) return@LaunchedEffect
-                if (wasFollowing) listState.scrollToItem(0)
-                else {
-                    val index = shown.indexOfLast { it.id == before }
-                    unread += if (index >= 0) shown.size - index - 1 else 1
-                }
+                if (before == null || lastId == null || wasFollowing) return@LaunchedEffect
+                val index = shown.indexOfLast { it.id == before }
+                unread += if (index >= 0) shown.size - index - 1 else 1
             }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 LazyColumn(Modifier.fillMaxSize(), state = listState, reverseLayout = true, contentPadding = PaddingValues(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom)) {
                     // Lista invertida: o primeiro item fica no pé da conversa, logo abaixo da última mensagem.
-                    if (selected.agentId != null && selected.status == "working") item(key = "working") { WorkingIndicator(api, selected) }
+                    if (working) item(key = "working") { WorkingIndicator(api, selected) }
                     items(rows.asReversed(), key = { it.first.id }) { (entry, thoughts) ->
                         if (entry.kind != "result" || entry.toolUseId !in tools) EntryView(entry, results[entry.id].orEmpty(), thoughts, recovered = entry.id in recovered, cachedSummary = controller.summary(entry), summarize = if (summarizeReplies) { text -> controller.summarize(entry, text) } else null) { before, now ->
-                            // A lista é invertida: o item cresce para cima. Rola o quanto o cabeçalho tocado andou, para ele voltar ao lugar.
-                            scope.launch { repeat(2) { withFrameNanos { } }; listState.scrollBy(before - now()) }
+                            // A lista é invertida: o item cresce para cima. Rola o quanto o cabeçalho tocado andou, para ele
+                            // voltar ao lugar; repete por alguns quadros porque o markdown e o texto longo crescem depois do
+                            // primeiro quadro. Para se a pessoa rolar.
+                            scope.launch {
+                                repeat(20) {
+                                    withFrameNanos { }
+                                    if (listState.isScrollInProgress) return@launch
+                                    val delta = before - now()
+                                    if (kotlin.math.abs(delta) >= 1f) listState.scrollBy(delta)
+                                }
+                            }
                         }
                     }
                     if (state.truncated) item {

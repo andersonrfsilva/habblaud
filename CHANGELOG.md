@@ -25,6 +25,10 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Android:** rolagem. Na conversa, a mensagem nova e o indicador de trabalho aparecem no pé sem o botão "↓" piscar
+  e sem ficarem escondidos; expandir um item ou o resumo deixa o ponto tocado no lugar mesmo quando o texto cresce
+  depois. Na lista de conversas, a que sobe para o topo aparece em vez de ficar acima da tela, e voltar de uma
+  conversa mantém a aba, a busca e a posição.
 - **Android:** gravações antigas de conversas não recriam o cache após sair da conta ou trocar de servidor.
 - **Android:** a última sessão segue a ordem das escolhas, mesmo quando gravações antigas terminam depois.
 
