@@ -162,4 +162,16 @@
     <string name="deliver_follow_up">Enfileirar</string>
     <string name="deliver_steer">Mudar direção</string>
     <string name="context_usage">Contexto em uso: %1$d%% (%2$d mil de %3$d mil tokens)</string>
+    <string name="settings">Configurações</string>
+    <string name="settings_appearance">Tema</string>
+    <string name="theme_system">Seguir o sistema</string>
+    <string name="theme_light">Claro</string>
+    <string name="theme_dark">Escuro</string>
+    <string name="settings_view_default">Visualização padrão</string>
+    <string name="settings_deliver_default">Modo de envio padrão (omp)</string>
+    <string name="settings_per_session">Cada sessão lembra a visualização e o modo escolhidos no menu dela; estes valem para as sessões que ainda não têm escolha.</string>
+    <string name="settings_notifications_on">Avisar com o app fechado</string>
+    <string name="settings_notify_permission">Pedidos de aprovação e perguntas</string>
+    <string name="settings_notify_done">Turno concluído</string>
+    <string name="settings_server">Servidor</string>
 </resources>

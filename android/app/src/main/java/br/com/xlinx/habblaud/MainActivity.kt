@@ -37,7 +37,8 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         val store = LocalStateStore(applicationContext)
         setContent {
-            val dark = isSystemInDarkTheme()
+            val theme by store.theme.collectAsState(initial = "system")
+            val dark = when (theme) { "light" -> false; "dark" -> true; else -> isSystemInDarkTheme() }
             SideEffect {
                 val bars = if (dark) SystemBarStyle.dark(android.graphics.Color.TRANSPARENT) else SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
                 enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)

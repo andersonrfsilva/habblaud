@@ -6,10 +6,14 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 
 private val Context.localState by preferencesDataStore(name = "local_state")
 private val Context.rateState by preferencesDataStore(name = "login_rate")
+/** Configurações do aparelho: sobrevivem a sair da conta e a trocar de servidor (local_state é apagado nesses casos). */
+private val Context.appSettings by preferencesDataStore(name = "settings")
 
 data class ConnectionSettings(val origin: String)
 data class MessageDraft(val text: String = "", val revision: Long = 0, val attachments: List<Attachment> = emptyList())
@@ -20,7 +24,8 @@ interface MessageStore {
     suspend fun updateMessage(key: SessionKey, update: (MessageLocalState) -> MessageLocalState): MessageLocalState
 }
 
-private fun messageKey(key: SessionKey) = stringPreferencesKey("message_" + java.security.MessageDigest.getInstance("SHA-256").digest(key.serialize().toByteArray()).joinToString("") { "%02x".format(it) })
+private fun hashed(prefix: String, key: SessionKey) = stringPreferencesKey(prefix + java.security.MessageDigest.getInstance("SHA-256").digest(key.serialize().toByteArray()).joinToString("") { "%02x".format(it) })
+private fun messageKey(key: SessionKey) = hashed("message_", key)
 private fun decodeMessage(value: String?): MessageLocalState {
     if (value == null) return MessageLocalState()
     val json = org.json.JSONObject(value)
@@ -87,16 +92,42 @@ class LocalStateStore(private val context: Context) : MessageStore {
         }
     }
 
+    // Configurações (tela Configurações). As duas primeiras ficavam em local_state: lidas de lá até serem salvas de novo.
     private val notificationsKey = booleanPreferencesKey("notifications")
     /** Notificações com o app fechado (serviço em primeiro plano); ligadas por padrão. */
-    suspend fun notificationsEnabled(): Boolean = context.localState.data.first()[notificationsKey] != false
-    suspend fun setNotificationsEnabled(enabled: Boolean) { context.localState.edit { it[notificationsKey] = enabled } }
+    suspend fun notificationsEnabled(): Boolean = (context.appSettings.data.first()[notificationsKey] ?: context.localState.data.first()[notificationsKey]) != false
+    suspend fun setNotificationsEnabled(enabled: Boolean) { context.appSettings.edit { it[notificationsKey] = enabled } }
 
     private val deliverAsKey = stringPreferencesKey("deliver_as")
-    suspend fun deliverAs(): String = context.localState.data.first()[deliverAsKey]?.takeIf { it in DELIVER_MODES } ?: "aside"
-    suspend fun setDeliverAs(mode: String) { if (mode in DELIVER_MODES) context.localState.edit { it[deliverAsKey] = mode } }
+    /** Modo de envio padrão das sessões que ainda não têm o seu. */
+    suspend fun deliverAs(): String = (context.appSettings.data.first()[deliverAsKey] ?: context.localState.data.first()[deliverAsKey])?.takeIf { it in DELIVER_MODES } ?: "aside"
+    suspend fun setDeliverAs(mode: String) { if (mode in DELIVER_MODES) context.appSettings.edit { it[deliverAsKey] = mode } }
+
+    private val viewKey = stringPreferencesKey("view")
+    /** Visualização padrão das sessões que ainda não têm a sua. */
+    suspend fun defaultView(): String = context.appSettings.data.first()[viewKey]?.takeIf { it in VIEWS } ?: "all"
+    suspend fun setDefaultView(view: String) { if (view in VIEWS) context.appSettings.edit { it[viewKey] = view } }
+
+    private val themeKey = stringPreferencesKey("theme")
+    val theme: Flow<String> = context.appSettings.data.map { it[themeKey]?.takeIf { v -> v in THEMES } ?: "system" }
+    suspend fun setTheme(theme: String) { if (theme in THEMES) context.appSettings.edit { it[themeKey] = theme } }
+
+    private val notifyPermissionKey = booleanPreferencesKey("notify_permission")
+    private val notifyDoneKey = booleanPreferencesKey("notify_done")
+    /** Quais eventos viram notificação: pedido/pergunta e turno concluído (os dois ligados por padrão). */
+    suspend fun notifyEvents(): Pair<Boolean, Boolean> = context.appSettings.data.first().let { (it[notifyPermissionKey] != false) to (it[notifyDoneKey] != false) }
+    suspend fun setNotifyEvents(permission: Boolean, done: Boolean) { context.appSettings.edit { it[notifyPermissionKey] = permission; it[notifyDoneKey] = done } }
+
+    // Escolhas por sessão: ficam em local_state (pertencem ao servidor atual) e caem no padrão quando ausentes.
+    suspend fun sessionView(key: SessionKey): String = context.localState.data.first()[hashed("view_", key)]?.takeIf { it in VIEWS } ?: defaultView()
+    suspend fun setSessionView(key: SessionKey, view: String) { if (view in VIEWS) context.localState.edit { it[hashed("view_", key)] = view } }
+    suspend fun sessionDeliverAs(key: SessionKey): String = context.localState.data.first()[hashed("deliver_", key)]?.takeIf { it in DELIVER_MODES } ?: deliverAs()
+    suspend fun setSessionDeliverAs(key: SessionKey, mode: String) { if (mode in DELIVER_MODES) context.localState.edit { it[hashed("deliver_", key)] = mode } }
 
     suspend fun clear() { context.localState.edit { it.clear() } }
 }
 
 val DELIVER_MODES = listOf("aside", "followUp", "steer")
+val VIEWS = listOf("all", "prompts", "no_tools")
+val THEMES = listOf("system", "light", "dark")
+

@@ -60,7 +60,10 @@ class NotificationService : Service() {
                 // O snapshot depois de uma reconexão compara com o último antes da queda: o que mudou nela também avisa.
                 if (event is StreamEvent.Data && event.type == "snapshot") {
                     val current = sessions.snapshot(event.data)
-                    previous?.let { before -> agentEvents(before, current).forEach(::notify) }
+                    previous?.let { before ->
+                        val (permission, done) = store.notifyEvents()
+                        agentEvents(before, current).filter { if (it is AgentEvent.Permission) permission else done }.forEach(::notify)
+                    }
                     previous = watchOf(current)
                 }
             }

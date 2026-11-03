@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.res.stringResource
@@ -56,12 +57,6 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
     val context = androidx.compose.ui.platform.LocalContext.current
     val pending by MainActivity.pendingSession.collectAsStateWithLifecycle()
     LaunchedEffect(pending) { pending?.let { controller.openKey(it); MainActivity.pendingSession.value = null } }
-    var notificationsOn by remember { mutableStateOf<Boolean?>(null) }
-    LaunchedEffect(Unit) { notificationsOn = store.notificationsEnabled() }
-    val askNotifications = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) NotificationService.start(context)
-        else { notificationsOn = false; scope.launch { store.setNotificationsEnabled(false) } }
-    }
     val owner = LocalLifecycleOwner.current
     DisposableEffect(owner, controller) {
         val observer = LifecycleEventObserver { _, event ->
@@ -89,11 +84,21 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
     }
     val selected = state.selected
     var menuExpanded by remember { mutableStateOf(false) }
-    // O que a conversa mostra: tudo, só as mensagens (suas e do agente), ou sem ferramentas (e seus resultados).
-    var view by rememberSaveable { mutableStateOf("all") }
-    BackHandler(enabled = selected != null && permissionSession == null && !menuExpanded) { controller.close() }
+    // O que a conversa mostra (tudo, só prompts ou sem ferramentas) e o modo de envio: cada sessão lembra os seus.
+    var view by remember { mutableStateOf("all") }
     var deliverMode by remember { mutableStateOf("aside") }
-    LaunchedEffect(controller) { deliverMode = store.deliverAs(); controller.messages.deliverAs = deliverMode }
+    LaunchedEffect(selected?.key) {
+        val key = selected?.key ?: return@LaunchedEffect
+        view = store.sessionView(key)
+        deliverMode = store.sessionDeliverAs(key)
+        controller.messages.deliverAs = deliverMode
+    }
+    var settingsOpen by rememberSaveable { mutableStateOf(false) }
+    if (settingsOpen) {
+        SettingsScreen(store, api.origin, onClose = { settingsOpen = false }, onLogout = { settingsOpen = false; onLogout() })
+        return
+    }
+    BackHandler(enabled = selected != null && permissionSession == null && !menuExpanded) { controller.close() }
     CastActions(api, selected, state.connection == "connected" && (state.terminalAllowed || selected?.permission == true), state.sessions.filter { it.agentId != null }.mapNotNull { it.cast }.toSet(), onUnauthorized, { permissionSession = selected }, menu = { close, dismissItem ->
         // Menu em páginas: a principal lista os grupos; tocar num grupo troca o conteúdo pela lista dele, com "‹ Voltar".
         var page by remember { mutableStateOf("") }
@@ -108,10 +113,14 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
         val viewLabels = listOf("all" to R.string.view_all, "prompts" to R.string.view_prompts, "no_tools" to R.string.view_no_tools)
         val deliverLabels = listOf("aside" to R.string.deliver_aside, "followUp" to R.string.deliver_follow_up, "steer" to R.string.deliver_steer)
         when (page) {
-            "view" -> { Back(); viewLabels.forEach { (value, label) -> Choice(stringResource(label), view == value) { view = value; close() } } }
+            "view" -> { Back(); viewLabels.forEach { (value, label) -> Choice(stringResource(label), view == value) {
+                view = value
+                selected?.key?.let { key -> scope.launch { store.setSessionView(key, value) } }
+                close()
+            } } }
             "deliver" -> { Back(); deliverLabels.forEach { (mode, label) -> Choice(stringResource(label), deliverMode == mode) {
                 deliverMode = mode; controller.messages.deliverAs = mode
-                scope.launch { store.setDeliverAs(mode) }
+                selected?.key?.let { key -> scope.launch { store.setSessionDeliverAs(key, mode) } }
                 close()
             } } }
             "model" -> { Back(); selected!!.models.forEach { model -> Choice(model.substringAfter('/'), model == selected.model || model.substringAfter('/') == selected.model) { controller.messages.setModel(agentId!!, model); close() } } }
@@ -165,28 +174,14 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                     val menuLabel = stringResource(R.string.menu)
                     IconButton(onClick = { menuExpanded = true }, modifier = Modifier.semantics { contentDescription = menuLabel }) { Text("⋮", style = MaterialTheme.typography.headlineMedium) }
                     DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                        notificationsOn?.let { on ->
-                            DropdownMenuItem(text = { Text(stringResource(R.string.notifications)) }, trailingIcon = { Switch(checked = on, onCheckedChange = null) }, onClick = {
-                                notificationsOn = !on
-                                scope.launch { store.setNotificationsEnabled(!on) }
-                                when {
-                                    on -> NotificationService.stop(context)
-                                    NotificationService.allowed(context) -> NotificationService.start(context)
-                                    android.os.Build.VERSION.SDK_INT >= 33 -> askNotifications.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-                                }
-                            })
-                        }
-                        DropdownMenuItem(text = { Text(stringResource(R.string.background_settings)) }, onClick = {
-                            menuExpanded = false
-                            runCatching { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
-                        })
+                        DropdownMenuItem(text = { Text(stringResource(R.string.settings)) }, onClick = { menuExpanded = false; settingsOpen = true })
                         DropdownMenuItem(text = { Text(stringResource(R.string.logout)) }, onClick = { menuExpanded = false; onLogout() })
                     }
                 }
             }
         )
     }) { padding ->
-    Column(Modifier.fillMaxSize().padding(padding).imePadding().background(if (selected == null) MaterialTheme.colorScheme.background else if (isSystemInDarkTheme()) MaterialTheme.colorScheme.surfaceContainerLowest else MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.fillMaxSize().padding(padding).imePadding().background(if (selected == null) MaterialTheme.colorScheme.background else if (MaterialTheme.colorScheme.background.luminance() < 0.5f) MaterialTheme.colorScheme.surfaceContainerLowest else MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         state.error?.let { error -> Text(stringResource(when (error) { "changed" -> R.string.session_changed; "forbidden" -> R.string.terminal_blocked; "missing" -> R.string.reading_missing; "oversize" -> R.string.reading_oversize; else -> R.string.network_error }), color = MaterialTheme.colorScheme.error) }
         castStatus()
         if (selected == null) {
