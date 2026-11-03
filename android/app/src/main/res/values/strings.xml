@@ -142,6 +142,7 @@
     <string name="notify_permission">Pede sua aprovação</string>
     <string name="notify_question">Tem uma pergunta para você</string>
     <string name="notify_done">Terminou o turno</string>
+    <string name="notify_public">Nova atividade no Zaplaud</string>
     <string name="session_info">Informações da sessão</string>
     <string name="info_open">Aberta</string>
     <string name="info_closed">Encerrada</string>

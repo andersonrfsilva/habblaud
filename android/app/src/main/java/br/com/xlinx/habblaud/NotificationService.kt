@@ -1,6 +1,7 @@
 package br.com.xlinx.habblaud
 
 import android.Manifest
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -76,24 +77,7 @@ class NotificationService : Service() {
     private fun notify(event: AgentEvent) {
         if (MainActivity.visible) return
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
-        val session = event.session
-        val tap = Intent(this, MainActivity::class.java).putExtra(MainActivity.EXTRA_SESSION, session.key.serialize())
-            .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        val id = session.key.serialize().hashCode()
-        val text = getString(when (event) {
-            is AgentEvent.Permission -> if (session.permissionQuestion) R.string.notify_question else R.string.notify_permission
-            is AgentEvent.TurnDone -> R.string.notify_done
-        })
-        val notification = NotificationCompat.Builder(this, CHANNEL_ALERTS)
-            .setSmallIcon(android.R.drawable.stat_notify_chat)
-            .setContentTitle(session.characterName ?: session.title)
-            .setContentText(text)
-            .setSubText(session.project?.substringAfterLast('/'))
-            .setContentIntent(PendingIntent.getActivity(this, id, tap, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
-            .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .build()
+        val (id, notification) = alertNotification(this, event)
         try { NotificationManagerCompat.from(this).notify(id, notification) } catch (_: SecurityException) { }
     }
 
@@ -104,7 +88,7 @@ class NotificationService : Service() {
     }
 
     companion object {
-        private const val CHANNEL_ALERTS = "alerts"
+        internal const val CHANNEL_ALERTS = "alerts"
         private const val CHANNEL_CONNECTION = "connection"
         private const val ONGOING_ID = 1
 
@@ -119,4 +103,33 @@ class NotificationService : Service() {
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
         fun stop(context: Context) = context.stopService(Intent(context, NotificationService::class.java))
     }
+}
+
+internal fun alertNotification(context: Context, event: AgentEvent): Pair<Int, Notification> {
+    val session = event.session
+    val tap = Intent(context, MainActivity::class.java).putExtra(MainActivity.EXTRA_SESSION, session.key.serialize())
+        .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+    val id = session.key.serialize().hashCode()
+    val text = context.getString(when (event) {
+        is AgentEvent.Permission -> if (session.permissionQuestion) R.string.notify_question else R.string.notify_permission
+        is AgentEvent.TurnDone -> R.string.notify_done
+    })
+    val publicVersion = NotificationCompat.Builder(context, NotificationService.CHANNEL_ALERTS)
+        .setSmallIcon(android.R.drawable.stat_notify_chat)
+        .setContentTitle(context.getString(R.string.app_name))
+        .setContentText(context.getString(R.string.notify_public))
+        .build()
+    val notification = NotificationCompat.Builder(context, NotificationService.CHANNEL_ALERTS)
+        .setSmallIcon(android.R.drawable.stat_notify_chat)
+        .setContentTitle(session.characterName ?: session.title)
+        .setContentText(text)
+        .setSubText(session.project?.substringAfterLast('/'))
+        .setContentIntent(PendingIntent.getActivity(context, id, tap, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
+        .setAutoCancel(true)
+        .setPriority(NotificationCompat.PRIORITY_HIGH)
+        .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+        .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+        .setPublicVersion(publicVersion)
+        .build()
+    return id to notification
 }
