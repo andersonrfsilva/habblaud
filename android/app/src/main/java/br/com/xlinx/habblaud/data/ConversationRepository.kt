@@ -16,6 +16,8 @@ import java.io.IOException
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 
+internal const val FAILURES_BEFORE_NOTICE = 3
+
 internal fun retryAfterMillis(value: String?): Long = value?.let {
     it.toLongOrNull()?.coerceIn(0, 86400)?.times(1000) ?: runCatching {
         (ZonedDateTime.parse(it, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toEpochMilli() - System.currentTimeMillis()).coerceIn(0, 86400000)
@@ -60,21 +62,24 @@ class ConversationRepository(private val origin: String, private val client: () 
     fun stream(path: String): Flow<StreamEvent> = flow {
         var delayMs = 2000L
         var connection = 0
+        var failures = 0
         while (true) {
             var failure: StreamEvent.Failure? = null
             try {
                 once(path).collect { event ->
                     when (event) {
-                        is StreamEvent.Connected -> { connection++; delayMs = 2000L; emit(event) }
+                        is StreamEvent.Connected -> { connection++; failures = 0; delayMs = 2000L; emit(event) }
                         is StreamEvent.Data -> emit(event.copy(firstConnection = connection == 1))
-                        is StreamEvent.Failure -> { failure = event; emit(event) }
+                        is StreamEvent.Failure -> failure = event
                     }
                 }
             } catch (_: IOException) {
                 failure = StreamEvent.Failure(null)
-                emit(failure!!)
             }
-            if (failure?.status in listOf(-1, 401, 403, 404) || failure?.status?.let { it in 300..399 } == true) return@flow
+            val terminal = failure?.status in listOf(-1, 401, 403, 404) || failure?.status?.let { it in 300..399 } == true
+            // Falha de rede passageira (troca de rede, VPN acordando, limite de streams): só avisa depois de 3 seguidas.
+            failure?.let { failures++; if (terminal || it.vpnRequired || failures >= FAILURES_BEFORE_NOTICE) emit(it) }
+            if (terminal) return@flow
             val retry = failure?.retryAfter?.let { value ->
                 value.toLongOrNull()?.coerceAtLeast(0)?.coerceAtMost(86400)?.times(1000) ?: runCatching {
                     (ZonedDateTime.parse(value, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toEpochMilli() - System.currentTimeMillis()).coerceIn(0, 86400000)

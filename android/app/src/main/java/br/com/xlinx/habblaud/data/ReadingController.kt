@@ -117,16 +117,23 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                         if (event.type == "init") {
                             if (initialized && !awaitingInit) { changed(); return@collect }
                             if (item.agentId != null) {
-                                val matches = try {
-                                    snapshotMatchesSession(api.request("/api/snapshot"), item.key, item.agentId)
-                                } catch (e: Exception) {
-                                    if (e is kotlinx.coroutines.CancellationException) throw e
-                                    if (e is ApiException && e.status == 401) unauthorized()
-                                    else { close(); mutable.value = mutable.value.copy(error = if (e is VpnRequiredException) "vpn_required" else "network") }
-                                    return@collect
+                                // A conferência da sessão também tolera falha passageira: até 3 tentativas antes de desistir.
+                                var matches: Boolean? = null
+                                var attempt = 0
+                                while (matches == null) {
+                                    try { matches = snapshotMatchesSession(api.request("/api/snapshot"), item.key, item.agentId) } catch (e: Exception) {
+                                        if (e is kotlinx.coroutines.CancellationException) throw e
+                                        if (e is ApiException && e.status == 401) { unauthorized(); return@collect }
+                                        if (++attempt >= FAILURES_BEFORE_NOTICE || (e is ApiException && e.status in 400..499)) {
+                                            close(); mutable.value = mutable.value.copy(error = if (e is VpnRequiredException) "vpn_required" else "network")
+                                            return@collect
+                                        }
+                                        delay(1000L * attempt)
+                                        if (token != generation) return@collect
+                                    }
                                 }
                                 if (token != generation) return@collect
-                                if (!matches || mutable.value.sessions.any { it.agentId == item.agentId && it.key != item.key }) {
+                                if (matches != true || mutable.value.sessions.any { it.agentId == item.agentId && it.key != item.key }) {
                                     changed(); return@collect
                                 }
                             }

@@ -1,6 +1,7 @@
 package br.com.xlinx.habblaud
 
 import br.com.xlinx.habblaud.data.ConversationRepository
+import br.com.xlinx.habblaud.data.FAILURES_BEFORE_NOTICE
 import br.com.xlinx.habblaud.data.StreamEvent
 import br.com.xlinx.habblaud.data.VpnRequiredException
 import br.com.xlinx.habblaud.data.sendStreamEvent
@@ -38,16 +39,33 @@ class ConversationStreamTest {
             server.enqueue(MockResponse().setHeader("Content-Type", "text/event-stream").setBody(""))
             server.enqueue(MockResponse().setResponseCode(404))
             val repo = ConversationRepository(server.url("/").toString().removeSuffix("/"), { OkHttpClient() }, {})
-            var disconnectedAt = 0L
+            var connectedAt = 0L
             var lastDelay = 0L
+            val failures = mutableListOf<Int?>()
             withTimeout(15000) {
                 repo.stream("/api/stream").collect { event ->
-                    if (event is StreamEvent.Failure && event.status == null) disconnectedAt = System.nanoTime()
-                    if (event is StreamEvent.Failure && event.status == 404) lastDelay = (System.nanoTime() - disconnectedAt) / 1_000_000
+                    // A conexão vazia cai logo depois de abrir: o próximo pedido mede o atraso, que volta a 2 s.
+                    if (event is StreamEvent.Connected) connectedAt = System.nanoTime()
+                    if (event is StreamEvent.Failure) failures += event.status
+                    if (event is StreamEvent.Failure && event.status == 404) lastDelay = (System.nanoTime() - connectedAt) / 1_000_000
                 }
             }
-            assertTrue(disconnectedAt != 0L)
+            assertTrue(connectedAt != 0L)
             assertTrue("retry delay was $lastDelay ms", lastDelay in 1800..3999)
+            // As duas falhas 500 antes da conexão e a queda depois dela não viram aviso; o 404 é definitivo e aparece.
+            assertEquals(listOf<Int?>(404), failures)
+        } finally { server.shutdown() }
+    }
+
+    @Test fun transientFailuresBecomeNoticeOnlyOnTheThirdInARow() = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        try {
+            repeat(FAILURES_BEFORE_NOTICE) { server.enqueue(MockResponse().setResponseCode(500)) }
+            val repo = ConversationRepository(server.url("/").toString().removeSuffix("/"), { OkHttpClient() }, {})
+            val first = withTimeout(15000) { repo.stream("/api/stream").first { it is StreamEvent.Failure } as StreamEvent.Failure }
+            assertEquals(500, first.status)
+            assertEquals(FAILURES_BEFORE_NOTICE, server.requestCount)
         } finally { server.shutdown() }
     }
 
