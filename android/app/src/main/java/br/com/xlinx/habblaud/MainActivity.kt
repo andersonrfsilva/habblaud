@@ -29,6 +29,12 @@ import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.net.URI
 
+internal fun logoutError(cleaned: Boolean, revoked: Boolean): Int? = when {
+    !cleaned -> R.string.storage_error
+    !revoked -> R.string.logout_unconfirmed
+    else -> null
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -148,10 +154,10 @@ class MainActivity : ComponentActivity() {
                     busy = true
                     scope.launch {
                         val revoked = api?.logout() ?: false
-                        try { store.clear() } catch (_: Exception) { message = getString(R.string.storage_error) }
+                        val cleaned = try { store.clear(); true } catch (_: Exception) { false }
                         NotificationService.stop(applicationContext)
                         api?.close(); api = null; saved = null; connected = false; busy = false
-                        if (!revoked) message = getString(R.string.logout_unconfirmed)
+                        logoutError(cleaned, revoked)?.let { message = getString(it) }
                     }
                 }) { Text(stringResource(R.string.confirm)) } }, dismissButton = { TextButton(onClick = { confirmLogout = false }) { Text(stringResource(R.string.cancel)) } })
                 // Sem permissão de notificar, o serviço só gastaria bateria: inicia apenas com ela concedida.
