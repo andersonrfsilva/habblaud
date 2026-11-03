@@ -37,6 +37,7 @@ import br.com.xlinx.habblaud.data.EDITABLE_ROLES
 import br.com.xlinx.habblaud.data.ROLE_MODEL
 import br.com.xlinx.habblaud.data.joinRole
 import br.com.xlinx.habblaud.data.parseAccounts
+import br.com.xlinx.habblaud.data.roleModelGroups
 import br.com.xlinx.habblaud.data.snapshotModels
 import br.com.xlinx.habblaud.data.splitRole
 import br.com.xlinx.habblaud.data.string
@@ -157,7 +158,7 @@ fun SettingsScreen(api: HabblaudApi, store: LocalStateStore, onClose: () -> Unit
                         Row(Modifier.fillMaxWidth().clickable(enabled = rolesStatus == "available" && !rolesPending) { editingRole = role }.padding(horizontal = 16.dp, vertical = 10.dp)) {
                             Column(Modifier.weight(1f)) {
                                 Text(stringResource(roleLabel(role)), style = MaterialTheme.typography.bodyLarge)
-                                Text(listOfNotNull(model?.substringAfter('/') ?: stringResource(R.string.role_default), level?.let { thinkingLabel(it) }).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(listOfNotNull(model?.let { "${providerLabel(it.substringBefore('/'))} · ${it.substringAfter('/')}" } ?: stringResource(R.string.role_default), level?.let { thinkingLabel(it) }).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }
@@ -232,6 +233,7 @@ private fun SwitchRow(label: String, checked: Boolean, enabled: Boolean = true, 
 private fun roleLabel(role: String) = when (role) {
     "task" -> R.string.role_task
     "plan" -> R.string.role_plan
+    "tiny" -> R.string.role_tiny
     else -> R.string.role_advisor
 }
 
@@ -245,7 +247,10 @@ private fun RoleDialog(role: String, current: String?, models: List<String>, onD
         Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
             if (model == null) {
                 Text(stringResource(R.string.role_pick_model), style = MaterialTheme.typography.titleSmall)
-                (listOfNotNull(currentModel) + models).distinct().forEach { m -> RadioRow(m.substringAfter('/'), m == currentModel) { model = m } }
+                roleModelGroups(models, keep = currentModel).forEach { (provider, list) ->
+                    Text(providerLabel(provider), Modifier.padding(top = 12.dp, bottom = 2.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    list.forEach { m -> RadioRow(m.substringAfter('/'), m == currentModel) { model = m } }
+                }
                 if (models.isEmpty()) Text(stringResource(R.string.role_no_models), style = MaterialTheme.typography.bodySmall)
                 // Sem agente aberto não há lista: o modelo também pode ser digitado (o servidor confere o formato).
                 // Só `provedor/modelo`: o raciocínio vem no passo seguinte, sem duplicar o `:nível`.
@@ -312,5 +317,6 @@ private fun providerLabel(id: String) = when (id) {
     "anthropic" -> "Anthropic"
     "openai-codex" -> "OpenAI Codex"
     "google-antigravity" -> "Google Antigravity"
+    "openrouter" -> "OpenRouter"
     else -> id
 }

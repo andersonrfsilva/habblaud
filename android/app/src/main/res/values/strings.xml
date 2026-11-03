@@ -5,6 +5,7 @@
     <string name="role_task">Task (subagentes)</string>
     <string name="role_plan">Plan</string>
     <string name="role_advisor">Advisor</string>
+    <string name="role_tiny">Tiny (resumos)</string>
     <string name="role_default">Padrão do omp</string>
     <string name="role_pick_model">Modelo</string>
     <string name="role_pick_thinking">Raciocínio</string>
