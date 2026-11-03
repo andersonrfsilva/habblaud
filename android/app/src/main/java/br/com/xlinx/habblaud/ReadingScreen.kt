@@ -16,6 +16,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -198,73 +199,41 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
             if (state.reduced) Text(stringResource(R.string.window_reduced))
             val results = state.entries.filter { it.kind == "result" }.groupBy { it.toolUseId }
             val tools = state.entries.filter { it.kind == "tool" }.map { it.id }.toSet()
-            val listState = rememberLazyListState()
-            var following by remember { mutableStateOf(true) }
-            var userScrolled by remember(selected.key) { mutableStateOf(false) }
+            // Lista invertida: o índice 0 é a entrada mais nova. A conversa já abre no fim, sem rolar por todo o histórico.
+            val listState = remember(selected.key) { LazyListState() }
+            val following by remember(listState) { derivedStateOf { listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0 } }
             var unread by remember(selected.key) { mutableIntStateOf(0) }
-            var previousCount by remember(selected.key) { mutableIntStateOf(0) }
             var previousLastId by remember(selected.key) { mutableStateOf<String?>(null) }
-            var initialScroll by remember(selected.key) { mutableStateOf(false) }
-            val dragging by listState.interactionSource.collectIsDraggedAsState()
-            LaunchedEffect(dragging) { if (dragging && initialScroll) userScrolled = true }
-            LaunchedEffect(listState) {
-                snapshotFlow {
-                    val layout = listState.layoutInfo
-                    Triple(layout.visibleItemsInfo.lastOrNull()?.let { it.index to it.offset + it.size }, layout.totalItemsCount, layout.viewportEndOffset)
-                }.collect { (last, total, end) ->
-                    if (total > 0) {
-                        following = last != null && last.first >= total - 1 && last.second <= end
-                        if (following && !dragging) { userScrolled = false; unread = 0 }
-                        else if (initialScroll && !userScrolled && !dragging && last != null) {
-                            withFrameNanos { }
-                            if (!userScrolled && !dragging) {
-                                val layout = listState.layoutInfo
-                                val current = layout.visibleItemsInfo.lastOrNull()
-                                if (current != null && current.index < layout.totalItemsCount - 1) listState.scrollToItem(layout.totalItemsCount - 1)
-                                else if (current != null && current.offset + current.size > layout.viewportEndOffset) listState.scrollBy((current.offset + current.size - layout.viewportEndOffset).toFloat())
-                            }
-                        }
-                    }
-                }
-            }
             val shown = visibleEntries(state.entries, view)
             val rows = groupThinking(shown)
             val lastId = shown.lastOrNull()?.id
+            LaunchedEffect(following) { if (following) unread = 0 }
             // Ao enviar, volta a seguir o fim: o prompt e a resposta que chegam aparecem sem rolar à mão.
-            fun stickToEnd() {
-                userScrolled = false; unread = 0
-                if (rows.isNotEmpty()) scope.launch { listState.scrollToItem(rows.lastIndex + if (state.truncated) 1 else 0) }
-            }
-            LaunchedEffect(shown.size, lastId, state.truncated) {
-                val count = rows.size
-                if (count > 0) {
-                    if (!initialScroll || !userScrolled || following) {
-                        listState.scrollToItem(count - 1 + if (state.truncated) 1 else 0)
-                        initialScroll = true
-                        unread = 0
-                    } else {
-                        val previousIndex = shown.indexOfLast { it.id == previousLastId }
-                        unread += if (previousIndex >= 0) shown.size - previousIndex - 1 else (shown.size - previousCount).coerceAtLeast(1)
-                    }
-                } else {
-                    initialScroll = false
-                    unread = 0
-                }
-                previousCount = shown.size
+            fun stickToEnd() { unread = 0; scope.launch { listState.scrollToItem(0) } }
+            // Lido na composição, antes de o item novo entrar na lista e deslocar o primeiro visível.
+            val wasFollowing = following
+            LaunchedEffect(lastId) {
+                val before = previousLastId
                 previousLastId = lastId
+                if (before == null || lastId == null) return@LaunchedEffect
+                if (wasFollowing) listState.scrollToItem(0)
+                else {
+                    val index = shown.indexOfLast { it.id == before }
+                    unread += if (index >= 0) shown.size - index - 1 else 1
+                }
             }
             Box(Modifier.weight(1f).fillMaxWidth()) {
-                LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom)) {
+                LazyColumn(Modifier.fillMaxSize(), state = listState, reverseLayout = true, contentPadding = PaddingValues(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom)) {
+                    items(rows.asReversed(), key = { it.first.id }) { (entry, thoughts) ->
+                        if (entry.kind != "result" || entry.toolUseId !in tools) EntryView(entry, results[entry.id].orEmpty(), thoughts)
+                    }
                     if (state.truncated) item {
                         Text(stringResource(R.string.window_truncated), Modifier.fillMaxWidth().padding(8.dp), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    items(rows, key = { it.first.id }) { (entry, thoughts) ->
-                        if (entry.kind != "result" || entry.toolUseId !in tools) EntryView(entry, results[entry.id].orEmpty(), thoughts)
-                    }
                 }
-                if (userScrolled && !following && initialScroll && rows.isNotEmpty()) {
+                if (!following && rows.isNotEmpty()) {
                     val label = stringResource(R.string.go_to_end)
-                    SmallFloatingActionButton(onClick = { userScrolled = false; unread = 0; scope.launch { listState.scrollToItem(rows.lastIndex + if (state.truncated) 1 else 0) } }, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp).semantics { contentDescription = label }, shape = CircleShape) {
+                    SmallFloatingActionButton(onClick = { stickToEnd() }, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp).semantics { contentDescription = label }, shape = CircleShape) {
                         BadgedBox(badge = { if (unread > 0) Badge { Text(unread.toString()) } }) { Text("↓", style = MaterialTheme.typography.titleLarge) }
                     }
                 }
