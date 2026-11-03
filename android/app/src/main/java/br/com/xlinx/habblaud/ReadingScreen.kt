@@ -241,6 +241,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
             var previousLastId by remember(selected.key) { mutableStateOf<String?>(null) }
             val shown = visibleEntries(state.entries, view)
             val rows = groupThinking(shown)
+            val recovered = recoveredErrors(state.entries)
             val lastId = shown.lastOrNull()?.id
             LaunchedEffect(following) { if (following) unread = 0 }
             // Ao enviar, volta a seguir o fim: o prompt e a resposta que chegam aparecem sem rolar à mão.
@@ -260,7 +261,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 LazyColumn(Modifier.fillMaxSize(), state = listState, reverseLayout = true, contentPadding = PaddingValues(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom)) {
                     items(rows.asReversed(), key = { it.first.id }) { (entry, thoughts) ->
-                        if (entry.kind != "result" || entry.toolUseId !in tools) EntryView(entry, results[entry.id].orEmpty(), thoughts) { before, now ->
+                        if (entry.kind != "result" || entry.toolUseId !in tools) EntryView(entry, results[entry.id].orEmpty(), thoughts, recovered = entry.id in recovered) { before, now ->
                             // A lista é invertida: o item cresce para cima. Rola o quanto o cabeçalho tocado andou, para ele voltar ao lugar.
                             scope.launch { repeat(2) { withFrameNanos { } }; listState.scrollBy(before - now()) }
                         }
@@ -398,11 +399,13 @@ private fun ChatBanner(message: String) {
 }
 
 @Composable
-private fun EntryView(entry: TerminalEntry, results: List<TerminalEntry>, thoughts: Int = 1, keepPlace: (before: Float, now: () -> Float) -> Unit = { _, _ -> }) {
+private fun EntryView(entry: TerminalEntry, results: List<TerminalEntry>, thoughts: Int = 1, recovered: Boolean = false, keepPlace: (before: Float, now: () -> Float) -> Unit = { _, _ -> }) {
     var expanded by remember(entry.id) { mutableStateOf(false) }
     var headerY by remember { mutableFloatStateOf(0f) }
     if (entry.kind == "system") {
-        SelectionContainer { Text(listOfNotNull(entry.text, entry.at?.let(::entryTime)).joinToString(" · "), Modifier.fillMaxWidth().padding(8.dp), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodySmall) }
+        // Resposta cortada pelo provedor e retomada logo depois: o texto que veio fica na bolha acima; aqui só um aviso discreto.
+        val text = if (recovered) stringResource(R.string.response_interrupted) else entry.text
+        SelectionContainer { Text(listOfNotNull(text, entry.at?.let(::entryTime)).joinToString(" · "), Modifier.fillMaxWidth().padding(8.dp), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodySmall, color = if (recovered) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface) }
         return
     }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (entry.kind == "user") Arrangement.End else Arrangement.Start) {
@@ -492,6 +495,21 @@ internal fun visibleEntries(entries: List<TerminalEntry>, view: String): List<Te
         "no_tools" -> entry.kind != "tool" && entry.kind != "result"
         else -> true
     }
+}
+
+/**
+ * Erros de resposta (`<id>:err`) seguidos de mais trabalho do agente no mesmo turno: a conexão com o provedor caiu
+ * e o omp continuou. Erro sem continuação até a próxima mensagem sua não entra (esse fica visível como erro).
+ */
+internal fun recoveredErrors(entries: List<TerminalEntry>): Set<String> {
+    val recovered = mutableSetOf<String>()
+    var pending = mutableListOf<String>()
+    for (entry in entries) when {
+        entry.kind == "user" -> pending = mutableListOf()
+        entry.kind == "system" && entry.id.endsWith(":err") -> pending += entry.id
+        entry.kind in setOf("assistant", "tool", "thinking") -> { recovered += pending; pending = mutableListOf() }
+    }
+    return recovered
 }
 
 /** Informações da sessão: cabeçalho, um cartão com o essencial e os detalhes técnicos recolhidos. */
