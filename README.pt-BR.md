@@ -42,7 +42,7 @@ para dar a letra de cada conta). Nada sai do computador: o Habblaud não lê cre
 - [Como é](#como-é)
 - [Instalação](#instalação)
 - [Como usar](#como-usar)
-- [Aplicativo Android](#aplicativo-android)
+- [Aplicativo Android (Zaplaud)](#aplicativo-android-zaplaud)
 - [Contas e uso (5 horas e semanal)](#contas-e-uso-5-horas-e-semanal)
 - [Configuração](#configuração)
 - [Habblaud World](#habblaud-world)
