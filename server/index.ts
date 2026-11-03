@@ -168,6 +168,8 @@ const summaries = config.messages ? new Summarizer({
   bin: () => ompBinFrom(process.env, config.home),
   agentDir: () => accounts.entriesOf('omp')[0]?.detected.configDir,
 }) : undefined;
+// As contas do omp aparecem depois que as fontes sobem: abre o omp dos resumos alguns segundos depois.
+if (summaries) setTimeout(() => summaries.warm(), 10_000).unref();
 // Fontes de agentes, uma por ferramenta (sources/source.ts): a do Claude Code e, depois dela, a do Codex (quando há
 // pastas do Codex; HABBLAUD_CODEX=0 desliga), com o histórico dela no HistorySet abaixo e as contas registradas por
 // ela mesma (accounts.setProviderAccounts). `codex` também recebe os eventos dos hooks do Codex (CodexLive).

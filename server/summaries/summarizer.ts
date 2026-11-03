@@ -33,7 +33,7 @@ class RpcWorker {
   dead = false;
   readonly ready: Promise<void>;
   idle?: NodeJS.Timeout;
-  constructor(readonly bin: string, readonly agentDir: string, readonly config: number) {
+  constructor(readonly bin: string, readonly agentDir: string, readonly config: number, onExit?: () => void) {
     const args = ['--mode', 'rpc', '--no-session', '--no-tools', '--no-lsp', '--no-extensions', '--no-skills', '--no-rules', '--model', '@tiny', '--system-prompt', PROMPT];
     this.child = spawn(bin, args, { env: { ...process.env, PI_CODING_AGENT_DIR: agentDir }, stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
     const { promise, resolve, reject } = Promise.withResolvers<void>();
@@ -41,7 +41,8 @@ class RpcWorker {
     promise.catch(() => {});
     this.waiters.set('ready', (frame) => frame.type === 'dead' ? reject(new Error('omp saiu')) : resolve());
     this.child.on('error', () => this.kill());
-    this.child.on('exit', () => this.kill());
+    // Saiu sozinho (não foi fechado por aqui): quem mantém o processo aberto abre outro.
+    this.child.on('exit', () => { const unexpected = !this.dead; this.kill(); if (unexpected) onExit?.(); });
     this.child.stdin!.on('error', () => {});
     createInterface({ input: this.child.stdout! }).on('line', (line) => {
       let frame: Frame;
@@ -93,10 +94,37 @@ function configStamp(agentDir: string): number {
   try { return statSync(join(agentDir, 'config.yml')).mtimeMs; } catch { return 0; }
 }
 
-/** Guarda os omp parados para o próximo resumo; quem passa do tempo, morre ou leu outra configuração é fechado. */
-export function rpcSummaryRunner(): RunSummary {
+/**
+ * Guarda os omp parados para o próximo resumo. Um fica sempre aberto (até o primeiro resumo depois de o servidor subir
+ * não espera o omp abrir); os outros fecham após IDLE_MS parados. Quem morre ou leu outra configuração é trocado.
+ */
+export function rpcSummaryRunner(): RunSummary & { warm(bin: string, agentDir: string): void } {
   const idle: RpcWorker[] = [];
-  return async (bin, agentDir, text) => {
+  const park = (worker: RpcWorker) => {
+    worker.idle = setTimeout(() => {
+      // Só fecha os que sobram: o último parado continua aberto.
+      if (idle.length <= 1) return;
+      const i = idle.indexOf(worker);
+      if (i >= 0) idle.splice(i, 1);
+      worker.kill();
+    }, IDLE_MS);
+    worker.idle.unref();
+    idle.push(worker);
+  };
+  const spawnWorker = (bin: string, agentDir: string): RpcWorker => {
+    const worker: RpcWorker = new RpcWorker(bin, agentDir, configStamp(agentDir), () => {
+      const i = idle.indexOf(worker);
+      if (i >= 0) idle.splice(i, 1);
+      // Espera antes de abrir outro: um omp que não sobe não vira um laço de processos.
+      setTimeout(() => warm(bin, agentDir), 30_000).unref();
+    });
+    return worker;
+  };
+  const warm = (bin: string, agentDir: string) => {
+    if (idle.some((w) => !w.dead && w.bin === bin && w.agentDir === agentDir && w.config === configStamp(agentDir))) return;
+    park(spawnWorker(bin, agentDir));
+  };
+  const run: RunSummary = async (bin, agentDir, text) => {
     const config = configStamp(agentDir);
     let worker: RpcWorker | undefined;
     while ((worker = idle.pop())) {
@@ -104,7 +132,7 @@ export function rpcSummaryRunner(): RunSummary {
       if (!worker.dead && worker.bin === bin && worker.agentDir === agentDir && worker.config === config) break;
       worker.kill();
     }
-    worker ??= new RpcWorker(bin, agentDir, config);
+    worker ??= spawnWorker(bin, agentDir);
     let timedOut = false;
     const timer = setTimeout(() => { timedOut = true; worker.kill(); }, TIMEOUT_MS);
     try {
@@ -114,19 +142,17 @@ export function rpcSummaryRunner(): RunSummary {
       throw timedOut ? new Error(`timeout (${TIMEOUT_MS / 1000} s)`) : err;
     } finally {
       clearTimeout(timer);
-      if (!worker.dead) {
-        worker.idle = setTimeout(() => { const i = idle.indexOf(worker); if (i >= 0) idle.splice(i, 1); worker.kill(); }, IDLE_MS);
-        worker.idle.unref();
-        idle.push(worker);
-      }
+      if (!worker.dead) park(worker);
+      else if (!idle.length) warm(bin, agentDir);
     }
   };
+  return Object.assign(run, { warm });
 }
 
 interface Options {
   bin(): string | undefined;
   agentDir(): string | undefined;
-  run?: RunSummary;
+  run?: RunSummary & { warm?(bin: string, agentDir: string): void };
   /** Resumos rodando ao mesmo tempo; os outros esperam na fila. */
   concurrency?: number;
   /** Resumos guardados (por hash do texto), os mais antigos saem primeiro. */
@@ -137,8 +163,15 @@ export class Summarizer {
   private readonly cache = new Map<string, Promise<string>>();
   private readonly waiting: (() => void)[] = [];
   private running = 0;
-  private readonly run: RunSummary;
+  private readonly run: RunSummary & { warm?(bin: string, agentDir: string): void };
   constructor(private readonly opts: Options) { this.run = opts.run ?? rpcSummaryRunner(); }
+
+  /** Abre o omp que fica esperando o primeiro resumo; sem omp ou conta ainda, não faz nada. */
+  warm(): void {
+    const bin = this.opts.bin();
+    const agentDir = this.opts.agentDir();
+    if (bin && agentDir) this.run.warm?.(bin, agentDir);
+  }
 
   summarize(text: string): Promise<string> {
     const key = createHash('sha256').update(text).digest('hex');
