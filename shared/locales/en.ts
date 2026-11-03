@@ -3497,6 +3497,7 @@ export const EN: Readonly<Record<string, string>> = {
   "resumo indisponível: omp ou conta do omp não encontrados": "summary unavailable: omp or omp account not found",
   "o resumo só pode ser pedido pelo próprio computador": "summaries can only be requested from the computer itself",
   "falha ao resumir: {0}": "summary failed: {0}",
+  "resumo desligado: escolha um modelo para o papel Tiny nas Configurações": "summaries off: pick a model for the Tiny role in Settings",
   "Mensagens: falha ao avisar a resolução de uma mensagem ({0}).": "Messages: failed to report that a message was resolved ({0}).",
   "Arquivos": "Files",
   "Ver e baixar os arquivos da pasta da sala deste agente": "View and download the files in this agent's room folder",

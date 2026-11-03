@@ -143,8 +143,10 @@ fun SettingsScreen(api: HabblaudApi, store: LocalStateStore, onClose: () -> Unit
             Hint(R.string.settings_per_session)
 
             Section(R.string.settings_summaries)
-            summarize?.let { on -> SwitchRow(stringResource(R.string.settings_summarize), on) { scope.launch { store.setSummarize(!on) } } }
-            Hint(R.string.settings_summarize_hint)
+            // Sem modelo escolhido para o papel Tiny não há resumo (o servidor recusa): o interruptor fica desligado.
+            val hasTiny = roles?.get("tiny") != null
+            summarize?.let { on -> SwitchRow(stringResource(R.string.settings_summarize), on && hasTiny, enabled = hasTiny) { scope.launch { store.setSummarize(!on) } } }
+            Hint(if (hasTiny) R.string.settings_summarize_hint else R.string.settings_summarize_needs_tiny)
 
             Section(R.string.settings_roles)
             when (rolesStatus) {

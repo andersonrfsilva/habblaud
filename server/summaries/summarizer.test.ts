@@ -34,11 +34,12 @@ function deferred() {
 
 // Só microtarefas: a fila do Summarizer anda por promessas, sem relógio.
 const tick = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
+const tiny = async () => 'openai/gpt-mini:low';
 
 describe('Summarizer', () => {
   it('limita os resumos simultâneos e passa a vaga para quem espera', async () => {
     const { calls, run } = deferred();
-    const s = new Summarizer({ bin: () => 'omp', agentDir: () => '/a', run, concurrency: 1 });
+    const s = new Summarizer({ bin: () => 'omp', agentDir: () => '/a', run, tiny, concurrency: 1 });
     const a = s.summarize('a');
     const b = s.summarize('b');
     await tick();
@@ -53,7 +54,7 @@ describe('Summarizer', () => {
 
   it('reaproveita o resumo do mesmo texto, mas não guarda a falha', async () => {
     const { calls, run } = deferred();
-    const s = new Summarizer({ bin: () => 'omp', agentDir: () => '/a', run });
+    const s = new Summarizer({ bin: () => 'omp', agentDir: () => '/a', run, tiny });
     const first = s.summarize('x');
     await tick();
     calls[0].reject(new Error('caiu'));
@@ -68,7 +69,14 @@ describe('Summarizer', () => {
 
   it('sem omp ou sem conta, recusa sem rodar nada', async () => {
     const { calls, run } = deferred();
-    const s = new Summarizer({ bin: () => undefined, agentDir: () => '/a', run });
+    const s = new Summarizer({ bin: () => undefined, agentDir: () => '/a', run, tiny });
+    await expect(s.summarize('x')).rejects.toBeInstanceOf(SummaryUnavailable);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('sem modelo escolhido para o papel tiny, recusa sem rodar nada', async () => {
+    const { calls, run } = deferred();
+    const s = new Summarizer({ bin: () => 'omp', agentDir: () => '/a', run, tiny: async () => undefined });
     await expect(s.summarize('x')).rejects.toBeInstanceOf(SummaryUnavailable);
     expect(calls).toHaveLength(0);
   });

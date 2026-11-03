@@ -3514,6 +3514,7 @@ export const FR: Readonly<Record<string, string>> = {
   "resumo indisponível: omp ou conta do omp não encontrados": "résumé indisponible : omp ou compte omp introuvable",
   "o resumo só pode ser pedido pelo próprio computador": "le résumé ne peut être demandé que depuis l'ordinateur lui-même",
   "falha ao resumir: {0}": "échec du résumé : {0}",
+  "resumo desligado: escolha um modelo para o papel Tiny nas Configurações": "résumés désactivés : choisissez un modèle pour le rôle Tiny dans les réglages",
   "Mensagens: falha ao avisar a resolução de uma mensagem ({0}).": "Messages : échec de la notification de résolution d'un message ({0}).",
   "Arquivos": "Fichiers",
   "Ver e baixar os arquivos da pasta da sala deste agente": "Voir et télécharger les fichiers du dossier de la salle de cet agent",
