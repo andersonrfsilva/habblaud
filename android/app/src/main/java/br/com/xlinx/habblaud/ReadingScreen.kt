@@ -126,11 +126,13 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                 Tab(selected = !recent, onClick = { recent = false }, text = { Text(stringResource(R.string.open_sessions)) })
                 Tab(selected = recent, onClick = { recent = true }, text = { Text(stringResource(R.string.recent_sessions)) })
             }
-            OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.search_sessions)) }, singleLine = true)
             if (!state.terminalAllowed) Text(stringResource(R.string.terminal_blocked))
             val items = state.sessions.filter { (recent || it.agentId != null) && listOfNotNull(it.title, it.characterName, it.agentName, it.project, it.key.provider, it.key.account).any { value -> value.contains(query, true) } }
-            if (items.isEmpty()) Text(stringResource(R.string.sessions_empty), Modifier.fillMaxWidth().padding(32.dp), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyLarge)
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // A busca é o primeiro item e começa fora da tela: aparece ao puxar a lista para baixo no topo.
+            val sessionsList = rememberLazyListState(initialFirstVisibleItemIndex = 1)
+            LazyColumn(state = sessionsList, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                item(key = "search") { OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.search_sessions)) }, singleLine = true) }
+                if (items.isEmpty()) item(key = "empty") { Text(stringResource(R.string.sessions_empty), Modifier.fillMaxWidth().padding(32.dp), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyLarge) }
                 items(items, key = { it.key.serialize() }) { session ->
                     Row(Modifier.fillMaxWidth().clickable { controller.open(session) }.padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         CharacterAvatar(api, session, 48.dp)
@@ -183,7 +185,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                     }
                 }
             }
-            val shown = state.entries.filter { entry -> when (view) { "prompts" -> entry.kind == "user" || entry.kind == "assistant"; "no_tools" -> entry.kind != "tool" && entry.kind != "result"; else -> true } }
+            val shown = visibleEntries(state.entries, view)
             val lastId = shown.lastOrNull()?.id
             // Ao enviar, volta a seguir o fim: o prompt e a resposta que chegam aparecem sem rolar à mão.
             fun stickToEnd() {
@@ -392,4 +394,13 @@ internal fun entryTime(at: Long, now: Long = System.currentTimeMillis()): String
     val time = java.time.Instant.ofEpochMilli(at).atZone(zone)
     val sameDay = time.toLocalDate() == java.time.Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
     return time.format(java.time.format.DateTimeFormatter.ofPattern(if (sameDay) "HH:mm" else "dd/MM HH:mm"))
+}
+
+/** Filtro da conversa: "prompts" = suas mensagens e as respostas do agente; "no_tools" = tudo menos ferramentas e resultados. */
+internal fun visibleEntries(entries: List<TerminalEntry>, view: String): List<TerminalEntry> = entries.filter { entry ->
+    when (view) {
+        "prompts" -> entry.kind == "user" || entry.kind == "assistant"
+        "no_tools" -> entry.kind != "tool" && entry.kind != "result"
+        else -> true
+    }
 }
