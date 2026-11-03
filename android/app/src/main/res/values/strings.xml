@@ -34,6 +34,8 @@
     <string name="logout_unconfirmed">Sessão local apagada. Não foi possível confirmar a revogação no servidor.</string>
     <string name="change_server">Trocar servidor?</string>
     <string name="change_warning">A troca apaga os dados locais da origem anterior, incluindo rascunhos não enviados.</string>
+    <string name="http_login_title">Autenticação sem criptografia?</string>
+    <string name="http_login_warning">Em %1$s, a senha e a sessão trafegam sem criptografia HTTP. Terceiros na rede podem interceptá-las. HTTPS é recomendado.</string>
     <string name="confirm">Confirmar</string>
     <string name="cancel">Cancelar</string>
     <string name="sessions">Sessões</string>

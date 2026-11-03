@@ -324,9 +324,9 @@ os testes falham em vez de serem ignorados. Pare a fixture com `Ctrl+C` ao termi
 O endereço do servidor aceita `http://` ou `https://`, com host e porta, em qualquer rede. Endereço com caminho
 diferente de `/`, usuário embutido, query ou fragmento é recusado.
 
-**HTTP não cifra senha nem cookie.** Quem estiver no caminho da conexão (Wi‑Fi público, operadora) pode ler a senha e
-usar a sessão para mandar comandos aos agentes. Use HTTP só em rede confiável, como a sua rede local ou uma VPN
-(Tailscale); fora dela, use HTTPS.
+**HTTP não cifra senha nem cookie.** Quem estiver no caminho da conexão pode interceptar ou alterar esses dados e
+usar a sessão para mandar comandos aos agentes. Cada autenticação HTTP exige confirmação, sem bloquear redes locais
+ou VPN. Uma VPN não garante proteção; HTTPS é recomendado.
 
 #### Recursos e limites
 
