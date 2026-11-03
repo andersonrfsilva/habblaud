@@ -244,7 +244,7 @@ A extensão vale para as sessões do omp abertas **depois** da instalação. Vej
 
 ### Aplicativo Android (Zaplaud)
 
-O Zaplaud, cliente nativo Android, acompanha sessões e personagens sem a interface do escritório. Requer Android 8.0 (API 26) ou
+O Zaplaud, cliente nativo Android, acompanha sessões e contatos sem a interface do escritório. Requer Android 8.0 (API 26) ou
 superior e uma instalação do Habblaud com login remoto configurado. A URL deve apontar para a **porta remota**, nunca
 para a porta local sem autenticação. O aplicativo aceita uma instalação por vez; informe URL, usuário e senha do acesso
 remoto. A senha não é persistida. HTTPS usa a validação normal de certificado e nome do Android.
@@ -258,9 +258,9 @@ Para gerar capturas dos dois temas com dados fictícios, execute `scripts/androi
 `habblaud034` disponível. As imagens ficam em `/tmp/android-screens/`.
 
 Quando o acesso remoto permite `terminal` e o auxiliar do host está disponível, o aplicativo também chama e dispensa
-personagens do elenco e retoma sessões omp encerradas com o personagem escolhido (o último a usá-la aparece primeiro). Um pedido sem confirmação não é
+contatos (os personagens do elenco do escritório) e retoma sessões omp encerradas com o contato escolhido (o último a usá-la aparece primeiro). Um pedido sem confirmação não é
 reenviado automaticamente. Os avatares usam a mesma arte do escritório e ficam em cache privado no aparelho. O nome
-do personagem aparece junto ao avatar; toque longo nos ícones de ação mostra sua função.
+do contato aparece junto ao avatar; toque longo nos ícones de ação mostra sua função.
 
 #### Compilar e instalar
 
@@ -342,7 +342,7 @@ Na porta remota, as travas de `HABBLAUD_REMOTE_ALLOW` são independentes. O apli
 | --- | --- |
 | Lista de sessões abertas | Login |
 | Recentes e conversas vivas ou históricas | `terminal` |
-| Chamar, dispensar ou retomar personagem | `terminal` e auxiliar do host disponível |
+| Chamar, dispensar ou retomar contato | `terminal` e auxiliar do host disponível |
 | Mensagens, anexos e interrupção omp | `messages` e `messageSessionGuard` no `/api/access` |
 | Respostas a aprovações e perguntas | `permissions` |
 
@@ -359,7 +359,7 @@ Para usar todos os recursos, rode o servidor incluído no HabblaudX.
 
 Recentes cobre até 150 sessões dos últimos 7 dias. A conversa começa com até 500 entradas dos aproximadamente 4 MiB
 finais; pode haver conteúdo anterior não carregado. A janela local também é limitada. Sessões encerradas ficam somente
-para leitura até serem retomadas por um personagem elegível. Não há paginação de histórico nem sincronização offline de conversas.
+para leitura até serem retomadas por um contato elegível. Não há paginação de histórico nem sincronização offline de conversas.
 Rascunhos são locais por sessão; o app não reenvia mensagens automaticamente após perda de conexão. Se o envio não for
 confirmado, confira a conversa antes de tentar novamente: a primeira tentativa pode ter sido aceita.
 

@@ -422,8 +422,8 @@ for _ in $(seq 1 35); do adb shell input swipe 500 500 500 1850 150; done
 wait_text 'Existe conversa anterior que não foi carregada. Não há paginação.'
 shot omp-historico-truncado
 tap 'Voltar às sessões'
-tap 'Chamar personagem'
-wait_text 'Escolha um personagem'
+tap 'Chamar contato'
+wait_text 'Escolha um contato'
 shot elenco-personagem
 tap 'Caio Fictício'
 wait_text 'Escolha a pasta do projeto'
@@ -460,7 +460,7 @@ tap Recentes
 enter_text 'Buscar por título, projeto ou agente' jardim
 tap 'Planejamento de jardim'
 tap 'Retomar conversa'
-wait_text 'Escolha um personagem'
+wait_text 'Escolha um contato'
 shot elenco-retomar-personagem
 adb shell input keyevent 4
 reset_app
