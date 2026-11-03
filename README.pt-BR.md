@@ -285,6 +285,10 @@ no aparelho, permitindo a instalação pelo aplicativo de origem quando o Androi
 
 #### Testes instrumentados com fixture
 
+A CI Android executa a suíte instrumentada completa em emulador x86_64 isolado com KVM, Java 17, Node 22.12 e SDK
+Android. A fixture escolhe uma porta local dinâmica, encaminhada junto à porta 14748. A CI usa somente a fixture de
+laboratório, nunca um servidor de produção. O processo exige KVM e encerra a fixture e os encaminhamentos ao terminar.
+
 Use um emulador ou aparelho conectado e execute os comandos na raiz do repositório. Em um terminal, mantenha a
 fixture isolada aberta:
 
