@@ -1,5 +1,7 @@
 package br.com.xlinx.habblaud
 
+import android.Manifest
+import android.os.Build
 import android.content.Context
 import android.content.pm.ActivityInfo
 import androidx.compose.ui.test.assertIsOn
@@ -46,12 +48,15 @@ class FixtureUiInstrumentedTest {
     private var scenario: ActivityScenario<MainActivity>? = null
     private var prepared = false
     private fun text(id: Int) = context.getString(id)
-    private fun awaitDescription(id: Int) = compose.waitUntil(15_000) { compose.onAllNodes(androidx.compose.ui.test.hasContentDescription(text(id))).fetchSemanticsNodes().isNotEmpty() }
-    private fun await(id: Int) = compose.waitUntil(15_000) { compose.onAllNodes(hasText(text(id))).fetchSemanticsNodes().isNotEmpty() }
+    private fun awaitDescription(id: Int) = compose.waitUntil(15_000) { compose.onAllNodes(androidx.compose.ui.test.hasContentDescription(text(id))).fetchSemanticsNodes(atLeastOneRootRequired = false).isNotEmpty() }
+    private fun await(id: Int) = compose.waitUntil(15_000) { compose.onAllNodes(hasText(text(id))).fetchSemanticsNodes(atLeastOneRootRequired = false).isNotEmpty() }
 
     @Before fun prepare() {
         check(InstrumentationRegistry.getArguments().getString("fixture") == "true") {
             "Informe fixture=true e configure adb reverse tcp:14748 tcp:14748 para executar a instrumentação."
+        }
+        if (Build.VERSION.SDK_INT >= 33) {
+            InstrumentationRegistry.getInstrumentation().uiAutomation.grantRuntimePermission(context.packageName, Manifest.permission.POST_NOTIFICATIONS)
         }
         prepared = true
         runBlocking {
@@ -124,15 +129,15 @@ class FixtureUiInstrumentedTest {
 
     @Test fun thinkingExpandsAllLinesAndCollapses() {
         scenario = ActivityScenario.launch(MainActivity::class.java)
-        await(R.string.thinking)
-        compose.onNodeWithText(text(R.string.thinking)).performClick()
+        compose.waitUntil(15_000) { compose.onAllNodes(hasText(text(R.string.thinking), substring = true)).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(hasText(text(R.string.thinking), substring = true)).performClick()
         compose.waitUntil(15_000) {
             compose.onAllNodes(hasText("Terceira linha do pensamento.", substring = true)).fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithText("Primeira linha do pensamento.", substring = true)
             .assertTextContains("Segunda linha do pensamento.", substring = true)
             .assertTextContains("Terceira linha do pensamento.", substring = true)
-        compose.onNodeWithText(text(R.string.thinking)).performClick()
+        compose.onNode(hasText(text(R.string.thinking), substring = true)).performClick()
         compose.onNodeWithText("Terceira linha do pensamento.", substring = true).assertDoesNotExist()
     }
 
@@ -223,7 +228,7 @@ class FixtureUiInstrumentedTest {
         compose.onNodeWithText(text(R.string.message_text)).assertIsDisplayed()
         compose.onNodeWithContentDescription(text(R.string.permission_approve)).performClick()
         await(R.string.permission_allow)
-        compose.onNodeWithText(text(R.string.permission_allow)).assertIsEnabled().performClick()
+        compose.onNodeWithText(text(R.string.permission_allow)).performScrollTo().assertIsDisplayed().assertIsEnabled().performClick()
         val result = fixtureRequest("/api/permissions/$id/wait?timeout=5")
         assertEquals("A fixture não recebeu decisão", "decided", result.optString("status"))
         assertEquals("A fixture recebeu decisão diferente", "allow", result.optString("behavior"))
@@ -242,7 +247,9 @@ class FixtureUiInstrumentedTest {
         compose.onNodeWithText(text(R.string.permission_deny)).performClick()
         await(R.string.permission_reason)
         compose.onNodeWithText(text(R.string.permission_reason)).performTextInput("Não autorizado")
-        compose.onNodeWithText(text(R.string.permission_deny)).performClick()
+        InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("input keyevent KEYCODE_BACK").close()
+        compose.onNodeWithText(text(R.string.permission_reason)).assertTextContains("Não autorizado")
+        compose.onNodeWithText(text(R.string.permission_deny)).performScrollTo().assertIsDisplayed().assertIsEnabled().performClick()
         val denied = fixtureRequest("/api/permissions/$denialId/wait?timeout=5")
         assertEquals("decided", denied.optString("status"))
         assertEquals("deny", denied.optString("behavior"))
@@ -274,6 +281,7 @@ class FixtureUiInstrumentedTest {
         compose.onNodeWithText("Davi Fictício").assertIsDisplayed()
         compose.onNodeWithContentDescription(text(R.string.menu)).performClick()
         compose.onNodeWithText(text(R.string.cast_dismiss)).assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.view_menu)).performClick()
         compose.onNodeWithText(text(R.string.view_no_tools)).assertIsDisplayed()
         compose.onNodeWithText(text(R.string.view_all)).performClick()
         compose.onNodeWithContentDescription(text(R.string.permission_answer)).performClick()
