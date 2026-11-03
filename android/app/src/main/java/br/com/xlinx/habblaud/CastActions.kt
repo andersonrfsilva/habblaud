@@ -13,6 +13,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.PlayArrow
@@ -39,7 +40,7 @@ private val sessionIdPattern = Regex("^[0-9a-fA-F][0-9a-fA-F-]{7,199}$")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Boolean, openCast: Set<String>, onUnauthorized: () -> Unit, onPermission: () -> Unit, content: @Composable (@Composable () -> Unit, @Composable () -> Unit, @Composable () -> Unit) -> Unit) {
+internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Boolean, openCast: Set<String>, onUnauthorized: () -> Unit, onPermission: () -> Unit, menu: @Composable (close: () -> Unit) -> Unit, content: @Composable (@Composable () -> Unit, @Composable () -> Unit, @Composable () -> Unit) -> Unit) {
     val scope = rememberCoroutineScope()
     var availability by remember(api) { mutableStateOf("loading") }
     var characters by remember(api) { mutableStateOf(emptyList<CastChoice>()) }
@@ -117,11 +118,22 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
         selected.key.sessionId.matches(sessionIdPattern) && resumeChoices.isNotEmpty()
     val dismiss = selected?.agentId != null && selected.castOpened && current != null
     val actions: @Composable () -> Unit = {
-        if (availability == "available") {
-            if (resume) ActionIcon(R.string.cast_resume, Icons.Default.PlayArrow, !sending) { choice = null; dialog = "resume-select" }
-            if (dismiss) ActionIcon(R.string.cast_dismiss, Icons.Default.ExitToApp, !sending && !activeJob) { dialog = "dismiss" }
-        }
+        if (availability == "available" && resume) ActionIcon(R.string.cast_resume, Icons.Default.PlayArrow, !sending) { choice = null; dialog = "resume-select" }
         if (selected?.permission == true) PermissionAttentionButton(selected.permissionQuestion, onPermission)
+        if (selected != null) Box {
+            var open by remember { mutableStateOf(false) }
+            val menuLabel = stringResource(R.string.menu)
+            IconButton(onClick = { open = true }) { Icon(Icons.Default.MoreVert, contentDescription = menuLabel) }
+            DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                if (availability == "available" && dismiss) DropdownMenuItem(
+                    text = { Text(stringResource(R.string.cast_dismiss)) },
+                    leadingIcon = { Icon(Icons.Default.ExitToApp, contentDescription = null) },
+                    enabled = !sending && !activeJob,
+                    onClick = { open = false; dialog = "dismiss" },
+                )
+                menu { open = false }
+            }
+        }
     }
     val fab: @Composable () -> Unit = {
         if (availability == "available" && selected == null) {

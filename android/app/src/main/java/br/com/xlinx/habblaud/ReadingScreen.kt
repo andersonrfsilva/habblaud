@@ -22,6 +22,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
@@ -76,8 +77,14 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
     }
     val selected = state.selected
     var menuExpanded by remember { mutableStateOf(false) }
+    // O que a conversa mostra: tudo, só os seus prompts, ou sem ferramentas (e seus resultados).
+    var view by rememberSaveable { mutableStateOf("all") }
     BackHandler(enabled = selected != null && permissionSession == null && !menuExpanded) { controller.close() }
-    CastActions(api, selected, state.connection == "connected" && (state.terminalAllowed || selected?.permission == true), state.sessions.filter { it.agentId != null }.mapNotNull { it.cast }.toSet(), onUnauthorized, { permissionSession = selected }) { castActions, castFab, castStatus ->
+    CastActions(api, selected, state.connection == "connected" && (state.terminalAllowed || selected?.permission == true), state.sessions.filter { it.agentId != null }.mapNotNull { it.cast }.toSet(), onUnauthorized, { permissionSession = selected }, menu = { close ->
+        listOf("all" to R.string.view_all, "prompts" to R.string.view_prompts, "no_tools" to R.string.view_no_tools).forEach { (value, label) ->
+            DropdownMenuItem(text = { Text(stringResource(label)) }, leadingIcon = { RadioButton(selected = view == value, onClick = null) }, onClick = { view = value; close() })
+        }
+    }) { castActions, castFab, castStatus ->
     Scaffold(floatingActionButton = { castFab() }, topBar = {
         TopAppBar(
             title = {
@@ -176,16 +183,17 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                     }
                 }
             }
-            val lastId = state.entries.lastOrNull()?.id
-            LaunchedEffect(state.entries.size, lastId, state.truncated) {
-                val count = state.entries.size
+            val shown = state.entries.filter { entry -> when (view) { "prompts" -> entry.kind == "user"; "no_tools" -> entry.kind != "tool" && entry.kind != "result"; else -> true } }
+            val lastId = shown.lastOrNull()?.id
+            LaunchedEffect(shown.size, lastId, state.truncated) {
+                val count = shown.size
                 if (count > 0) {
                     if (!initialScroll || !userScrolled || following) {
                         listState.scrollToItem(count - 1 + if (state.truncated) 1 else 0)
                         initialScroll = true
                         unread = 0
                     } else {
-                        val previousIndex = state.entries.indexOfLast { it.id == previousLastId }
+                        val previousIndex = shown.indexOfLast { it.id == previousLastId }
                         unread += if (previousIndex >= 0) count - previousIndex - 1 else (count - previousCount).coerceAtLeast(1)
                     }
                 } else {
@@ -200,13 +208,13 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                     if (state.truncated) item {
                         Text(stringResource(R.string.window_truncated), Modifier.fillMaxWidth().padding(8.dp), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    items(state.entries, key = { it.id }) { entry ->
+                    items(shown, key = { it.id }) { entry ->
                         if (entry.kind != "result" || entry.toolUseId !in tools) EntryView(entry, results[entry.id].orEmpty())
                     }
                 }
-                if (userScrolled && !following && initialScroll && state.entries.isNotEmpty()) {
+                if (userScrolled && !following && initialScroll && shown.isNotEmpty()) {
                     val label = stringResource(R.string.go_to_end)
-                    SmallFloatingActionButton(onClick = { userScrolled = false; unread = 0; scope.launch { listState.scrollToItem(state.entries.lastIndex + if (state.truncated) 1 else 0) } }, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp).semantics { contentDescription = label }, shape = CircleShape) {
+                    SmallFloatingActionButton(onClick = { userScrolled = false; unread = 0; scope.launch { listState.scrollToItem(shown.lastIndex + if (state.truncated) 1 else 0) } }, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp).semantics { contentDescription = label }, shape = CircleShape) {
                         BadgedBox(badge = { if (unread > 0) Badge { Text(unread.toString()) } }) { Text("↓", style = MaterialTheme.typography.titleLarge) }
                     }
                 }

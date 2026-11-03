@@ -274,7 +274,10 @@ class FixtureUiInstrumentedTest {
         scenario = ActivityScenario.launch(MainActivity::class.java)
         awaitDescription(R.string.permission_answer)
         compose.onNodeWithText("Davi Fictício").assertIsDisplayed()
-        compose.onNodeWithContentDescription(text(R.string.cast_dismiss)).assertIsDisplayed()
+        compose.onNodeWithContentDescription(text(R.string.menu)).performClick()
+        compose.onNodeWithText(text(R.string.cast_dismiss)).assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.view_no_tools)).assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.view_all)).performClick()
         compose.onNodeWithContentDescription(text(R.string.permission_answer)).performClick()
         compose.waitUntil(15_000) { compose.onAllNodes(hasText("Cor?")).fetchSemanticsNodes().isNotEmpty() }
         val toggles = compose.onAllNodes(isToggleable())
