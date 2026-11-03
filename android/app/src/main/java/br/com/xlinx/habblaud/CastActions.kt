@@ -15,10 +15,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExitToApp
-import androidx.compose.material.icons.filled.Help
-import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -26,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import br.com.xlinx.habblaud.data.*
@@ -125,7 +123,7 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
         if (availability == "available" && selected == null) {
             val label = stringResource(R.string.cast_start)
             TooltipBox(positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(), tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
-                FloatingActionButton(onClick = { if (!sending) { choice = null; dialog = "start" } }) { Icon(Icons.Default.PersonAdd, contentDescription = label) }
+                FloatingActionButton(onClick = { if (!sending) { choice = null; dialog = "start" } }) { Icon(painterResource(R.drawable.ic_person_add), contentDescription = label) }
             }
         }
     }
@@ -203,7 +201,7 @@ private fun PermissionAttentionButton(question: Boolean, onClick: () -> Unit) {
     val label = stringResource(if (question) R.string.permission_answer else R.string.permission_approve)
     TooltipBox(positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(), tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
         FilledIconButton(onClick = onClick, colors = IconButtonDefaults.filledIconButtonColors(containerColor = color, contentColor = Color.White)) {
-            Icon(if (question) Icons.Default.Help else Icons.Default.VerifiedUser, contentDescription = label)
+            Icon(painterResource(if (question) R.drawable.ic_help else R.drawable.ic_verified_user), contentDescription = label)
         }
     }
 }
