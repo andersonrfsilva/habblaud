@@ -2,6 +2,7 @@ package br.com.xlinx.habblaud.data
 
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.longOrNull
 
 /** Personagem dono de uma sessão omp encerrada: o único membro do elenco cujo `last` aponta para ela. */
 internal fun castOwner(cast: List<JsonObject>, key: SessionKey): JsonObject? = cast.filter { member ->
@@ -39,6 +40,9 @@ class SessionRepository(private val api: HabblaudApi) {
         private set
     var permissionsAllowed = false
         private set
+    /** Relógio do servidor no último snapshot: as marcas de "lido" usam ele, não o do celular (as respostas também). */
+    var serverTime = 0L
+        private set
 
     suspend fun refresh() {
         val access = wireJson.parseToJsonElement(api.access()).jsonObject
@@ -58,6 +62,7 @@ class SessionRepository(private val api: HabblaudApi) {
 
     fun snapshot(data: String): List<SessionItem> {
         val root = wireJson.parseToJsonElement(data).jsonObject
+        serverTime = root.string("serverTime")?.toLongOrNull() ?: serverTime
         val rooms = root.objects("rooms").associate { it.string("id") to (it.string("path") ?: it.string("name")) }
         val agents = root.objects("agents")
         val subs = activeSubagents(agents)
@@ -87,7 +92,8 @@ class SessionRepository(private val api: HabblaudApi) {
         return SessionItem(key, agent, o.string("title") ?: o.string("name") ?: id, project ?: o.string("project"), o.string("status"), activity, permission != null, o.string("name"), o.flag("canMessage"), permission?.string("id"), (o.string("lastEventAt") ?: o.string("lastAt"))?.toLongOrNull(), parseAvatar(o), o.string("cast"), o.flag("castOpened"), permission?.objects("questions")?.isNotEmpty() == true, o.string("name")?.takeIf { o.string("kind") == "main" },
             contextTokens = context?.string("tokens")?.toLongOrNull()?.takeIf { it >= 0 }, contextWindow = context?.string("window")?.toLongOrNull()?.takeIf { it > 0 },
             model = o.string("model"), thinking = o.string("thinking"),
-            models = (o["models"] as? kotlinx.serialization.json.JsonArray)?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { p -> p.isString }?.content }.orEmpty())
+            models = (o["models"] as? kotlinx.serialization.json.JsonArray)?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { p -> p.isString }?.content }.orEmpty(),
+            replies = (o["replies"] as? kotlinx.serialization.json.JsonArray)?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.longOrNull }.orEmpty())
     }
 
 }

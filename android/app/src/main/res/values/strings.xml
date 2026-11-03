@@ -215,4 +215,8 @@
     <string name="summary_label">Resumo · toque para ver tudo</string>
     <string name="summary_loading">Resumindo… toque para ver a resposta completa</string>
     <string name="summary_collapse">Mostrar o resumo</string>
+    <plurals name="unread_replies">
+        <item quantity="one">%1$d resposta não lida</item>
+        <item quantity="other">%1$d respostas não lidas</item>
+    </plurals>
 </resources>

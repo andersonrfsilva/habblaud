@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -204,7 +205,8 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                 Tab(selected = recent, onClick = { recent = true }, text = { Text(stringResource(R.string.recent_sessions)) })
             }
             if (!state.terminalAllowed) Text(stringResource(R.string.terminal_blocked))
-            val items = state.sessions.filter { (recent || it.agentId != null) && listOfNotNull(it.title, it.characterName, it.agentName, it.project, it.key.provider, it.key.account).any { value -> value.contains(query, true) } }
+            // Como num chat: a conversa com a resposta mais nova no topo.
+            val items = byLastMessage(state.sessions.filter { (recent || it.agentId != null) && listOfNotNull(it.title, it.characterName, it.agentName, it.project, it.key.provider, it.key.account).any { value -> value.contains(query, true) } })
             // A busca é o primeiro item e começa fora da tela: aparece ao puxar a lista para baixo no topo.
             val sessionsList = rememberLazyListState(initialFirstVisibleItemIndex = 1)
             val density = androidx.compose.ui.platform.LocalDensity.current
@@ -228,7 +230,15 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                             Text(listOfNotNull(session.project?.substringAfterLast('/'), statusLabel(session.status ?: session.activity)).joinToString(" · "), style = MaterialTheme.typography.bodyMedium)
                             if (session.permission) TextButton(onClick = { permissionSession = session }) { Text(stringResource(R.string.permission_pending), color = MaterialTheme.colorScheme.error) }
                         }
-                        session.lastAt?.let { Text(relativeTime(it), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            (session.replies.lastOrNull() ?: session.lastAt)?.let { Text(relativeTime(it), style = MaterialTheme.typography.labelSmall, color = if (state.unread[session.key] != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
+                            state.unread[session.key]?.let { count ->
+                                val label = pluralStringResource(R.plurals.unread_replies, count, count)
+                                Badge(Modifier.semantics { contentDescription = label }, containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary) {
+                                    Text(if (count >= REPLIES_SHOWN) "$REPLIES_SHOWN+" else count.toString(), style = MaterialTheme.typography.labelMedium)
+                                }
+                            }
+                        }
                     }
                     // Subagentes e advisors pendurados no principal enquanto trabalham; somem sozinhos quando terminam.
                     session.subagents.forEachIndexed { i, sub -> SubagentBranch(api, sub, last = i == session.subagents.lastIndex) { controller.open(subSession(session, sub)) } }
@@ -449,6 +459,8 @@ private fun ChatBanner(message: String) {
     }
 }
 
+/** O servidor guarda até 99 respostas por agente (REPLIES_LIMIT): daí para cima o balão mostra "99+". */
+private const val REPLIES_SHOWN = 99
 /** Respostas até este tamanho já cabem em poucas frases: ficam inteiras, sem pedir resumo. */
 private const val SUMMARY_MIN_CHARS = 500
 /** O servidor aceita até 32 Ki caracteres; o resumo de uma resposta maior olha só o começo dela. */

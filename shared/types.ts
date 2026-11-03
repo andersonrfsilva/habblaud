@@ -233,6 +233,11 @@ export interface AgentInfo {
   permissionMode?: string;
   startedAt: number;
   lastEventAt: number;
+  /**
+   * Quando chegaram as últimas respostas em texto do agente principal (atividades `respond`, epoch ms, da mais antiga
+   * para a mais nova, no máximo REPLIES_LIMIT). O app conta as não lidas pelas que vieram depois da última abertura.
+   */
+  replies?: number[];
   /** Quando o status mudou pela última vez (epoch ms). */
   statusSince: number;
   stats: AgentStats;

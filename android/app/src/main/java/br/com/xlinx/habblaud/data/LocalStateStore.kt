@@ -221,6 +221,15 @@ class LocalStateStore(private val context: Context) : MessageStore {
     suspend fun sessionDeliverAs(key: SessionKey): String = context.localState.data.first()[hashed("deliver_", key)]?.takeIf { it in DELIVER_MODES } ?: deliverAs()
     suspend fun setSessionDeliverAs(key: SessionKey, mode: String) { if (mode in DELIVER_MODES) context.localState.edit { it[hashed("deliver_", key)] = mode } }
 
+    // Até quando cada conversa foi lida (relógio do servidor), para o balão de não lidas da tela principal. Fica em
+    // local_state: pertence ao servidor atual e some ao sair da conta. Chave = hash da sessão.
+    private val seenKey = stringPreferencesKey("seen_replies")
+    fun seenId(key: SessionKey): String = hashed("", key).name
+    suspend fun seenReplies(): Map<String, Long> = context.localState.data.first()[seenKey]?.let { value ->
+        runCatching { org.json.JSONObject(value).let { o -> o.keys().asSequence().associateWith { o.getLong(it) } } }.getOrNull()
+    }.orEmpty()
+    suspend fun setSeenReplies(seen: Map<String, Long>) { context.localState.edit { it[seenKey] = org.json.JSONObject(seen).toString() } }
+
     suspend fun clear() = withContext(kotlinx.coroutines.NonCancellable) {
         coordinator.lock.withLock {
             migrateLegacySettings()

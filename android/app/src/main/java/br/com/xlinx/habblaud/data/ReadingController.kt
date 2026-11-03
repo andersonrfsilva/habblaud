@@ -20,7 +20,9 @@ private val persistScope = CoroutineScope(kotlinx.coroutines.SupervisorJob() + k
     val reduced: Boolean = false, val terminalAllowed: Boolean = false,
     val connection: String = "connecting", val error: String? = null,
     val messagesAllowed: Boolean = false, val messageGuard: Boolean = false, val permissionsAllowed: Boolean = false,
-    val readingError: String? = null
+    val readingError: String? = null,
+    /** Respostas não lidas por sessão (só as com alguma), para o balão da tela principal. */
+    val unread: Map<SessionKey, Int> = emptyMap(),
 )
 
 internal fun ReadingState.streamFailure(status: Int?, conversation: Boolean): ReadingState {
@@ -84,6 +86,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                 }
                 mutable.value = mutable.value.copy(terminalAllowed = repository.terminalAllowed, messagesAllowed = repository.messagesAllowed, messageGuard = repository.messageGuard, permissionsAllowed = repository.permissionsAllowed)
                 if (!restoreLoaded) { restore = store.lastSession()?.takeIf { it.origin == api.origin }; restoreLoaded = true }
+                if (seen == null) seen = store.seenReplies()
                 streams.stream("/api/stream").collect { event ->
                     when (event) {
                         is StreamEvent.Connected -> mutable.value = mutable.value.copy(connection = "connected", error = if (mutable.value.error == "network") null else mutable.value.error)
@@ -98,6 +101,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                                 else sessions.find { it.key == selectedItem.key } ?: selectedItem.copy(agentId = null, canMessage = false)
                             })
                             restore?.let { key -> sessions.find { it.key == key }?.let { item -> restore = null; open(item) } }
+                            refreshUnread()
                         }
                     }
                 }
@@ -105,8 +109,28 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         }
         mutable.value.selected?.let { open(it) }
     }
-    fun stop() { persist(); active = false; generation++; stateJob?.cancel(); conversationJob?.cancel(); messages.stop(); api.cancelCalls(); mutable.value = mutable.value.copy(connection = "offline", readingError = if (mutable.value.selected != null && mutable.value.readingError == null) "network" else mutable.value.readingError) }
-    fun close() { persist(); cachedKey = null; summaries.clear(); generation++; conversationJob?.cancel(); messages.close(); restore = null; val write = store.conversationWrite(conversationEpoch); scope.launch { store.setLastSession(null, write) }; mutable.value = mutable.value.copy(selected = null, entries = emptyList(), error = null, readingError = null) }
+    fun stop() { persist(); saveSeen(0); active = false; generation++; stateJob?.cancel(); conversationJob?.cancel(); messages.stop(); api.cancelCalls(); mutable.value = mutable.value.copy(connection = "offline", readingError = if (mutable.value.selected != null && mutable.value.readingError == null) "network" else mutable.value.readingError) }
+    fun close() { persist(); cachedKey = null; summaries.clear(); generation++; conversationJob?.cancel(); messages.close(); restore = null; val write = store.conversationWrite(conversationEpoch); scope.launch { store.setLastSession(null, write) }; mutable.value = mutable.value.copy(selected = null, entries = emptyList(), error = null, readingError = null); refreshUnread() }
+    /** Até quando cada conversa foi lida (`LocalStateStore.seenId` → hora do servidor); null até ler do aparelho. */
+    private var seen: Map<String, Long>? = null
+    private var seenJob: Job? = null
+    /** Marca a conversa aberta como lida até o último snapshot e recalcula os balões de não lidas. */
+    private fun refreshUnread() {
+        val current = seen ?: return
+        val state = mutable.value
+        val now = repository.serverTime
+        val open = state.selected?.takeUnless { it.sub }?.key
+        val next = if (now > 0) updatedSeen(current, state.sessions.filter { it.agentId != null }.map { store.seenId(it.key) }, open?.let(store::seenId), now) else null
+        if (next != null) { seen = next; saveSeen(2_000) }
+        val marks = next ?: current
+        mutable.value = state.copy(unread = state.sessions.filter { it.key != open }.associate { it.key to unreadCount(it.replies, marks[store.seenId(it.key)]) }.filterValues { it > 0 })
+    }
+    private fun saveSeen(delayMs: Long) {
+        val marks = seen ?: return
+        seenJob?.cancel()
+        // Escopo próprio, como as conversas: stop() roda no descarte da tela.
+        seenJob = persistScope.launch { delay(delayMs); store.setSeenReplies(marks) }
+    }
     /** Sessão cuja conversa está em `conversation` (veio do aparelho ou do servidor) e pode ser guardada. */
     private var cachedKey: SessionKey? = null
     private var saveJob: Job? = null
@@ -152,6 +176,8 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         generation++; val token = generation
         conversationJob?.cancel()
         mutable.value = mutable.value.copy(selected = item, entries = emptyList(), truncated = false, reduced = false, error = null, readingError = null)
+        // Abrir lê tudo o que já chegou: sem isso, uma conversa parada (sem snapshot novo) voltaria com o balão.
+        refreshUnread()
         messages.open(item.key)
         if (!active || !repository.terminalAllowed) return
         val base = if (item.agentId != null) "/api/agents/${encode(item.agentId)}/terminal" else "/api/sessions/${encode(item.key.account)}/${encode(item.key.sessionId)}/terminal"
