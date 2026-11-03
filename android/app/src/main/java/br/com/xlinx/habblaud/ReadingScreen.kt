@@ -84,9 +84,9 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (selected != null) CharacterAvatar(api, selected, 36.dp)
                     Column(Modifier.weight(1f)) {
-                        Text(selected?.characterName ?: selected?.title ?: stringResource(R.string.app_name), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(selected?.title ?: selected?.characterName ?: stringResource(R.string.app_name), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         val projectStatus = selected?.let { listOfNotNull(it.project?.substringAfterLast('/'), statusLabel(it.status ?: it.activity)).joinToString(" · ") }
-                        val subtitle = if (selected == null) stringResource(when (state.connection) { "connected" -> R.string.reading_connected; "connecting" -> R.string.reading_connecting; else -> R.string.reading_offline }) else listOfNotNull(selected.title.takeIf { selected.characterName != null && it != selected.characterName }, projectStatus?.takeIf { it.isNotEmpty() }).joinToString(" · ")
+                        val subtitle = if (selected == null) stringResource(when (state.connection) { "connected" -> R.string.reading_connected; "connecting" -> R.string.reading_connecting; else -> R.string.reading_offline }) else listOfNotNull(selected.characterName.takeIf { it != null && it != selected.title }, projectStatus?.takeIf { it.isNotEmpty() }).joinToString(" · ")
                         Text(subtitle, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
@@ -128,8 +128,8 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                     Row(Modifier.fillMaxWidth().clickable { controller.open(session) }.padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         CharacterAvatar(api, session, 48.dp)
                         Column(Modifier.weight(1f)) {
-                            Text(session.characterName ?: session.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            if (session.characterName != null && session.title != session.characterName) Text(session.title, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(session.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (session.characterName != null && session.title != session.characterName) Text(session.characterName, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(listOfNotNull(session.project?.substringAfterLast('/'), statusLabel(session.status ?: session.activity)).joinToString(" · "), style = MaterialTheme.typography.bodyMedium)
                             if (session.permission) TextButton(onClick = { permissionSession = session }) { Text(stringResource(R.string.permission_pending), color = MaterialTheme.colorScheme.error) }
                         }
@@ -220,9 +220,8 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                 else if (!state.messageGuard) ChatBanner(stringResource(R.string.message_guard_required))
                 else if (agentId != null && !selected.canMessage) ChatBanner(stringResource(R.string.message_unavailable))
                 if (selected.key.provider == "omp") {
-                    composer.control?.let { control -> Text(stringResource(when (control.status) {
+                    composer.control?.takeUnless { it.status == "delivered" }?.let { control -> Text(stringResource(when (control.status) {
                         "queued", "sent" -> R.string.stop_pending
-                        "delivered" -> R.string.stop_ack
                         "failed" -> R.string.stop_failed
                         else -> R.string.stop_unknown
                     })) }

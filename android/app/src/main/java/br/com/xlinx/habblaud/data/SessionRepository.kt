@@ -46,7 +46,7 @@ class SessionRepository(private val api: HabblaudApi) {
         val historical = recent.associateBy { it.key }
         return open.map { item -> item.copy(project = item.project ?: historical[item.key]?.project, lastAt = item.lastAt ?: historical[item.key]?.lastAt, title = if (item.title == item.characterName) historical[item.key]?.title ?: item.title else item.title) } + recent.filterNot { live.containsKey(it.key) }.map { item ->
             val match = cast.filter { member ->
-                item.key.provider == "claude" && (member.string("account") == null || member.string("account") == item.key.account) &&
+                item.key.provider == "omp" && (member.string("account") == null || member.string("account") == item.key.account) &&
                     (member["last"] as? JsonObject)?.values?.any { value -> value.toString().trim('"') == item.key.sessionId } == true
             }.singleOrNull()
             item.copy(agentId = null, avatar = match?.let(::parseAvatar), cast = match?.string("id"), characterName = match?.string("name"))

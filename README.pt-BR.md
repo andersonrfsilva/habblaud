@@ -258,7 +258,7 @@ Para gerar capturas dos dois temas com dados fictícios, execute `scripts/androi
 `habblaud034` disponível. As imagens ficam em `/tmp/android-screens/`.
 
 Quando o acesso remoto permite `terminal` e o auxiliar do host está disponível, o aplicativo também chama e dispensa
-personagens do elenco e retoma sessões Claude em pastas permitidas ao personagem. Um pedido sem confirmação não é
+personagens do elenco e retoma sessões omp encerradas pelo personagem dono da sessão. Um pedido sem confirmação não é
 reenviado automaticamente. Os avatares usam a mesma arte do escritório e ficam em cache privado no aparelho. O nome
 do personagem aparece junto ao avatar; toque longo nos ícones de ação mostra sua função.
 

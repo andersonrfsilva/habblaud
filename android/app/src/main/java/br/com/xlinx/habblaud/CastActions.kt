@@ -108,8 +108,10 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
     }
     val current = selected?.cast?.let { id -> characters.find { it.id == id } }
     val activeJob = current?.let { jobs[it.id] in listOf("queued", "sent", "waiting") } == true
-    val resumeChoices = if (selected?.project?.startsWith('/') == true) characters.filter { it.rooms.isEmpty() || selected.project in it.rooms } else emptyList()
-    val resume = selected != null && selected.agentId == null && selected.key.provider == "claude" &&
+    // O elenco roda pelo omp (--resume com a pasta de agente do personagem): só o dono da sessão consegue retomá-la.
+    val eligible = if (selected?.project?.startsWith('/') == true) characters.filter { it.rooms.isEmpty() || selected.project in it.rooms } else emptyList()
+    val resumeChoices = current?.takeIf { it in eligible }?.let { listOf(it) }.orEmpty()
+    val resume = selected != null && selected.agentId == null && selected.key.provider == "omp" &&
         selected.key.sessionId.matches(sessionIdPattern) && resumeChoices.isNotEmpty()
     val dismiss = selected?.agentId != null && selected.castOpened && current != null
     val actions: @Composable () -> Unit = {
