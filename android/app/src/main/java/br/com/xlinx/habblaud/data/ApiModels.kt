@@ -34,10 +34,19 @@ data class Avatar(val seed: Long, val look: String, val kind: String = "main", v
 /** Id de quem foi chamado como "Novo" (fora do elenco), igual a NEW_CAST_PREFIX de shared/types.ts no servidor. */
 const val NEW_CAST_PREFIX = "novo-"
 
-data class SessionItem(val key: SessionKey, val agentId: String?, val title: String, val project: String?, val status: String?, val activity: String?, val permission: Boolean = false, val agentName: String? = null, val canMessage: Boolean = false, val permissionId: String? = null, val lastAt: Long? = null, val avatar: Avatar? = null, val cast: String? = null, val castOpened: Boolean = false, val permissionQuestion: Boolean = false, val characterName: String? = null, val contextTokens: Long? = null, val contextWindow: Long? = null, val model: String? = null, val thinking: String? = null, val models: List<String> = emptyList(), val subagents: List<SubAgent> = emptyList())
+data class SessionItem(val key: SessionKey, val agentId: String?, val title: String, val project: String?, val status: String?, val activity: String?, val permission: Boolean = false, val agentName: String? = null, val canMessage: Boolean = false, val permissionId: String? = null, val lastAt: Long? = null, val avatar: Avatar? = null, val cast: String? = null, val castOpened: Boolean = false, val permissionQuestion: Boolean = false, val characterName: String? = null, val contextTokens: Long? = null, val contextWindow: Long? = null, val model: String? = null, val thinking: String? = null, val models: List<String> = emptyList(), val subagents: List<SubAgent> = emptyList(), val sub: Boolean = false)
 
 /** Subagente ou advisor trabalhando agora sob um agente principal (some do snapshot ao terminar). */
 data class SubAgent(val id: String, val name: String, val avatar: Avatar?, val advisor: Boolean, val activity: String?)
+
+/**
+ * Conversa de um subagente para ler (sem mensagens nem controles): a chave é a do principal com o id do subagente,
+ * para não se confundir com a sessão dele; o stream é o do terminal do subagente (`/api/agents/<id>/terminal`).
+ */
+fun subSession(parent: SessionItem, sub: SubAgent): SessionItem = SessionItem(
+    parent.key.copy(sessionId = "${parent.key.sessionId}/${sub.id}"), sub.id, sub.name, parent.project, "working", sub.activity,
+    avatar = sub.avatar, characterName = sub.name, sub = true,
+)
 
 data class TerminalEntry(val id: String, val kind: String, val text: String, val title: String? = null, val toolUseId: String? = null, val truncated: Boolean = false, val at: Long? = null) {
     val bytes: Int get() = (id + kind + text + (title ?: "") + (toolUseId ?: "")).toByteArray(Charsets.UTF_8).size

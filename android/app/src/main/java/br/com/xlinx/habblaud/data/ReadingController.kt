@@ -91,7 +91,11 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                             val sessions = repository.snapshot(event.data)
                             val selected = mutable.value.selected
                             if (selected?.agentId != null && sessions.any { it.agentId == selected.agentId && it.key != selected.key }) changed()
-                            mutable.value = mutable.value.copy(sessions = sessions, selected = mutable.value.selected?.let { selectedItem -> sessions.find { it.key == selectedItem.key } ?: selectedItem.copy(agentId = null, canMessage = false) })
+                            // A conversa de um subagente não está na lista: segue aberta como está até o leitor fechar.
+                            mutable.value = mutable.value.copy(sessions = sessions, selected = mutable.value.selected?.let { selectedItem ->
+                                if (selectedItem.sub) selectedItem.copy(status = if (sessions.any { s -> s.subagents.any { it.id == selectedItem.agentId } }) "working" else "done")
+                                else sessions.find { it.key == selectedItem.key } ?: selectedItem.copy(agentId = null, canMessage = false)
+                            })
                             restore?.let { key -> sessions.find { it.key == key }?.let { item -> restore = null; open(item) } }
                         }
                     }
@@ -136,10 +140,11 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         messages.open(item.key)
         if (!active || !repository.terminalAllowed) return
         val base = if (item.agentId != null) "/api/agents/${encode(item.agentId)}/terminal" else "/api/sessions/${encode(item.key.account)}/${encode(item.key.sessionId)}/terminal"
-        scope.launch { store.setLastSession(item.key) }
+        if (!item.sub) scope.launch { store.setLastSession(item.key) }
         conversationJob = scope.launch {
             // O que já foi lido aparece na hora; o servidor manda só o que veio depois da última entrada guardada.
-            val cached = store.conversation(item.key)
+            // Subagentes não ficam guardados: são conversas curtas, e cada uma viraria um arquivo a mais no aparelho.
+            val cached = if (item.sub) null else store.conversation(item.key)
             if (token != generation) return@launch
             val last = cached?.entries?.lastOrNull { it.at != null }
             if (cached != null && cached.entries.isNotEmpty()) {
@@ -158,7 +163,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                         if (event.type == "init") {
                             // Reenvio da conversa (reconexão, /shake ou arquivo reescrito) não é troca de sessão: a
                             // conferência abaixo pergunta ao servidor e só fecha se o agente estiver em outra sessão.
-                            if (item.agentId != null) {
+                            if (item.agentId != null && !item.sub) {
                                 // A conferência da sessão também tolera falha passageira: até 3 tentativas antes de desistir.
                                 var matches: Boolean? = null
                                 var attempt = 0
@@ -185,7 +190,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                             // `after` = o servidor achou a última entrada guardada e mandou só o resto: soma ao que já está na tela.
                             if (obj["after"] != null && cachedKey == item.key) conversation.append(items)
                             else conversation.init(items, obj.flag("truncated"))
-                            cachedKey = item.key
+                            if (!item.sub) cachedKey = item.key
                             initialized = true
                         } else if (event.type == "append" && initialized) {
                             conversation.append(wireJson.parseToJsonElement(event.data).jsonArray.mapNotNull { (it as? kotlinx.serialization.json.JsonObject)?.let(TerminalEntry::parse) })

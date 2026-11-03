@@ -116,7 +116,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
         // Menu em páginas: a principal lista os grupos; tocar num grupo troca o conteúdo pela lista dele, com "‹ Voltar".
         var page by remember { mutableStateOf("") }
         val agentId = selected?.agentId
-        val omp = selected?.key?.provider == "omp" && agentId != null
+        val omp = selected?.key?.provider == "omp" && agentId != null && !selected.sub
         val canControl = omp && selected!!.canMessage && state.messagesAllowed && state.messageGuard && state.connection == "connected"
         @Composable fun Back() = DropdownMenuItem(text = { Text(stringResource(R.string.back), style = MaterialTheme.typography.labelLarge) }, leadingIcon = { Text("‹", style = MaterialTheme.typography.titleMedium) }, onClick = { page = "" })
         @Composable fun Group(label: Int, value: String?, target: String, enabled: Boolean = true) = DropdownMenuItem(
@@ -230,7 +230,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                         session.lastAt?.let { Text(relativeTime(it), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
                     // Subagentes e advisors pendurados no principal enquanto trabalham; somem sozinhos quando terminam.
-                    session.subagents.forEachIndexed { i, sub -> SubagentBranch(api, sub, last = i == session.subagents.lastIndex) }
+                    session.subagents.forEachIndexed { i, sub -> SubagentBranch(api, sub, last = i == session.subagents.lastIndex) { controller.open(subSession(session, sub)) } }
                     }
                 }
                 item(key = "filler") { Spacer(Modifier.height(with(density) { fillerPx.toDp() })) }
@@ -290,7 +290,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                     }
                 }
             }
-            if (composer.key == selected.key && selected.agentId != null) {
+            if (composer.key == selected.key && selected.agentId != null && !selected.sub) {
                 val agentId = selected.agentId
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 val enabled = agentId != null && selected.canMessage && state.messagesAllowed && state.messageGuard && state.connection == "connected"
@@ -390,20 +390,20 @@ private fun statusLabel(value: String?): String? = when (value?.lowercase()) {
     else -> null
 }
 
-/** Galho da árvore sob o avatar do principal (48 dp): linha vertical, curva até o avatar do subagente, nome e atividade. */
+/** Galho da árvore sob o avatar do principal (48 dp), menor que ele: linha, avatar de 24 dp, nome e atividade. Tocar abre a conversa para ler. */
 @Composable
-private fun SubagentBranch(api: HabblaudApi, sub: SubAgent, last: Boolean) {
+private fun SubagentBranch(api: HabblaudApi, sub: SubAgent, last: Boolean, onOpen: () -> Unit) {
     val line = MaterialTheme.colorScheme.outlineVariant
-    Row(Modifier.fillMaxWidth().height(44.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().height(36.dp).clickable(onClick = onOpen), verticalAlignment = Alignment.CenterVertically) {
         Canvas(Modifier.width(40.dp).fillMaxHeight()) {
-            val x = 24.dp.toPx(); val mid = size.height / 2; val stroke = 2.dp.toPx()
+            val x = 24.dp.toPx(); val mid = size.height / 2; val stroke = 1.5.dp.toPx()
             drawLine(line, androidx.compose.ui.geometry.Offset(x, 0f), androidx.compose.ui.geometry.Offset(x, if (last) mid else size.height), stroke)
             drawLine(line, androidx.compose.ui.geometry.Offset(x, mid), androidx.compose.ui.geometry.Offset(size.width, mid), stroke)
         }
-        CharacterAvatar(api, sub.avatar, sub.name, 28.dp)
+        CharacterAvatar(api, sub.avatar, sub.name, 24.dp)
         Column(Modifier.weight(1f).padding(start = 8.dp)) {
-            Text(if (sub.advisor) stringResource(R.string.advisor_name, sub.name) else sub.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            sub.activity?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            Text(if (sub.advisor) stringResource(R.string.advisor_name, sub.name) else sub.name, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            sub.activity?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
         }
     }
 }
