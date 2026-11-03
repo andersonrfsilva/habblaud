@@ -34,6 +34,7 @@ do meio (0.**3**.0).
 - **Android:** Configurações trocam modelo e raciocínio dos papéis `task`, `plan` e `advisor` do omp (modelRoles
   global da conta padrão). O auxiliar do host grava com `omp config set` e devolve os valores lidos a cada rodada
   (`GET`/`POST /api/cast/roles`).
+- **Zaplaud:** novo ícone de aplicativo combina conversa e inteligência artificial.
 
 - **Android:** cliente nativo para login remoto, lista de sessões e conversa, envio com anexos, aprovações e
   interrupção omp, conforme as permissões do servidor. Acompanha o tema claro ou escuro do sistema e mostra Markdown
