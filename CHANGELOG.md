@@ -15,6 +15,8 @@ do meio (0.**3**.0).
 - **Android:** gravações antigas de conversas não recriam o cache após sair da conta ou trocar de servidor.
 - **Android:** a última sessão segue a ordem das escolhas, mesmo quando gravações antigas terminam depois.
 
+- **Android:** alertas oferecem uma versão genérica quando o sistema oculta conteúdo privado. A exibição depende
+  das configurações do sistema e do usuário.
 - **Terminal:** avisos de envio, ditado e anexos aparecem junto ao estado da sessão, acima da caixa de mensagem.
 - **omp:** a espera (`wait`) diz o que aguarda: o comando em segundo plano, o subagente pelo nome ou os dois, em vez
   de sempre "Esperando os subagentes".
