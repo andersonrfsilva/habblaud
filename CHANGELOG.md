@@ -18,9 +18,11 @@ do meio (0.**3**.0).
   A instrumentação Android passou com 102 testes (87 shared + 15 app), sem falhas ou erros, em emulador Android 16.
   A verificação integrada final dos testes host shared, lint e APK debug também passou após os ajustes de estado e cookie.
   O smoke local comprovou login, leitura, envio único com resposta 201, entrega e retorno sem reenvio automático.
-  iOS continua bloqueado: Actions recusou a execução macOS (HTTP 422; Actions desativado) e o Mac estava offline.
-  Não há compilação iOS comprovada nem IPA gerado. Atualização sobre APK antigo, VoiceOver e instalação,
-  atualização e refresh pelo SideStore/Tailscale ainda exigem os gates do plano.
+  Xcode 26.3 no macOS 15.7.9 compilou o simulador e o IPA arm64 sem downgrade de dependências.
+  Os 65 testes nativos e o smoke de login, envio único e recuperação de rascunho após encerrar o app passaram.
+  O heap Gradle passou de 2 para 4 GiB para concluir a otimização Release Kotlin/Native.
+  O IPA sem assinatura foi gerado para reassinatura pelo SideStore. Atualização sobre APK antigo, VoiceOver,
+  instalação física, atualização e refresh pelo SideStore/Tailscale ainda exigem os gates do plano.
 - **Android:** Configurações › Resumos liga o resumo das respostas do agente. O papel `tiny` do omp resume cada
   resposta longa em até 5 frases; tocar no resumo mostra a resposta completa. Desligado por padrão. Os resumos ficam
   guardados no aparelho junto da conversa: reabrir a sessão não pede de novo. Só funciona com um modelo escolhido

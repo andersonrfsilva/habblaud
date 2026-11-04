@@ -372,7 +372,8 @@ O código nativo do Zaplaud usa Kotlin Multiplatform e Compose Multiplatform. `a
 `ios/Zaplaud.xcodeproj` chama `MainViewController()` do framework estático `ZaplaudShared`. Não usa WebView.
 
 A combinação fixada é Kotlin **2.4.21**, Compose Multiplatform **1.12.2**, Ktor **3.6.1**, AGP **9.1.1** e
-Gradle **9.3.1**. O mínimo declarado é **iPadOS 14**, com **Xcode 26.4** para a toolchain Kotlin escolhida.
+Gradle **9.3.1**. O mínimo declarado é **iPadOS 14**. O CI usa **Xcode 26.4**; compilação e smoke do simulador
+também passaram com **Xcode 26.3**, SDK 26.2 e runtime iOS 26.3.1 no **macOS 15.7.9**, sem downgrade.
 O renderer Markdown continua na versão **0.38.0**, que publica variantes `iosArm64` e `iosSimulatorArm64`.
 OkHttp e MockWebServer ficam alinhados em **5.5.1**, compatíveis com o runtime transitivo do Ktor; os testes
 mantêm o artefato de compatibilidade `mockwebserver`, sem trocar as verificações de rede por mocks de funções.
@@ -400,13 +401,16 @@ Uploads são binários e em fluxo, com os mesmos limites de cinco anexos e 15 Mi
 
 #### Compilar no Mac e gerar IPA para reassinatura
 
-Instale a versão de Xcode indicada, suas ferramentas de linha de comando, JDK 17 e Android SDK `platforms;android-37.0`.
+Instale Xcode, aceite a licença, conclua os componentes iniciais e instale um runtime de simulador iOS arm64.
+Use JDK 17, Node 22 e `npm ci`. Defina `DEVELOPER_DIR` e `JAVA_HOME` se as ferramentas não forem padrão.
+Android SDK `platforms;android-37.0` é necessário para os gates Android, não para o build exclusivamente Apple.
 Execute na raiz do repositório:
 
 ```bash
 android/gradlew -p android :shared:tasks --all
-android/gradlew -p android :shared:allTests :app:testDebugUnitTest
+android/gradlew -p android :shared:testAndroidHostTest :app:testDebugUnitTest # requer Android SDK
 bash scripts/ios-build.sh simulator
+bash scripts/ios-native-tests.sh
 bash scripts/ios-smoke.sh
 bash scripts/ios-build.sh device
 unzip -t ios/build/Zaplaud.ipa
@@ -451,9 +455,13 @@ com `ANDROID_HOME=/home/anderson/Android/Sdk`. A suíte host shared tem **76 tes
 a compilação dos APKs instrumentados também passou. `:app:testDebugUnitTest` foi **NO-SOURCE**, portanto não
 representa testes unitários app executados. `npm run typecheck` passou.
 
-**iOS permanece bloqueado:** a execução macOS no GitHub Actions foi recusada com HTTP **422** e indicação de
-Actions desativado para o repositório; o Mac estava offline. A continuação autorizada foi somente local.
-Não houve compilação native/simulador iOS comprovada, IPA gerado ou instalação em iPad.
+**Validação Apple no Mac da Mira aprovada:** framework Kotlin/Native e aplicativo do simulador compilados,
+**65 testes nativos** aprovados, incluindo Keychain e anexos, e smoke XCTest aprovado. O smoke comprovou login,
+leitura em retrato/paisagem, um envio HTTP 201, ausência de reenvio e rascunho restaurado após segundo plano
+e encerramento do processo. As capturas de conversa e rascunho foram inspecionadas.
+Essa prova usa simulador e fixture isolada; não comprova instalação ou execução no iPad físico.
+O IPA Release arm64 também foi gerado e teve plataforma, recursos e integridade ZIP verificados. O heap Gradle
+é de 4 GiB, necessário para a otimização Kotlin/Native; a primeira tentativa com 2 GiB falhou por falta de heap.
 
 Ainda não foram comprovados: atualização sobre APK antigo com a mesma assinatura e dados preenchidos,
 paridade completa no iPad, VoiceOver, persistência e Keychain após reassinatura, instalação/atualização/refresh
