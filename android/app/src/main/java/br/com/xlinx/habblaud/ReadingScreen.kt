@@ -277,7 +277,6 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
             }
             if (state.reduced) Text(stringResource(R.string.window_reduced))
             val results = state.entries.filter { it.kind == "result" }.groupBy { it.toolUseId }
-            val tools = state.entries.filter { it.kind == "tool" }.map { it.id }.toSet()
             // Lista invertida: o índice 0 é a entrada mais nova. A conversa já abre no fim, sem rolar por todo o histórico.
             val listState = remember(selected.key) { LazyListState() }
             val following by remember(listState) { derivedStateOf { listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0 } }
@@ -314,7 +313,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                     if (working) item(key = "working") { WorkingIndicator(api, selected) }
                     items(rows.asReversed(), key = { it.entry.id }) { row ->
                         val entry = row.entry
-                        if (entry.kind != "result" || entry.toolUseId !in tools) EntryView(entry, results, row.count, row.tools, recovered = entry.id in recovered, cachedSummary = controller.summary(entry), summarize = if (summarizeReplies) { text -> controller.summarize(entry, text) } else null) { before, now ->
+                        EntryView(entry, results, row.count, row.tools, recovered = entry.id in recovered, cachedSummary = controller.summary(entry), summarize = if (summarizeReplies) { text -> controller.summarize(entry, text) } else null) { before, now ->
                             // A lista é invertida: o item cresce para cima. Rola o quanto o cabeçalho tocado andou, para ele
                             // voltar ao lugar; repete por alguns quadros porque o markdown e o texto longo crescem depois do
                             // primeiro quadro. Para se a pessoa rolar.
@@ -606,13 +605,16 @@ internal data class EntryRow(val entry: TerminalEntry, val count: Int = 1, val t
  * Os pensamentos de um turno (até a próxima mensagem sua) viram uma linha só, no lugar do primeiro, com a contagem;
  * ao expandir, mostra o texto de todos. As ferramentas do turno idem: uma linha, no lugar da primeira, que ao expandir
  * mostra cada uma com os resultados. Os transcripts intercalam pensamento e ferramenta, então juntar só os seguidos
- * não basta.
+ * não basta. O resultado de uma ferramenta da lista não vira linha: aparece dentro do grupo (uma linha vazia ainda
+ * ganharia o espaçamento da lista e espalharia as mensagens). Resultado sem a ferramenta na lista continua sozinho.
  */
 internal fun groupTurn(entries: List<TerminalEntry>): List<EntryRow> {
+    val toolIds = entries.filter { it.kind == "tool" }.mapTo(HashSet()) { it.id }
     val rows = mutableListOf<EntryRow>()
     var thinking = -1
     var tools = -1
     for (entry in entries) {
+        if (entry.kind == "result" && entry.toolUseId in toolIds) continue
         if (entry.kind == "user") { thinking = -1; tools = -1 }
         when {
             entry.kind == "thinking" && thinking >= 0 -> {
