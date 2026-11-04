@@ -30,7 +30,7 @@ plutil -lint "$app/Info.plist"
 [[ $(/usr/libexec/PlistBuddy -c 'Print :UIDeviceFamily:0' "$app/Info.plist") == 2 ]] || fail 'App is not iPad-only.'
 if /usr/libexec/PlistBuddy -c 'Print :UIBackgroundModes' "$app/Info.plist" >/dev/null 2>&1; then fail 'Background modes are forbidden.'; fi
 [[ $(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist") == br.com.xlinx.zaplaud ]] || fail 'Unexpected bundle identity.'
-xcrun lipo -verify_arch arm64 "$app/Zaplaud"
+xcrun lipo "$app/Zaplaud" -verify_arch arm64
 xcrun vtool -show-build "$app/Zaplaud" | tee "$out/platform-$mode.txt"
 grep -Eq "platform[[:space:]]+$platform$" "$out/platform-$mode.txt" || fail "Binary is not $platform."
 # Compose's Xcode integration copies common resources into this directory.
