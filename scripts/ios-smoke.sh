@@ -70,8 +70,8 @@ try:
         destination = f'platform=iOS Simulator,id={simulator}'
         subprocess.run(['xcodebuild', '-project', 'ios/Zaplaud.xcodeproj', '-scheme', 'Zaplaud',
                         '-configuration', 'Debug', '-destination', destination,
-                        '-derivedDataPath', str(out / 'DerivedData'), 'CODE_SIGNING_ALLOWED=NO',
-                        'CODE_SIGNING_REQUIRED=NO', 'build-for-testing'], check=True)
+                        '-derivedDataPath', str(out / 'DerivedData'), 'ARCHS=arm64', 'ONLY_ACTIVE_ARCH=YES',
+                        'CODE_SIGNING_ALLOWED=NO', 'CODE_SIGNING_REQUIRED=NO', 'build-for-testing'], check=True)
         files = list((out / 'DerivedData/Build/Products').glob('*.xctestrun'))
         if len(files) != 1:
             raise RuntimeError('Expected exactly one generated Xcode test run configuration')
