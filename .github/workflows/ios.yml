@@ -80,6 +80,7 @@ jobs:
             ios/build/smoke/*.png
             ios/build/smoke/*.log
             ios/build/smoke/*.xcresult
+            ios/build/smoke/attachments/
             ios/build/native-tests/*.log
             ios/build/native-tests/report.json
             android/shared/build/reports/tests/

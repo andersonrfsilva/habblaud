@@ -88,9 +88,12 @@ try:
         test_run = files[0]
         test_run.write_bytes(plistlib.dumps(config))
         results = out / f'Results-{int(time.time())}.xcresult'
-        subprocess.run(['xcodebuild', 'test-without-building', '-xctestrun', str(test_run),
-                        '-destination', destination, '-resultBundlePath', str(results)], check=True)
+        test = subprocess.run(['xcodebuild', 'test-without-building', '-xctestrun', str(test_run),
+                               '-destination', destination, '-resultBundlePath', str(results)])
         run('xcrun', 'simctl', 'io', simulator, 'screenshot', str(out / 'final.png'))
+        subprocess.run(['xcrun', 'xcresulttool', 'export', 'attachments', '--path', str(results),
+                        '--output-path', str(out / 'attachments')], check=True)
+        test.check_returncode()
         fixture.stdin.write('stats\n')
         fixture.stdin.flush()
         stats = receive()
