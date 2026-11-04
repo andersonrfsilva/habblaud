@@ -93,6 +93,8 @@ try:
         run('xcrun', 'simctl', 'io', simulator, 'screenshot', str(out / 'final.png'))
         subprocess.run(['xcrun', 'xcresulttool', 'export', 'attachments', '--path', str(results),
                         '--output-path', str(out / 'attachments')], check=True)
+        subprocess.run(['xcrun', 'xcresulttool', 'export', 'diagnostics', '--path', str(results),
+                        '--output-path', str(out / 'diagnostics')], check=True)
         test.check_returncode()
         fixture.stdin.write('stats\n')
         fixture.stdin.flush()
