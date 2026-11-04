@@ -102,6 +102,7 @@
     <string name="stop_unknown">Interrupção não confirmada. Confira a sessão; o pedido não será reenviado.</string>
     <string name="status_idle">parado</string>
     <string name="status_working">trabalhando</string>
+    <string name="status_line_working">Trabalhando</string>
     <string name="status_waiting">aguardando</string>
     <string name="status_closed">encerrado</string>
     <string name="sessions_empty">Nenhuma sessão encontrada.</string>

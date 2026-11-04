@@ -43,6 +43,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -242,14 +243,14 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                 if (items.isEmpty()) item(key = "empty") { Text(stringResource(R.string.sessions_empty), Modifier.fillMaxWidth().padding(32.dp), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyLarge) }
                 items(items, key = { it.key.serialize() }) { session ->
                     Column(Modifier.fillMaxWidth().animateContentSize()) {
-                    Row(Modifier.fillMaxWidth().clickable { controller.open(session) }.padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().clickable { controller.open(session) }.padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         CharacterAvatar(api, session, 48.dp)
                         Column(Modifier.weight(1f)) {
                             // Não lida: título, personagem e linha de status em negrito, como num chat.
                             val weight = if (state.unread[session.key] != null) FontWeight.Bold else null
                             Text(session.title, style = MaterialTheme.typography.titleMedium, fontWeight = weight, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            if (session.characterName != null && session.title != session.characterName) Text(session.characterName, style = MaterialTheme.typography.bodyMedium, fontWeight = weight, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(listOfNotNull(session.project?.substringAfterLast('/'), statusLabel(session.status ?: session.activity)).joinToString(" · "), style = MaterialTheme.typography.bodyMedium, fontWeight = weight)
+                            Text(listOfNotNull(session.characterName?.takeIf { it != session.title }, session.project?.substringAfterLast('/'), statusLabel(session.status ?: session.activity)).joinToString(" · "), style = MaterialTheme.typography.bodyMedium, fontWeight = weight, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (session.agentId != null && session.status == "working") StatusLine(session)
                             if (session.permission) TextButton(onClick = { permissionSession = session }) { Text(stringResource(R.string.permission_pending), color = MaterialTheme.colorScheme.error) }
                         }
                         Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -338,6 +339,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                     }
                 }
             }
+            if (working) StatusLine(selected, Modifier.padding(horizontal = 4.dp))
             if (composer.key == selected.key && selected.agentId != null && !selected.sub) {
                 val agentId = selected.agentId
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -454,6 +456,43 @@ private fun SubagentBranch(api: HabblaudApi, sub: SubAgent, last: Boolean, onOpe
             sub.activity?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
         }
     }
+}
+
+/** Quadros do spinner, os mesmos do rodapé do terminal na web (client/src/ui/terminal.ts). */
+private val SPINNER = listOf("·", "✢", "✳", "✶", "✻", "✽", "✻", "✶", "✳", "✢")
+private val CODEX_SPINNER = listOf("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+private const val SPINNER_MS = 120L
+
+/**
+ * Linha de estado enquanto o agente trabalha, como o rodapé do terminal na web: spinner, atividade e cronômetro.
+ * As cores vêm do MaterialTheme, então seguem o tema claro/escuro escolhido. Com as animações do sistema
+ * desligadas, o símbolo fica parado e só o cronômetro anda.
+ */
+@Composable
+private fun StatusLine(session: SessionItem, modifier: Modifier = Modifier) {
+    val codex = session.key.provider == "codex"
+    val frames = if (codex) CODEX_SPINNER else SPINNER
+    val animate = animationsEnabled()
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(animate) { while (true) { kotlinx.coroutines.delay(if (animate) SPINNER_MS else 1000L); now = System.currentTimeMillis() } }
+    val glyph = if (animate) frames[((now / SPINNER_MS) % frames.size).toInt()] else if (codex) "•" else "✻"
+    val text = statusLineText(session.activity) ?: stringResource(R.string.status_line_working)
+    val colors = MaterialTheme.colorScheme
+    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(glyph, Modifier.width(14.dp).clearAndSetSemantics { }, color = colors.primary, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
+        Text("$text…", Modifier.weight(1f, fill = false), color = colors.primary, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        session.statusSince?.let { Text("(${stopwatch(now - it)})", color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum")) }
+    }
+}
+
+/** Atividade sem as reticências do fim (a linha põe as dela); vazia vira null. */
+internal fun statusLineText(activity: String?): String? = activity?.trim()?.replace(Regex("(?:…|\\.{1,3})$"), "")?.trim()?.takeIf { it.isNotEmpty() }
+
+/** Cronômetro da linha de estado: "0:07", "12:31", "1:02:10". */
+internal fun stopwatch(ms: Long): String {
+    val total = ms.coerceAtLeast(0) / 1000
+    val h = total / 3600; val m = total % 3600 / 60; val s = total % 60
+    return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
 }
 
 /** Avatar do contato pulando, com três pontos "digitando", enquanto o agente trabalha (parado com as animações do sistema desligadas). */
