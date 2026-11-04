@@ -374,6 +374,8 @@ O código nativo do Zaplaud usa Kotlin Multiplatform e Compose Multiplatform. `a
 A combinação fixada é Kotlin **2.4.21**, Compose Multiplatform **1.12.2**, Ktor **3.6.1**, AGP **9.1.1** e
 Gradle **9.3.1**. O mínimo declarado é **iPadOS 14**, com **Xcode 26.4** para a toolchain Kotlin escolhida.
 O renderer Markdown continua na versão **0.38.0**, que publica variantes `iosArm64` e `iosSimulatorArm64`.
+OkHttp e MockWebServer ficam alinhados em **5.5.1**, compatíveis com o runtime transitivo do Ktor; os testes
+mantêm o artefato de compatibilidade `mockwebserver`, sem trocar as verificações de rede por mocks de funções.
 A presença dos artefatos e a matriz oficial não substituem compilação nem teste em dispositivo.
 O compileSdk Android sobe para **37.0** (`release(37) { minorApiLevel = 0 }`) porque Compose **1.12.1** e o OkHttp transitivo exigem esse SDK;
 Compose também exige AGP **9.1** ou superior, que requer Gradle **9.3.1**. Isso não muda targetSdk **36**
