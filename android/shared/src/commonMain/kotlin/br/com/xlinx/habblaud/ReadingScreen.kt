@@ -59,31 +59,67 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -> Unit, onLogout: () -> Unit) {
+fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store: LocalStateStore, onUnauthorized: (String) -> Unit, onLogin: (String?) -> Unit, onLogout: (String) -> Unit) {
     val scope = rememberCoroutineScope()
     val summarizeReplies by store.summarize.collectAsState(initial = false)
-    val controller = remember(api) { ReadingController(api, store, scope, onUnauthorized) }
-    val pending by pendingSession.collectAsStateWithLifecycle()
-    LaunchedEffect(pending) { pending?.let { controller.openKey(it); pendingSession.value = null } }
+    val controllers = linkedMapOf<String, ReadingController>()
+    val states = linkedMapOf<String, ReadingState>()
     val owner = LocalLifecycleOwner.current
-    DisposableEffect(owner, controller) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_START) controller.start()
-            if (event == Lifecycle.Event.ON_STOP) controller.stop()
+    apis.forEach { (origin, api) -> key(origin) {
+        val controller = remember(api) { ReadingController(api, store, scope) { onUnauthorized(origin) } }
+        controllers[origin] = controller
+        val state by controller.state.collectAsStateWithLifecycle()
+        states[origin] = state
+        val loginRequired = origin in needsLogin
+        DisposableEffect(owner, controller, loginRequired) {
+            val observer = LifecycleEventObserver { _, event ->
+                if (!loginRequired && event == Lifecycle.Event.ON_START) controller.start()
+                if (event == Lifecycle.Event.ON_STOP) controller.stop()
+            }
+            owner.lifecycle.addObserver(observer)
+            if (!loginRequired && owner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) controller.start() else controller.stop()
+            onDispose { owner.lifecycle.removeObserver(observer); controller.stop() }
         }
-        owner.lifecycle.addObserver(observer)
-        if (owner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) controller.start()
-        onDispose { owner.lifecycle.removeObserver(observer); controller.stop() }
+    } }
+    var filter by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(apis.keys) { if (filter !in apis) filter = null }
+    fun open(item: SessionItem) {
+        controllers.filterKeys { it != item.key.origin }.values.forEach { if (it.state.value.selected != null) it.close() }
+        controllers.getValue(item.key.origin).open(item)
     }
-    val state by controller.state.collectAsStateWithLifecycle()
+    val pending by pendingSession.collectAsStateWithLifecycle()
+    LaunchedEffect(pending) { pending?.let { target ->
+        controllers[target.origin]?.let { controller ->
+            controllers.filterKeys { it != target.origin }.values.forEach { if (it.state.value.selected != null) it.close() }
+            controller.openKey(target)
+        }
+        pendingSession.value = null
+    } }
+    val selectedOrigin = states.entries.firstOrNull { it.value.selected != null }?.key
+    val actionOrigin = selectedOrigin ?: filter ?: apis.keys.first()
+    val api = apis.getValue(actionOrigin)
+    val controller = controllers.getValue(actionOrigin)
+    val combinedConnection = when {
+        needsLogin.isNotEmpty() || states.values.any { it.connection == "offline" } -> "offline"
+        states.values.any { it.connection == "connecting" } -> "connecting"
+        else -> "connected"
+    }
+    val state = if (selectedOrigin != null) states.getValue(selectedOrigin) else states.getValue(actionOrigin).copy(
+        sessions = mergeSessions(states, filter),
+        unread = states.values.flatMap { it.unread.entries }.associate { it.toPair() },
+        connection = combinedConnection,
+        terminalAllowed = states.values.any { it.terminalAllowed },
+        error = null
+    )
     val composer by controller.messages.state.collectAsStateWithLifecycle()
     var permissionSession by remember { mutableStateOf<SessionItem?>(null) }
-    val permissionLive = permissionSession?.let { requested -> state.sessions.find { it.key == requested.key && it.permissionId == requested.permissionId } }
-    LaunchedEffect(permissionSession, permissionLive, state.connection) {
-        if (permissionSession != null && permissionLive == null && state.connection == "connected") permissionSession = null
+    val permissionState = permissionSession?.let { states[it.key.origin] } ?: state
+    val permissionLive = permissionSession?.let { requested -> permissionState.sessions.find { it.key == requested.key && it.permissionId == requested.permissionId } }
+    LaunchedEffect(permissionSession, permissionLive, permissionState.connection) {
+        if (permissionSession != null && permissionLive == null && permissionState.connection == "connected") permissionSession = null
     }
     permissionSession?.let { requested ->
-        PermissionSheet(api, permissionLive ?: requested, state.permissionsAllowed, state.connection == "connected", onUnauthorized) { permissionSession = null }
+        PermissionSheet(apis.getValue(requested.key.origin), permissionLive ?: requested, permissionState.permissionsAllowed, permissionState.connection == "connected", { onUnauthorized(requested.key.origin) }) { permissionSession = null }
     }
     var pickerKey by remember { mutableStateOf<SessionKey?>(null) }
     val picker = rememberAttachmentPicker { uris ->
@@ -116,11 +152,11 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
     }
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
     if (settingsOpen) {
-        SettingsScreen(api, store, onClose = { settingsOpen = false }, onLogout = { settingsOpen = false; onLogout() })
+        SettingsScreen(api, store, onClose = { settingsOpen = false }, onLogout = { settingsOpen = false; onLogout(api.origin) })
         return
     }
     PlatformBackHandler(enabled = selected != null && permissionSession == null && !menuExpanded) { controller.close() }
-    CastActions(api, selected, state.connection == "connected" && (state.terminalAllowed || selected?.permission == true), state.sessions.filter { it.agentId != null }.mapNotNull { it.cast }.toSet(), onUnauthorized, { permissionSession = selected }, menu = { close, dismissItem ->
+    CastActions(api, selected, state.connection == "connected" && (state.terminalAllowed || selected?.permission == true) && (selected != null || filter != null || apis.size == 1), state.sessions.filter { it.agentId != null }.mapNotNull { it.cast }.toSet(), { onUnauthorized(api.origin) }, { permissionSession = selected }, menu = { close, dismissItem ->
         // Menu em páginas: a principal lista os grupos; tocar num grupo troca o conteúdo pela lista dele, com "‹ Voltar".
         var page by remember { mutableStateOf("") }
         val agentId = selected?.agentId
@@ -167,7 +203,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
     }) { castActions, castFab, castStatus ->
     var showInfo by remember(selected?.key) { mutableStateOf(false) }
     if (showInfo && selected != null) SessionInfoSheet(api, selected, state.entries, state.truncated) { showInfo = false }
-    Scaffold(floatingActionButton = { castFab() }, topBar = {
+    Scaffold(floatingActionButton = { if (selected != null || filter != null || apis.size == 1) castFab() }, topBar = {
         TopAppBar(
             title = {
                 val infoLabel = stringResource(Res.string.session_info)
@@ -203,7 +239,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                     IconButton(onClick = { menuExpanded = true }, modifier = Modifier.semantics { contentDescription = menuLabel }) { Text("⋮", style = MaterialTheme.typography.headlineMedium) }
                     DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                         DropdownMenuItem(text = { Text(stringResource(Res.string.settings)) }, onClick = { menuExpanded = false; settingsOpen = true })
-                        DropdownMenuItem(text = { Text(stringResource(Res.string.logout)) }, onClick = { menuExpanded = false; onLogout() })
+                        DropdownMenuItem(text = { Text(stringResource(Res.string.add_server)) }, onClick = { menuExpanded = false; onLogin(null) })
                     }
                 }
             }
@@ -213,6 +249,26 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
         state.error?.let { error -> Text(stringResource(when (error) { "changed" -> Res.string.session_changed; "forbidden" -> Res.string.terminal_blocked; "missing" -> Res.string.reading_missing; "oversize" -> Res.string.reading_oversize; else -> Res.string.network_error }), color = MaterialTheme.colorScheme.error) }
         castStatus()
         if (selected == null) {
+            needsLogin.forEach { origin ->
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(serverLabel(origin), Modifier.weight(1f))
+                    TextButton(onClick = { onLogin(origin) }) { Text(stringResource(Res.string.relogin)) }
+                }
+            }
+            states.forEach { (origin, serverState) -> serverState.error?.let {
+                Text((if (apis.size > 1) serverLabel(origin) + ": " else "") + stringResource(when (it) { "forbidden" -> Res.string.terminal_blocked; "missing" -> Res.string.reading_missing; else -> Res.string.network_error }), color = MaterialTheme.colorScheme.error)
+            } }
+            if (apis.size > 1) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = filter == null, onClick = { filter = null }, label = { Text(stringResource(Res.string.filter_all)) })
+                apis.keys.forEach { origin ->
+                    FilterChip(selected = filter == origin, onClick = { filter = origin }, label = { Text(serverLabel(origin)) }, leadingIcon = {
+                        val connection = if (origin in needsLogin) "offline" else states[origin]?.connection
+                        val color = when (connection) { "connected" -> Color(0xFF2E7D32); "connecting" -> Color(0xFFEF6C00); else -> Color(0xFFC62828) }
+                        val label = stringResource(when (connection) { "connected" -> Res.string.reading_connected; "connecting" -> Res.string.reading_connecting; else -> Res.string.reading_offline })
+                        Box(Modifier.size(10.dp).background(color, CircleShape).semantics { contentDescription = label })
+                    })
+                }
+            }
             // Trocar de aba volta ao topo, com a busca escondida.
             fun showTab(value: Boolean) { recent = value; if (query.isEmpty()) scope.launch { withFrameNanos { }; sessionsList.scrollToItem(1) } }
             TabRow(selectedTabIndex = if (recent) 1 else 0) {
@@ -241,13 +297,13 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                 if (items.isEmpty()) item(key = "empty") { Text(stringResource(Res.string.sessions_empty), Modifier.fillMaxWidth().padding(32.dp), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyLarge) }
                 items(items, key = { it.key.serialize() }) { session ->
                     Column(Modifier.fillMaxWidth().animateContentSize()) {
-                    Row(Modifier.fillMaxWidth().testTag("session-row:${session.key.provider}:${session.key.sessionId}").clickable { controller.open(session) }.padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        CharacterAvatar(api, session, 48.dp)
+                    Row(Modifier.fillMaxWidth().testTag("session-row:${session.key.provider}:${session.key.sessionId}").clickable { open(session) }.padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        CharacterAvatar(apis.getValue(session.key.origin), session, 48.dp)
                         Column(Modifier.weight(1f)) {
                             // Não lida: título, personagem e linha de status em negrito, como num chat.
                             val weight = if (state.unread[session.key] != null) FontWeight.Bold else null
                             Text(session.title, style = MaterialTheme.typography.titleMedium, fontWeight = weight, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(listOfNotNull(session.characterName?.takeIf { it != session.title }, session.project?.substringAfterLast('/'), statusLabel(session.status ?: session.activity)).joinToString(" · "), style = MaterialTheme.typography.bodyMedium, fontWeight = weight, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(listOfNotNull(session.characterName?.takeIf { it != session.title }, session.project?.substringAfterLast('/'), statusLabel(session.status ?: session.activity), serverLabel(session.key.origin).takeIf { apis.size > 1 && filter == null }).joinToString(" · "), modifier = if (apis.size > 1 && filter == null) Modifier.testTag("session-server:${serverLabel(session.key.origin)}") else Modifier, style = MaterialTheme.typography.bodyMedium, fontWeight = weight, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             if (session.agentId != null && session.status == "working") StatusLine(session)
                             if (session.permission) TextButton(onClick = { permissionSession = session }) { Text(stringResource(Res.string.permission_pending), color = MaterialTheme.colorScheme.error) }
                         }
@@ -262,7 +318,7 @@ fun ReadingScreen(api: HabblaudApi, store: LocalStateStore, onUnauthorized: () -
                         }
                     }
                     // Subagentes e advisors pendurados no principal enquanto trabalham; somem sozinhos quando terminam.
-                    session.subagents.forEachIndexed { i, sub -> SubagentBranch(api, sub, last = i == session.subagents.lastIndex) { controller.open(subSession(session, sub)) } }
+                    session.subagents.forEachIndexed { i, sub -> SubagentBranch(apis.getValue(session.key.origin), sub, last = i == session.subagents.lastIndex) { open(subSession(session, sub)) } }
                     }
                 }
                 item(key = "filler") { Spacer(Modifier.height(with(density) { fillerPx.toDp() })) }

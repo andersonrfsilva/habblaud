@@ -33,6 +33,10 @@
     <string name="logout">Sair</string>
     <string name="connected">Conectado a %1$s</string>
     <string name="logout_unconfirmed">Sessão local apagada. Não foi possível confirmar a revogação no servidor.</string>
+    <string name="add_server">Adicionar servidor</string>
+    <string name="relogin">Entrar de novo</string>
+    <string name="filter_all">Todos</string>
+    <string name="logout_server_warning">Sair apaga deste aparelho os dados de %1$s, incluindo rascunhos não enviados. Os outros servidores continuam conectados.</string>
     <string name="change_server">Trocar servidor?</string>
     <string name="change_warning">A troca apaga os dados locais da origem anterior, incluindo rascunhos não enviados.</string>
     <string name="http_login_title">Autenticação sem criptografia?</string>
