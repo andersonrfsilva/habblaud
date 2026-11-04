@@ -37,8 +37,6 @@
     <string name="relogin">Entrar de novo</string>
     <string name="filter_all">Todos</string>
     <string name="logout_server_warning">Sair apaga deste aparelho os dados de %1$s, incluindo rascunhos não enviados. Os outros servidores continuam conectados.</string>
-    <string name="change_server">Trocar servidor?</string>
-    <string name="change_warning">A troca apaga os dados locais da origem anterior, incluindo rascunhos não enviados.</string>
     <string name="http_login_title">Autenticação sem criptografia?</string>
     <string name="http_login_warning">Em %1$s, a senha e a sessão trafegam sem criptografia HTTP. Terceiros na rede podem interceptá-las. HTTPS é recomendado.</string>
     <string name="confirm">Confirmar</string>
@@ -199,7 +197,7 @@
     <string name="settings_notifications_on">Avisar com o app fechado</string>
     <string name="settings_notify_permission">Pedidos de aprovação e perguntas</string>
     <string name="settings_notify_done">Turno concluído</string>
-    <string name="settings_server">Servidor</string>
+    <string name="settings_server">Servidores</string>
     <string name="settings_quotas">Cotas dos modelos</string>
     <string name="quota_loading">Carregando cotas…</string>
     <string name="quota_error">Não foi possível atualizar as cotas.</string>
