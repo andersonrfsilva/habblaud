@@ -87,10 +87,16 @@ class PersistenceInstrumentedTest {
         assertTrue(KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.containsAlias("habblaud-remote-session"))
         assertEquals("habblaud_remote=instrumentation-secret", SessionCookieStore(origin).requestHeader(url))
         assertNull(SessionCookieStore("https://other.example").requestHeader("https://other.example/api/access"))
-        SessionCookieStore(origin).saveFromResponse(url, listOf(cookie))
+        val active = SessionCookieStore(origin)
+        val generation = active.generation()
+        active.saveFromResponse(url, listOf(cookie))
         assertFalse(first.contentEquals(file.readBytes()))
         file.writeBytes(byteArrayOf(1, 2, 3))
         assertNull(SessionCookieStore(origin).requestHeader(url))
+        assertFalse(file.exists())
+        assertNull(active.requestHeader(url))
+        active.saveFromResponse(url, listOf(cookie), generation)
+        assertNull(active.requestHeader(url))
         assertFalse(file.exists())
     }
 

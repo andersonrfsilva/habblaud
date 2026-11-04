@@ -15,8 +15,12 @@ do meio (0.**3**.0).
 - **Zaplaud / plano 041:** extração das telas, regras e transporte para Kotlin Multiplatform e Compose Multiplatform,
   com host Android preservado e novo host UIKit para iPad. O código usa Ktor, adaptadores Apple de Keychain,
   arquivos privados e seleção de documentos. No iPad, funciona somente em primeiro plano, sem notificações.
-  Compilação dupla, paridade e instalação pelo SideStore dependem dos gates do plano; não constituem uma entrega
-  validada nesta entrada.
+  A instrumentação Android passou com 102 testes (87 shared + 15 app), sem falhas ou erros, em emulador Android 16.
+  A verificação integrada final dos testes host shared, lint e APK debug também passou após os ajustes de estado e cookie.
+  O smoke local comprovou login, leitura, envio único com resposta 201, entrega e retorno sem reenvio automático.
+  iOS continua bloqueado: Actions recusou a execução macOS (HTTP 422; Actions desativado) e o Mac estava offline.
+  Não há compilação iOS comprovada nem IPA gerado. Atualização sobre APK antigo, VoiceOver e instalação,
+  atualização e refresh pelo SideStore/Tailscale ainda exigem os gates do plano.
 - **Android:** Configurações › Resumos liga o resumo das respostas do agente. O papel `tiny` do omp resume cada
   resposta longa em até 5 frases; tocar no resumo mostra a resposta completa. Desligado por padrão. Os resumos ficam
   guardados no aparelho junto da conversa: reabrir a sessão não pede de novo. Só funciona com um modelo escolhido

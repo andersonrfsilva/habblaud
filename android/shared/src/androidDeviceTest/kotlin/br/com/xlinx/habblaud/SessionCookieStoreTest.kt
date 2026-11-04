@@ -30,6 +30,8 @@ class SessionCookieStoreTest {
         assertFalse(String(bytes, Charsets.ISO_8859_1).contains("secret"))
         val restored = SessionCookieStore(url)
         assertEquals("habblaud_remote=secret", restored.requestHeader(url))
+        assertEquals("habblaud_remote=secret", restored.requestHeader("$url/"))
+        assertEquals("habblaud_remote=secret", restored.requestHeader("$url/api/access"))
         assertNull(restored.requestHeader("https://example.com:445"))
         assertNull(SessionCookieStore("https://example.com:445").requestHeader(url))
         restored.clear()

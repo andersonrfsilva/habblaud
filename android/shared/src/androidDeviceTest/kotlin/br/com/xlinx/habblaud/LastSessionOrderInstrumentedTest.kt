@@ -25,24 +25,16 @@ class LastSessionOrderInstrumentedTest {
     private class ControlledDispatcher : CoroutineDispatcher() {
         private var capturing = false
         private val captured = mutableListOf<Pair<CoroutineContext, Runnable>>()
-        private var delayed: Runnable? = null
-        private var delayedJob: Job? = null
-        @Synchronized fun capture(expected: Int, delayedIndex: Int, action: () -> Unit) {
+        @Synchronized fun pause(action: () -> Unit) {
+            check(captured.isEmpty()) { "Previous action has not been released" }
             capturing = true
             try { action() } finally { capturing = false }
-            check(captured.size == expected) { "Expected $expected coroutines, got ${captured.size}" }
-            delayed = captured[delayedIndex].second
-            delayedJob = captured[delayedIndex].first[Job]
-            captured.filterIndexed { index, _ -> index != delayedIndex }.forEach { (context, block) -> Dispatchers.Main.dispatch(context, block) }
-            captured.clear()
         }
-        fun captureOpen(open: () -> Unit) = capture(3, 1, open)
-        fun captureClose(close: () -> Unit) = capture(1, 0, close)
-        @Synchronized fun release(): Job {
-            val job = checkNotNull(delayedJob)
-            Dispatchers.Main.dispatch(kotlin.coroutines.EmptyCoroutineContext, checkNotNull(delayed))
-            delayed = null
-            return job
+        suspend fun release() {
+            val pending = synchronized(this) { captured.toList().also { captured.clear() } }
+            check(pending.isNotEmpty()) { "Action did not leave pending work" }
+            pending.forEach { (context, block) -> Dispatchers.Main.dispatch(context, block) }
+            pending.mapNotNull { it.first[Job] }.distinct().joinAll()
         }
         override fun dispatch(context: CoroutineContext, block: Runnable) {
             synchronized(this) {
@@ -52,6 +44,9 @@ class LastSessionOrderInstrumentedTest {
         }
     }
 
+    private fun snapshot() = MockResponse().setHeader("Content-Type", "text/event-stream")
+        .setBody("event: snapshot\ndata: {\"agents\":[{\"kind\":\"main\",\"account\":\"account\",\"sessionId\":\"a\"},{\"kind\":\"main\",\"account\":\"account\",\"sessionId\":\"b\"}]}\n\n")
+
     private fun exercise(close: Boolean) = runBlocking {
         withTimeout(15000) {
             val server = MockWebServer()
@@ -60,6 +55,7 @@ class LastSessionOrderInstrumentedTest {
                     "/api/access" -> MockResponse().setBody("""{"terminal":true}""")
                     "/api/sessions/recent" -> MockResponse().setBody("""{"sessions":[]}""")
                     "/api/cast" -> MockResponse().setBody("""{"members":[]}""")
+                    "/api/stream" -> snapshot()
                     else -> MockResponse().setResponseCode(404)
                 }
             }
@@ -77,14 +73,15 @@ class LastSessionOrderInstrumentedTest {
                 store.setLastSession(a.copy(sessionId = "initial"))
                 val controller = ReadingController(api, store, scope) {}
                 controller.start()
-                controller.state.first { it.terminalAllowed }
+                controller.state.first { state -> state.sessions.any { it.key == a } }
                 withContext(Dispatchers.Main) {
-                    dispatcher.captureOpen { controller.open(SessionItem(a, null, "a", null, null, null)) }
+                    dispatcher.pause { controller.open(SessionItem(a, null, "a", null, null, null)) }
+                    assertEquals(a.copy(sessionId = "initial"), LocalStateStore(context).lastSession())
                     if (close) controller.close() else controller.open(SessionItem(b, null, "b", null, null, null))
                 }
                 if (close) while (LocalStateStore(context).lastSession() != null) yield()
                 else while (LocalStateStore(context).lastSession() != b) yield()
-                dispatcher.release().join()
+                dispatcher.release()
                 val observed = LocalStateStore(context).lastSession()
                 if (close) assertNull("closed session restored", observed) else assertEquals(b, observed)
                 if (!close) {
@@ -132,7 +129,7 @@ class LastSessionOrderInstrumentedTest {
                 store.setConnection(origin)
                 val first = ReadingController(api, store, scope) {}
                 first.start()
-                first.state.first { it.terminalAllowed }
+                first.state.first { state -> state.sessions.any { it.key == key } }
                 withContext(Dispatchers.Main) { first.open(SessionItem(key, null, "a", null, null, null)) }
                 while (LocalStateStore(context).lastSession() != key) yield()
                 withContext(Dispatchers.Main) { first.stop() }
@@ -156,6 +153,7 @@ class LastSessionOrderInstrumentedTest {
                     "/api/access" -> MockResponse().setBody("""{"terminal":true}""")
                     "/api/sessions/recent" -> MockResponse().setBody("""{"sessions":[]}""")
                     "/api/cast" -> MockResponse().setBody("""{"members":[]}""")
+                    "/api/stream" -> snapshot()
                     else -> MockResponse().setResponseCode(404)
                 }
             }
@@ -179,21 +177,24 @@ class LastSessionOrderInstrumentedTest {
                 first.setLastSession(a.copy(sessionId = "initial"))
                 val old = ReadingController(firstApi, first, scope) {}
                 old.start()
-                old.state.first { it.terminalAllowed }
+                old.state.first { state -> state.sessions.any { it.key == a } }
                 withContext(Dispatchers.Main) {
-                    if (delayedClose) dispatcher.captureClose { old.close() }
-                    else dispatcher.captureOpen { old.open(SessionItem(a, null, "a", null, null, null)) }
+                    dispatcher.pause {
+                        if (delayedClose) old.close()
+                        else old.open(SessionItem(a, null, "a", null, null, null))
+                    }
                 }
+                assertEquals(a.copy(sessionId = "initial"), LocalStateStore(context).lastSession())
                 when (transition) {
                     "logout" -> { second.clear(); second.setConnection(origin) }
                     "origin" -> second.setConnection(nextOrigin)
                 }
                 val newer = ReadingController(secondApi, second, scope) {}
                 newer.start()
-                newer.state.first { it.terminalAllowed }
+                newer.state.first { state -> state.sessions.any { it.key == b } }
                 withContext(Dispatchers.Main) { newer.open(SessionItem(b, null, "b", null, null, null)) }
                 while (LocalStateStore(context).lastSession() != b) yield()
-                dispatcher.release().join()
+                dispatcher.release()
                 assertEquals(b, LocalStateStore(context).lastSession())
                 withContext(Dispatchers.Main) { newer.close(); newer.close() }
                 while (LocalStateStore(context).lastSession() != null) yield()

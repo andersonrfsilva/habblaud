@@ -99,7 +99,7 @@ try:
         matching = [request for request in requests if request.get('text') == 'ios-smoke-message']
         assert len(matching) == 1, f'Expected exactly one real message POST, got {matching}'
         assert matching[0].get('expectedSessionId') == '00000000-0000-4000-8000-000000000001'
-        assert matching[0]['status'] in (200, 202), matching[0]
+        assert matching[0]['status'] == 201, matching[0]
         assert not any(request.get('text') == 'ios-smoke-unsent-draft' for request in requests)
         assert stats.get('posts', {}).get('/api/messages') == 1, stats
         report['results'] = str(results)

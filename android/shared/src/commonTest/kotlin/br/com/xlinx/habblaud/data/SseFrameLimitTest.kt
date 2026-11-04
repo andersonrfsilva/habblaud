@@ -2,6 +2,7 @@ package br.com.xlinx.habblaud.data
 
 import kotlin.test.Test
 import kotlin.test.assertFailsWith
+import kotlin.test.assertEquals
 
 class SseFrameLimitTest {
     private fun feed(limit: SseFrameLimit, bytes: ByteArray, chunkSize: Int) {
@@ -43,5 +44,15 @@ class SseFrameLimitTest {
 
     @Test fun splitCrLfCountsOneTerminatorAndBlankLineResets() {
         feed(SseFrameLimit(7), "data: a\r\n\r\ndata: b\n\ndata: c\r\r".encodeToByteArray(), 1)
+    }
+
+    @Test fun ktorDataSeparatorMatchesEstablishedLfProtocol() {
+        assertEquals("one\ntwo\n\ntrês 🦜", sseData("one\r\ntwo\r\n\r\ntrês 🦜"))
+        assertEquals("one\ntwo", sseData("one\ntwo"))
+    }
+
+    @Test fun dataSeparatorAdaptationPreservesEscapedJsonContent() {
+        val json = """{"text":"one\r\ntwo\nthree 🦜"}"""
+        assertEquals(json, sseData(json))
     }
 }

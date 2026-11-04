@@ -159,6 +159,8 @@ class ConversationEpochInstrumentedTest {
                     "/api/access" -> MockResponse().setBody("""{"terminal":true}""")
                     "/api/sessions/recent" -> MockResponse().setBody("""{"sessions":[]}""")
                     "/api/cast" -> MockResponse().setBody("""{"members":[]}""")
+                    "/api/stream" -> MockResponse().setHeader("Content-Type", "text/event-stream")
+                        .setBody("event: snapshot\ndata: {\"agents\":[{\"kind\":\"main\",\"account\":\"account\",\"sessionId\":\"session\"}]}\n\n")
                     else -> MockResponse().setResponseCode(404)
                 }
             }
@@ -173,8 +175,10 @@ class ConversationEpochInstrumentedTest {
                 store.setConversation(session, listOf(TerminalEntry("old", "user", "old")), false, store.conversationWrite(store.conversationEpoch()))
                 val controller = ReadingController(api, store, scope) {}
                 controller.start()
-                controller.state.first { it.terminalAllowed }
-                controller.open(SessionItem(session, null, "fixture", null, null, null))
+                controller.state.first { state -> state.sessions.any { it.key == session } }
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    controller.open(SessionItem(session, null, "fixture", null, null, null))
+                }
                 controller.state.first { it.entries.isNotEmpty() }
                 if (clear) LocalStateStore(context).clear()
                 val writing = CompletableDeferred<Unit>()
@@ -185,7 +189,9 @@ class ConversationEpochInstrumentedTest {
                     release.await()
                 }
                 store.afterConversationWrite = { completed.complete(Unit) }
-                if (close) controller.close() else controller.stop()
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    if (close) controller.close() else controller.stop()
+                }
                 writing.await()
                 release.complete(Unit)
                 completed.await()

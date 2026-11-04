@@ -433,9 +433,32 @@ HTTPS mantém validação normal de certificado e nome. HTTP arbitrário exige u
 o usuário escolhe a origem; isso não libera redirects ou outra origem no cliente. Cada login HTTP continua exigindo
 confirmação explícita. A permissão de rede local pode ser solicitada pelo sistema ao acessar servidores da LAN.
 
-**Estado de validação:** a migração de código não comprova compilação dupla, atualização Android sem perda de dados,
-VoiceOver, instalação/atualização/refresh pelo SideStore, Keychain após reassinatura ou coexistência com Tailscale.
-Esses gates exigem os relatórios e o dispositivo descritos no [plano 041](plans/041-zaplaud-ipados-kotlin.md).
+#### Evidência local e bloqueios do plano 041
+
+Em 2026-11-04, `scripts/android-instrumented-ci.py` terminou com exit 0 e `BUILD SUCCESSFUL`: **102 testes
+instrumentados**, **zero falhas e zero erros**, sendo **87 shared** e **15 app**. O laboratório usou emulador
+Android 16, resolução **1080 × 1920** e densidade **420** (aproximadamente 411 dp de largura).
+Relatórios: `android/shared/build/reports/androidTests/connected/androidMain/index.html` e
+`android/app/build/reports/androidTests/connected/debug/index.html`.
+
+O smoke manual no mesmo laboratório comprovou login HTTP com confirmação explícita, lista e leitura de conversa,
+exatamente um POST de mensagem com resposta **201** e `expectedSessionId` correto, entrega confirmada pela fixture
+e saída para Home seguida de retorno sem repetir o POST. A fixture era isolada; nenhum servidor de produção foi usado.
+
+Após todos os ajustes de cookie e estado compartilhado, a verificação integrada final concluiu com
+`BUILD SUCCESSFUL` em **34 s**: `:shared:testAndroidHostTest`, `:app:lintDebug` e `:app:assembleDebug`,
+com `ANDROID_HOME=/home/anderson/Android/Sdk`. A suíte host shared tem **76 testes**, sem falhas ou skips;
+a compilação dos APKs instrumentados também passou. `:app:testDebugUnitTest` foi **NO-SOURCE**, portanto não
+representa testes unitários app executados. `npm run typecheck` passou.
+
+**iOS permanece bloqueado:** a execução macOS no GitHub Actions foi recusada com HTTP **422** e indicação de
+Actions desativado para o repositório; o Mac estava offline. A continuação autorizada foi somente local.
+Não houve compilação native/simulador iOS comprovada, IPA gerado ou instalação em iPad.
+
+Ainda não foram comprovados: atualização sobre APK antigo com a mesma assinatura e dados preenchidos,
+paridade completa no iPad, VoiceOver, persistência e Keychain após reassinatura, instalação/atualização/refresh
+pelo SideStore e convivência com Tailscale. Não desinstale para contornar testes de atualização.
+Os gates restantes exigem os relatórios e o dispositivo descritos no [plano 041](plans/041-zaplaud-ipados-kotlin.md).
 
 ### Abrir no celular (opcional)
 

@@ -6,6 +6,7 @@ import io.ktor.client.request.*
 import io.ktor.http.*
 import io.ktor.util.date.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.io.IOException
@@ -23,15 +24,24 @@ sealed interface StreamEvent {
     data object Connected : StreamEvent
 }
 
+/** Ktor joins data fields with CRLF; the established client protocol exposes LF. */
+internal fun sseData(data: String): String = data.replace("\r\n", "\n")
+
 class ConversationRepository(private val origin: String, private val client: () -> HttpClient, private val unauthorized: () -> Unit) {
     private var api: HabblaudApi? = null
     constructor(api: HabblaudApi) : this(api.origin, { api.client() }, { api.cancelCalls(); api.cookies.clear() }) { this.api = api }
     private fun once(path: String): Flow<StreamEvent> = flow {
         require(path.startsWith("/api/") && !path.startsWith("//"))
+        var requestJob: Job? = null
         try {
-            client().sse(request = { url(origin + path); api?.authorize(this) }) {
+            client().sse(request = {
+                // Ktor launches the handshake in client scope, so cancellation must own this request before headers.
+                requestJob = executionContext
+                url(origin + path)
+                api?.authorize(this)
+            }) {
                 emit(StreamEvent.Connected)
-                incoming.collect { event -> event.data?.let { emit(StreamEvent.Data(event.event ?: "message", it, false)) } }
+                incoming.collect { event -> event.data?.let { emit(StreamEvent.Data(event.event ?: "message", sseData(it), false)) } }
             }
             emit(StreamEvent.Failure(null))
         } catch (cause: CancellationException) { throw cause }
@@ -48,6 +58,7 @@ class ConversationRepository(private val origin: String, private val client: () 
             emit(StreamEvent.Failure(if (oversized) -1 else status, response?.headers?.get(HttpHeaders.RetryAfter)))
         } catch (_: SseLimitException) { emit(StreamEvent.Failure(-1)) }
         catch (_: IOException) { emit(StreamEvent.Failure(null)) }
+        finally { requestJob?.cancel() }
     }
 
     fun stream(path: String): Flow<StreamEvent> = flow {

@@ -36,12 +36,13 @@ class SessionCookieStore(private val origin: String) {
     init {
         lock.lock()
         try {
-            if (!SessionMemory.cookies.containsKey(origin)) {
-                cookie = storage.read()?.let { value -> runCatching {
-                    val data = wireJson.parseToJsonElement(value).jsonObject
-                    if (data["origin"]?.jsonPrimitive?.content != origin) null else parseServerSetCookieHeader(data["cookie"]!!.jsonPrimitive.content)
-                }.getOrNull() }
-            }
+            val previous = cookie
+            val persisted = storage.read()?.let { value -> runCatching {
+                val data = wireJson.parseToJsonElement(value).jsonObject
+                if (data["origin"]?.jsonPrimitive?.content != origin) null else parseServerSetCookieHeader(data["cookie"]!!.jsonPrimitive.content)
+            }.getOrNull() }
+            if (previous != null && persisted == null) invalidation++
+            cookie = persisted
         } finally { lock.unlock() }
     }
     fun saveFromResponse(url: String, headers: List<String>) = saveFromResponse(url, headers, generation())
@@ -71,7 +72,8 @@ class SessionCookieStore(private val origin: String) {
         val target = Url(url)
         if (target.originString() != origin || (value.secure && target.protocol != URLProtocol.HTTPS)) return null
         val path = value.path ?: "/"
-        if (target.encodedPath != path && !(target.encodedPath.startsWith(path) && (path.endsWith('/') || target.encodedPath.getOrNull(path.length) == '/'))) return null
+        val requestPath = target.encodedPath.ifEmpty { "/" }
+        if (requestPath != path && !(requestPath.startsWith(path) && (path.endsWith('/') || requestPath.getOrNull(path.length) == '/'))) return null
         return "${value.name}=${value.value}"
         } finally { lock.unlock() }
     }
