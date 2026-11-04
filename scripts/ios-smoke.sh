@@ -53,7 +53,7 @@ try:
     run('xcrun', 'simctl', 'boot', simulator)
     run('xcrun', 'simctl', 'bootstatus', simulator, '-b')
     with (out / 'fixture.stderr.log').open('w') as errors:
-        fixture = subprocess.Popen(['npx', '--no-install', 'tsx', 'scripts/android-smoke.ts', '--port', '0',
+        fixture = subprocess.Popen([str(root / 'node_modules/.bin/tsx'), 'scripts/android-smoke.ts', '--port', '0',
                                     '--allow', 'terminal,permissions,messages'],
                                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=errors,
                                    text=True, start_new_session=True)
