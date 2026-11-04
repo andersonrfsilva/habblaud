@@ -85,7 +85,13 @@ O usuário autorizou o merge mesmo com gates físicos pendentes. A branch incorp
 
 Após resolver os conflitos: 79 testes host, lint, builds Android e 105 testes instrumentados (90 shared + 15 app) aprovados localmente. No run [41856332980](https://github.com/andersonrfsilva/habblaud/actions/runs/41856332980), ambos os jobs Android também passaram.
 
-A revalidação Apple dessa integração não executou: Mac da Mira offline, SSH expirou; GitHub informou `The job was not acquired by Runner of type hosted even after multiple attempts` e falta de capacidade de runners macOS arm64. Isso não é falha de compilação observada, mas deixa o código integrado sem novo smoke Apple. O IPA `b0779f67` é anterior à integração da linha de estado; não representa o conteúdo final do merge.
+A revalidação Apple ficou inicialmente indisponível: Mac da Mira offline, SSH expirou; GitHub informou `The job was not acquired by Runner of type hosted even after multiple attempts` e falta de capacidade de runners macOS arm64. Após o Mac voltar, o código mergeado `2aa8847` passou no build do simulador, nos 68 testes nativos e no smoke completo de login/envio/recuperação de rascunho.
+
+O smoke no Mac persistente encontrou colisão no `manifest.json` de uma execução anterior. A exportação agora usa subdiretórios por resultado XCTest, preservando evidências anteriores. A execução completa passou após a correção, incluindo as verificações da fixture e geração do IPA Release.
+
+IPA atualizado com a integração: `/Users/mira/Downloads/Zaplaud-5197670d.ipa`, SHA-256 `5197670df692ebbe25b0a5df8ae66cd9679aef48f6eae5d5a56540f0782e4210`. Substitui o IPA anterior `b0779f67` para testar o código mergeado.
+
+O iPad físico foi detectado e pareado por USB, modelo iPad12,1 com iPadOS 26.5. O iloader oficial foi instalado no Mac com assinatura notarizada verificada. O usuário instalou SideStore; a abertura exige ativação e confirmação do Modo de Desenvolvedor no próprio iPad. Zaplaud ainda não foi instalado nem aberto no dispositivo físico.
 
 ## Gates ainda não comprovados
 

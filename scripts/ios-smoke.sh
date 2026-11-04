@@ -104,9 +104,9 @@ try:
                                '-destination', destination, '-resultBundlePath', str(results)])
         run('xcrun', 'simctl', 'io', simulator, 'screenshot', str(out / 'final.png'))
         subprocess.run(['xcrun', 'xcresulttool', 'export', 'attachments', '--path', str(results),
-                        '--output-path', str(out / 'attachments')], check=True)
+                        '--output-path', str(out / 'attachments' / results.stem)], check=True)
         subprocess.run(['xcrun', 'xcresulttool', 'export', 'diagnostics', '--path', str(results),
-                        '--output-path', str(out / 'diagnostics')], check=True)
+                        '--output-path', str(out / 'diagnostics' / results.stem)], check=True)
         test.check_returncode()
         fixture.stdin.write('stats\n')
         fixture.stdin.flush()
