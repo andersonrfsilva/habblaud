@@ -5,6 +5,7 @@ cd "$(dirname "$0")/.."
 android/gradlew -p android :shared:linkDebugTestIosSimulatorArm64
 python3 - <<'PY'
 import json
+import os
 import plistlib
 from pathlib import Path
 import re
@@ -66,20 +67,26 @@ try:
     run('xcrun', 'simctl', 'boot', simulator)
     run('xcrun', 'simctl', 'bootstatus', simulator, '-b')
     run('xcrun', 'simctl', 'install', simulator, str(app))
+    installed_app = run('xcrun', 'simctl', 'get_app_container', simulator, bundle_id, 'app').strip()
+    data_container = run('xcrun', 'simctl', 'get_app_container', simulator, bundle_id, 'data').strip()
+    environment = dict(os.environ, SIMCTL_CHILD_HOME=data_container, SIMCTL_CHILD_CFFIXED_USER_HOME=data_container)
+    report['installedExecutable'] = str(Path(installed_app) / executable.name)
     log = out / 'tests.log'
     with log.open('w') as console:
-        result = subprocess.run(['xcrun', 'simctl', 'launch', '--console', simulator, bundle_id,
-                                 '-tr-logger=GTEST'], stdout=console, stderr=subprocess.STDOUT,
-                                timeout=600)
+        # Unlike Gradle's --standalone spawn, a booted device supplies securityd and LaunchServices.
+        # Spawn the CLI test runner directly: it has no UIApplicationMain for SpringBoard to launch.
+        result = subprocess.run(['xcrun', 'simctl', 'spawn', simulator,
+                                 report['installedExecutable'], '-tr-logger=GTEST'],
+                                stdout=console, stderr=subprocess.STDOUT, env=environment, timeout=600)
     text = log.read_text()
     print(text, end='')
-    report['launchExitCode'] = result.returncode
+    report['testExitCode'] = result.returncode
     # simctl success alone does not prove that the native runner completed or its assertions passed.
     started = re.findall(r'\[==========\] Running (\d+) tests? from ', text)
     finished = re.findall(r'\[==========\] (\d+) tests? from .* ran\.', text)
     passed = re.findall(r'\[  PASSED  \] (\d+) tests?\.', text)
     if result.returncode != 0:
-        raise RuntimeError(f'Native test launch failed with exit code {result.returncode}; see {log}')
+        raise RuntimeError(f'Native test process failed with exit code {result.returncode}; see {log}')
     if len(started) != 1 or len(finished) != 1 or len(passed) != 1:
         raise RuntimeError(f'Native runner did not emit one complete GTEST summary; see {log}')
     count = int(started[0])
@@ -89,7 +96,6 @@ try:
     report['passed'] = True
 finally:
     if simulator:
-        subprocess.run(['xcrun', 'simctl', 'terminate', simulator, bundle_id], check=False)
         subprocess.run(['xcrun', 'simctl', 'shutdown', simulator], check=False)
         subprocess.run(['xcrun', 'simctl', 'delete', simulator], check=False)
     (out / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
