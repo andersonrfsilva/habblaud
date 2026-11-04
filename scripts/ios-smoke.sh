@@ -71,7 +71,19 @@ try:
         subprocess.run(['xcodebuild', '-project', 'ios/Zaplaud.xcodeproj', '-scheme', 'Zaplaud',
                         '-configuration', 'Debug', '-destination', destination,
                         '-derivedDataPath', str(out / 'DerivedData'), 'ARCHS=arm64', 'ONLY_ACTIVE_ARCH=YES',
-                        'CODE_SIGNING_ALLOWED=NO', 'CODE_SIGNING_REQUIRED=NO', 'build-for-testing'], check=True)
+                        'CODE_SIGNING_ALLOWED=YES', 'CODE_SIGNING_REQUIRED=YES', 'CODE_SIGN_IDENTITY=-',
+                        'DEVELOPMENT_TEAM=', 'build-for-testing'], check=True)
+        # Let Xcode embed simulator entitlements; unsigned builds cannot establish a Keychain application identity.
+        app = out / 'DerivedData/Build/Products/Debug-iphonesimulator/Zaplaud.app'
+        with (out / 'signing.log').open('w') as diagnostics:
+            for command in (
+                ['codesign', '--verify', '--strict', '--verbose=4', str(app)],
+                ['codesign', '--display', '--verbose=4', str(app)],
+                ['xcrun', 'otool', '-l', str(app / 'Zaplaud')],
+            ):
+                diagnostics.write(' '.join(command) + '\n')
+                diagnostics.flush()
+                subprocess.run(command, stdout=diagnostics, stderr=subprocess.STDOUT, check=True)
         files = list((out / 'DerivedData/Build/Products').glob('*.xctestrun'))
         if len(files) != 1:
             raise RuntimeError('Expected exactly one generated Xcode test run configuration')

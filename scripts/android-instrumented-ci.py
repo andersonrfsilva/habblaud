@@ -31,6 +31,7 @@ def main():
     fixture = None
     gradle = None
     reverses = []
+    succeeded = False
     try:
         fixture = subprocess.Popen(
             ['npx', 'tsx', 'scripts/android-smoke.ts', '--port', '14748',
@@ -121,11 +122,25 @@ def main():
         if missing_shared:
             raise RuntimeError(f'Migrated shared device tests did not execute: {sorted(missing_shared)}')
         print(f'Android test results: {tests} tests, {failures} failures, {errors} errors')
+        succeeded = True
         return 0
     finally:
         if gradle is not None and gradle.poll() is None:
             os.killpg(gradle.pid, signal.SIGTERM)
             gradle.wait()
+        if not succeeded:
+            try:
+                diagnostics = Path('android/build/instrumented-diagnostics')
+                diagnostics.mkdir(parents=True, exist_ok=True)
+                with (diagnostics / 'logcat.txt').open('w') as logcat:
+                    result = subprocess.run(
+                        ['adb', 'logcat', '-b', 'all', '-d', '-v', 'threadtime'],
+                        stdout=logcat, stderr=subprocess.STDOUT, timeout=30, check=False,
+                    )
+                if result.returncode:
+                    print(f'Failed to collect full logcat: adb exited {result.returncode}', file=sys.stderr)
+            except (OSError, subprocess.TimeoutExpired) as error:
+                print(f'Failed to collect full logcat: {error}', file=sys.stderr)
         for value in reversed(reverses):
             subprocess.run(['adb', 'reverse', '--remove', f'tcp:{value}'], check=False)
         if fixture is not None:

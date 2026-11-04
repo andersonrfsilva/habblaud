@@ -82,3 +82,16 @@ jobs:
           emulator-boot-timeout: 300
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -accel on
           script: python3 scripts/android-instrumented-ci.py
+      - name: Upload Android instrumentation diagnostics
+        if: always() && steps.kvm.outputs.ok == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Android-instrumentation-${{ github.sha }}
+          path: |
+            android/build/instrumented-diagnostics/
+            android/**/build/reports/androidTests/
+            android/**/build/outputs/androidTest-results/
+            android/**/build/outputs/**/TEST-*.xml
+            android/**/build/outputs/**/test-result.pb
+            android/**/build/outputs/**/logcat*.txt
+          if-no-files-found: warn
