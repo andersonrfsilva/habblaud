@@ -1,39 +1,41 @@
 [versions]
-agp = "9.0.1"
-kotlin = "2.2.10"
-composeBom = "2025.10.00"
+agp = "9.1.1"
+kotlin = "2.4.21"
+composeBom = "2026.09.00"
 activity = "1.11.0"
-lifecycle = "2.9.4"
-coroutines = "1.10.2"
+coroutines = "1.11.0"
 serialization = "1.9.0"
 datastore = "1.1.7"
-okhttp = "4.12.0"
+okhttp = "5.5.1"
 androidxTestRunner = "1.6.2"
 androidxTestJunit = "1.2.1"
 junit = "4.13.2"
 markdown = "0.38.0"
+composeMultiplatform = "1.12.2"
+ktor = "3.6.1"
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+android-multiplatform-library = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
+compose-multiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }
 
 [libraries]
 compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeBom" }
 compose-ui = { module = "androidx.compose.ui:ui" }
 compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4" }
 compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest" }
-compose-material3 = { module = "androidx.compose.material3:material3" }
-compose-material-icons-core = { module = "androidx.compose.material:material-icons-core" }
 markdown-m3 = { module = "com.mikepenz:multiplatform-markdown-renderer-m3", version.ref = "markdown" }
 activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activity" }
-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycle" }
-lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-compose", version.ref = "lifecycle" }
 coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
 datastore = { module = "androidx.datastore:datastore-preferences", version.ref = "datastore" }
 okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
-okhttp-sse = { module = "com.squareup.okhttp3:okhttp-sse", version.ref = "okhttp" }
 mockwebserver = { module = "com.squareup.okhttp3:mockwebserver", version.ref = "okhttp" }
 androidx-test-runner = { module = "androidx.test:runner", version.ref = "androidxTestRunner" }
 androidx-test-junit = { module = "androidx.test.ext:junit", version.ref = "androidxTestJunit" }
 junit = { module = "junit:junit", version.ref = "junit" }
+ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
+ktor-client-okhttp = { module = "io.ktor:ktor-client-okhttp", version.ref = "ktor" }
+ktor-client-darwin = { module = "io.ktor:ktor-client-darwin", version.ref = "ktor" }

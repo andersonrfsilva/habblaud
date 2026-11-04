@@ -45,6 +45,8 @@ export const SHELL_NOTICE_DEDUPE_MS = 600_000;
 /** Evento do GitHub mais velho que isto (linha antiga relida) não anima a sala nem gera aviso. */
 export const GITHUB_LIVE_MS = 120_000;
 const RECENT_LIMIT = 30;
+/** Respostas guardadas por agente em `replies` (o balão de não lidas do app mostra até isso). */
+export const REPLIES_LIMIT = 99;
 /**
  * Atividades de cada agente que vão no snapshot (SSE). O snapshot inteiro sai a cada mudança, e o
  * `recent` completo era ~87% dele; a linha do tempo longa vem de GET /api/agents/:id e o feed já
@@ -760,6 +762,7 @@ export class Office {
     if (activity.at > info.lastEventAt) info.lastEventAt = activity.at;
     // Uma instrução nova começa um turno (base do "Concluiu em X").
     if (activity.kind === 'prompt') rec.turnStart = activity.at;
+    if (activity.kind === 'respond' && info.kind === 'main') info.replies = [...(info.replies ?? []), activity.at].sort((a, b) => a - b).slice(-REPLIES_LIMIT);
     // `filler` (só preenche o balão do personagem) nunca vai para o feed.
     if (!opts.filler) {
       const item: FeedItem = {

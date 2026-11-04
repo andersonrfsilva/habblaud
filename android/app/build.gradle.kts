@@ -7,7 +7,7 @@ kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarg
 
 android {
     namespace = "br.com.xlinx.habblaud"
-    compileSdk = 36
+    compileSdk { version = release(37) { minorApiLevel = 0 } }
     defaultConfig {
         applicationId = "br.com.xlinx.habblaud"
         minSdk = 26
@@ -48,19 +48,12 @@ tasks.matching { it.name == "packageRelease" }.configureEach {
 }
 
 dependencies {
+    implementation(project(":shared"))
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
-    implementation(libs.compose.material3)
-    implementation(libs.compose.material.icons.core)
-    implementation(libs.markdown.m3)
+    implementation("androidx.compose.foundation:foundation")
     implementation(libs.activity.compose)
-    implementation(libs.lifecycle.viewmodel.compose)
-    implementation(libs.lifecycle.runtime.compose)
     implementation(libs.coroutines.android)
-    implementation(libs.serialization.json)
-    implementation(libs.datastore)
-    implementation(libs.okhttp)
-    implementation(libs.okhttp.sse)
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.compose.ui.test.junit4)
     androidTestImplementation(libs.mockwebserver)

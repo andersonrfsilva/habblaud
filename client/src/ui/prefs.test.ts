@@ -28,6 +28,26 @@ describe('preferências', () => {
     expect(loadPrefs(null)).toEqual(DEFAULT_PREFS);
     expect(loadPrefs(memoryStorage({ [PREFS_KEY]: '{oops' }))).toEqual(DEFAULT_PREFS);
   });
+  it('ativa economia e pausa no Android, inclusive sem armazenamento utilizável', () => {
+    const android = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/130.0.0.0 Mobile Safari/537.36';
+    const broken = { getItem: () => { throw new Error('bloqueado'); }, setItem: () => {} };
+    for (const storage of [null, memoryStorage(), memoryStorage({ [PREFS_KEY]: '{oops' }), broken]) {
+      expect(loadPrefs(storage, android)).toMatchObject({ powerSave: true, animationsPaused: true });
+    }
+    expect(loadPrefs(memoryStorage({ [PREFS_KEY]: '{"powerSave":"sim","animationsPaused":null}' }), android))
+      .toMatchObject({ powerSave: true, animationsPaused: true });
+  });
+  it('preserva escolhas salvas no Android e aplica padrões a preferências antigas', () => {
+    const storage = memoryStorage({ [PREFS_KEY]: '{"sound":false}' });
+    expect(loadPrefs(storage, 'Android')).toMatchObject({ powerSave: true, animationsPaused: true });
+    savePrefs(storage, { ...loadPrefs(storage, 'Android'), powerSave: false, animationsPaused: false });
+    expect(loadPrefs(storage, 'Android')).toMatchObject({ powerSave: false, animationsPaused: false });
+  });
+  it('não aplica economia ou pausa por padrão fora do Android', () => {
+    for (const userAgent of ['', 'Mozilla/5.0 (X11; Linux x86_64)', 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)']) {
+      expect(loadPrefs(null, userAgent)).toMatchObject({ powerSave: false, animationsPaused: false });
+    }
+  });
   it('valida campo a campo', () => {
     const p = sanitizePrefs({ showNames: false, bubbles: 'muitos', liveliness: 'lively', sound: 'sim', hiddenAccounts: ['.claude', 3] });
     expect(p.showNames).toBe(false);

@@ -34,7 +34,7 @@ import { tr } from '../shared/i18n';
 import { createCliRunner, createOpener, folderProblem, launch, parseSpawn, type CliRunner, type Opener, type SpawnHow } from '../server/spawn/spawn';
 import { runnableClaudeBin } from '../server/claude-bin';
 import { ATTACHMENT_MAX_BYTES, ATTACHMENTS_PER_SPAWN, attachmentsRoot, promptWithAttachments, safeFileName } from '../server/spawn/attachments';
-import type { AttachmentDescriptor } from '../shared/types';
+import { OMP_EDITABLE_ROLES, type AttachmentDescriptor } from '../shared/types';
 import { createWhisperTranscriber, findWhisper, type Transcriber } from '../server/dictation/whisper';
 import { checkFile, insideKnownFolder, tempRoots } from '../server/deliveries/files';
 import { discoverClaudeDirs } from '../server/accounts/detect';
@@ -404,7 +404,6 @@ export function ompRoles(omp: string, now: () => number = Date.now): OmpRolesIO 
   };
 }
 
-const EDITABLE_ROLES = ['task', 'plan', 'advisor'];
 const ROLE_VALUE = /^[A-Za-z0-9][\w.-]*\/[^\s\x00-\x1f\x7f]{1,200}$/;
 
 /** O auxiliar valida cada pedido antes de usar o servidor tmux do usuário. */
@@ -425,7 +424,7 @@ export async function castRound(post: Post, run: CastRun, log: (line: string) =>
       if (job?.op === 'roles') {
         const roles = rec(job.roles);
         if (!opts.roles || typeof job.agentDir !== 'string' || !isAbsolute(job.agentDir) || !isDir(join(job.agentDir, 'sessions')) || !roles || !Object.keys(roles).length
-          || Object.entries(roles).some(([role, value]) => !EDITABLE_ROLES.includes(role) || (value !== null && (typeof value !== 'string' || !ROLE_VALUE.test(value))))) throw new Error(tr('pedido inválido'));
+          || Object.entries(roles).some(([role, value]) => !(OMP_EDITABLE_ROLES as readonly string[]).includes(role) || (value !== null && (typeof value !== 'string' || !ROLE_VALUE.test(value))))) throw new Error(tr('pedido inválido'));
         await opts.roles.write(job.agentDir, roles as Record<string, string | null>);
         results.push({ id, ok: true });
         continue;

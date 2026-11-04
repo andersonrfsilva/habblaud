@@ -10,8 +10,54 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Zaplaud / plano 041:** extração das telas, regras e transporte para Kotlin Multiplatform e Compose Multiplatform,
+  com host Android preservado e novo host UIKit para iPad. O código usa Ktor, adaptadores Apple de Keychain,
+  arquivos privados e seleção de documentos. No iPad, funciona somente em primeiro plano, sem notificações.
+  A instrumentação Android passou com 102 testes (87 shared + 15 app), sem falhas ou erros, em emulador Android 16.
+  A verificação integrada final dos testes host shared, lint e APK debug também passou após os ajustes de estado e cookie.
+  O smoke local comprovou login, leitura, envio único com resposta 201, entrega e retorno sem reenvio automático.
+  Xcode 26.3 no macOS 15.7.9 compilou o simulador e o IPA arm64 sem downgrade de dependências.
+  Os 65 testes nativos e o smoke de login, envio único e recuperação de rascunho após encerrar o app passaram.
+  O heap Gradle passou de 2 para 4 GiB para concluir a otimização Release Kotlin/Native.
+  O IPA sem assinatura foi gerado para reassinatura pelo SideStore. Atualização sobre APK antigo, VoiceOver,
+  instalação física, atualização e refresh pelo SideStore/Tailscale ainda exigem os gates do plano.
+- **Android:** linha de estado enquanto o agente trabalha, na lista de conversas e dentro da sessão, como no
+  rodapé do terminal da web: spinner, a atividade atual e o cronômetro desde que começou. Some quando o agente
+  para. As cores seguem o tema claro/escuro do app; com as animações do sistema desligadas, o símbolo fica parado.
+- **Android:** Configurações › Resumos liga o resumo das respostas do agente. O papel `tiny` do omp resume cada
+  resposta longa em até 5 frases; tocar no resumo mostra a resposta completa. Desligado por padrão. Os resumos ficam
+  guardados no aparelho junto da conversa: reabrir a sessão não pede de novo. Só funciona com um modelo escolhido
+  para o papel Tiny; sem ele, o interruptor fica desligado.
+- **Android:** o papel `tiny` do omp entra nos modelos configuráveis. O seletor agrupa os modelos por provedor, com
+  a versão mais nova primeiro, e esconde as variantes `:batch` e as cópias datadas de um modelo que também aparece
+  sem data. A linha de cada papel mostra o provedor.
+- **Android:** a tela principal ordena as conversas pela resposta mais recente do agente e mostra um balão com as
+  respostas que chegaram desde a última vez que a conversa foi aberta (até "99+"). O servidor manda, para cada agente
+  principal, a hora das últimas 99 respostas em texto (`replies` no snapshot).
+- **Android:** as ferramentas de um turno viram uma linha só, "Ferramentas (N)", como o pensamento. Ao expandir,
+  mostra cada ferramenta com a entrada e os resultados, na ordem em que rodaram. O cabeçalho do pensamento e o das
+  ferramentas mostram a hora do último evento (nas ferramentas, o último resultado também conta).
+- **Android:** o menu de modelo da sessão agrupa por provedor, com a versão mais nova primeiro, como o seletor dos
+  papéis; o item do menu mostra o provedor do modelo atual.
+
 ### Corrigido
 
+- **Android:** rolagem. Na conversa, a mensagem nova e o indicador de trabalho aparecem no pé sem o botão "↓" piscar
+  e sem ficarem escondidos; expandir um item ou o resumo deixa o ponto tocado no lugar mesmo quando o texto cresce
+  depois. Na lista de conversas, a que sobe para o topo aparece em vez de ficar acima da tela, e voltar de uma
+  conversa mantém a aba, a busca e a posição.
+- **Resumos:** o servidor mantém dois omp abertos (um por resumo simultâneo), então o segundo resumo de uma rajada
+  não espera mais o omp abrir. No app, o pedido não é cancelado quando o item sai da tela, e o resumo fica guardado
+  mesmo assim; o mesmo item não pede o resumo duas vezes.
+- **Android:** gravações antigas de conversas não recriam o cache após sair da conta ou trocar de servidor.
+- **Android:** a última sessão segue a ordem das escolhas, mesmo quando gravações antigas terminam depois.
+
+- **Android:** alertas oferecem uma versão genérica quando o sistema oculta conteúdo privado. A exibição depende
+  das configurações do sistema e do usuário.
+- **Android:** economia de energia e pausa das animações do escritório ligadas por padrão, inclusive em tablets.
+  Escolhas já salvas são preservadas; o botão de pausa agora também guarda a escolha ao recarregar.
 - **Terminal:** avisos de envio, ditado e anexos aparecem junto ao estado da sessão, acima da caixa de mensagem.
 - **omp:** a espera (`wait`) diz o que aguarda: o comando em segundo plano, o subagente pelo nome ou os dois, em vez
   de sempre "Esperando os subagentes".
@@ -21,6 +67,7 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Android:** cada autenticação HTTP pede confirmação sobre o risco de enviar senha e sessão sem criptografia.
 - **Android:** conversas ficam guardadas no aparelho e aparecem na hora ao abrir; o servidor manda só o que veio
   depois da última mensagem guardada (`?after=` no stream do terminal). Elenco e pastas deixam de ser baixados a cada
   5 s.
@@ -34,12 +81,13 @@ do meio (0.**3**.0).
 - **Android:** Configurações trocam modelo e raciocínio dos papéis `task`, `plan` e `advisor` do omp (modelRoles
   global da conta padrão). O auxiliar do host grava com `omp config set` e devolve os valores lidos a cada rodada
   (`GET`/`POST /api/cast/roles`).
+- **Zaplaud:** novo ícone de aplicativo combina conversa e inteligência artificial.
 
 - **Android:** cliente nativo para login remoto, lista de sessões e conversa, envio com anexos, aprovações e
   interrupção omp, conforme as permissões do servidor. Acompanha o tema claro ou escuro do sistema e mostra Markdown
-  selecionável nas mensagens. HTTP exige consentimento e rede VPN para o IPv4 confirmado na faixa `100.64.0.0/10`; o
-  aplicativo não identifica qual VPN está ativa. Mensagens, anexos e interrupção precisam do servidor deste fork. O
-  upstream atende no máximo leitura e aprovações, conforme `HABBLAUD_REMOTE_ALLOW` e os recursos ligados nele.
+  selecionável nas mensagens. HTTP é aceito em qualquer rede, inclusive LAN e VPN. Mensagens, anexos e interrupção
+  precisam do servidor deste fork. O upstream atende no máximo leitura e aprovações, conforme `HABBLAUD_REMOTE_ALLOW`
+  e os recursos ligados nele.
 - **Proteção de sessão:** mensagens e controles aceitam `expectedSessionId` e recusam troca de sessão com
   `409` e `code: 'session_changed'`. `/api/access` anuncia `messageSessionGuard` quando mensagens estão autorizadas.
 

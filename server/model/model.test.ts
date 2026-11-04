@@ -9,7 +9,7 @@ import { setQuiet } from '../log';
 import { tempDir } from '../test/fixtures';
 import { NameStore } from './names';
 import { CastStore } from './cast';
-import { DONE_GRACE_MS, Office, OFFLINE_GRACE_MS, SNAPSHOT_RECENT } from './office';
+import { DONE_GRACE_MS, Office, OFFLINE_GRACE_MS, REPLIES_LIMIT, SNAPSHOT_RECENT } from './office';
 import { normalizeCwd, roomDisplayNames, SlotAllocator } from './rooms';
 
 setQuiet(true);
@@ -196,6 +196,21 @@ describe('Office', () => {
     expect(h.slice(0, 3).map((a) => a.id)).toEqual(['velha-1', 'velha-2', 'a0']);
     expect(h).toHaveLength(22);
     expect(office.commit().feed).toEqual([]);
+  });
+
+  it('replies: hora das respostas em texto do principal, sem repetir a releitura e no máximo REPLIES_LIMIT', () => {
+    const { office, advance, now } = makeOffice();
+    office.addMain({ id: 'acc:1', account: 'acc', sessionId: 's1', cwd: '/p/a', role: 'x', startedAt: now(), status: 'working' });
+    office.addActivity('acc:1', act('r1', now(), 'respond'), true);
+    office.addActivity('acc:1', act('t1', now()), true);
+    advance(1_000);
+    office.addActivity('acc:1', act('r2', now(), 'respond'), true);
+    office.addActivity('acc:1', act('r2', now(), 'respond'), true);
+    expect(office.commit().snapshot.agents[0].replies).toEqual([now() - 1_000, now()]);
+    for (let i = 0; i < REPLIES_LIMIT + 5; i++) { advance(1); office.addActivity('acc:1', act(`m${i}`, now(), 'respond'), true); }
+    const replies = office.commit().snapshot.agents[0].replies!;
+    expect(replies).toHaveLength(REPLIES_LIMIT);
+    expect(replies.at(-1)).toBe(now());
   });
 
   it('releitura do transcript com mais de 30 atividades não duplica o histórico, não mexe na atividade atual e não refaz o feed', () => {

@@ -3,7 +3,7 @@
 // 405, 409, 429), o fluxo completo página → caixa de entrada do plugin → confirmação → consulta, e o demo.
 import http from 'node:http';
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { InboxMessage, OfficeSnapshot, OutboxMessage } from '../../shared/types';
@@ -377,7 +377,7 @@ describe('upload de anexos por HTTP real', () => {
       inbox = (await post(srv, '/api/mod/inbox', { session: SESSION })).json as { messages: InboxMessage[] };
     }
     const path = inbox.messages[0].text.split('\n- ')[1];
-    expect(path.startsWith(root + '/')).toBe(true);
+    expect(path.startsWith(root + sep)).toBe(true);
     expect(path).toBe(join(root, path.slice(root.length + 1)));
     expect(readFileSync(path)).toEqual(bytes);
     await post(srv, '/api/mod/inbox/ack', { session: SESSION, results: [{ id, ok: true }] });

@@ -6,7 +6,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
-import { dirname, isAbsolute, join } from 'node:path';
+import { basename, dirname, isAbsolute, join, sep } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { castRound, checkMessage, cleanupAttachmentStaging, dictationRound, downloadAttachments, filesRound, httpAttachmentDownload, httpPost, ompRoles, parseArgs, round, spawnRound, type OmpRolesIO, type Post } from '../../scripts/codex-bridge';
 import { spawnUrl } from '../spawn/spawn';
@@ -21,10 +21,14 @@ import { MessageRegistry } from '../messages/registry';
 import { NameStore } from '../model/names';
 import { Office } from '../model/office';
 import { FAKE_CODEX_RUNS, fakeCodexCalls, writeFakeCodex } from './fake-codex';
-import { tempDir } from './fixtures';
+import { HAS_POSIX_MODES, tempDir } from './fixtures';
 import { request } from './permission-server';
 import { FileFetcher } from '../deliveries/fetcher';
 import { ATTACHMENT_MAX_BYTES } from '../spawn/attachments';
+
+// Um `omp` de mentira em script com shebang e sinais POSIX: no Windows não há como executar o script nem um SIGTERM
+// que o processo receba (o kill encerra na hora).
+const UNIX = process.platform !== 'win32';
 
 setQuiet(true);
 
@@ -131,7 +135,7 @@ describe('rodada do elenco', () => {
     await castRound(async (path, body) => { bodies.push(body); return { status: 200, json: path.endsWith('/poll') ? { jobs: [] } : {} }; }, async () => {}, () => {}, { port: 12345, dataDir: tmp.dir, roles });
     expect(bodies.at(-1)).toEqual({ roles: { task: `lido de ${codexHome}` } });
   });
-  it('ompRoles: junta ao modelRoles atual, apaga com null e grava o mapa inteiro pela conta pedida', async () => {
+  it.runIf(UNIX)('ompRoles: junta ao modelRoles atual, apaga com null e grava o mapa inteiro pela conta pedida', async () => {
     const log = join(tmp.dir, 'omp.log');
     const omp = join(tmp.dir, 'omp');
     writeFileSync(omp, `#!/bin/sh\necho "$PI_CODING_AGENT_DIR $*" >> '${log}'\n[ "$2" = get ] && echo '{"key":"modelRoles","value":{"default":"a/b","plan":"c/d","task":"e/f"}}'\nexit 0\n`, { mode: 0o755 });
@@ -288,7 +292,7 @@ describe('auxiliar somente para elenco', () => {
     expect(paths).toEqual(['/api/host/cast/poll']);
   });
 
-  it('encerra ao receber SIGTERM durante o laço de elenco', async () => {
+  it.runIf(UNIX)('encerra ao receber SIGTERM durante o laço de elenco', async () => {
     const polled = Promise.withResolvers<void>();
     const paths: string[] = [];
     const { port } = await streamServer((req, res) => {
@@ -329,8 +333,8 @@ describe('spawnRound com anexos e dictationRound', () => {
     expect(r).toMatchObject({ state: 'ok', results: [{ id: 'a', ok: true }, { id: 'b', ok: false }] });
     const prompt = new URL(opened[0]).searchParams.get('q')!;
     const path = prompt.split('\n- ')[1];
-    expect(path.startsWith(`${root}/`)).toBe(true);
-    expect(path.endsWith('/ação.png')).toBe(true);
+    expect(path.startsWith(root + sep)).toBe(true);
+    expect(basename(path)).toBe('ação.png');
     expect(readFileSync(path)).toEqual(Buffer.from([0, 255, 1]));
   });
 
@@ -404,12 +408,14 @@ describe('filesRound (arquivos das entregas pelo auxiliar)', () => {
     if (!('paths' in result)) throw new Error(result.error);
     expect(result.paths).toHaveLength(1);
     expect(isAbsolute(result.paths[0])).toBe(true);
-    expect(result.paths[0].startsWith(`${root}/`)).toBe(true);
-    expect(result.paths[0].endsWith('/imagem.png')).toBe(true);
+    expect(result.paths[0].startsWith(root + sep)).toBe(true);
+    expect(basename(result.paths[0])).toBe('imagem.png');
     expect(readFileSync(result.paths[0])).toEqual(bytes);
-    expect(statSync(root).mode & 0o777).toBe(0o750);
-    expect(statSync(result.paths[0]).mode & 0o777).toBe(0o600);
-    expect(statSync(dirname(result.paths[0])).mode & 0o777).toBe(0o700);
+    if (HAS_POSIX_MODES) {
+      expect(statSync(root).mode & 0o777).toBe(0o750);
+      expect(statSync(result.paths[0]).mode & 0o777).toBe(0o600);
+      expect(statSync(dirname(result.paths[0])).mode & 0o777).toBe(0o700);
+    }
     expect(readdirSync(join(root, '.pending'))).toEqual([]);
   });
 
@@ -583,7 +589,7 @@ describe('downloads binários do auxiliar', () => {
       { id: 'large', name: 'ação.txt', type: 'text/plain', size: ATTACHMENT_MAX_BYTES },
     ], httpAttachmentDownload(port), root);
     expect(visited).toEqual(['/api/codex/bridge/files/job%2Fid/attachments/small', '/api/codex/bridge/files/job%2Fid/attachments/large']);
-    expect(paths.map((path) => path.split('/').pop())).toEqual(['ação.txt', 'ação-2.txt']);
+    expect(paths.map((path) => basename(path))).toEqual(['ação.txt', 'ação-2.txt']);
     expect(readFileSync(paths[0])).toEqual(Buffer.from([173]));
     expect(readFileSync(paths[1]).equals(Buffer.alloc(ATTACHMENT_MAX_BYTES, 173))).toBe(true);
   });

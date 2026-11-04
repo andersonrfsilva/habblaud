@@ -13,7 +13,16 @@ scripts/assets/.cache/
 android/**/build/
 android/build/
 android/.gradle/
+android/.kotlin/
 android/local.properties
 *.jks
 *.keystore
 keystore.properties
+
+# Xcode outputs, per-user state, and local Apple signing material
+ios/build/
+ios/**/xcuserdata/
+*.xcuserstate
+*.mobileprovision
+*.p12
+*.p8

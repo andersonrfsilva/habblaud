@@ -5,6 +5,7 @@
     <string name="role_task">Task (subagentes)</string>
     <string name="role_plan">Plan</string>
     <string name="role_advisor">Advisor</string>
+    <string name="role_tiny">Tiny (resumos)</string>
     <string name="role_default">Padrão do omp</string>
     <string name="role_pick_model">Modelo</string>
     <string name="role_pick_thinking">Raciocínio</string>
@@ -34,6 +35,8 @@
     <string name="logout_unconfirmed">Sessão local apagada. Não foi possível confirmar a revogação no servidor.</string>
     <string name="change_server">Trocar servidor?</string>
     <string name="change_warning">A troca apaga os dados locais da origem anterior, incluindo rascunhos não enviados.</string>
+    <string name="http_login_title">Autenticação sem criptografia?</string>
+    <string name="http_login_warning">Em %1$s, a senha e a sessão trafegam sem criptografia HTTP. Terceiros na rede podem interceptá-las. HTTPS é recomendado.</string>
     <string name="confirm">Confirmar</string>
     <string name="cancel">Cancelar</string>
     <string name="sessions">Sessões</string>
@@ -57,6 +60,7 @@
     <string name="unknown_entry">Entrada não suportada</string>
     <string name="result_truncated">Resultado truncado pelo servidor.</string>
     <string name="thinking">Pensando…</string>
+    <string name="tools">Ferramentas</string>
     <string name="tool_result">Resultado</string>
     <string name="messages_blocked">Envio bloqueado pelo servidor.</string>
     <string name="message_guard_required">O servidor precisa ser atualizado para enviar mensagens.</string>
@@ -142,6 +146,7 @@
     <string name="notify_permission">Pede sua aprovação</string>
     <string name="notify_question">Tem uma pergunta para você</string>
     <string name="notify_done">Terminou o turno</string>
+    <string name="notify_public">Nova atividade no Zaplaud</string>
     <string name="session_info">Informações da sessão</string>
     <string name="info_open">Aberta</string>
     <string name="info_closed">Encerrada</string>
@@ -204,4 +209,15 @@
     <string name="quota_resets">Renova %1$s</string>
     <string name="quota_fetched">Atualizado às %1$s</string>
     <string name="response_interrupted">Resposta interrompida pelo provedor; o agente continuou abaixo</string>
+    <string name="settings_summaries">Resumos</string>
+    <string name="settings_summarize">Resumir as respostas do agente</string>
+    <string name="settings_summarize_hint">O papel tiny do omp resume cada resposta em até 5 frases. Toque no resumo para ver a resposta completa.</string>
+    <string name="settings_summarize_needs_tiny">Para ligar os resumos, escolha um modelo para o papel Tiny abaixo.</string>
+    <string name="summary_label">Resumo · toque para ver tudo</string>
+    <string name="summary_loading">Resumindo… toque para ver a resposta completa</string>
+    <string name="summary_collapse">Mostrar o resumo</string>
+    <plurals name="unread_replies">
+        <item quantity="one">%1$d resposta não lida</item>
+        <item quantity="other">%1$d respostas não lidas</item>
+    </plurals>
 </resources>

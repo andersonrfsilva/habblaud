@@ -43,7 +43,7 @@ export const CAST_IDLE_MINUTES = 120;
 export const NEW_CAST_PREFIX = 'novo-';
 
 /** Papéis do omp que a tela de Configurações troca (modelRoles global da conta padrão, `omp config`). */
-export const OMP_EDITABLE_ROLES = ['task', 'plan', 'advisor'] as const;
+export const OMP_EDITABLE_ROLES = ['task', 'plan', 'advisor', 'tiny'] as const;
 export type OmpEditableRole = (typeof OMP_EDITABLE_ROLES)[number];
 /** Valor de um papel: `provedor/modelo` com `:raciocínio` opcional; null apaga o papel (volta ao padrão do omp). */
 export type OmpRoles = Partial<Record<OmpEditableRole, string | null>>;
@@ -233,6 +233,11 @@ export interface AgentInfo {
   permissionMode?: string;
   startedAt: number;
   lastEventAt: number;
+  /**
+   * Quando chegaram as últimas respostas em texto do agente principal (atividades `respond`, epoch ms, da mais antiga
+   * para a mais nova, no máximo REPLIES_LIMIT). O app conta as não lidas pelas que vieram depois da última abertura.
+   */
+  replies?: number[];
   /** Quando o status mudou pela última vez (epoch ms). */
   statusSince: number;
   stats: AgentStats;

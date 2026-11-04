@@ -29,6 +29,7 @@ import type { DeliveryIndex } from '../deliveries/deliveries';
 import type { FileFetcher } from '../deliveries/fetcher';
 import { handleFilesRoute, type BrowseDeps } from './files';
 import { HOST_WAIT_MS } from '../host-wait';
+import { SUMMARY_INPUT_MAX, SummaryUnavailable, type Summarizer } from '../summaries/summarizer';
 import { avatarPng } from './avatar';
 
 export interface ApiDeps {
@@ -123,6 +124,8 @@ export interface ApiDeps {
    * local com Host local: pela porta do celular, nem com login (403 `local_only`).
    */
   world?: (req: IncomingMessage, res: ServerResponse, url: URL) => void;
+  /** Resumo das respostas do agente (POST /api/summaries {text}; summaries/summarizer.ts). Ausente = desligado (404). */
+  summaries?: Summarizer;
 }
 
 /** GET /api/agents/:id/terminal (ids nunca contêm '/'). */
@@ -652,6 +655,22 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       else if (!trusted(req, isRead ? 'terminal' : 'messages')) {
         sendJson(res, 403, { error: denied(req, tr('perguntas paralelas só pelo próprio computador (http://localhost ou http://127.0.0.1)')) });
       } else deps.asides.page(req, res, path, url);
+      return true;
+    }
+    if (path === '/api/summaries') {
+      // Manda texto ao modelo (papel tiny do omp): a mesma trava das mensagens.
+      if (method !== 'POST') methodNotAllowed(res, 'POST');
+      else if (!deps.summaries) sendJson(res, 404, { error: tr('resumo indisponível: omp ou conta do omp não encontrados') });
+      else if (!trusted(req, 'messages')) sendJson(res, 403, { error: denied(req, tr('o resumo só pode ser pedido pelo próprio computador')) });
+      else {
+        const summaries = deps.summaries;
+        readJson(req).then(async (body) => {
+          const text = body && typeof body === 'object' ? (body as Record<string, unknown>).text : undefined;
+          if (typeof text !== 'string' || !text.trim() || text.length > SUMMARY_INPUT_MAX) return sendJson(res, 422, { error: tr('pedido inválido') });
+          try { sendJson(res, 200, { summary: await summaries.summarize(text) }); }
+          catch (err) { sendJson(res, err instanceof SummaryUnavailable ? 503 : 502, { error: err instanceof SummaryUnavailable ? err.message : tr('falha ao resumir: {0}', [err instanceof Error ? err.message : String(err)]) }); }
+        }).catch((err) => fail(res, err));
+      }
       return true;
     }
     if (path === '/api/spawn' || path.startsWith('/api/spawn/')) {
