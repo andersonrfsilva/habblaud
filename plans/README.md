@@ -62,7 +62,7 @@ conditions e atualize sua linha ao terminar.
 | 038 | Investigar ordenação da última sessão Android | P2 | M | 035 | DONE (commit `ef13ee5` mesclado; 24 testes instrumentados passaram antes da integração) |
 | 039 | Ocultar detalhes de notificações na tela bloqueada | P1 | M | — | DONE (implementação mesclada; teste instrumentado aprovado; validação visual no celular adiada) |
 | 040 | Monitorar dependências Gradle no Dependabot | P2 | S | — | DONE (commit `4150994` mesclado; YAML validado; validação do serviço remoto pendente) |
-| 041 | [Zaplaud no iPadOS com Kotlin Multiplatform e instalação pelo SideStore](041-zaplaud-ipados-kotlin.md) | P2 | L | Base Android atual; sem dependência de concluir 033 | BLOCKED (implementação nesta branch, [PR rascunho #1](https://github.com/andersonrfsilva/habblaud/pull/1); gates Android aprovados. Compilação Apple/IPA bloqueada por Actions desabilitado e ausência de Mac disponível; usuário escolheu continuar localmente. Evidências em [041-resultado.md](041-resultado.md). Sem merge/deploy) |
+| 041 | [Zaplaud no iPadOS com Kotlin Multiplatform e instalação pelo SideStore](041-zaplaud-ipados-kotlin.md) | P2 | L | Base Android atual; sem dependência de concluir 033 | BLOCKED ([PR rascunho #1](https://github.com/andersonrfsilva/habblaud/pull/1); Actions habilitado, build do simulador e 65 testes nativos aprovados. Smoke completo e IPA pendentes; Xcode 26.3 instalado no Mac da Mira aguarda licença/componentes locais. Evidências em [041-resultado.md](041-resultado.md). Sem merge/deploy) |
 
 Em 2026-10-31 o branch `rpg` (elenco 031/032 e o que veio depois) foi promovido a `producao` por fast-forward
 (`759c0f9`): o standalone (`~/apps/habblaud` no branch `producao`) e os cinco tenants rodam essa versão. As notas
