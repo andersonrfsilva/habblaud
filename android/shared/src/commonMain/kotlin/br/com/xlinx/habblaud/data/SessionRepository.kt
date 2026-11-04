@@ -93,10 +93,18 @@ class SessionRepository(private val api: HabblaudApi) {
             contextTokens = context?.string("tokens")?.toLongOrNull()?.takeIf { it >= 0 }, contextWindow = context?.string("window")?.toLongOrNull()?.takeIf { it > 0 },
             model = o.string("model"), thinking = o.string("thinking"),
             models = (o["models"] as? kotlinx.serialization.json.JsonArray)?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { p -> p.isString }?.content }.orEmpty(),
-            replies = (o["replies"] as? kotlinx.serialization.json.JsonArray)?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.longOrNull }.orEmpty())
+            replies = (o["replies"] as? kotlinx.serialization.json.JsonArray)?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.longOrNull }.orEmpty(),
+            statusSince = o.string("statusSince")?.toLongOrNull()?.takeIf { it > 0 }?.let { localTime(it, serverTime) })
     }
 
 }
+
+/**
+ * Horário do servidor no relógio do celular, para o cronômetro da linha de estado. A diferença (atraso da rede incluso)
+ * vai arredondada ao segundo: sem isso o valor mudaria a cada snapshot e a lista recomporia à toa.
+ */
+internal fun localTime(server: Long, serverNow: Long, now: Long = io.ktor.util.date.getTimeMillis()): Long =
+    if (serverNow <= 0) server else server + kotlin.math.floor((now - serverNow) / 1000.0 + 0.5).toLong() * 1000
 
 internal fun parseAvatar(o: JsonObject): Avatar? {
     val seed = o.string("seed")?.toLongOrNull()?.takeIf { it in 0..0xffffffffL } ?: return null

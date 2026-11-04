@@ -23,6 +23,9 @@ do meio (0.**3**.0).
   O heap Gradle passou de 2 para 4 GiB para concluir a otimização Release Kotlin/Native.
   O IPA sem assinatura foi gerado para reassinatura pelo SideStore. Atualização sobre APK antigo, VoiceOver,
   instalação física, atualização e refresh pelo SideStore/Tailscale ainda exigem os gates do plano.
+- **Android:** linha de estado enquanto o agente trabalha, na lista de conversas e dentro da sessão, como no
+  rodapé do terminal da web: spinner, a atividade atual e o cronômetro desde que começou. Some quando o agente
+  para. As cores seguem o tema claro/escuro do app; com as animações do sistema desligadas, o símbolo fica parado.
 - **Android:** Configurações › Resumos liga o resumo das respostas do agente. O papel `tiny` do omp resume cada
   resposta longa em até 5 frases; tocar no resumo mostra a resposta completa. Desligado por padrão. Os resumos ficam
   guardados no aparelho junto da conversa: reabrir a sessão não pede de novo. Só funciona com um modelo escolhido

@@ -286,6 +286,20 @@ A CI Android executa a suíte instrumentada completa em emulador x86_64 isolado 
 Android. A fixture escolhe uma porta local dinâmica, encaminhada junto à porta 14748. A CI usa somente a fixture de
 laboratório, nunca um servidor de produção. O processo exige KVM e encerra a fixture e os encaminhamentos ao terminar.
 
+O workflow `.github/workflows/android.yml` roda em pushes para `main` e pull requests que alterem Android, o próprio
+workflow, os dois scripts da fixture, `server/**`, `shared/**`, `client/src/art/**` ou a configuração Node
+(`package.json`, `package-lock.json`, `.npmrc` e `tsconfig.json`). A fixture importa o backend e seus contratos
+compartilhados; a rota de avatar também importa a arte do cliente. Mudanças apenas em documentação ou nas demais
+telas web não acionam esse gate. Ambos os jobs reutilizam o cache Gradle do `setup-java`, com chave baseada nos
+scripts Gradle, propriedades, catálogo de versões e configuração do wrapper Android.
+
+Para reproduzir o gate instrumentado, instale as dependências com `npm ci` e, com um emulador ou aparelho isolado
+conectado ao `adb`, execute `python3 scripts/android-instrumented-ci.py` na raiz. O script inicia a fixture,
+configura os encaminhamentos, executa `:app:connectedDebugAndroidTest` e valida os resultados XML, incluindo a
+presença de `FixtureUiInstrumentedTest`. São necessários Python 3, Java 17, Node 22.12 ou superior e Android SDK
+com plataforma 36 e build-tools 36.0.0; a CI usa um emulador API 35 com KVM. Sem KVM, o workflow avisa e não
+executa a etapa instrumentada.
+
 Use um emulador ou aparelho conectado e execute os comandos na raiz do repositório. Em um terminal, mantenha a
 fixture isolada aberta:
 
