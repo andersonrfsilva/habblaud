@@ -63,6 +63,7 @@ conditions e atualize sua linha ao terminar.
 | 039 | Ocultar detalhes de notificações na tela bloqueada | P1 | M | — | DONE (implementação mesclada; teste instrumentado aprovado; validação visual no celular adiada) |
 | 040 | Monitorar dependências Gradle no Dependabot | P2 | S | — | DONE (commit `4150994` mesclado; YAML validado; validação do serviço remoto pendente) |
 | 041 | [Zaplaud no iPadOS com Kotlin Multiplatform e instalação pelo SideStore](041-zaplaud-ipados-kotlin.md) | P2 | L | Base Android atual; sem dependência de concluir 033 | BLOCKED (merge `2aa8847` em `producao`, [PR #1](https://github.com/andersonrfsilva/habblaud/pull/1); 79 testes host, 105 instrumentados Android, 68 testes nativos, smoke Apple integrado e IPA atualizados aprovados. iPad pareado; aguardando Modo de Desenvolvedor e instalação física. Evidências em [041-resultado.md](041-resultado.md). Sem deploy) |
+| 042 | [Zaplaud conectado a vários servidores ao mesmo tempo: lista única com filtro, login/saída por servidor, notificações de todos](042-zaplaud-multiplos-servidores.md) | P2 | L | — | DONE (revisão aprovada em 2026-11-04: branch `advisor/042-zaplaud-multiplos-servidores`, worktree `../habblaud-042`, `ccf58f7`..`fcd2649`; não mesclado. Linux: host/unit/lint/APK e compilação dos testes iOS ok; 101 instrumentados shared; fixture completa 117/117 antes das duas últimas correções, depois 16 testes de interface (HTTP, notificação e fixture sem `imeDraftSurvivesRecreationRotationAndLargeFont`, que trava desde antes). Mac da Mira: `scripts/ios-native-tests.sh` 77/77; `scripts/ios-smoke.sh` falhou no branch até `fcd2649` (toque em `http-confirm` não chegava com o login aninhado em `Column > Box(weight)`); depois, 2 de 3 rodadas passaram. A falha restante ("Neither element nor any descendant has keyboard focus" em `server-url`) também aparece em `c468bc1` (1 de 3 rodadas): instabilidade preexistente. Prova manual com duas origens e atualização por cima de `c468bc1` preservou login e rascunho. Desvios autorizados: gates de build dos passos 4–5 adiados para depois do 6; `change_*` removidos também de `app/src/main/res/values/strings.xml`; aviso global de erro virou diálogo) |
 
 Em 2026-10-31 o branch `rpg` (elenco 031/032 e o que veio depois) foi promovido a `producao` por fast-forward
 (`759c0f9`): o standalone (`~/apps/habblaud` no branch `producao`) e os cinco tenants rodam essa versão. As notas
@@ -71,6 +72,8 @@ Em 2026-10-31 o branch `rpg` (elenco 031/032 e o que veio depois) foi promovido 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 
 ## Dependency notes
+
+- 042: variante `plan`, commit `c468bc1`, 2026-11-04. Decisões do dono: lista única misturada com filtro por servidor; um login por servidor (origem = identidade). Risco HIGH na migração do estado local de um servidor para a lista (rascunhos e cookie precisam sobreviver à atualização). Sem mudança no servidor Node. Gate iOS (`:shared:allTests` no Mac) obrigatório para DONE.
 
 - 041: usuário aceita iPadOS apenas em primeiro plano e autorizou publicação desta branch no fork e CI macOS. Android e seus dados devem ser preservados. DONE exige IPA instalado pelo SideStore, paridade funcional e gates do plano; build de simulador não basta.
 
