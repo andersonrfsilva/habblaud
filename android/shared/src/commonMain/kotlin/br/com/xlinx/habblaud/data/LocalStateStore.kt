@@ -3,9 +3,8 @@ package br.com.xlinx.habblaud.data
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.*
 
-internal data class ConversationWrite(val epoch: Long, val sequence: Long)
+internal data class ConversationWrite(val origin: String, val epoch: Long, val sequence: Long)
 
-data class ConnectionSettings(val origin: String)
 data class MessageDraft(val text: String = "", val revision: Long = 0, val attachments: List<Attachment> = emptyList())
 data class MessageOperation(val id: String? = null, val status: String = "unknown", val revision: Long = 0, val error: String? = null)
 data class MessageLocalState(val draft: MessageDraft = MessageDraft(), val operation: MessageOperation? = null, val control: MessageOperation? = null)
@@ -58,16 +57,17 @@ expect class LocalStateStore() : MessageStore {
     suspend fun lastSession(): SessionKey?
     suspend fun setLastSession(key: SessionKey?)
     internal suspend fun setLastSession(key: SessionKey?, write: ConversationWrite)
-    internal fun conversationEpoch(): Long
-    internal fun conversationWrite(epoch: Long): ConversationWrite
+    internal fun conversationEpoch(origin: String): Long
+    internal fun conversationWrite(origin: String, epoch: Long): ConversationWrite
     suspend fun conversation(key: SessionKey): CachedConversation?
     internal var beforeConversationWrite: suspend () -> Unit
     internal var afterConversationWrite: () -> Unit
     internal suspend fun setConversation(key: SessionKey, entries: List<TerminalEntry>, truncated: Boolean, write: ConversationWrite, summaries: Map<String, String> = emptyMap())
     suspend fun retryUntil(origin: String): Long
     suspend fun setRetryUntil(origin: String, until: Long)
-    suspend fun connection(): ConnectionSettings?
-    suspend fun setConnection(origin: String)
+    suspend fun servers(): List<String>
+    suspend fun addServer(origin: String)
+    suspend fun removeServer(origin: String)
     suspend fun notificationsEnabled(): Boolean
     suspend fun setNotificationsEnabled(enabled: Boolean)
     suspend fun deliverAs(): String
@@ -85,8 +85,8 @@ expect class LocalStateStore() : MessageStore {
     suspend fun sessionDeliverAs(key: SessionKey): String
     suspend fun setSessionDeliverAs(key: SessionKey, mode: String)
     fun seenId(key: SessionKey): String
-    suspend fun seenReplies(): Map<String, Long>
-    suspend fun setSeenReplies(seen: Map<String, Long>)
-    internal suspend fun setSeenReplies(seen: Map<String, Long>, epoch: Long)
+    suspend fun seenReplies(origin: String): Map<String, Long>
+    suspend fun setSeenReplies(origin: String, seen: Map<String, Long>)
+    internal suspend fun setSeenReplies(origin: String, seen: Map<String, Long>, epoch: Long)
     suspend fun clear()
 }

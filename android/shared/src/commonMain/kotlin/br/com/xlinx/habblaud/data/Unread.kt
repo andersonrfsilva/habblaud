@@ -16,3 +16,12 @@ fun updatedSeen(seen: Map<String, Long>, ids: List<String>, openId: String?, now
 
 /** Tela principal: a conversa com a resposta mais nova no topo; sem resposta conhecida, vale o último evento. */
 fun byLastMessage(sessions: List<SessionItem>): List<SessionItem> = sessions.sortedByDescending { it.replies.lastOrNull() ?: it.lastAt ?: 0L }
+
+fun mergeSessions(states: Map<String, ReadingState>, filter: String?): List<SessionItem> =
+    states.filterKeys { filter == null || it == filter }.values.flatMap { it.sessions }
+
+fun serverLabel(origin: String): String {
+    val url = io.ktor.http.Url(origin)
+    val host = if (url.host.contains(':')) "[${url.host}]" else url.host
+    return host + if (url.port == url.protocol.defaultPort) "" else ":${url.port}"
+}

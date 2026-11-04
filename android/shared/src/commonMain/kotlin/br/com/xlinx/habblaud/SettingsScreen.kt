@@ -7,6 +7,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -38,6 +39,7 @@ import br.com.xlinx.habblaud.data.snapshotModels
 import br.com.xlinx.habblaud.data.splitRole
 import br.com.xlinx.habblaud.data.string
 import br.com.xlinx.habblaud.data.wireJson
+import br.com.xlinx.habblaud.data.serverLabel
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.JsonObject
@@ -49,9 +51,11 @@ import kotlinx.coroutines.launch
 /** Configurações do aparelho. Visualização e modo de envio aqui são o padrão; cada sessão lembra a própria escolha. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(api: HabblaudApi, store: LocalStateStore, onClose: () -> Unit, onLogout: () -> Unit) {
+fun SettingsScreen(apis: Map<String, HabblaudApi>, store: LocalStateStore, onClose: () -> Unit, onLogin: (String?) -> Unit, onLogout: (String) -> Unit) {
     val notificationsPlatform = LocalNotificationPlatform.current
-    val origin = api.origin
+    var origin by remember { mutableStateOf(apis.keys.first()) }
+    LaunchedEffect(apis.keys) { if (origin !in apis) origin = apis.keys.first() }
+    val api = apis[origin] ?: apis.values.first()
     PlatformBackHandler(onBack = onClose)
     val scope = rememberCoroutineScope()
     val theme by store.theme.collectAsState(initial = null)
@@ -65,11 +69,11 @@ fun SettingsScreen(api: HabblaudApi, store: LocalStateStore, onClose: () -> Unit
         notifications = store.notificationsEnabled(); events = store.notifyEvents()
     }
     // Cotas: o servidor manda o uso das contas no snapshot; recarrega a cada minuto enquanto a tela está aberta.
-    var quotas by remember { mutableStateOf<List<AccountQuota>?>(null) }
-    var quotaError by remember { mutableStateOf(false) }
+    var quotas by remember(origin) { mutableStateOf<List<AccountQuota>?>(null) }
+    var quotaError by remember(origin) { mutableStateOf(false) }
     // Modelos que os agentes omp abertos anunciam: são as opções do seletor dos papéis.
-    var models by remember { mutableStateOf(emptyList<String>()) }
-    LaunchedEffect(Unit) {
+    var models by remember(origin) { mutableStateOf(emptyList<String>()) }
+    LaunchedEffect(origin) {
         while (true) {
             try { val snapshot = api.request("/api/snapshot"); quotas = parseAccounts(snapshot); models = snapshotModels(snapshot); quotaError = false }
             catch (e: Exception) { if (e is CancellationException) throw e; if (e is ApiException && e.status == 401) return@LaunchedEffect; quotaError = true }
@@ -77,11 +81,11 @@ fun SettingsScreen(api: HabblaudApi, store: LocalStateStore, onClose: () -> Unit
         }
     }
     // Papéis do omp (global): o auxiliar do host lê e grava o modelRoles; recarrega enquanto a tela está aberta.
-    var roles by remember { mutableStateOf<Map<String, String>?>(null) }
-    var rolesStatus by remember { mutableStateOf("loading") }
-    var rolesPending by remember { mutableStateOf(false) }
-    var rolesRefresh by remember { mutableIntStateOf(0) }
-    LaunchedEffect(rolesRefresh) {
+    var roles by remember(origin) { mutableStateOf<Map<String, String>?>(null) }
+    var rolesStatus by remember(origin) { mutableStateOf("loading") }
+    var rolesPending by remember(origin) { mutableStateOf(false) }
+    var rolesRefresh by remember(origin) { mutableIntStateOf(0) }
+    LaunchedEffect(origin, rolesRefresh) {
         while (true) {
             try {
                 val r = wireJson.parseToJsonElement(api.request("/api/cast/roles")).jsonObject
@@ -97,8 +101,8 @@ fun SettingsScreen(api: HabblaudApi, store: LocalStateStore, onClose: () -> Unit
             delay(if (rolesPending) 1_500 else 10_000)
         }
     }
-    var editingRole by remember { mutableStateOf<String?>(null) }
-    var rolesError by remember { mutableStateOf(false) }
+    var editingRole by remember(origin) { mutableStateOf<String?>(null) }
+    var rolesError by remember(origin) { mutableStateOf(false) }
     fun saveRole(role: String, value: String) {
         rolesError = false; rolesPending = true
         scope.launch {
@@ -113,6 +117,11 @@ fun SettingsScreen(api: HabblaudApi, store: LocalStateStore, onClose: () -> Unit
         )
     }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+            if (apis.size > 1) Row(Modifier.padding(horizontal = 16.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                apis.keys.forEach { server ->
+                    FilterChip(selected = origin == server, onClick = { origin = server }, label = { Text(serverLabel(server)) })
+                }
+            }
             Section(Res.string.settings_appearance)
             theme?.let { current ->
                 listOf("system" to Res.string.theme_system, "light" to Res.string.theme_light, "dark" to Res.string.theme_dark).forEach { (value, label) ->
@@ -198,8 +207,13 @@ fun SettingsScreen(api: HabblaudApi, store: LocalStateStore, onClose: () -> Unit
             if (quotas != null && quotaError) Hint(Res.string.quota_error)
 
             Section(Res.string.settings_server)
-            Text(origin, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodyLarge)
-            TextButton(onClick = onLogout, Modifier.padding(horizontal = 8.dp)) { Text(stringResource(Res.string.logout), color = MaterialTheme.colorScheme.error) }
+            apis.keys.forEach { server ->
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(serverLabel(server), Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+                    TextButton(onClick = { onLogout(server) }) { Text(stringResource(Res.string.logout), color = MaterialTheme.colorScheme.error) }
+                }
+            }
+            TextButton(onClick = { onLogin(null) }, Modifier.padding(horizontal = 8.dp)) { Text(stringResource(Res.string.add_server)) }
         }
     }
 }

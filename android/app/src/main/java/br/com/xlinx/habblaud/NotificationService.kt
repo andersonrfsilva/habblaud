@@ -26,7 +26,8 @@ import kotlinx.coroutines.*
 class NotificationService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null
-    private var api: HabblaudApi? = null
+    private val apis = mutableListOf<HabblaudApi>()
+    private var multipleServers = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -44,48 +45,62 @@ class NotificationService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (job?.isActive != true) job = scope.launch { watch() }
+        val previous = job
+        previous?.cancel()
+        job = scope.launch { previous?.join(); watch() }
         return START_STICKY
     }
 
     private suspend fun watch() {
         val store = LocalStateStore(applicationContext)
-        val origin = store.connection()?.origin
-        if (origin == null || UrlPolicy.origin(origin) != origin || !store.notificationsEnabled()) { stopSelf(); return }
-        val api = HabblaudApi(origin).also { this.api = it }
-        val sessions = SessionRepository(api)
-        var unauthorized = false
-        val streams = ConversationRepository(api)
-        var previous: Map<SessionKey, AgentWatch>? = null
-        while (currentCoroutineContext().isActive) {
-            streams.stream("/api/stream").collect { event ->
-                if (event is StreamEvent.Failure && event.status == 401) unauthorized = true
-                // O snapshot depois de uma reconexão compara com o último antes da queda: o que mudou nela também avisa.
-                if (event is StreamEvent.Data && event.type == "snapshot") {
-                    val current = sessions.snapshot(event.data)
-                    previous?.let { before ->
-                        val (permission, done) = store.notifyEvents()
-                        agentEvents(before, current).filter { if (it is AgentEvent.Permission) permission else done }.forEach(::notify)
+        val origins = store.servers().filter { UrlPolicy.origin(it) == it }
+        if (origins.isEmpty() || !store.notificationsEnabled()) { stopSelf(); return }
+        multipleServers = origins.size > 1
+        coroutineScope {
+            origins.map { origin -> launch {
+                val api = HabblaudApi(origin)
+                synchronized(apis) { apis.add(api) }
+                try {
+                    val sessions = SessionRepository(api)
+                    val streams = ConversationRepository(api)
+                    var previous: Map<SessionKey, AgentWatch>? = null
+                    while (currentCoroutineContext().isActive) {
+                        var unauthorized = false
+                        streams.stream("/api/stream").collect { event ->
+                            if (event is StreamEvent.Failure && event.status == 401) unauthorized = true
+                            // O snapshot depois de uma reconexão compara com o último antes da queda: o que mudou nela também avisa.
+                            if (event is StreamEvent.Data && event.type == "snapshot") {
+                                val current = sessions.snapshot(event.data)
+                                previous?.let { before ->
+                                    val (permission, done) = store.notifyEvents()
+                                    agentEvents(before, current).filter { if (it is AgentEvent.Permission) permission else done }.forEach(::notify)
+                                }
+                                previous = watchOf(current)
+                            }
+                        }
+                        // Fim do stream: login vencido (401) ou erro definitivo. Sem login, para; senão tenta de novo daqui a pouco.
+                        if (unauthorized) return@launch
+                        delay(30_000)
                     }
-                    previous = watchOf(current)
+                } finally {
+                    synchronized(apis) { apis.remove(api) }
+                    api.close()
                 }
-            }
-            // Fim do stream: login vencido (401) ou erro definitivo. Sem login, para; senão tenta de novo daqui a pouco.
-            if (unauthorized) { stopSelf(); return }
-            delay(30_000)
+            } }.joinAll()
         }
+        if (currentCoroutineContext().isActive) stopSelf()
     }
 
     private fun notify(event: AgentEvent) {
         if (MainActivity.visible) return
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
-        val (id, notification) = alertNotification(this, event)
+        val (id, notification) = alertNotification(this, event, multipleServers)
         try { NotificationManagerCompat.from(this).notify(id, notification) } catch (_: SecurityException) { }
     }
 
     override fun onDestroy() {
         scope.cancel()
-        api?.close()
+        synchronized(apis) { apis.forEach { it.close() }; apis.clear() }
         super.onDestroy()
     }
 
@@ -107,7 +122,7 @@ class NotificationService : Service() {
     }
 }
 
-internal fun alertNotification(context: Context, event: AgentEvent): Pair<Int, Notification> {
+internal fun alertNotification(context: Context, event: AgentEvent, multipleServers: Boolean = false): Pair<Int, Notification> {
     val session = event.session
     val tap = Intent(context, MainActivity::class.java).putExtra(MainActivity.EXTRA_SESSION, session.key.serialize())
         .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -125,7 +140,7 @@ internal fun alertNotification(context: Context, event: AgentEvent): Pair<Int, N
         .setSmallIcon(android.R.drawable.stat_notify_chat)
         .setContentTitle(session.characterName ?: session.title)
         .setContentText(text)
-        .setSubText(session.project?.substringAfterLast('/'))
+        .setSubText(listOfNotNull(session.project?.substringAfterLast('/'), serverLabel(session.key.origin).takeIf { multipleServers }).joinToString(" · ").ifEmpty { null })
         .setContentIntent(PendingIntent.getActivity(context, id, tap, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
         .setAutoCancel(true)
         .setPriority(NotificationCompat.PRIORITY_HIGH)

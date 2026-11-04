@@ -8,6 +8,13 @@ import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasScrollToNodeAction
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -20,7 +27,6 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import br.com.xlinx.habblaud.data.ConnectionSettings
 import br.com.xlinx.habblaud.data.HabblaudApi
 import br.com.xlinx.habblaud.data.LocalStateStore
 import br.com.xlinx.habblaud.data.MessageDraft
@@ -63,7 +69,7 @@ class FixtureUiInstrumentedTest {
         runBlocking {
             val store = LocalStateStore(context)
             store.clear()
-            store.setConnection(origin)
+            store.addServer(origin)
             store.setLastSession(key)
             try {
                 HabblaudApi(origin).use { it.login("android-test", "android-test") }
@@ -84,8 +90,70 @@ class FixtureUiInstrumentedTest {
     @Test fun connectionIsPersistedPerOrigin() = runBlocking {
         val store = LocalStateStore(context)
         val remote = "http://100.83.131.11:4747"
-        store.setConnection(remote)
-        assertEquals(ConnectionSettings(remote), LocalStateStore(context).connection())
+        store.addServer(remote)
+        assertEquals(listOf(origin, remote), LocalStateStore(context).servers())
+    }
+
+    @Test fun mergedSessionsShowBothOriginsAndServerChipsFilterThem() {
+        val other = "http://localhost:14748"
+        runBlocking {
+            HabblaudApi(other).use { it.login("android-test", "android-test") }
+            LocalStateStore(context).addServer(other)
+        }
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        await(R.string.message_text)
+        compose.onNodeWithContentDescription(text(R.string.back_sessions)).performClick()
+        compose.waitUntil(15_000) { compose.onAllNodesWithTag("server-filter:all", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("server-filter:all", useUnmergedTree = true).assertIsSelected()
+        compose.onNodeWithText("127.0.0.1:14748").assertIsDisplayed()
+        compose.onNodeWithText("localhost:14748").assertIsDisplayed()
+        compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText(text(R.string.search_sessions)))
+        compose.onNodeWithText(text(R.string.search_sessions)).performTextInput("Ana Fictícia")
+        android.os.ParcelFileDescriptor.AutoCloseInputStream(
+            InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("input keyevent KEYCODE_BACK")
+        ).use { it.readBytes() }
+        val rowTag = "session-row:${key.provider}:${key.sessionId}"
+        fun awaitRows(count: Int) = compose.waitUntil(15_000) {
+            compose.onAllNodesWithTag(rowTag).fetchSemanticsNodes().size == count
+        }
+        awaitRows(2)
+        compose.onAllNodesWithTag(rowTag).assertCountEquals(2)
+        compose.onNodeWithTag("session-server:127.0.0.1:14748", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithTag("session-server:localhost:14748", useUnmergedTree = true).assertIsDisplayed()
+        for (label in listOf("127.0.0.1:14748", "localhost:14748")) {
+            compose.onNodeWithTag("server-filter:$label", useUnmergedTree = true).performClick().assertIsSelected()
+            awaitRows(1)
+            compose.onAllNodesWithTag(rowTag).assertCountEquals(1)
+            compose.onNodeWithTag("server-filter:all", useUnmergedTree = true).performClick().assertIsSelected()
+            awaitRows(2)
+        }
+    }
+
+    @Test fun logoutFromSettingsRemovesOnlySelectedServer() {
+        val other = "http://localhost:14748"
+        runBlocking {
+            HabblaudApi(other).use { it.login("android-test", "android-test") }
+            LocalStateStore(context).addServer(other)
+        }
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        await(R.string.message_text)
+        compose.onNodeWithContentDescription(text(R.string.back_sessions)).performClick()
+        compose.onNodeWithTag("server-filter:127.0.0.1:14748", useUnmergedTree = true).performClick()
+        awaitDescription(R.string.menu)
+        compose.onNodeWithContentDescription(text(R.string.menu)).performClick()
+        compose.onNodeWithText(text(R.string.logout)).assertDoesNotExist()
+        compose.onNodeWithText(text(R.string.settings)).performClick()
+        await(R.string.settings_server)
+        compose.onAllNodes(hasText(text(R.string.logout)))[0].performScrollTo().performClick()
+        await(R.string.confirm)
+        compose.onNodeWithText(text(R.string.confirm)).performClick()
+        compose.waitUntil(15_000) {
+            runBlocking { LocalStateStore(context).servers() == listOf(other) }
+        }
+        assertEquals(listOf(other), runBlocking { LocalStateStore(context).servers() })
+        await(R.string.open_sessions)
+        compose.onNodeWithText(text(R.string.open_sessions)).assertIsDisplayed()
+        runBlocking { HabblaudApi(other).use { it.access() } }
     }
 
     @Test fun systemBackReturnsToSessionsThenExits() {

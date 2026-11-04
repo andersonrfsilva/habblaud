@@ -64,7 +64,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
     private var active = false
     private var accessReady = false
     private val conversation = ConversationState()
-    private val conversationEpoch = store.conversationEpoch()
+    private val conversationEpoch = store.conversationEpoch(api.origin)
     val messages = MessageController(api, store, scope, ::canSend, ::changed, unauthorized)
     private fun canSend(key: SessionKey, agentId: String): Boolean {
         val current = mutable.value
@@ -92,7 +92,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                 }
                 mutable.value = mutable.value.copy(terminalAllowed = repository.terminalAllowed, messagesAllowed = repository.messagesAllowed, messageGuard = repository.messageGuard, permissionsAllowed = repository.permissionsAllowed)
                 if (!restoreLoaded) { restore = store.lastSession()?.takeIf { it.origin == api.origin }; restoreLoaded = true }
-                if (seen == null) seen = store.seenReplies()
+                if (seen == null) seen = store.seenReplies(api.origin)
                 streams.stream("/api/stream").collect { event ->
                     when (event) {
                         is StreamEvent.Connected -> mutable.value = mutable.value.copy(connection = "connected", error = if (mutable.value.error == "network") null else mutable.value.error)
@@ -126,7 +126,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         messages.stop(); api.cancelCalls()
         mutable.value = mutable.value.copy(connection = "offline", readingError = if (mutable.value.selected != null && mutable.value.readingError == null) "network" else mutable.value.readingError)
     }
-    fun close() { persist(); cachedKey = null; dropSummaries(); generation++; conversationJob?.cancel(); messages.close(); restore = null; val write = store.conversationWrite(conversationEpoch); scope.launch { store.setLastSession(null, write) }; mutable.value = mutable.value.copy(selected = null, entries = emptyList(), error = null, readingError = null); refreshUnread() }
+    fun close() { persist(); cachedKey = null; dropSummaries(); generation++; conversationJob?.cancel(); messages.close(); restore = null; val write = store.conversationWrite(api.origin, conversationEpoch); scope.launch { store.setLastSession(null, write) }; mutable.value = mutable.value.copy(selected = null, entries = emptyList(), error = null, readingError = null); refreshUnread() }
     /** Até quando cada conversa foi lida (`LocalStateStore.seenId` → hora do servidor); null até ler do aparelho. */
     private var seen: Map<String, Long>? = null
     private var seenJob: Job? = null
@@ -145,7 +145,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         val marks = seen ?: return
         seenJob?.cancel()
         // Escopo próprio, como as conversas: stop() roda no descarte da tela.
-        seenJob = persistScope.launch { delay(delayMs); store.setSeenReplies(marks, conversationEpoch) }
+        seenJob = persistScope.launch { delay(delayMs); store.setSeenReplies(api.origin, marks, conversationEpoch) }
     }
     /** Sessão cuja conversa está em `conversation` (veio do aparelho ou do servidor) e pode ser guardada. */
     private var cachedKey: SessionKey? = null
@@ -181,7 +181,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         val entries = conversation.snapshot().toList()
         val truncated = conversation.truncated
         val kept = HashMap(summaries)
-        val write = store.conversationWrite(conversationEpoch)
+        val write = store.conversationWrite(api.origin, conversationEpoch)
         // Escopo próprio: stop()/close() rodam no descarte da tela, quando `scope` já foi cancelado.
         persistScope.launch { store.setConversation(key, entries, truncated, write, kept) }
     }
@@ -206,7 +206,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         messages.open(item.key)
         if (!active || !accessReady || !repository.terminalAllowed) return
         val base = if (item.agentId != null) "/api/agents/${encode(item.agentId)}/terminal" else "/api/sessions/${encode(item.key.account)}/${encode(item.key.sessionId)}/terminal"
-        if (!item.sub) { val write = store.conversationWrite(conversationEpoch); scope.launch { store.setLastSession(item.key, write) } }
+        if (!item.sub) { val write = store.conversationWrite(api.origin, conversationEpoch); scope.launch { store.setLastSession(item.key, write) } }
         conversationJob = scope.launch {
             // O que já foi lido aparece na hora; o servidor manda só o que veio depois da última entrada guardada.
             // Subagentes não ficam guardados: são conversas curtas, e cada uma viraria um arquivo a mais no aparelho.

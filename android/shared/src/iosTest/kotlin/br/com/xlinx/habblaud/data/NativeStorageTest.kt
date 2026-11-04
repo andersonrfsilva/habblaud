@@ -19,10 +19,25 @@ class NativeStorageTest {
     }
 
     @Test
+    fun migratedSeenRepliesKeepOriginalSessionHash() = runBlocking {
+        val store = LocalStateStore()
+        val origin = "https://native-storage.invalid"
+        val key = SessionKey(origin, "claude", "test", "legacy-seen")
+        val hash = storageHash(key.serialize())
+        store.clear()
+        try {
+            protectedWrite("$privateDirectory/local_state.json", """{"origin":"$origin","seen_replies":{"$hash":123}}""")
+            assertEquals(listOf(origin), store.servers())
+            assertEquals(hash, store.seenId(key))
+            assertEquals(123L, store.seenReplies(origin)[store.seenId(key)])
+        } finally { store.clear() }
+    }
+
+    @Test
     fun startupCleanupRemovesOrphansButRetainsDraftAttachments() = runBlocking {
         val store = LocalStateStore()
         val origin = "https://native-storage.invalid"
-        store.setConnection(origin)
+        store.addServer(origin)
         val key = SessionKey(origin, "claude", "test", "orphan-test")
         val retainedPath = "$privateDirectory/attachment-${NSUUID().UUIDString}"
         val orphanPath = "$privateDirectory/attachment-${NSUUID().UUIDString}"
@@ -77,27 +92,29 @@ class NativeStorageTest {
     }
 
     @Test
-    fun logoutRejectsDelayedCacheAndSeenWrites() = runBlocking {
+    fun removingServerRejectsDelayedCacheAndSeenWrites() = runBlocking {
         val store = LocalStateStore()
         val origin = "https://native-storage.invalid"
         val key = SessionKey(origin, "claude", "test", "native-${NSUUID().UUIDString}")
-        store.setConnection(origin)
-        val epoch = store.conversationEpoch()
-        val write = store.conversationWrite(epoch)
+        store.addServer(origin)
+        val epoch = store.conversationEpoch(origin)
+        val write = store.conversationWrite(origin, epoch)
         val reached = CompletableDeferred<Unit>()
         val resume = CompletableDeferred<Unit>()
         store.beforeConversationWrite = { reached.complete(Unit); resume.await() }
         try {
             val pending = async { store.setConversation(key, listOf(TerminalEntry("old", "assistant", "old account")), false, write) }
             reached.await()
-            store.clear()
-            store.setConnection(origin)
+            store.removeServer(origin)
+            store.addServer(origin)
             resume.complete(Unit)
             pending.await()
-            store.setSeenReplies(mapOf(store.seenId(key) to 123L), epoch)
+            store.setSeenReplies(origin, mapOf(store.seenId(key) to 123L), epoch)
+            store.setLastSession(key, write)
             assertNull(store.conversation(key))
-            assertTrue(store.seenReplies().isEmpty())
-            val current = store.conversationWrite(store.conversationEpoch())
+            assertNull(store.lastSession())
+            assertTrue(store.seenReplies(origin).isEmpty())
+            val current = store.conversationWrite(origin, store.conversationEpoch(origin))
             store.beforeConversationWrite = {}
             store.setConversation(key, listOf(TerminalEntry("new", "assistant", "new account")), false, current)
             assertEquals("new", LocalStateStore().conversation(key)?.entries?.single()?.id)
@@ -106,6 +123,112 @@ class NativeStorageTest {
             store.beforeConversationWrite = {}
             store.clear()
         }
+    }
+
+    @Test
+    fun addingServerPreservesPendingWritesFromExistingServer() = runBlocking {
+        val store = LocalStateStore()
+        val origin = "https://native-storage.invalid"
+        val other = "https://other-native-storage.invalid"
+        val key = SessionKey(origin, "claude", "test", "pending")
+        store.addServer(origin)
+        val epoch = store.conversationEpoch(origin)
+        val write = store.conversationWrite(origin, epoch)
+        val reached = CompletableDeferred<Unit>()
+        val resume = CompletableDeferred<Unit>()
+        store.beforeConversationWrite = { reached.complete(Unit); resume.await() }
+        try {
+            val pending = async { store.setConversation(key, listOf(TerminalEntry("kept", "assistant", "kept")), false, write) }
+            reached.await()
+            store.addServer(other)
+            store.addServer(origin)
+            resume.complete(Unit)
+            pending.await()
+            store.setSeenReplies(origin, mapOf(store.seenId(key) to 123L), epoch)
+            store.setLastSession(key, write)
+            assertEquals(listOf(origin, other), store.servers())
+            assertEquals(epoch, store.conversationEpoch(origin))
+            assertEquals("kept", LocalStateStore().conversation(key)?.entries?.single()?.id)
+            assertEquals(mapOf(store.seenId(key) to 123L), store.seenReplies(origin))
+            assertEquals(key, store.lastSession())
+        } finally {
+            resume.complete(Unit)
+            store.beforeConversationWrite = {}
+            store.clear()
+        }
+    }
+
+    @Test
+    fun keychainRemovalAndGenerationAreIsolatedByOrigin() {
+        val origin = "https://native-storage.invalid"
+        val other = "https://other-native-storage.invalid"
+        val first = SessionCookieStore(origin)
+        val second = SessionCookieStore(other)
+        first.clear()
+        second.clear()
+        try {
+            first.saveFromResponse("$origin/login", listOf("habblaud_remote=first; Path=/; Secure"))
+            val generation = second.generation()
+            second.saveFromResponse("$other/login", listOf("habblaud_remote=second; Path=/; Secure"), generation)
+            assertTrue(first.clear(first.generation()))
+            assertNull(first.requestHeader("$origin/api/sessions"))
+            assertNull(SessionCookieStore(origin).requestHeader("$origin/api/sessions"))
+            assertEquals(generation, second.generation())
+            assertEquals("habblaud_remote=second", second.requestHeader("$other/api/sessions"))
+            assertEquals("habblaud_remote=second", SessionCookieStore(other).requestHeader("$other/api/sessions"))
+            assertEquals(setOf(other), decodeCookies(checkNotNull(SecureSessionStorage().read())).keys)
+            second.saveFromResponse("$other/login", listOf("habblaud_remote=fresh; Path=/; Secure"), generation)
+            assertEquals("habblaud_remote=fresh", second.requestHeader("$other/api/sessions"))
+        } finally {
+            first.clear()
+            second.clear()
+        }
+    }
+
+    @Test
+    fun removingServerPreservesOtherServerLocalState() = runBlocking {
+        val store = LocalStateStore()
+        val origin = "https://native-storage.invalid"
+        val other = "https://other-native-storage.invalid"
+        val first = SessionKey(origin, "claude", "test", "same-session")
+        val second = first.copy(origin = other)
+        store.clear()
+        try {
+            store.addServer(origin)
+            store.addServer(other)
+            val view = VIEWS.first { it != store.defaultView() }
+            val mode = DELIVER_MODES.first { it != store.deliverAs() }
+            for (key in listOf(first, second)) {
+                store.updateMessage(key) { it.copy(draft = MessageDraft(text = key.origin)) }
+                store.setSessionView(key, view)
+                store.setSessionDeliverAs(key, mode)
+                store.setSeenReplies(key.origin, mapOf(store.seenId(key) to 123L))
+                val write = store.conversationWrite(key.origin, store.conversationEpoch(key.origin))
+                store.setConversation(key, listOf(TerminalEntry("cached", "assistant", key.origin)), false, write)
+            }
+            store.setLastSession(second)
+            val epoch = store.conversationEpoch(other)
+            val write = store.conversationWrite(other, epoch)
+            store.removeServer(origin)
+            val reopened = LocalStateStore()
+            assertEquals(listOf(other), reopened.servers())
+            assertEquals(MessageLocalState(), reopened.message(first))
+            assertEquals(reopened.defaultView(), reopened.sessionView(first))
+            assertEquals(reopened.deliverAs(), reopened.sessionDeliverAs(first))
+            assertTrue(reopened.seenReplies(origin).isEmpty())
+            assertNull(reopened.conversation(first))
+            assertEquals(other, reopened.message(second).draft.text)
+            assertEquals(view, reopened.sessionView(second))
+            assertEquals(mode, reopened.sessionDeliverAs(second))
+            assertEquals(mapOf(store.seenId(second) to 123L), reopened.seenReplies(other))
+            assertEquals(other, reopened.conversation(second)?.entries?.single()?.text)
+            assertEquals(second, reopened.lastSession())
+            assertEquals(epoch, reopened.conversationEpoch(other))
+            reopened.setConversation(second, listOf(TerminalEntry("after", "assistant", "after removal")), false, write)
+            reopened.setSeenReplies(other, mapOf(store.seenId(second) to 456L), epoch)
+            assertEquals("after", reopened.conversation(second)?.entries?.single()?.id)
+            assertEquals(mapOf(store.seenId(second) to 456L), reopened.seenReplies(other))
+        } finally { store.clear() }
     }
 
     @Test

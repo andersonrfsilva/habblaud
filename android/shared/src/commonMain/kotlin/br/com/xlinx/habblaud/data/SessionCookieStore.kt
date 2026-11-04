@@ -16,16 +16,33 @@ internal expect class SecureSessionStorage() {
 }
 private object SessionMemory {
     val lock = SessionLock()
-    var generation = 0L
+    val generations = mutableMapOf<String, Long>()
     val cookies = mutableMapOf<String, Cookie?>()
 }
-/** Only the remote session cookie for the selected origin is retained. */
+internal fun encodeCookies(cookies: Map<String, String>): String =
+    kotlinx.serialization.json.buildJsonObject {
+        put("v", kotlinx.serialization.json.JsonPrimitive(2))
+        put("cookies", kotlinx.serialization.json.buildJsonObject {
+            cookies.forEach { (origin, cookie) -> put(origin, kotlinx.serialization.json.JsonPrimitive(cookie)) }
+        })
+    }.toString()
+
+internal fun decodeCookies(value: String): Map<String, String> = runCatching {
+    val data = wireJson.parseToJsonElement(value).jsonObject
+    if (data["v"]?.jsonPrimitive?.content == "2") {
+        data.getValue("cookies").jsonObject.mapValues { it.value.jsonPrimitive.content }
+    } else {
+        mapOf(data.getValue("origin").jsonPrimitive.content to data.getValue("cookie").jsonPrimitive.content)
+    }
+}.getOrDefault(emptyMap())
+
+/** Guarda o cookie da sessão remota de cada origem conectada. */
 class SessionCookieStore(private val origin: String) {
     private val storage = SecureSessionStorage()
     private val lock = SessionMemory.lock
     private var invalidation: Long
-        get() = SessionMemory.generation
-        set(value) { SessionMemory.generation = value }
+        get() = SessionMemory.generations[origin] ?: 0L
+        set(value) { SessionMemory.generations[origin] = value }
     fun generation(): Long {
         lock.lock()
         try { return invalidation } finally { lock.unlock() }
@@ -37,10 +54,9 @@ class SessionCookieStore(private val origin: String) {
         lock.lock()
         try {
             val previous = cookie
-            val persisted = storage.read()?.let { value -> runCatching {
-                val data = wireJson.parseToJsonElement(value).jsonObject
-                if (data["origin"]?.jsonPrimitive?.content != origin) null else parseServerSetCookieHeader(data["cookie"]!!.jsonPrimitive.content)
-            }.getOrNull() }
+            val persisted = storage.read()?.let { value ->
+                decodeCookies(value)[origin]?.let { runCatching { parseServerSetCookieHeader(it) }.getOrNull() }
+            }
             if (previous != null && persisted == null) invalidation++
             cookie = persisted
         } finally { lock.unlock() }
@@ -58,10 +74,19 @@ class SessionCookieStore(private val origin: String) {
         val expires = value.maxAge?.let { now + it.toLong() * 1000 } ?: value.expires?.timestamp
         if (expires != null && expires <= now) { clear(); return }
         val retained = value.copy(maxAge = null, expires = expires?.let { io.ktor.util.date.GMTDate(it) }, domain = value.domain ?: parsed.host, path = value.path ?: parsed.encodedPath.substringBeforeLast('/', "").ifEmpty { "/" })
+        val persisted = storage.read()?.let(::decodeCookies).orEmpty().toMutableMap()
+        persisted[origin] = renderSetCookieHeader(retained)
         try {
-            storage.write(kotlinx.serialization.json.buildJsonObject { put("origin", kotlinx.serialization.json.JsonPrimitive(origin)); put("cookie", kotlinx.serialization.json.JsonPrimitive(renderSetCookieHeader(retained))) }.toString())
+            storage.write(encodeCookies(persisted))
             cookie = retained
-        } catch (error: Exception) { cookie = null; storage.clear(); throw IllegalStateException("Não foi possível guardar a sessão com segurança", error) }
+        } catch (error: Exception) {
+            cookie = null
+            persisted.remove(origin)
+            try {
+                if (persisted.isEmpty()) storage.clear() else storage.write(encodeCookies(persisted))
+            } catch (_: Exception) { storage.clear() }
+            throw IllegalStateException("Não foi possível guardar a sessão com segurança", error)
+        }
         } finally { lock.unlock() }
     }
     fun requestHeader(url: String): String? {
@@ -79,7 +104,13 @@ class SessionCookieStore(private val origin: String) {
     }
     fun clear() {
         lock.lock()
-        try { invalidation++; SessionMemory.cookies.keys.toList().forEach { SessionMemory.cookies[it] = null }; storage.clear() } finally { lock.unlock() }
+        try {
+            invalidation++
+            cookie = null
+            val persisted = storage.read()?.let(::decodeCookies).orEmpty().toMutableMap()
+            persisted.remove(origin)
+            if (persisted.isEmpty()) storage.clear() else storage.write(encodeCookies(persisted))
+        } finally { lock.unlock() }
     }
     fun clear(expectedGeneration: Long): Boolean {
         lock.lock()

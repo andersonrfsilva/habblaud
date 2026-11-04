@@ -19,20 +19,22 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
-private val Context.localState by preferencesDataStore(name = "local_state")
+internal val Context.localState by preferencesDataStore(name = "local_state")
 private val Context.rateState by preferencesDataStore(name = "login_rate")
 /** Configurações do aparelho: sobrevivem a sair da conta e a trocar de servidor (local_state é apagado nesses casos). */
 private val Context.appSettings by preferencesDataStore(name = "settings")
 
 private class ConversationCoordinator {
     val lock = kotlinx.coroutines.sync.Mutex()
-    var epoch = 0L
+    val epochs = mutableMapOf<String, Long>()
     var sequence = 0L
     var sessionWritten = 0L
     val written = mutableMapOf<SessionKey, Long>()
 }
 private val conversationCoordinators = mutableMapOf<String, ConversationCoordinator>()
-private fun hashed(prefix: String, key: SessionKey) = stringPreferencesKey(prefix + java.security.MessageDigest.getInstance("SHA-256").digest(key.serialize().toByteArray()).joinToString("") { "%02x".format(it) })
+private fun digest(value: String) = java.security.MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString("") { "%02x".format(it) }
+private fun tag(origin: String) = digest(origin).take(16)
+private fun hashed(prefix: String, key: SessionKey) = stringPreferencesKey(prefix + if (prefix.isEmpty()) digest(key.serialize()) else tag(key.origin) + "_" + digest(key.serialize()))
 private fun messageKey(key: SessionKey) = hashed("message_", key)
 private fun decodeMessage(value: String?): MessageLocalState {
     if (value == null) return MessageLocalState()
@@ -61,15 +63,50 @@ actual class LocalStateStore(private val context: Context) : MessageStore {
         key.name.startsWith("message_") && value is String && runCatching { decodeMessage(value).draft.attachments.any { it.uri == uri } }.getOrDefault(false)
     }
     private val originKey = stringPreferencesKey("origin")
+    private val serversKey = stringPreferencesKey("servers")
+    private fun serverList(data: androidx.datastore.preferences.core.Preferences): List<String> =
+        data[serversKey]?.let { value -> org.json.JSONArray(value).let { array -> (0 until array.length()).map { array.getString(it) } } }.orEmpty()
+    private suspend fun migrateServers() = coordinator.lock.withLock { migrateServersLocked() }
+    private suspend fun migrateServersLocked() {
+        val previous = context.localState.data.first()
+        val origin = previous[originKey] ?: return
+        if (previous[serversKey] != null) return
+        withContext(Dispatchers.IO) {
+            val directory = previous[cacheGenerationKey]?.let { java.io.File(conversations, it) } ?: conversations
+            val files = if (directory.exists()) checkNotNull(directory.listFiles()) { "Could not list legacy conversation cache" } else emptyArray()
+            files.filter { it.isFile && (it.extension == "json" || it.extension == "tmp") }.forEach {
+                check(it.delete()) { "Could not remove legacy conversation cache" }
+            }
+        }
+        context.localState.edit { data ->
+            data[serversKey] = org.json.JSONArray(listOf(origin)).toString()
+            previous.asMap().forEach { (key, value) ->
+                val prefix = listOf("message_", "view_", "deliver_").firstOrNull { key.name.startsWith(it) && key.name.removePrefix(it).matches(Regex("[0-9a-f]{64}")) }
+                if (prefix != null && value is String) {
+                    data[stringPreferencesKey(prefix + tag(origin) + "_" + key.name.removePrefix(prefix))] = value
+                    data.remove(stringPreferencesKey(key.name))
+                }
+            }
+            data[stringPreferencesKey("seen_replies")]?.let {
+                data[seenKey(origin)] = it
+                data.remove(stringPreferencesKey("seen_replies"))
+            }
+            data.remove(originKey)
+        }
+    }
     // Chaves do antigo consentimento de HTTP pelo Tailscale: só para apagar o que ficou salvo.
     private val legacyKeys = listOf(booleanPreferencesKey("http_consent"), stringPreferencesKey("confirmed_http_host"))
     private val sessionKey = stringPreferencesKey("last_session")
 
-    actual override suspend fun message(key: SessionKey): MessageLocalState = decodeMessage(context.localState.data.first()[messageKey(key)])
+    actual override suspend fun message(key: SessionKey): MessageLocalState {
+        migrateServers()
+        return decodeMessage(context.localState.data.first()[messageKey(key)])
+    }
     actual override suspend fun updateMessage(key: SessionKey, update: (MessageLocalState) -> MessageLocalState): MessageLocalState {
+        migrateServers()
         var result = MessageLocalState()
         context.localState.edit { data ->
-            check(data[originKey] == key.origin) { "Connection changed" }
+            check(key.origin in serverList(data)) { "Connection changed" }
             val k = messageKey(key)
             result = update(decodeMessage(data[k]))
             data[k] = encodeMessage(result)
@@ -81,7 +118,7 @@ actual class LocalStateStore(private val context: Context) : MessageStore {
         context.localState.edit { if (key == null) it.remove(sessionKey) else it[sessionKey] = key.serialize() }
     }
     internal actual suspend fun setLastSession(key: SessionKey?, write: ConversationWrite) = coordinator.lock.withLock {
-        if (synchronized(coordinator) { write.epoch != coordinator.epoch } || write.sequence <= coordinator.sessionWritten) return@withLock
+        if (write.epoch != conversationEpoch(write.origin) || write.sequence <= coordinator.sessionWritten) return@withLock
         context.localState.edit { data ->
             if (key == null) data.remove(sessionKey) else data[sessionKey] = key.serialize()
         }
@@ -95,15 +132,16 @@ actual class LocalStateStore(private val context: Context) : MessageStore {
     private val coordinator = synchronized(conversationCoordinators) {
         conversationCoordinators.getOrPut(conversations.absolutePath) { ConversationCoordinator() }
     }
-    internal actual fun conversationEpoch(): Long = synchronized(coordinator) { coordinator.epoch }
-    internal actual fun conversationWrite(epoch: Long): ConversationWrite = synchronized(coordinator) {
-        ConversationWrite(epoch, ++coordinator.sequence)
+    internal actual fun conversationEpoch(origin: String): Long = synchronized(coordinator) { coordinator.epochs.getOrPut(origin) { 0L } }
+    internal actual fun conversationWrite(origin: String, epoch: Long): ConversationWrite = synchronized(coordinator) {
+        ConversationWrite(origin, epoch, ++coordinator.sequence)
     }
     private fun conversationFile(key: SessionKey, generation: String?): java.io.File =
-        java.io.File(if (generation == null) conversations else java.io.File(conversations, generation), hashed("", key).name + ".json")
+        java.io.File(java.io.File(if (generation == null) conversations else java.io.File(conversations, generation), tag(key.origin)), hashed("", key).name + ".json")
     actual suspend fun conversation(key: SessionKey): CachedConversation? = coordinator.lock.withLock {
+        migrateServersLocked()
         val data = context.localState.data.first()
-        if (data[originKey] != key.origin) return@withLock null
+        if (key.origin !in serverList(data)) return@withLock null
         withContext(Dispatchers.IO) {
             runCatching { decodeConversation(conversationFile(key, data[cacheGenerationKey]).readText()) }.getOrNull()
         }
@@ -115,9 +153,10 @@ actual class LocalStateStore(private val context: Context) : MessageStore {
         try {
             beforeConversationWrite()
             coordinator.lock.withLock {
-                if (synchronized(coordinator) { write.epoch != coordinator.epoch }) return@withLock
+                migrateServersLocked()
+                if (write.origin != key.origin || write.epoch != conversationEpoch(key.origin)) return@withLock
                 val data = context.localState.data.first()
-                if (data[originKey] != key.origin || write.sequence <= (coordinator.written[key] ?: 0)) return@withLock
+                if (key.origin !in serverList(data) || write.sequence <= (coordinator.written[key] ?: 0)) return@withLock
                 withContext(Dispatchers.IO) {
                     runCatching {
                         val file = conversationFile(key, data[cacheGenerationKey])
@@ -134,7 +173,7 @@ actual class LocalStateStore(private val context: Context) : MessageStore {
         }
     }
     private fun invalidateConversations() = synchronized(coordinator) {
-        coordinator.epoch++
+        coordinator.epochs.keys.toList().forEach { coordinator.epochs[it] = coordinator.epochs.getValue(it) + 1 }
         coordinator.written.clear()
     }
     private suspend fun removeObsoleteConversations(generation: String?) = withContext(Dispatchers.IO) {
@@ -150,27 +189,43 @@ actual class LocalStateStore(private val context: Context) : MessageStore {
         context.rateState.edit { data -> data[retryKey(origin)] = until }
     }
 
-    actual suspend fun connection(): ConnectionSettings? {
-        val data = context.localState.data.first()
-        return data[originKey]?.let { ConnectionSettings(it) }
+    actual suspend fun servers(): List<String> {
+        migrateServers()
+        return serverList(context.localState.data.first())
     }
 
-    actual suspend fun setConnection(origin: String) = withContext(kotlinx.coroutines.NonCancellable) {
+    actual suspend fun addServer(origin: String) = withContext(kotlinx.coroutines.NonCancellable) {
+        migrateServers()
         coordinator.lock.withLock {
             migrateLegacySettings()
-            val previous = context.localState.data.first()
-            val changed = previous[originKey] != origin
-            val generation = if (changed) java.util.UUID.randomUUID().toString() else previous[cacheGenerationKey]
             context.localState.edit { data ->
-                if (changed) {
-                    data.clear()
-                    data[cacheGenerationKey] = generation!!
-                }
-                data[originKey] = origin
+                val servers = serverList(data)
+                if (origin !in servers) data[serversKey] = org.json.JSONArray(servers + origin).toString()
                 legacyKeys.forEach { data.remove(it) }
             }
-            if (changed) invalidateConversations()
-            removeObsoleteConversations(generation)
+            Unit
+        }
+    }
+
+    actual suspend fun removeServer(origin: String) = withContext(kotlinx.coroutines.NonCancellable) {
+        migrateServers()
+        coordinator.lock.withLock {
+            val previous = context.localState.data.first()
+            context.localState.edit { data ->
+                data[serversKey] = org.json.JSONArray(serverList(data) - origin).toString()
+                data.asMap().keys.toList().forEach { key ->
+                    if (listOf("message_", "view_", "deliver_").any { key.name.startsWith(it + tag(origin) + "_") } || key.name == seenKey(origin).name) {
+                        data.remove(stringPreferencesKey(key.name))
+                    }
+                }
+                data[sessionKey]?.let { if (SessionKey.deserialize(it).origin == origin) data.remove(sessionKey) }
+            }
+            synchronized(coordinator) { coordinator.epochs[origin] = (coordinator.epochs[origin] ?: 0L) + 1 }
+            coordinator.written.keys.removeAll { it.origin == origin }
+            withContext(Dispatchers.IO) {
+                val directory = java.io.File(if (previous[cacheGenerationKey] == null) conversations else java.io.File(conversations, previous[cacheGenerationKey]!!), tag(origin))
+                check(!directory.exists() || directory.deleteRecursively()) { "Could not remove conversation cache" }
+            }
         }
     }
 
@@ -206,22 +261,46 @@ actual class LocalStateStore(private val context: Context) : MessageStore {
     actual suspend fun setNotifyEvents(permission: Boolean, done: Boolean) { context.appSettings.edit { it[notifyPermissionKey] = permission; it[notifyDoneKey] = done } }
 
     // Escolhas por sessão: ficam em local_state (pertencem ao servidor atual) e caem no padrão quando ausentes.
-    actual suspend fun sessionView(key: SessionKey): String = context.localState.data.first()[hashed("view_", key)]?.takeIf { it in VIEWS } ?: defaultView()
-    actual suspend fun setSessionView(key: SessionKey, view: String) { if (view in VIEWS) context.localState.edit { it[hashed("view_", key)] = view } }
-    actual suspend fun sessionDeliverAs(key: SessionKey): String = context.localState.data.first()[hashed("deliver_", key)]?.takeIf { it in DELIVER_MODES } ?: deliverAs()
-    actual suspend fun setSessionDeliverAs(key: SessionKey, mode: String) { if (mode in DELIVER_MODES) context.localState.edit { it[hashed("deliver_", key)] = mode } }
+    actual suspend fun sessionView(key: SessionKey): String {
+        migrateServers()
+        return context.localState.data.first()[hashed("view_", key)]?.takeIf { it in VIEWS } ?: defaultView()
+    }
+    actual suspend fun setSessionView(key: SessionKey, view: String) {
+        migrateServers()
+        if (view in VIEWS) context.localState.edit {
+            check(key.origin in serverList(it)) { "Connection changed" }
+            it[hashed("view_", key)] = view
+        }
+    }
+    actual suspend fun sessionDeliverAs(key: SessionKey): String {
+        migrateServers()
+        return context.localState.data.first()[hashed("deliver_", key)]?.takeIf { it in DELIVER_MODES } ?: deliverAs()
+    }
+    actual suspend fun setSessionDeliverAs(key: SessionKey, mode: String) {
+        migrateServers()
+        if (mode in DELIVER_MODES) context.localState.edit {
+            check(key.origin in serverList(it)) { "Connection changed" }
+            it[hashed("deliver_", key)] = mode
+        }
+    }
 
     // Até quando cada conversa foi lida (relógio do servidor), para o balão de não lidas da tela principal. Fica em
     // local_state: pertence ao servidor atual e some ao sair da conta. Chave = hash da sessão.
-    private val seenKey = stringPreferencesKey("seen_replies")
+    private fun seenKey(origin: String) = stringPreferencesKey("seen_replies_" + tag(origin))
     actual fun seenId(key: SessionKey): String = hashed("", key).name
-    actual suspend fun seenReplies(): Map<String, Long> = context.localState.data.first()[seenKey]?.let { value ->
-        runCatching { org.json.JSONObject(value).let { o -> o.keys().asSequence().associateWith { o.getLong(it) } } }.getOrNull()
-    }.orEmpty()
-    actual suspend fun setSeenReplies(seen: Map<String, Long>) { context.localState.edit { it[seenKey] = org.json.JSONObject(seen).toString() } }
-    internal actual suspend fun setSeenReplies(seen: Map<String, Long>, epoch: Long) = coordinator.lock.withLock {
-        if (synchronized(coordinator) { epoch != coordinator.epoch }) return@withLock
-        context.localState.edit { it[seenKey] = org.json.JSONObject(seen).toString() }
+    actual suspend fun seenReplies(origin: String): Map<String, Long> {
+        migrateServers()
+        return context.localState.data.first()[seenKey(origin)]?.let { value ->
+            runCatching { org.json.JSONObject(value).let { o -> o.keys().asSequence().associateWith { o.getLong(it) } } }.getOrNull()
+        }.orEmpty()
+    }
+    actual suspend fun setSeenReplies(origin: String, seen: Map<String, Long>) {
+        migrateServers()
+        context.localState.edit { if (origin in serverList(it)) it[seenKey(origin)] = org.json.JSONObject(seen).toString() }
+    }
+    internal actual suspend fun setSeenReplies(origin: String, seen: Map<String, Long>, epoch: Long) = coordinator.lock.withLock {
+        if (epoch != conversationEpoch(origin)) return@withLock
+        context.localState.edit { if (origin in serverList(it)) it[seenKey(origin)] = org.json.JSONObject(seen).toString() }
     }
 
     actual suspend fun clear() = withContext(kotlinx.coroutines.NonCancellable) {

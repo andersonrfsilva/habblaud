@@ -6,6 +6,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import br.com.xlinx.habblaud.data.LocalStateStore
 import br.com.xlinx.habblaud.data.SessionCookieStore
 import br.com.xlinx.habblaud.data.SessionKey
+import br.com.xlinx.habblaud.data.SecureSessionStorage
 import kotlinx.coroutines.runBlocking
 import br.com.xlinx.habblaud.data.initializeStorage
 import br.com.xlinx.habblaud.data.HabblaudApi
@@ -104,7 +105,7 @@ class PersistenceInstrumentedTest {
         val a = SessionKey(origin, "claude", "account", "a")
         val b = a.copy(sessionId = "b")
         val store = LocalStateStore(context)
-        store.setConnection(origin)
+        store.addServer(origin)
         store.updateMessage(a) { it.copy(draft = it.draft.copy(text = "draft A", revision = 1)) }
         store.updateMessage(b) { it.copy(draft = it.draft.copy(text = "draft B", revision = 2)) }
         val reopened = LocalStateStore(context)
@@ -112,7 +113,40 @@ class PersistenceInstrumentedTest {
         assertEquals("draft B", reopened.message(b).draft.text)
         assertEquals("", reopened.message(a.copy(provider = "omp")).draft.text)
         assertEquals("", reopened.message(a.copy(account = "other")).draft.text)
-        reopened.setConnection("https://other.example")
+        reopened.addServer("https://other.example")
+        assertEquals("draft A", reopened.message(a).draft.text)
+        reopened.removeServer(origin)
         assertEquals("", reopened.message(a).draft.text)
+    }
+
+    @Test fun cookiesAndInvalidationAreIsolatedByOrigin() {
+        val other = "https://other.example"
+        val a = SessionCookieStore(origin)
+        val b = SessionCookieStore(other)
+        try {
+            a.saveFromResponse(url, listOf("habblaud_remote=a; Path=/; Secure; HttpOnly"))
+            b.saveFromResponse("$other/api/access", listOf("habblaud_remote=b; Path=/; Secure; HttpOnly"))
+            val generation = b.generation()
+            assertTrue(a.clear(a.generation()))
+            assertNull(a.requestHeader(url))
+            assertEquals("habblaud_remote=b", b.requestHeader("$other/api/access"))
+            assertEquals(generation, b.generation())
+            assertEquals("habblaud_remote=b", SessionCookieStore(other).requestHeader("$other/api/access"))
+            assertEquals(generation, b.generation())
+        } finally { a.clear(); b.clear() }
+    }
+
+    @Test fun legacyCookieMigratesOnNextWrite() {
+        val other = "https://other.example"
+        SecureSessionStorage().write("""{"origin":"$origin","cookie":"habblaud_remote=legacy; Path=/; Secure; HttpOnly"}""")
+        val a = SessionCookieStore(origin)
+        val b = SessionCookieStore(other)
+        try {
+            assertEquals("habblaud_remote=legacy", a.requestHeader(url))
+            b.saveFromResponse("$other/api/access", listOf("habblaud_remote=b; Path=/; Secure; HttpOnly"))
+            assertEquals("habblaud_remote=legacy", SessionCookieStore(origin).requestHeader(url))
+            val persisted = br.com.xlinx.habblaud.data.decodeCookies(SecureSessionStorage().read()!!)
+            assertEquals(setOf(origin, other), persisted.keys)
+        } finally { a.clear(); b.clear() }
     }
 }

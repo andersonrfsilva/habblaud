@@ -18,6 +18,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.NonCancellable
 
 internal fun logoutError(cleaned: Boolean, revoked: Boolean): StringResource? = when {
     !cleaned -> Res.string.storage_error
@@ -56,132 +57,213 @@ fun ZaplaudApp(store: LocalStateStore = remember { LocalStateStore() }) {
                 surfaceContainer = Color(0xFFEBF3EE), surfaceContainerHigh = Color(0xFFE3EFE7),
                 surfaceContainerHighest = Color(0xFFDBEAE1)
             )) {
-                var url by remember { mutableStateOf("") }
-                var user by remember { mutableStateOf("") }
-                var password by remember { mutableStateOf("") }
-                var saved by remember { mutableStateOf<ConnectionSettings?>(null) }
-                var api by remember { mutableStateOf<HabblaudApi?>(null) }
-                var connected by remember { mutableStateOf(false) }
+                var servers by remember { mutableStateOf<List<String>>(emptyList()) }
+                val apis = remember { mutableStateMapOf<String, HabblaudApi>() }
+                var needsLogin by remember { mutableStateOf<Set<String>>(emptySet()) }
+                var loaded by remember { mutableStateOf(false) }
+                var showLogin by remember { mutableStateOf(false) }
+                var loginOrigin by remember { mutableStateOf<String?>(null) }
+                var confirmLogout by remember { mutableStateOf<String?>(null) }
                 var busy by remember { mutableStateOf(false) }
                 var message by remember { mutableStateOf("") }
-                var confirmChange by remember { mutableStateOf(false) }
-                var confirmHttpOrigin by remember { mutableStateOf<String?>(null) }
-                var confirmLogout by remember { mutableStateOf(false) }
-                var retryUntil by remember { mutableLongStateOf(0L) }
                 val scope = rememberCoroutineScope()
+                DisposableEffect(Unit) {
+                    onDispose { apis.values.forEach { it.close() } }
+                }
                 LaunchedEffect(Unit) {
                     try {
-                        saved = store.connection()
-                        saved?.let { settings ->
-                            url = settings.origin
-                            if (UrlPolicy.origin(settings.origin) != settings.origin) {
-                                message = strings(Res.string.invalid_url)
-                            } else {
-                                api = withContext(Dispatchers.IO) { HabblaudApi(settings.origin) }
-                                try { api?.access(); connected = true } catch (e: Exception) {
-                                    if (e is kotlinx.coroutines.CancellationException) throw e
-                                    message = when (e) {
-                                        is RedirectException -> strings(Res.string.redirect_error)
-                                        is ApiException -> if (e.status == 401) "" else strings(Res.string.http_error, e.status)
-                                        else -> strings(Res.string.network_error)
-                                    }
-                                }
+                        servers = store.servers()
+                        for (origin in servers) {
+                            val api = withContext(Dispatchers.IO) { HabblaudApi(origin) }
+                            apis[origin] = api
+                            if (api.cookies.requestHeader("$origin/api/access") == null) {
+                                needsLogin = needsLogin + origin
+                            }
+                            try {
+                                api.access()
+                                needsLogin = needsLogin - origin
+                            } catch (e: Exception) {
+                                if (e is kotlinx.coroutines.CancellationException) throw e
+                                if (e is ApiException && e.status == 401) needsLogin = needsLogin + origin
                             }
                         }
-                    } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; message = strings(Res.string.storage_error) }
+                        if (servers.isNotEmpty() && store.notificationsEnabled()) notificationsPlatform.setEnabled(true)
+                    } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                        message = strings(Res.string.storage_error)
+                    } finally { loaded = true }
                 }
-                DisposableEffect(Unit) { onDispose { api?.close() } }
-                fun connect() {
-                    val origin = UrlPolicy.origin(url)
-                    if (origin == null) { password = ""; message = strings(Res.string.invalid_url); return }
-                    val secret = password
-                    password = ""
-                    busy = true
-                    scope.launch {
-                        try {
-                            retryUntil = store.retryUntil(origin)
-                            if (uiNowMillis() < retryUntil) {
-                                message = strings(Res.string.rate_limited, ((retryUntil - uiNowMillis() + 999) / 1000).toString())
-                                return@launch
-                            }
-                            if (saved?.origin != origin) { api?.close(); api?.cookies?.clear(); store.setConnection(origin); saved = ConnectionSettings(origin); api = null }
-                            val current = api ?: withContext(Dispatchers.IO) { HabblaudApi(origin) }.also { api = it }
-                            current.login(user, secret)
-                            current.access()
-                            store.setConnection(origin)
-                            saved = ConnectionSettings(origin)
-                            connected = true; message = ""
-                        } catch (e: Exception) {
-                            if (e is kotlinx.coroutines.CancellationException) throw e
-                            message = when (e) {
-                                is RedirectException -> strings(Res.string.redirect_error)
-                                is ApiException -> when (e.status) {
-                                    401 -> strings(Res.string.login_error)
-                                    403 -> strings(Res.string.forbidden)
-                                    429 -> {
-                                        val now = uiNowMillis()
-                                        retryUntil = retryAfterDeadline(e.retryAfter, now)
-                                        store.setRetryUntil(origin, retryUntil)
-                                        strings(Res.string.rate_limited, e.retryAfter ?: "60")
-                                    }
-                                    else -> strings(Res.string.http_error, e.status)
-                                }
-                                is IllegalStateException -> strings(Res.string.storage_error)
-                                else -> strings(Res.string.network_error)
-                            }
-                        } finally { busy = false }
-                    }
-                }
-                fun requestLogin() {
-                    val origin = UrlPolicy.origin(url)
-                    if (origin == null) connect()
-                    else if (origin.startsWith("http://")) confirmHttpOrigin = origin
-                    else connect()
-                }
-                if (confirmChange) AlertDialog(onDismissRequest = { confirmChange = false }, title = { Text(stringResource(Res.string.change_server)) }, text = { Text(stringResource(Res.string.change_warning)) }, confirmButton = { TextButton(onClick = { confirmChange = false; requestLogin() }) { Text(stringResource(Res.string.confirm)) } }, dismissButton = { TextButton(onClick = { confirmChange = false }) { Text(stringResource(Res.string.cancel)) } })
-                confirmHttpOrigin?.let { origin ->
+                confirmLogout?.let { origin ->
                     AlertDialog(
-                        onDismissRequest = { confirmHttpOrigin = null },
-                        title = { Text(stringResource(Res.string.http_login_title)) },
-                        text = { Text(stringResource(Res.string.http_login_warning, origin)) },
-                        confirmButton = { TextButton(modifier = Modifier.testTag("http-confirm"), onClick = {
-                            confirmHttpOrigin = null
-                            if (UrlPolicy.origin(url) == origin) connect()
+                        onDismissRequest = { confirmLogout = null },
+                        title = { Text(stringResource(Res.string.logout)) },
+                        text = { Text(stringResource(Res.string.logout_server_warning, serverLabel(origin))) },
+                        confirmButton = { TextButton(enabled = !busy, onClick = {
+                            confirmLogout = null
+                            busy = true
+                            scope.launch {
+                                try {
+                                    withContext(NonCancellable) {
+                                        val api = apis[origin]
+                                        val revoked = try { api?.logout() ?: false } catch (_: Exception) { false }
+                                        val cleaned = try { store.removeServer(origin); true } catch (_: Exception) { false }
+                                        api?.close()
+                                        apis.remove(origin)
+                                        needsLogin = needsLogin - origin
+                                        servers = servers - origin
+                                        notificationsPlatform.setEnabled(false)
+                                        if (servers.isNotEmpty() && store.notificationsEnabled()) notificationsPlatform.setEnabled(true)
+                                        message = logoutError(cleaned, revoked)?.let { strings(it) }.orEmpty()
+                                    }
+                                } finally { busy = false }
+                            }
                         }) { Text(stringResource(Res.string.confirm)) } },
-                        dismissButton = { TextButton(onClick = { confirmHttpOrigin = null }) { Text(stringResource(Res.string.cancel)) } }
+                        dismissButton = { TextButton(onClick = { confirmLogout = null }) { Text(stringResource(Res.string.cancel)) } }
                     )
                 }
-                if (confirmLogout) AlertDialog(onDismissRequest = { confirmLogout = false }, title = { Text(stringResource(Res.string.logout)) }, text = { Text(stringResource(Res.string.change_warning)) }, confirmButton = { TextButton(onClick = {
-                    confirmLogout = false
-                    busy = true
-                    scope.launch {
-                        val revoked = api?.logout() ?: false
-                        val cleaned = try { store.clear(); true } catch (_: Exception) { false }
-                        notificationsPlatform.setEnabled(false)
-                        api?.close(); api = null; saved = null; connected = false; busy = false
-                        logoutError(cleaned, revoked)?.let { message = strings(it) }
+                // No iOS, manter a tela na raiz preserva o foco e os toques no diálogo de HTTP.
+                when {
+                    !loaded -> Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) { CircularProgressIndicator() }
+                    servers.isEmpty() || showLogin -> key(loginOrigin) {
+                        LoginForm(
+                            initialUrl = loginOrigin.orEmpty(),
+                            store = store,
+                            onDone = { origin, api ->
+                                apis.put(origin, api)?.close()
+                                if (origin !in servers) servers = servers + origin
+                                needsLogin = needsLogin - origin
+                                showLogin = false
+                                loginOrigin = null
+                                message = ""
+                                scope.launch {
+                                    if (store.notificationsEnabled()) notificationsPlatform.setEnabled(true)
+                                }
+                            },
+                            onCancel = if (servers.isEmpty()) null else ({
+                                showLogin = false
+                                loginOrigin = null
+                            })
+                        )
                     }
-                }) { Text(stringResource(Res.string.confirm)) } }, dismissButton = { TextButton(onClick = { confirmLogout = false }) { Text(stringResource(Res.string.cancel)) } })
-                LaunchedEffect(connected) {
-                    if (connected && store.notificationsEnabled()) notificationsPlatform.setEnabled(true)
+                    else -> ReadingScreen(
+                        apis = servers.mapNotNull { origin -> apis[origin]?.let { origin to it } }.toMap(),
+                        needsLogin = needsLogin,
+                        store = store,
+                        onUnauthorized = { origin -> needsLogin = needsLogin + origin },
+                        onLogin = { origin -> loginOrigin = origin; showLogin = true },
+                        onLogout = { origin -> if (!busy) confirmLogout = origin }
+                    )
                 }
-                if (connected && api != null) {
-                    ReadingScreen(api!!, store, onUnauthorized = { connected = false; message = strings(Res.string.login_error) }, onLogout = { confirmLogout = true })
-                } else {
-                Scaffold(topBar = { TopAppBar(title = { Text(stringResource(Res.string.app_name)) }) }) { padding ->
-                Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(stringResource(Res.string.connection), style = MaterialTheme.typography.headlineMedium)
-                        OutlinedTextField(url, { url = it }, Modifier.fillMaxWidth().testTag("server-url"), enabled = !busy, label = { Text(stringResource(Res.string.server_url)) }, singleLine = true)
-                        OutlinedTextField(user, { user = it }, Modifier.fillMaxWidth().testTag("username"), label = { Text(stringResource(Res.string.user)) }, singleLine = true)
-                        OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth().testTag("password"), label = { Text(stringResource(Res.string.password)) }, visualTransformation = PasswordVisualTransformation(), singleLine = true)
-                        Button(modifier = Modifier.fillMaxWidth().testTag("login-submit"), enabled = !busy && user.isNotEmpty() && password.isNotEmpty(), onClick = {
-                            val target = UrlPolicy.origin(url)
-                            if (target != null && saved != null && saved?.origin != target) confirmChange = true else requestLogin()
-                        }) { Text(stringResource(Res.string.login)) }
-                    if (busy) CircularProgressIndicator()
-                    if (message.isNotEmpty()) Text(message, color = MaterialTheme.colorScheme.error)
-                }
-                }
-                }
+                if (message.isNotEmpty()) AlertDialog(
+                    onDismissRequest = { message = "" },
+                    text = { Text(message) },
+                    confirmButton = { TextButton(onClick = { message = "" }) { Text(stringResource(Res.string.confirm)) } }
+                )
             }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LoginForm(
+    initialUrl: String,
+    store: LocalStateStore,
+    onDone: (String, HabblaudApi) -> Unit,
+    onCancel: (() -> Unit)?
+) {
+    val strings = rememberUiStrings() ?: return
+    var url by remember { mutableStateOf(initialUrl) }
+    var user by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf("") }
+    var confirmHttpOrigin by remember { mutableStateOf<String?>(null) }
+    var retryUntil by remember { mutableLongStateOf(0L) }
+    var pendingApi by remember { mutableStateOf<HabblaudApi?>(null) }
+    val scope = rememberCoroutineScope()
+    DisposableEffect(Unit) { onDispose { pendingApi?.close() } }
+    fun connect() {
+        val origin = UrlPolicy.origin(url)
+        if (origin == null) { password = ""; message = strings(Res.string.invalid_url); return }
+        val secret = password
+        password = ""
+        busy = true
+        scope.launch {
+            try {
+                retryUntil = store.retryUntil(origin)
+                if (uiNowMillis() < retryUntil) {
+                    message = strings(Res.string.rate_limited, ((retryUntil - uiNowMillis() + 999) / 1000).toString())
+                    return@launch
+                }
+                pendingApi?.close()
+                pendingApi = null
+                val current = withContext(Dispatchers.IO) { HabblaudApi(origin) }
+                pendingApi = current
+                current.login(user, secret)
+                current.access()
+                withContext(NonCancellable) {
+                    store.addServer(origin)
+                    onDone(origin, current)
+                    pendingApi = null
+                }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                message = when (e) {
+                    is RedirectException -> strings(Res.string.redirect_error)
+                    is ApiException -> when (e.status) {
+                        401 -> strings(Res.string.login_error)
+                        403 -> strings(Res.string.forbidden)
+                        429 -> {
+                            val now = uiNowMillis()
+                            retryUntil = retryAfterDeadline(e.retryAfter, now)
+                            store.setRetryUntil(origin, retryUntil)
+                            strings(Res.string.rate_limited, e.retryAfter ?: "60")
+                        }
+                        else -> strings(Res.string.http_error, e.status)
+                    }
+                    is IllegalStateException -> strings(Res.string.storage_error)
+                    else -> strings(Res.string.network_error)
+                }
+            } finally {
+                pendingApi?.close()
+                pendingApi = null
+                busy = false
+            }
+        }
+    }
+    fun requestLogin() {
+        val origin = UrlPolicy.origin(url)
+        if (origin == null) connect()
+        else if (origin.startsWith("http://")) confirmHttpOrigin = origin
+        else connect()
+    }
+    confirmHttpOrigin?.let { origin ->
+        AlertDialog(
+            onDismissRequest = { confirmHttpOrigin = null },
+            title = { Text(stringResource(Res.string.http_login_title)) },
+            text = { Text(stringResource(Res.string.http_login_warning, origin)) },
+            confirmButton = { TextButton(modifier = Modifier.testTag("http-confirm"), onClick = {
+                confirmHttpOrigin = null
+                if (UrlPolicy.origin(url) == origin) connect()
+            }) { Text(stringResource(Res.string.confirm)) } },
+            dismissButton = { TextButton(modifier = Modifier.testTag("http-cancel"), onClick = { confirmHttpOrigin = null }) { Text(stringResource(Res.string.cancel)) } }
+        )
+    }
+    Scaffold(topBar = {
+        TopAppBar(
+            title = { Text(stringResource(Res.string.app_name)) },
+            navigationIcon = {
+                if (onCancel != null) TextButton(enabled = !busy, onClick = onCancel) { Text(stringResource(Res.string.cancel)) }
+            }
+        )
+    }) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(stringResource(Res.string.connection), style = MaterialTheme.typography.headlineMedium)
+            OutlinedTextField(url, { url = it }, Modifier.fillMaxWidth().testTag("server-url"), enabled = !busy, label = { Text(stringResource(Res.string.server_url)) }, singleLine = true)
+            OutlinedTextField(user, { user = it }, Modifier.fillMaxWidth().testTag("username"), label = { Text(stringResource(Res.string.user)) }, singleLine = true)
+            OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth().testTag("password"), label = { Text(stringResource(Res.string.password)) }, visualTransformation = PasswordVisualTransformation(), singleLine = true)
+            Button(modifier = Modifier.fillMaxWidth().testTag("login-submit"), enabled = !busy && user.isNotEmpty() && password.isNotEmpty(), onClick = { requestLogin() }) { Text(stringResource(Res.string.login)) }
+            if (busy) CircularProgressIndicator()
+            if (message.isNotEmpty()) Text(message, color = MaterialTheme.colorScheme.error)
+        }
+    }
 }
