@@ -6,6 +6,9 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isDisplayed
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performScrollTo
@@ -33,9 +36,14 @@ class HttpLoginInstrumentedTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private val server = MockWebServer()
     private var scenario: ActivityScenario<MainActivity>? = null
+    private var notificationsEnabled = false
     private fun text(id: Int) = context.getString(id)
     private fun await(id: Int) = compose.waitUntil(15_000) { compose.onAllNodes(hasText(text(id))).fetchSemanticsNodes().isNotEmpty() }
     private fun click(id: Int) {
+        if (id == R.string.cancel) {
+            compose.onNodeWithTag("http-cancel", useUnmergedTree = true).performClick()
+            return
+        }
         if (id == R.string.login) compose.onNodeWithText(text(id)).performScrollTo()
         val nodes = compose.onAllNodes(hasText(text(id)))
         val index = nodes.fetchSemanticsNodes().indices.first { nodes[it].isDisplayed() }
@@ -46,7 +54,7 @@ class HttpLoginInstrumentedTest {
         compose.onNodeWithText(text(id)).performTextInput(value)
     }
     private fun origin() = server.url("/").toString().removeSuffix("/")
-    private fun savedOrigin() = runBlocking { LocalStateStore(context).connection()?.origin }
+    private fun savedOrigin() = runBlocking { LocalStateStore(context).servers().singleOrNull() }
     private fun launch() {
         scenario = ActivityScenario.launch(MainActivity::class.java)
         await(R.string.login)
@@ -68,7 +76,13 @@ class HttpLoginInstrumentedTest {
     }
 
     @Before fun prepare() {
-        runBlocking { LocalStateStore(context).clear() }
+        runBlocking {
+            val store = LocalStateStore(context)
+            notificationsEnabled = store.notificationsEnabled()
+            store.setNotificationsEnabled(false)
+            store.clear()
+        }
+        context.stopService(android.content.Intent(context, NotificationService::class.java))
         context.filesDir.resolve("remote-session").delete()
         server.start()
     }
@@ -76,7 +90,11 @@ class HttpLoginInstrumentedTest {
     @After fun cleanup() {
         scenario?.close()
         server.shutdown()
-        runBlocking { LocalStateStore(context).clear() }
+        runBlocking {
+            val store = LocalStateStore(context)
+            store.clear()
+            store.setNotificationsEnabled(notificationsEnabled)
+        }
         context.filesDir.resolve("remote-session").delete()
     }
 
@@ -116,38 +134,38 @@ class HttpLoginInstrumentedTest {
         assertEquals(1, server.requestCount)
     }
 
-    @Test fun serverChangeRequiresBothConfirmations() {
+    @Test fun addingServerRequiresOnlyHttpConfirmationAndPreservesPrevious() {
         val previous = "http://127.0.0.1:1"
-        runBlocking { LocalStateStore(context).setConnection(previous) }
-        launch()
-        compose.waitUntil(15_000) { compose.onAllNodes(hasText(previous, substring = true)).fetchSemanticsNodes().isNotEmpty() }
+        runBlocking { LocalStateStore(context).addServer(previous) }
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        await(R.string.open_sessions)
+        compose.onNodeWithContentDescription(text(R.string.menu)).performClick()
+        compose.onNodeWithTag("add-server", useUnmergedTree = true).performClick()
+        await(R.string.login)
         setField(R.string.server_url, origin())
         credentials()
         click(R.string.login)
-        await(R.string.change_server)
-        click(R.string.cancel)
-        noRequest()
-        assertEquals(previous, savedOrigin())
-        click(R.string.login)
-        await(R.string.change_server)
-        click(R.string.confirm)
         await(R.string.http_login_title)
+        compose.onNodeWithText("Trocar servidor?").assertDoesNotExist()
         noRequest()
         assertEquals(previous, savedOrigin())
         click(R.string.cancel)
         noRequest()
         assertEquals(previous, savedOrigin())
         click(R.string.login)
-        await(R.string.change_server)
-        click(R.string.confirm)
         await(R.string.http_login_title)
         rejectedLogin()
+        assertEquals(previous, savedOrigin())
     }
 
     @Test fun savedHttpOriginStillRequiresConfirmation() {
-        runBlocking { LocalStateStore(context).setConnection(origin()) }
+        runBlocking { LocalStateStore(context).addServer(origin()) }
         server.enqueue(MockResponse().setResponseCode(401))
-        launch()
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        val tag = "relogin:${origin()}"
+        compose.waitUntil(15_000) { compose.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag(tag, useUnmergedTree = true).performClick()
+        await(R.string.login)
         assertEquals("/api/access", server.takeRequest(5, TimeUnit.SECONDS)?.path)
         credentials()
         click(R.string.login)

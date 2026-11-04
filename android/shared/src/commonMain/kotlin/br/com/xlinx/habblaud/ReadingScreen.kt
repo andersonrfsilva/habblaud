@@ -239,7 +239,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                     IconButton(onClick = { menuExpanded = true }, modifier = Modifier.semantics { contentDescription = menuLabel }) { Text("⋮", style = MaterialTheme.typography.headlineMedium) }
                     DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                         DropdownMenuItem(text = { Text(stringResource(Res.string.settings)) }, onClick = { menuExpanded = false; settingsOpen = true })
-                        DropdownMenuItem(text = { Text(stringResource(Res.string.add_server)) }, onClick = { menuExpanded = false; onLogin(null) })
+                        DropdownMenuItem(modifier = Modifier.testTag("add-server"), text = { Text(stringResource(Res.string.add_server)) }, onClick = { menuExpanded = false; onLogin(null) })
                     }
                 }
             }
@@ -252,16 +252,16 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
             needsLogin.forEach { origin ->
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(serverLabel(origin), Modifier.weight(1f))
-                    TextButton(onClick = { onLogin(origin) }) { Text(stringResource(Res.string.relogin)) }
+                    TextButton(modifier = Modifier.testTag("relogin:$origin"), onClick = { onLogin(origin) }) { Text(stringResource(Res.string.relogin)) }
                 }
             }
             states.forEach { (origin, serverState) -> serverState.error?.let {
                 Text((if (apis.size > 1) serverLabel(origin) + ": " else "") + stringResource(when (it) { "forbidden" -> Res.string.terminal_blocked; "missing" -> Res.string.reading_missing; else -> Res.string.network_error }), color = MaterialTheme.colorScheme.error)
             } }
             if (apis.size > 1) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selected = filter == null, onClick = { filter = null }, label = { Text(stringResource(Res.string.filter_all)) })
+                FilterChip(modifier = Modifier.testTag("server-filter:all"), selected = filter == null, onClick = { filter = null }, label = { Text(stringResource(Res.string.filter_all)) })
                 apis.keys.forEach { origin ->
-                    FilterChip(selected = filter == origin, onClick = { filter = origin }, label = { Text(serverLabel(origin)) }, leadingIcon = {
+                    FilterChip(modifier = Modifier.testTag("server-filter:${serverLabel(origin)}"), selected = filter == origin, onClick = { filter = origin }, label = { Text(serverLabel(origin)) }, leadingIcon = {
                         val connection = if (origin in needsLogin) "offline" else states[origin]?.connection
                         val color = when (connection) { "connected" -> Color(0xFF2E7D32); "connecting" -> Color(0xFFEF6C00); else -> Color(0xFFC62828) }
                         val label = stringResource(when (connection) { "connected" -> Res.string.reading_connected; "connecting" -> Res.string.reading_connecting; else -> Res.string.reading_offline })

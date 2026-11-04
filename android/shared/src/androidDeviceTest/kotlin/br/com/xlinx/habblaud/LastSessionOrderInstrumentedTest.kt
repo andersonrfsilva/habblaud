@@ -69,7 +69,7 @@ class LastSessionOrderInstrumentedTest {
             val api = HabblaudApi(origin)
             try {
                 store.clear()
-                store.setConnection(origin)
+                store.addServer(origin)
                 store.setLastSession(a.copy(sessionId = "initial"))
                 val controller = ReadingController(api, store, scope) {}
                 controller.start()
@@ -126,7 +126,7 @@ class LastSessionOrderInstrumentedTest {
             val api = HabblaudApi(origin)
             try {
                 store.clear()
-                store.setConnection(origin)
+                store.addServer(origin)
                 val first = ReadingController(api, store, scope) {}
                 first.start()
                 first.state.first { state -> state.sessions.any { it.key == key } }
@@ -165,7 +165,7 @@ class LastSessionOrderInstrumentedTest {
             val scope = CoroutineScope(SupervisorJob() + dispatcher)
             val origin = server.url("/").toString().removeSuffix("/")
             val a = SessionKey(origin, "claude", "account", "a")
-            val nextOrigin = if (transition == "origin") otherServer.url("/").toString().removeSuffix("/") else origin
+            val nextOrigin = if (transition == "removal") otherServer.url("/").toString().removeSuffix("/") else origin
             val b = a.copy(origin = nextOrigin, sessionId = "b")
             val first = LocalStateStore(context)
             val second = LocalStateStore(context)
@@ -173,7 +173,7 @@ class LastSessionOrderInstrumentedTest {
             val secondApi = HabblaudApi(nextOrigin)
             try {
                 first.clear()
-                first.setConnection(origin)
+                first.addServer(origin)
                 first.setLastSession(a.copy(sessionId = "initial"))
                 val old = ReadingController(firstApi, first, scope) {}
                 old.start()
@@ -186,8 +186,8 @@ class LastSessionOrderInstrumentedTest {
                 }
                 assertEquals(a.copy(sessionId = "initial"), LocalStateStore(context).lastSession())
                 when (transition) {
-                    "logout" -> { second.clear(); second.setConnection(origin) }
-                    "origin" -> second.setConnection(nextOrigin)
+                    "logout" -> { second.removeServer(origin); second.addServer(origin) }
+                    "removal" -> { second.removeServer(origin); second.addServer(nextOrigin) }
                 }
                 val newer = ReadingController(secondApi, second, scope) {}
                 newer.start()
@@ -212,8 +212,8 @@ class LastSessionOrderInstrumentedTest {
     @Test fun oldCloseCannotEraseNewControllerSelection() = controllersAcrossTransition("none", true)
     @Test fun oldOpenCannotOverrideSelectionAfterRelogin() = controllersAcrossTransition("logout", false)
     @Test fun oldCloseCannotEraseSelectionAfterRelogin() = controllersAcrossTransition("logout", true)
-    @Test fun oldOpenCannotOverrideSelectionAfterOriginChange() = controllersAcrossTransition("origin", false)
-    @Test fun oldCloseCannotEraseSelectionAfterOriginChange() = controllersAcrossTransition("origin", true)
+    @Test fun oldOpenCannotOverrideSelectionAfterRemoval() = controllersAcrossTransition("removal", false)
+    @Test fun oldCloseCannotEraseSelectionAfterRemoval() = controllersAcrossTransition("removal", true)
 
     @Test fun deniedTerminalDoesNotChangeLastSession() = runBlocking {
         withTimeout(15000) {
@@ -234,7 +234,7 @@ class LastSessionOrderInstrumentedTest {
             val api = HabblaudApi(origin)
             try {
                 store.clear()
-                store.setConnection(origin)
+                store.addServer(origin)
                 store.setLastSession(saved)
                 val controller = ReadingController(api, store, scope) {}
                 controller.start()
@@ -258,25 +258,41 @@ class LastSessionOrderInstrumentedTest {
             val a = SessionKey(origin, "claude", "account", "a")
             val b = a.copy(sessionId = "b")
             first.clear()
-            first.setConnection(origin)
-            val epoch = first.conversationEpoch()
-            val oldNull = first.conversationWrite(epoch)
-            val newB = second.conversationWrite(epoch)
+            first.addServer(origin)
+            val epoch = first.conversationEpoch(origin)
+            val oldNull = first.conversationWrite(origin, epoch)
+            val newB = second.conversationWrite(origin, epoch)
             second.setLastSession(b, newB)
             first.setLastSession(null, oldNull)
             assertEquals(b, LocalStateStore(context).lastSession())
-            val oldA = first.conversationWrite(epoch)
-            second.clear()
-            second.setConnection(origin)
-            val fresh = second.conversationWrite(second.conversationEpoch())
+            val oldA = first.conversationWrite(origin, epoch)
+            second.removeServer(origin)
+            second.addServer(origin)
+            val fresh = second.conversationWrite(origin, second.conversationEpoch(origin))
             second.setLastSession(b, fresh)
             first.setLastSession(a, oldA)
             first.setLastSession(null, oldNull)
             assertEquals(b, LocalStateStore(context).lastSession())
-            val oldOrigin = first.conversationWrite(second.conversationEpoch())
-            second.setConnection("https://other.example")
+            val oldOrigin = first.conversationWrite(origin, second.conversationEpoch(origin))
+            second.removeServer(origin)
+            second.addServer("https://other.example")
             second.setLastSession(a, oldOrigin)
             assertNull(LocalStateStore(context).lastSession())
         }
+    }
+
+    @Test fun addingServerPreservesPendingSelectionWrite() = runBlocking {
+        val first = LocalStateStore(context)
+        val second = LocalStateStore(context)
+        val origin = "https://order.example"
+        val key = SessionKey(origin, "claude", "account", "a")
+        first.clear()
+        first.addServer(origin)
+        val epoch = first.conversationEpoch(origin)
+        val pending = first.conversationWrite(origin, epoch)
+        second.addServer("https://other.example")
+        first.setLastSession(key, pending)
+        assertEquals(epoch, second.conversationEpoch(origin))
+        assertEquals(key, LocalStateStore(context).lastSession())
     }
 }

@@ -19,7 +19,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
-private val Context.localState by preferencesDataStore(name = "local_state")
+internal val Context.localState by preferencesDataStore(name = "local_state")
 private val Context.rateState by preferencesDataStore(name = "login_rate")
 /** Configurações do aparelho: sobrevivem a sair da conta e a trocar de servidor (local_state é apagado nesses casos). */
 private val Context.appSettings by preferencesDataStore(name = "settings")
@@ -66,10 +66,11 @@ actual class LocalStateStore(private val context: Context) : MessageStore {
     private val serversKey = stringPreferencesKey("servers")
     private fun serverList(data: androidx.datastore.preferences.core.Preferences): List<String> =
         data[serversKey]?.let { value -> org.json.JSONArray(value).let { array -> (0 until array.length()).map { array.getString(it) } } }.orEmpty()
-    private suspend fun migrateServers() = coordinator.lock.withLock {
+    private suspend fun migrateServers() = coordinator.lock.withLock { migrateServersLocked() }
+    private suspend fun migrateServersLocked() {
         val previous = context.localState.data.first()
-        val origin = previous[originKey] ?: return@withLock
-        if (previous[serversKey] != null) return@withLock
+        val origin = previous[originKey] ?: return
+        if (previous[serversKey] != null) return
         context.localState.edit { data ->
             data[serversKey] = org.json.JSONArray(listOf(origin)).toString()
             previous.asMap().forEach { (key, value) ->
@@ -131,6 +132,7 @@ actual class LocalStateStore(private val context: Context) : MessageStore {
     private fun conversationFile(key: SessionKey, generation: String?): java.io.File =
         java.io.File(java.io.File(if (generation == null) conversations else java.io.File(conversations, generation), tag(key.origin)), hashed("", key).name + ".json")
     actual suspend fun conversation(key: SessionKey): CachedConversation? = coordinator.lock.withLock {
+        migrateServersLocked()
         val data = context.localState.data.first()
         if (key.origin !in serverList(data)) return@withLock null
         withContext(Dispatchers.IO) {
@@ -144,6 +146,7 @@ actual class LocalStateStore(private val context: Context) : MessageStore {
         try {
             beforeConversationWrite()
             coordinator.lock.withLock {
+                migrateServersLocked()
                 if (write.origin != key.origin || write.epoch != conversationEpoch(key.origin)) return@withLock
                 val data = context.localState.data.first()
                 if (key.origin !in serverList(data) || write.sequence <= (coordinator.written[key] ?: 0)) return@withLock
@@ -251,10 +254,28 @@ actual class LocalStateStore(private val context: Context) : MessageStore {
     actual suspend fun setNotifyEvents(permission: Boolean, done: Boolean) { context.appSettings.edit { it[notifyPermissionKey] = permission; it[notifyDoneKey] = done } }
 
     // Escolhas por sessão: ficam em local_state (pertencem ao servidor atual) e caem no padrão quando ausentes.
-    actual suspend fun sessionView(key: SessionKey): String = context.localState.data.first()[hashed("view_", key)]?.takeIf { it in VIEWS } ?: defaultView()
-    actual suspend fun setSessionView(key: SessionKey, view: String) { if (view in VIEWS) context.localState.edit { it[hashed("view_", key)] = view } }
-    actual suspend fun sessionDeliverAs(key: SessionKey): String = context.localState.data.first()[hashed("deliver_", key)]?.takeIf { it in DELIVER_MODES } ?: deliverAs()
-    actual suspend fun setSessionDeliverAs(key: SessionKey, mode: String) { if (mode in DELIVER_MODES) context.localState.edit { it[hashed("deliver_", key)] = mode } }
+    actual suspend fun sessionView(key: SessionKey): String {
+        migrateServers()
+        return context.localState.data.first()[hashed("view_", key)]?.takeIf { it in VIEWS } ?: defaultView()
+    }
+    actual suspend fun setSessionView(key: SessionKey, view: String) {
+        migrateServers()
+        if (view in VIEWS) context.localState.edit {
+            check(key.origin in serverList(it)) { "Connection changed" }
+            it[hashed("view_", key)] = view
+        }
+    }
+    actual suspend fun sessionDeliverAs(key: SessionKey): String {
+        migrateServers()
+        return context.localState.data.first()[hashed("deliver_", key)]?.takeIf { it in DELIVER_MODES } ?: deliverAs()
+    }
+    actual suspend fun setSessionDeliverAs(key: SessionKey, mode: String) {
+        migrateServers()
+        if (mode in DELIVER_MODES) context.localState.edit {
+            check(key.origin in serverList(it)) { "Connection changed" }
+            it[hashed("deliver_", key)] = mode
+        }
+    }
 
     // Até quando cada conversa foi lida (relógio do servidor), para o balão de não lidas da tela principal. Fica em
     // local_state: pertence ao servidor atual e some ao sair da conta. Chave = hash da sessão.

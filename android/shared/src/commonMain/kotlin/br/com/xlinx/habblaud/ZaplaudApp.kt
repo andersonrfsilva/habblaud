@@ -97,7 +97,7 @@ fun ZaplaudApp(store: LocalStateStore = remember { LocalStateStore() }) {
                     AlertDialog(
                         onDismissRequest = { confirmLogout = null },
                         title = { Text(stringResource(Res.string.logout)) },
-                        text = { Text(stringResource(Res.string.logout_server_warning)) },
+                        text = { Text(stringResource(Res.string.logout_server_warning, serverLabel(origin))) },
                         confirmButton = { TextButton(enabled = !busy, onClick = {
                             confirmLogout = null
                             busy = true
@@ -244,7 +244,7 @@ private fun LoginForm(
                 confirmHttpOrigin = null
                 if (UrlPolicy.origin(url) == origin) connect()
             }) { Text(stringResource(Res.string.confirm)) } },
-            dismissButton = { TextButton(onClick = { confirmHttpOrigin = null }) { Text(stringResource(Res.string.cancel)) } }
+            dismissButton = { TextButton(modifier = Modifier.testTag("http-cancel"), onClick = { confirmHttpOrigin = null }) { Text(stringResource(Res.string.cancel)) } }
         )
     }
     Scaffold(topBar = {
