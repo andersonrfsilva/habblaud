@@ -29,10 +29,10 @@ jobs:
         with:
           packages: platform-tools
 
-      - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
-      - run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+      - run: sdkmanager 'platforms;android-37.0' 'build-tools;36.0.0'
+      - run: ./gradlew :shared:testAndroidHostTest :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
         working-directory: android
-      - run: ./gradlew :app:testReleaseUnitTest --tests '*UrlPolicyTest*' --tests '*VpnGuardTest*'
+      - run: ./gradlew :app:testReleaseUnitTest --tests '*VpnGuardTest*'
         working-directory: android
 
   instrumentado:
@@ -52,7 +52,7 @@ jobs:
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
         with:
           packages: platform-tools
-      - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - run: sdkmanager 'platforms;android-37.0' 'build-tools;36.0.0'
       # Runner sem /dev/kvm (o dos repositórios privados não tem virtualização aninhada): o emulador não sobe sem
       # aceleração, então os testes instrumentados ficam para o runner que tem, com um aviso no resumo da execução.
       - name: Enable KVM

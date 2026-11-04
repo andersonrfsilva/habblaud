@@ -1,0 +1,188 @@
+package br.com.xlinx.habblaud
+
+import br.com.xlinx.habblaud.resources.*
+import org.jetbrains.compose.resources.*
+import androidx.compose.ui.platform.testTag
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.dp
+import br.com.xlinx.habblaud.data.*
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.serialization.json.*
+import io.ktor.http.encodeURLPathPart
+internal fun permissionExpired(deadline: Long, now: Long) = deadline <= now
+internal fun permissionClosed(status: Int) = status == 404 || status == 409
+
+
+internal fun permissionDecision(provider: String, behavior: String, questions: List<JsonObject>, selections: Map<Int, Set<Int>>, others: Map<Int, String>, suggestion: Int? = null, interrupt: Boolean = false, message: String = ""): JsonObject {
+    require(provider == "claude" || (suggestion == null && !interrupt))
+    require(behavior in setOf("allow", "deny", "terminal", "answer"))
+    return buildJsonObject {
+        put("behavior", behavior)
+        if (behavior == "allow" && suggestion != null) put("suggestion", suggestion)
+        if (behavior == "deny") {
+            if (message.isNotBlank()) put("message", message)
+            if (interrupt) put("interrupt", true)
+        }
+        if (behavior == "answer") {
+            require(questions.isNotEmpty())
+            put("answers", buildJsonArray {
+                questions.forEach { q ->
+                    val index = requireNotNull(q["index"]?.jsonPrimitive?.intOrNull)
+                    val selected = selections[index].orEmpty()
+                    val other = others[index].orEmpty().trim()
+                    val valid = q.objects("options").mapNotNull { it["index"]?.jsonPrimitive?.intOrNull }.toSet()
+                    require(selected.all { it in valid } && (selected.isNotEmpty() || other.isNotEmpty()))
+                    require(q.flag("multiSelect") || selected.size + (if (other.isNotEmpty()) 1 else 0) == 1)
+                    add(buildJsonObject {
+                        put("question", index)
+                        if (selected.isNotEmpty()) put("options", buildJsonArray { selected.sorted().forEach { add(it) } })
+                        if (other.isNotEmpty()) put("other", other)
+                    })
+                }
+            })
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun PermissionSheet(api: HabblaudApi, session: SessionItem, allowed: Boolean, connected: Boolean, onUnauthorized: () -> Unit, onClose: () -> Unit) {
+    val id = session.permissionId ?: return
+    val scope = rememberCoroutineScope()
+    var detail by remember(id) { mutableStateOf<JsonObject?>(null) }
+    var error by remember(id) { mutableStateOf<String?>(null) }
+    var busy by remember(id) { mutableStateOf(false) }
+    var expired by remember(id) { mutableStateOf(false) }
+    var ambiguous by remember(id) { mutableStateOf(false) }
+    val selections = remember(id) { mutableStateMapOf<Int, Set<Int>>() }
+    val others = remember(id) { mutableStateMapOf<Int, String>() }
+    var suggestion by remember(id) { mutableStateOf<Int?>(null) }
+    var interrupt by remember(id) { mutableStateOf(false) }
+    var message by remember(id) { mutableStateOf("") }
+    var showDeny by remember(id) { mutableStateOf(false) }
+    val path = "/api/permissions/${id.encodeURLPathPart()}"
+    LaunchedEffect(id, connected, allowed) {
+        detail = null
+        if (!connected || !allowed) return@LaunchedEffect
+        try {
+            detail = wireJson.parseToJsonElement(api.request(path)).jsonObject
+            val deadline = detail?.get("expiresAt")?.jsonPrimitive?.longOrNull ?: 0L
+            delay((deadline - uiNowMillis()).coerceAtLeast(0L))
+            expired = true
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            if (e is ApiException && e.status == 401) onUnauthorized()
+            else if (e is ApiException && permissionClosed(e.status)) onClose()
+            else error = "network"
+        }
+    }
+    val item = detail
+    val provider = item?.string("provider") ?: "claude"
+    val questions = item?.objects("questions").orEmpty()
+    fun decide(behavior: String) {
+        if (!allowed || !connected || busy || expired || ambiguous || item == null || permissionExpired(item["expiresAt"]?.jsonPrimitive?.longOrNull ?: 0L, uiNowMillis())) return
+        val body = try { permissionDecision(provider, behavior, questions, selections, others, if (behavior == "allow") suggestion else null, behavior == "deny" && interrupt, message) } catch (_: IllegalArgumentException) { error = "answers"; return }
+        busy = true
+        scope.launch {
+            try { api.request("$path/decision", body); onClose() }
+            catch (e: Exception) {
+                if (e is CancellationException) { ambiguous = true; throw e }
+                if (e is ApiException && e.status == 401) onUnauthorized()
+                else if (e is ApiException && permissionClosed(e.status)) onClose()
+                else if (e is ApiException && e.status in 400..499) error = "decision"
+                else { ambiguous = true; error = "unknown" }
+            } finally { busy = false }
+        }
+    }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    LaunchedEffect(id, item) {
+        if (item != null) {
+            withFrameNanos { }
+            sheetState.expand()
+        }
+    }
+    ModalBottomSheet(onDismissRequest = onClose, sheetState = sheetState) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                CharacterAvatar(api, session, 48.dp)
+                Column {
+                    session.characterName?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
+                    Text(stringResource(if (questions.isNotEmpty()) Res.string.question_pending else Res.string.permission_pending), style = MaterialTheme.typography.titleLarge)
+                    Text(listOfNotNull(session.project?.substringAfterLast('/'), session.agentName, session.title).filter { it != session.characterName }.distinct().joinToString(" · "))
+                }
+            }
+            if (!allowed) Text(stringResource(Res.string.permissions_blocked))
+            if (!connected) Text(stringResource(Res.string.reading_offline))
+            item?.let { request ->
+                if (questions.isEmpty()) {
+                    Text(stringResource(Res.string.permission_tool), style = MaterialTheme.typography.labelMedium)
+                    Text(request.string("tool").orEmpty(), style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(if (request.string("tool")?.equals("bash", true) == true) Res.string.permission_command else Res.string.permission_input), style = MaterialTheme.typography.labelMedium)
+                    SelectionContainer {
+                        Text(request.string("input").orEmpty(), Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHighest, RoundedCornerShape(8.dp)).horizontalScroll(rememberScrollState()).padding(12.dp), fontFamily = FontFamily.Monospace)
+                    }
+                }
+                request["expiresAt"]?.jsonPrimitive?.longOrNull?.let { Text(stringResource(Res.string.permission_deadline, platformDeadline(it)), style = MaterialTheme.typography.bodySmall) }
+                questions.forEach { q ->
+                    val index = q["index"]?.jsonPrimitive?.intOrNull ?: return@forEach
+                    val multi = q.flag("multiSelect")
+                    Text(q.string("question").orEmpty())
+                    q.objects("options").forEach { option ->
+                        val optionIndex = option["index"]?.jsonPrimitive?.intOrNull ?: return@forEach
+                        Row(Modifier.fillMaxWidth().toggleable(value = optionIndex in selections[index].orEmpty(), role = Role.Checkbox, onValueChange = { checked ->
+                            selections[index] = if (multi) { if (checked) selections[index].orEmpty() + optionIndex else selections[index].orEmpty() - optionIndex } else if (checked) setOf(optionIndex) else emptySet()
+                            if (!multi && checked) others[index] = ""
+                        })) {
+                            Checkbox(checked = optionIndex in selections[index].orEmpty(), onCheckedChange = null)
+                            Column { Text(option.string("label").orEmpty()); option.string("description")?.let { Text(it) } }
+                        }
+                    }
+                    OutlinedTextField(others[index].orEmpty(), { others[index] = it; if (!multi && it.isNotEmpty()) selections[index] = emptySet() }, label = { Text(stringResource(Res.string.permission_other)) })
+                }
+                if (provider == "claude" && questions.isEmpty()) {
+                    request.objects("suggestions").forEach { s ->
+                        val index = s["index"]?.jsonPrimitive?.intOrNull ?: return@forEach
+                        val rules = runCatching { s["rules"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }?.joinToString(", ") }.getOrNull().orEmpty()
+                        val destination = stringResource(when (s.string("destination")) {
+                            "session" -> Res.string.permission_destination_session
+                            "localSettings" -> Res.string.permission_destination_local
+                            "projectSettings" -> Res.string.permission_destination_project
+                            "userSettings" -> Res.string.permission_destination_user
+                            else -> Res.string.permission_destination_unknown
+                        })
+                        Row { Checkbox(suggestion == index, { suggestion = if (it) index else null }); Text(stringResource(Res.string.permission_suggestion, rules, destination)) }
+                    }
+                    if (showDeny) Row { Checkbox(interrupt, { interrupt = it }); Text(stringResource(Res.string.permission_interrupt)) }
+                }
+                if (questions.isEmpty() && showDeny) OutlinedTextField(message, { message = it }, label = { Text(stringResource(Res.string.permission_reason)) })
+            }
+            if (expired) Text(stringResource(Res.string.permission_expired))
+            error?.let { Text(stringResource(when (it) { "answers" -> Res.string.permission_answers; "unknown" -> Res.string.permission_unknown; else -> Res.string.network_error }), color = MaterialTheme.colorScheme.error) }
+            val enabled = allowed && connected && item != null && !expired && !busy && !ambiguous
+        Row {
+            if (questions.isNotEmpty()) TextButton(onClick = { decide("answer") }, enabled = enabled) { Text(stringResource(Res.string.permission_answer)) }
+            else {
+                Button(onClick = { decide("allow") }, enabled = enabled) { Text(stringResource(Res.string.permission_allow)) }
+                OutlinedButton(onClick = { if (showDeny) decide("deny") else showDeny = true }, enabled = enabled) { Text(stringResource(Res.string.permission_deny)) }
+            }
+            TextButton(onClick = { decide("terminal") }, enabled = enabled) { Text(stringResource(Res.string.permission_terminal)) }
+        }
+        TextButton(onClick = onClose) { Text(stringResource(Res.string.cancel)) }
+        }
+    }
+}

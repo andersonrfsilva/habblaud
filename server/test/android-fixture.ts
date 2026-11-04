@@ -49,7 +49,7 @@ export async function startAndroidFixture(root: string, args: string[]): Promise
     else if (args[i] === '--no-session-guard') noSessionGuard = true;
     else throw new Error(`Unknown or incomplete option: ${args[i]}`);
   }
-  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid port');
+  if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('Invalid port');
   setQuiet(true);
   const accountDir = join(root, ACCOUNT);
   const ompDir = join(root, OMP_ACCOUNT);
@@ -249,6 +249,8 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
     hub.stop();
     throw error;
   }
+  const remoteAddress = server.address();
+  if (!remoteAddress || typeof remoteAddress === 'string') throw new Error('Remote fixture listener has no port');
   const localAcks: Array<{ id: string; ok: boolean }> = [];
   const localServer = http.createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
@@ -390,5 +392,5 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
   process.once('SIGINT', close);
   process.once('SIGTERM', close);
   input.once('close', close);
-  process.stdout.write(`${JSON.stringify({ ready: true, url: `http://127.0.0.1:${port}`, localUrl: `http://127.0.0.1:${localAddress.port}`, user: 'android-test', password: 'android-test', home: root, stagingDir, deliveredDir, agents: AGENTS.map(agent => agent.id) })}\n`);
+  process.stdout.write(`${JSON.stringify({ ready: true, url: `http://127.0.0.1:${remoteAddress.port}`, localUrl: `http://127.0.0.1:${localAddress.port}`, user: 'android-test', password: 'android-test', home: root, stagingDir, deliveredDir, agents: AGENTS.map(agent => agent.id) })}\n`);
 }

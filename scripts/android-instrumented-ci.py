@@ -80,7 +80,7 @@ def main():
         print('Reverse mappings established:', flush=True)
         subprocess.run(['adb', 'reverse', '--list'], check=True)
         gradle = subprocess.Popen([
-            './gradlew', ':app:connectedDebugAndroidTest',
+            './gradlew', ':shared:connectedAndroidDeviceTest', ':app:connectedDebugAndroidTest',
             '-Pandroid.testInstrumentationRunnerArguments.fixture=true',
             f'-Pandroid.testInstrumentationRunnerArguments.fixtureLocalPort={port}',
         ], cwd='android', start_new_session=True)
@@ -93,6 +93,7 @@ def main():
         if fixture.poll() is not None:
             raise RuntimeError('Fixture exited during tests')
         files = list(Path('android/app/build/outputs/androidTest-results/connected').rglob('*.xml'))
+        files.extend(Path('android/shared/build/outputs').rglob('TEST-*.xml'))
         suites = []
         for file in files:
             root = ET.parse(file).getroot()
@@ -106,6 +107,19 @@ def main():
                           for suite in suites for case in suite.iter('testcase'))
         if not suites or tests <= 0 or failures or errors or not has_fixture:
             raise RuntimeError('Android test XML does not meet acceptance criteria')
+        required_shared = {
+            'PersistenceInstrumentedTest', 'ConversationEpochInstrumentedTest',
+            'LastSessionOrderInstrumentedTest', 'AvatarCacheInstrumentedTest',
+            'SessionCookieStoreTest', 'LocalStateStoreTest',
+        }
+        executed = {
+            case.get('classname', '').rsplit('.', 1)[-1]
+            for suite in suites for case in suite.iter('testcase')
+            if case.find('skipped') is None
+        }
+        missing_shared = required_shared - executed
+        if missing_shared:
+            raise RuntimeError(f'Migrated shared device tests did not execute: {sorted(missing_shared)}')
         print(f'Android test results: {tests} tests, {failures} failures, {errors} errors')
         return 0
     finally:

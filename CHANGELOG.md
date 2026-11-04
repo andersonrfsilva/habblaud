@@ -12,6 +12,11 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Zaplaud / plano 041:** extração das telas, regras e transporte para Kotlin Multiplatform e Compose Multiplatform,
+  com host Android preservado e novo host UIKit para iPad. O código usa Ktor, adaptadores Apple de Keychain,
+  arquivos privados e seleção de documentos. No iPad, funciona somente em primeiro plano, sem notificações.
+  Compilação dupla, paridade e instalação pelo SideStore dependem dos gates do plano; não constituem uma entrega
+  validada nesta entrada.
 - **Android:** Configurações › Resumos liga o resumo das respostas do agente. O papel `tiny` do omp resume cada
   resposta longa em até 5 frases; tocar no resumo mostra a resposta completa. Desligado por padrão. Os resumos ficam
   guardados no aparelho junto da conversa: reabrir a sessão não pede de novo. Só funciona com um modelo escolhido

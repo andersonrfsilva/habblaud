@@ -1,0 +1,41 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 56;
+	objects = {
+		000000000000000000000001 = { isa = PBXProject; attributes = { BuildIndependentTargetsInParallel = YES; LastUpgradeCheck = 1640; }; buildConfigurationList = 000000000000000000000018; compatibilityVersion = "Xcode 14.0"; developmentRegion = pt_BR; knownRegions = (pt_BR, en, Base); mainGroup = 000000000000000000000002; productRefGroup = 000000000000000000000003; projectDirPath = ""; projectRoot = ""; targets = (000000000000000000000006, 000000000000000000000007); };
+		000000000000000000000002 = { isa = PBXGroup; children = (000000000000000000000004, 000000000000000000000005, 000000000000000000000003); sourceTree = "<group>"; };
+		000000000000000000000003 = { isa = PBXGroup; children = (000000000000000000000008, 000000000000000000000009); sourceTree = "<group>"; };
+		000000000000000000000004 = { isa = PBXGroup; children = (00000000000000000000000A, 00000000000000000000000C); path = Zaplaud; sourceTree = "<group>"; };
+		000000000000000000000005 = { isa = PBXGroup; children = (00000000000000000000000B); path = ZaplaudUITests; sourceTree = "<group>"; };
+		00000000000000000000000A = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		00000000000000000000000B = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZaplaudUITests.swift; sourceTree = "<group>"; };
+		00000000000000000000000C = { isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		000000000000000000000008 = { isa = PBXFileReference; lastKnownFileType = wrapper.application; path = Zaplaud.app; sourceTree = "BUILT_PRODUCTS_DIR"; };
+		000000000000000000000009 = { isa = PBXFileReference; lastKnownFileType = wrapper.cfbundle; path = ZaplaudUITests.xctest; sourceTree = "BUILT_PRODUCTS_DIR"; };
+		00000000000000000000000D = { isa = PBXBuildFile; fileRef = 00000000000000000000000A; };
+		00000000000000000000000E = { isa = PBXBuildFile; fileRef = 00000000000000000000000B; };
+		00000000000000000000000F = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (00000000000000000000000D); runOnlyForDeploymentPostprocessing = 0; };
+		000000000000000000000010 = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (00000000000000000000000E); runOnlyForDeploymentPostprocessing = 0; };
+		000000000000000000000011 = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		000000000000000000000012 = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		000000000000000000000013 = { isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		000000000000000000000014 = { isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		000000000000000000000015 = { isa = PBXShellScriptBuildPhase; alwaysOutOfDate = 1; buildActionMask = 2147483647; files = (); inputPaths = (); name = "Build Kotlin framework and Compose resources"; outputPaths = (); runOnlyForDeploymentPostprocessing = 0; shellPath = /bin/sh; shellScript = "set -eu\ncd \"$SRCROOT/../android\"\n./gradlew :shared:embedAndSignAppleFrameworkForXcode\n"; };
+		000000000000000000000017 = { isa = PBXContainerItemProxy; containerPortal = 000000000000000000000001; proxyType = 1; remoteGlobalIDString = 000000000000000000000006; remoteInfo = Zaplaud; };
+		000000000000000000000016 = { isa = PBXTargetDependency; target = 000000000000000000000006; targetProxy = 000000000000000000000017; };
+		000000000000000000000006 = { isa = PBXNativeTarget; buildConfigurationList = 000000000000000000000019; buildPhases = (000000000000000000000015, 00000000000000000000000F, 000000000000000000000011, 000000000000000000000013); buildRules = (); dependencies = (); name = Zaplaud; productName = Zaplaud; productReference = 000000000000000000000008; productType = "com.apple.product-type.application"; };
+		000000000000000000000007 = { isa = PBXNativeTarget; buildConfigurationList = 00000000000000000000001A; buildPhases = (000000000000000000000010, 000000000000000000000012, 000000000000000000000014); buildRules = (); dependencies = (000000000000000000000016); name = ZaplaudUITests; productName = ZaplaudUITests; productReference = 000000000000000000000009; productType = "com.apple.product-type.bundle.ui-testing"; };
+		000000000000000000000018 = { isa = XCConfigurationList; buildConfigurations = (00000000000000000000001B, 00000000000000000000001C); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		000000000000000000000019 = { isa = XCConfigurationList; buildConfigurations = (00000000000000000000001D, 00000000000000000000001E); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		00000000000000000000001A = { isa = XCConfigurationList; buildConfigurations = (00000000000000000000001F, 000000000000000000000020); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		00000000000000000000001B = { isa = XCBuildConfiguration; buildSettings = { CLANG_ENABLE_MODULES = YES; IPHONEOS_DEPLOYMENT_TARGET = 14.0; SDKROOT = iphoneos; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = 2; ENABLE_USER_SCRIPT_SANDBOXING = NO; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; }; name = Debug; };
+		00000000000000000000001C = { isa = XCBuildConfiguration; buildSettings = { CLANG_ENABLE_MODULES = YES; IPHONEOS_DEPLOYMENT_TARGET = 14.0; SDKROOT = iphoneos; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = 2; ENABLE_USER_SCRIPT_SANDBOXING = NO; SWIFT_OPTIMIZATION_LEVEL = "-O"; }; name = Release; };
+		00000000000000000000001D = { isa = XCBuildConfiguration; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = br.com.xlinx.zaplaud; PRODUCT_NAME = "$(TARGET_NAME)"; INFOPLIST_FILE = Zaplaud/Info.plist; MARKETING_VERSION = 1.0; CURRENT_PROJECT_VERSION = 1; CODE_SIGN_STYLE = Automatic; FRAMEWORK_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/../android/shared/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)"); OTHER_LDFLAGS = ("$(inherited)", "-framework", ZaplaudShared); LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks"); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; }; name = Debug; };
+		00000000000000000000001E = { isa = XCBuildConfiguration; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = br.com.xlinx.zaplaud; PRODUCT_NAME = "$(TARGET_NAME)"; INFOPLIST_FILE = Zaplaud/Info.plist; MARKETING_VERSION = 1.0; CURRENT_PROJECT_VERSION = 1; CODE_SIGN_STYLE = Automatic; FRAMEWORK_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/../android/shared/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)"); OTHER_LDFLAGS = ("$(inherited)", "-framework", ZaplaudShared); LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks"); SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; SWIFT_OPTIMIZATION_LEVEL = "-O"; }; name = Release; };
+		00000000000000000000001F = { isa = XCBuildConfiguration; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = br.com.xlinx.zaplaud.uitests; PRODUCT_NAME = "$(TARGET_NAME)"; GENERATE_INFOPLIST_FILE = YES; TEST_TARGET_NAME = Zaplaud; CODE_SIGN_STYLE = Automatic; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; }; name = Debug; };
+		000000000000000000000020 = { isa = XCBuildConfiguration; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = br.com.xlinx.zaplaud.uitests; PRODUCT_NAME = "$(TARGET_NAME)"; GENERATE_INFOPLIST_FILE = YES; TEST_TARGET_NAME = Zaplaud; CODE_SIGN_STYLE = Automatic; SWIFT_OPTIMIZATION_LEVEL = "-O"; }; name = Release; };
+	};
+	rootObject = 000000000000000000000001;
+}

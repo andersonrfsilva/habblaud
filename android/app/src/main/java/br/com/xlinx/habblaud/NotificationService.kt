@@ -33,6 +33,7 @@ class NotificationService : Service() {
     override fun onCreate() {
         super.onCreate()
         channels(this)
+        initializeStorage(applicationContext)
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         val ongoing = NotificationCompat.Builder(this, CHANNEL_CONNECTION)
             .setSmallIcon(android.R.drawable.stat_notify_chat)
@@ -51,13 +52,14 @@ class NotificationService : Service() {
         val store = LocalStateStore(applicationContext)
         val origin = store.connection()?.origin
         if (origin == null || UrlPolicy.origin(origin) != origin || !store.notificationsEnabled()) { stopSelf(); return }
-        val api = HabblaudApi(applicationContext, origin).also { this.api = it }
+        val api = HabblaudApi(origin).also { this.api = it }
         val sessions = SessionRepository(api)
         var unauthorized = false
-        val streams = ConversationRepository(origin, { api.client() }, { unauthorized = true })
+        val streams = ConversationRepository(api)
         var previous: Map<SessionKey, AgentWatch>? = null
         while (currentCoroutineContext().isActive) {
             streams.stream("/api/stream").collect { event ->
+                if (event is StreamEvent.Failure && event.status == 401) unauthorized = true
                 // O snapshot depois de uma reconexão compara com o último antes da queda: o que mudou nela também avisa.
                 if (event is StreamEvent.Data && event.type == "snapshot") {
                     val current = sessions.snapshot(event.data)

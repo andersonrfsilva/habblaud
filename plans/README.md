@@ -62,6 +62,7 @@ conditions e atualize sua linha ao terminar.
 | 038 | Investigar ordenação da última sessão Android | P2 | M | 035 | DONE (commit `ef13ee5` mesclado; 24 testes instrumentados passaram antes da integração) |
 | 039 | Ocultar detalhes de notificações na tela bloqueada | P1 | M | — | DONE (implementação mesclada; teste instrumentado aprovado; validação visual no celular adiada) |
 | 040 | Monitorar dependências Gradle no Dependabot | P2 | S | — | DONE (commit `4150994` mesclado; YAML validado; validação do serviço remoto pendente) |
+| 041 | [Zaplaud no iPadOS com Kotlin Multiplatform e instalação pelo SideStore](041-zaplaud-ipados-kotlin.md) | P2 | L | Base Android atual; sem dependência de concluir 033 | IN PROGRESS (branch `advisor/041-zaplaud-ipados-kotlin`; implementação em revisão e compilação; sem merge/deploy) |
 
 Em 2026-10-31 o branch `rpg` (elenco 031/032 e o que veio depois) foi promovido a `producao` por fast-forward
 (`759c0f9`): o standalone (`~/apps/habblaud` no branch `producao`) e os cinco tenants rodam essa versão. As notas
@@ -70,6 +71,8 @@ Em 2026-10-31 o branch `rpg` (elenco 031/032 e o que veio depois) foi promovido 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 
 ## Dependency notes
+
+- 041: usuário aceita iPadOS apenas em primeiro plano e autorizou publicação desta branch no fork e CI macOS. Android e seus dados devem ser preservados. DONE exige IPA instalado pelo SideStore, paridade funcional e gates do plano; build de simulador não basta.
 
 - 035–040: auditoria Android no commit `9469c0b`, 2026-11-03. Todos os commits foram mesclados em `producao` por `8fb1fdd`. A pedido do usuário, validação no celular e execução do CI no GitHub ficam para depois; 037 ainda tem duas falhas em viewport pequeno.
 

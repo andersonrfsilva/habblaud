@@ -1,0 +1,79 @@
+name: iPadOS
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [advisor/041-zaplaud-ipados-kotlin]
+  pull_request:
+    paths:
+      - 'android/**'
+      - 'ios/**'
+      - 'scripts/ios-*'
+      - 'scripts/android-smoke.ts'
+      - 'server/test/android-fixture.ts'
+      - '.github/workflows/ios.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.4.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22.12'
+          cache: npm
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          packages: platform-tools
+      - name: Check selected Apple toolchain
+        run: |
+          test "$(uname -m)" = arm64 || { echo 'iosSimulatorArm64 requires an Apple Silicon runner; Intel fallback is forbidden.' >&2; exit 1; }
+          test -d "$DEVELOPER_DIR" || { echo 'Required Xcode 26.4 is absent from hosted runner.' >&2; exit 1; }
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          xcrun simctl list devices available
+      - run: sdkmanager 'platforms;android-37.0' 'build-tools;36.0.0'
+      - run: npm ci
+      - name: Record real generated tasks
+        run: android/gradlew -p android :shared:tasks --all
+      - name: Shared native and Android host tests
+        run: android/gradlew -p android :shared:allTests :app:testDebugUnitTest
+      - name: Build simulator application
+        run: bash scripts/ios-build.sh simulator
+      - name: Real fixture UI smoke
+        run: bash scripts/ios-smoke.sh
+      - name: Package unsigned device IPA
+        run: bash scripts/ios-build.sh device
+      - name: Upload IPA and evidence only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Zaplaud-iPadOS-${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            ios/build/Zaplaud.ipa
+            ios/build/Zaplaud.ipa.sha256
+            ios/build/toolchain-*.txt
+            ios/build/platform-*.txt
+            ios/build/linkage-*.txt
+            ios/build/simulator.sha256
+            ios/build/smoke/report.json
+            ios/build/smoke/*.png
+            ios/build/smoke/*.log
+            ios/build/smoke/*.xcresult
+            android/shared/build/reports/tests/
+            android/app/build/reports/tests/

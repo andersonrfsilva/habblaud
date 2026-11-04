@@ -59,13 +59,14 @@ class FixtureUiInstrumentedTest {
             InstrumentationRegistry.getInstrumentation().uiAutomation.grantRuntimePermission(context.packageName, Manifest.permission.POST_NOTIFICATIONS)
         }
         prepared = true
+        br.com.xlinx.habblaud.data.initializeStorage(context)
         runBlocking {
             val store = LocalStateStore(context)
             store.clear()
             store.setConnection(origin)
             store.setLastSession(key)
             try {
-                HabblaudApi(context, origin).use { it.login("android-test", "android-test") }
+                HabblaudApi(origin).use { it.login("android-test", "android-test") }
             } catch (e: Exception) {
                 throw AssertionError("Fixture indisponível ou login falhou; inicie android-smoke e configure adb reverse tcp:14748 tcp:14748.", e)
             }

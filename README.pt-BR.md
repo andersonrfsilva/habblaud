@@ -261,7 +261,7 @@ do contato aparece junto ao avatar; toque longo nos ícones de ação mostra sua
 
 #### Compilar e instalar
 
-Instale JDK 17 ou superior e o Android SDK com a plataforma 36 e ferramentas de build. Na raiz do repositório:
+Instale JDK 17 ou superior e o Android SDK com `platforms;android-37.0` e ferramentas de build. Na raiz do repositório:
 
 ```bash
 android/gradlew -p android :app:assembleDebug
@@ -361,8 +361,79 @@ A barra da conversa mostra ícones para responder perguntas e aprovar permissõe
 configuração de animações do sistema. Perguntas do omp aceitam escolha única, múltipla e texto livre; omp e Codex
 não aceitam `interrupt` nem `suggestion` nas decisões.
 
-O app não oferece terminal interativo, notificações com o app fechado, fila offline de comandos ou atualização
-automática. As sessões e conversas permanecem no servidor.
+No Android, as notificações opcionais usam o serviço em primeiro plano existente. Desativá-las interrompe o serviço.
+O aplicativo não oferece terminal interativo, fila offline de comandos ou atualização automática. As sessões e
+conversas permanecem no servidor.
+
+### Aplicativo iPadOS (Zaplaud; validação pendente)
+
+O código nativo do Zaplaud usa Kotlin Multiplatform e Compose Multiplatform. `android/app` mantém o host Android;
+`android/shared` reúne telas, regras e transporte, com adaptadores Android e Apple. O host UIKit em
+`ios/Zaplaud.xcodeproj` chama `MainViewController()` do framework estático `ZaplaudShared`. Não usa WebView.
+
+A combinação fixada é Kotlin **2.4.21**, Compose Multiplatform **1.12.2**, Ktor **3.6.1**, AGP **9.1.1** e
+Gradle **9.3.1**. O mínimo declarado é **iPadOS 14**, com **Xcode 26.4** para a toolchain Kotlin escolhida.
+O renderer Markdown continua na versão **0.38.0**, que publica variantes `iosArm64` e `iosSimulatorArm64`.
+A presença dos artefatos e a matriz oficial não substituem compilação nem teste em dispositivo.
+O compileSdk Android sobe para **37.0** (`release(37) { minorApiLevel = 0 }`) porque Compose **1.12.1** e o OkHttp transitivo exigem esse SDK;
+Compose também exige AGP **9.1** ou superior, que requer Gradle **9.3.1**. Isso não muda targetSdk **36**
+nem o mínimo Android **26**. A combinação anterior falhou nas verificações de metadados AAR durante a compilação.
+
+No iPad, o aplicativo funciona apenas em primeiro plano. Ao entrar em segundo plano, encerra streams, consultas
+periódicas e uploads; ao voltar, revalida o acesso e recupera a sessão. Não solicita notificações e não avisa com o
+aplicativo fechado. Os agentes continuam executando no servidor. Rascunhos são persistidos durante a edição.
+Uma mensagem cujo resultado foi perdido não é reenviada automaticamente; com ID conhecido, o aplicativo consulta
+o estado da operação. Cancelar uma conexão não prova que o servidor cancelou o comando.
+
+O cookie fica no Keychain, acessível com o aparelho desbloqueado e sem sincronização pelo iCloud. Rascunhos,
+anexos copiados e cache usam arquivos privados protegidos; preferências simples usam armazenamento nativo.
+Trocar a identidade de assinatura ou remover o aplicativo pode perder o acesso a esses dados. O Android mantém os
+nomes e formatos existentes de DataStore, cache e sessão criptografada; atualizar com a mesma assinatura, sem desinstalar.
+
+O transporte usa Ktor com engines OkHttp e Darwin. POST e upload não têm repetição automática; redirects são
+recusados e cookies ficam restritos à origem selecionada. Um limitador incremental de bytes antecede o parser SSE
+do Ktor, pois o parser da versão escolhida acumula eventos sem limite próprio. Esse adaptador limita quadros,
+incluindo comentários e dados multilinha; o Ktor continua sendo o único decodificador de eventos.
+Uploads são binários e em fluxo, com os mesmos limites de cinco anexos e 15 MiB por arquivo.
+
+#### Compilar no Mac e gerar IPA para reassinatura
+
+Instale a versão de Xcode indicada, suas ferramentas de linha de comando, JDK 17 e Android SDK `platforms;android-37.0`.
+Execute na raiz do repositório:
+
+```bash
+android/gradlew -p android :shared:tasks --all
+android/gradlew -p android :shared:allTests :app:testDebugUnitTest
+bash scripts/ios-build.sh simulator
+bash scripts/ios-smoke.sh
+bash scripts/ios-build.sh device
+unzip -t ios/build/Zaplaud.ipa
+```
+
+O script de build exige macOS/Xcode e grava os artefatos em `ios/build/`. O IPA de dispositivo é **sem assinatura**,
+destinado à reassinatura pelo SideStore, não à instalação direta. O smoke usa uma fixture isolada, nunca produção.
+Os testes comuns e os testes Android pertencentes às classes extraídas ficam em `android/shared`; os testes do
+host e do serviço permanecem em `android/app`. Confirme os nomes das tasks Android-KMP na listagem acima.
+
+#### SideStore e acesso ao servidor
+
+Configure o SideStore conforme sua documentação oficial. Ative Developer Mode quando a versão do iPadOS exigir;
+importe o IPA e autentique sua conta Apple no próprio dispositivo, nunca em scripts ou arquivos do repositório.
+Atualizações devem manter o bundle ID, a conta e a identidade de assinatura sempre que possível. Não desinstale
+como procedimento de atualização.
+
+Uma conta gratuita normalmente permite três aplicativos ativos, incluindo o SideStore, e assinaturas de sete dias.
+Faça o refresh antes do vencimento; não há garantia de renovação infalível. O SideStore usa uma VPN local para
+instalação e refresh. A convivência com Tailscale precisa ser testada no iPad: talvez seja necessário alternar as
+VPNs e restabelecer o Tailscale antes de usar o servidor.
+
+HTTPS mantém validação normal de certificado e nome. HTTP arbitrário exige uma exceção ATS ampla no host, pois
+o usuário escolhe a origem; isso não libera redirects ou outra origem no cliente. Cada login HTTP continua exigindo
+confirmação explícita. A permissão de rede local pode ser solicitada pelo sistema ao acessar servidores da LAN.
+
+**Estado de validação:** a migração de código não comprova compilação dupla, atualização Android sem perda de dados,
+VoiceOver, instalação/atualização/refresh pelo SideStore, Keychain após reassinatura ou coexistência com Tailscale.
+Esses gates exigem os relatórios e o dispositivo descritos no [plano 041](plans/041-zaplaud-ipados-kotlin.md).
 
 ### Abrir no celular (opcional)
 
