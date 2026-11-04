@@ -16,6 +16,7 @@ import br.com.xlinx.habblaud.resources.*
 import org.jetbrains.compose.resources.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import kotlinx.coroutines.withContext
 
 internal fun logoutError(cleaned: Boolean, revoked: Boolean): StringResource? = when {

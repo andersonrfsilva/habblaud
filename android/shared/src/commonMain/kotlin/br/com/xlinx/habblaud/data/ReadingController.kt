@@ -3,6 +3,7 @@ package br.com.xlinx.habblaud.data
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.IO
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -165,7 +166,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         // runCatching: a falha volta para quem espera sem derrubar o escopo do controlador.
         val job = pendingSummaries[key] ?: scope.async {
             runCatching { api.summary(text) }.onSuccess { if (token == generation) { summaries[key] = it; persist(3_000) } }
-        }.also { job -> pendingSummaries[key] = job; job.invokeOnCompletion { pendingSummaries.remove(key, job) } }
+        }.also { job -> pendingSummaries[key] = job; job.invokeOnCompletion { if (pendingSummaries[key] === job) pendingSummaries.remove(key) } }
         return job.await().getOrThrow()
     }
     private fun dropSummaries() { summaries.clear(); pendingSummaries.values.forEach { it.cancel() }; pendingSummaries.clear() }

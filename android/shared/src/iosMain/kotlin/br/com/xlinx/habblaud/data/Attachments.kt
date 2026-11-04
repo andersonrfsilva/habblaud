@@ -6,8 +6,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import platform.Foundation.*
-import platform.CoreFoundation.*
-import platform.MobileCoreServices.*
+import platform.UniformTypeIdentifiers.*
 
 private class PickedDocument(val url: NSURL, private val scoped: Boolean) {
     fun close() { if (scoped) url.stopAccessingSecurityScopedResource() }
@@ -45,16 +44,9 @@ fun discardPickedDocuments(tokens: List<String>) {
 @OptIn(ExperimentalForeignApi::class)
 actual class Attachments actual constructor() {
     init { initializeAccountStorage() }
-    private fun mimeType(name: String): String {
-        val extension = CFBridgingRetain(name.substringAfterLast('.', ""))
-        try {
-            val type = UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, extension?.reinterpret(), null) ?: return "application/octet-stream"
-            try {
-                val mime = UTTypeCopyPreferredTagWithClass(type, kUTTagClassMIMEType) ?: return "application/octet-stream"
-                return CFBridgingRelease(mime) as String
-            } finally { CFRelease(type) }
-        } finally { if (extension != null) CFRelease(extension) }
-    }
+    private fun mimeType(name: String): String =
+        UTType.typeWithFilenameExtension(name.substringAfterLast('.', ""))?.preferredMIMEType
+            ?: "application/octet-stream"
     private fun ownPath(attachment: Attachment): String? = NSURL.URLWithString(attachment.uri)?.path?.takeIf { it.startsWith("$privateDirectory/attachment-") && !it.removePrefix("$privateDirectory/").contains('/') }
     actual suspend fun select(uris: List<String>, existing: List<Attachment>): List<Attachment> = try { withContext(Dispatchers.Default) {
         val selected = uris.distinct().filter { uri -> existing.none { it.uri == uri } }

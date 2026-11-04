@@ -13,6 +13,12 @@ import kotlin.test.*
 @OptIn(ExperimentalForeignApi::class)
 class NativeStorageTest {
     @Test
+    fun storageHashPreservesSha256KeysIncludingEmptyInput() {
+        assertEquals("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", storageHash(""))
+        assertEquals("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", storageHash("abc"))
+    }
+
+    @Test
     fun startupCleanupRemovesOrphansButRetainsDraftAttachments() = runBlocking {
         val store = LocalStateStore()
         val origin = "https://native-storage.invalid"
@@ -121,6 +127,10 @@ class NativeStorageTest {
             val received = mutableListOf<Byte>()
             attachments.body(selected) {}.writeTo { buffer, count -> repeat(count) { received.add(buffer[it]) } }
             assertEquals("native bytes", received.toByteArray().decodeToString())
+            val unknown = "$directory/file.zaplaud-unknown-extension"
+            protectedWrite(unknown, "unknown type")
+            copied = copied + attachments.select(listOf(NSURL.fileURLWithPath(unknown).absoluteString!!), emptyList())
+            assertEquals("application/octet-stream", copied.last().mime)
             val empty = "$directory/empty.txt"
             protectedWrite(empty, "")
             try { attachments.select(listOf(NSURL.fileURLWithPath(empty).absoluteString!!), emptyList()); fail("Empty document accepted") } catch (_: IllegalArgumentException) { }

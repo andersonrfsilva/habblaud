@@ -16,6 +16,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import io.ktor.http.encodeURLPathPart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.add
 import br.com.xlinx.habblaud.data.AttachmentBody

@@ -1,3 +1,5 @@
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+
 package br.com.xlinx.habblaud.data
 
 import kotlinx.cinterop.*
@@ -8,13 +10,12 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
 import platform.Foundation.*
-import platform.CommonCrypto.CC_SHA256
+import platform.CoreCrypto.CC_SHA256
 
-@OptIn(ExperimentalForeignApi::class)
 internal fun storageHash(value: String): String {
     val bytes = value.encodeToByteArray()
     val digest = UByteArray(32)
-    bytes.usePinned { input -> digest.usePinned { output -> CC_SHA256(input.addressOf(0), bytes.size.toUInt(), output.addressOf(0)) } }
+    bytes.usePinned { input -> digest.usePinned { output -> CC_SHA256(if (bytes.isEmpty()) null else input.addressOf(0), bytes.size.toUInt(), output.addressOf(0)) } }
     return digest.joinToString("") { it.toString(16).padStart(2, '0') }
 }
 internal val privateDirectory: String get() {
