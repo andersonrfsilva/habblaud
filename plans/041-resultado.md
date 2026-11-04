@@ -79,11 +79,19 @@ Com 4 GiB, `ios-build.sh device` concluiu em 492 segundos: Release arm64, plataf
 - Origem: `/Users/mira/Developer/zaplaud-041/ios/build/Zaplaud.ipa`.
 - SHA-256: `b0779f6730e82f3f55d5e8a195d2e390f72e82e00eecd9139ee3642af61f509e`; cópia no Linux conferida.
 
+## Integração autorizada em producao
+
+O usuário autorizou o merge mesmo com gates físicos pendentes. A branch incorporou `producao` em `563c29a`, preservando a linha de estado, cronômetro e correção de agrupamento de ferramentas adicionados após a base do port. Os helpers novos foram adaptados ao código comum, com testes de arredondamento de relógio e recursos Compose compartilhados.
+
+Após resolver os conflitos: 79 testes host, lint, builds Android e 105 testes instrumentados (90 shared + 15 app) aprovados localmente. No run [41856332980](https://github.com/andersonrfsilva/habblaud/actions/runs/41856332980), ambos os jobs Android também passaram.
+
+A revalidação Apple dessa integração não executou: Mac da Mira offline, SSH expirou; GitHub informou `The job was not acquired by Runner of type hosted even after multiple attempts` e falta de capacidade de runners macOS arm64. Isso não é falha de compilação observada, mas deixa o código integrado sem novo smoke Apple. O IPA `b0779f67` é anterior à integração da linha de estado; não representa o conteúdo final do merge.
+
 ## Gates ainda não comprovados
 
 - Instalação, atualização e refresh pelo SideStore, Keychain após reassinatura e alternância/convivência com Tailscale.
 - VoiceOver, seletor de documentos real/iCloud e comportamento de teclado/janelas no iPad.
 - Atualização do APK antigo para o novo preservando instalação preenchida e mesma assinatura; testes de schema/persistência não substituem essa prova de atualização.
-- O plano não pode ser marcado DONE nem o PR aprovado para merge sem os gates físicos pendentes; gerar o IPA não comprova reassinatura ou instalação.
+- Plano permanece sem DONE até validar os gates físicos. O merge foi autorizado separadamente pelo usuário e não comprova reassinatura ou instalação.
 
 Manter os gates físicos do plano: build e smoke de simulador não comprovam instalação pelo SideStore, reassinatura ou acesso ao servidor real pela tailnet.
