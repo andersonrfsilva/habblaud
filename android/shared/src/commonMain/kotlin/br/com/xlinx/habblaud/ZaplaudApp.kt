@@ -148,7 +148,7 @@ fun ZaplaudApp(store: LocalStateStore = remember { LocalStateStore() }) {
                                 )
                             }
                             else -> ReadingScreen(
-                                apis = apis.toMap(),
+                                apis = servers.mapNotNull { origin -> apis[origin]?.let { origin to it } }.toMap(),
                                 needsLogin = needsLogin,
                                 store = store,
                                 onUnauthorized = { origin -> needsLogin = needsLogin + origin },

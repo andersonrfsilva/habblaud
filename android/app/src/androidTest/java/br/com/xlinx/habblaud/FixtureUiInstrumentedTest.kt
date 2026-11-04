@@ -109,7 +109,9 @@ class FixtureUiInstrumentedTest {
         compose.onNodeWithText("localhost:14748").assertIsDisplayed()
         compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText(text(R.string.search_sessions)))
         compose.onNodeWithText(text(R.string.search_sessions)).performTextInput("Ana Fictícia")
-        InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("input keyevent KEYCODE_BACK").close()
+        android.os.ParcelFileDescriptor.AutoCloseInputStream(
+            InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("input keyevent KEYCODE_BACK")
+        ).use { it.readBytes() }
         val rowTag = "session-row:${key.provider}:${key.sessionId}"
         fun awaitRows(count: Int) = compose.waitUntil(15_000) {
             compose.onAllNodesWithTag(rowTag).fetchSemanticsNodes().size == count
@@ -136,6 +138,7 @@ class FixtureUiInstrumentedTest {
         scenario = ActivityScenario.launch(MainActivity::class.java)
         await(R.string.message_text)
         compose.onNodeWithContentDescription(text(R.string.back_sessions)).performClick()
+        compose.onNodeWithTag("server-filter:127.0.0.1:14748", useUnmergedTree = true).performClick()
         awaitDescription(R.string.menu)
         compose.onNodeWithContentDescription(text(R.string.menu)).performClick()
         compose.onNodeWithText(text(R.string.logout)).assertDoesNotExist()
@@ -148,6 +151,8 @@ class FixtureUiInstrumentedTest {
             runBlocking { LocalStateStore(context).servers() == listOf(other) }
         }
         assertEquals(listOf(other), runBlocking { LocalStateStore(context).servers() })
+        await(R.string.open_sessions)
+        compose.onNodeWithText(text(R.string.open_sessions)).assertIsDisplayed()
         runBlocking { HabblaudApi(other).use { it.access() } }
     }
 

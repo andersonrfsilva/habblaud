@@ -81,8 +81,9 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
             onDispose { owner.lifecycle.removeObserver(observer); controller.stop() }
         }
     } }
-    var filter by rememberSaveable { mutableStateOf<String?>(null) }
-    LaunchedEffect(apis.keys) { if (filter !in apis) filter = null }
+    var savedFilter by rememberSaveable { mutableStateOf<String?>(null) }
+    val filter = savedFilter?.takeIf { it in apis }
+    LaunchedEffect(apis.keys) { if (savedFilter !in apis) savedFilter = null }
     fun open(item: SessionItem) {
         controllers.filterKeys { it != item.key.origin }.values.forEach { if (it.state.value.selected != null) it.close() }
         controllers.getValue(item.key.origin).open(item)
@@ -259,9 +260,9 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                 Text((if (apis.size > 1) serverLabel(origin) + ": " else "") + stringResource(when (it) { "forbidden" -> Res.string.terminal_blocked; "missing" -> Res.string.reading_missing; else -> Res.string.network_error }), color = MaterialTheme.colorScheme.error)
             } }
             if (apis.size > 1) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(modifier = Modifier.testTag("server-filter:all"), selected = filter == null, onClick = { filter = null }, label = { Text(stringResource(Res.string.filter_all)) })
+                FilterChip(modifier = Modifier.testTag("server-filter:all"), selected = filter == null, onClick = { savedFilter = null }, label = { Text(stringResource(Res.string.filter_all)) })
                 apis.keys.forEach { origin ->
-                    FilterChip(modifier = Modifier.testTag("server-filter:${serverLabel(origin)}"), selected = filter == origin, onClick = { filter = origin }, label = { Text(serverLabel(origin)) }, leadingIcon = {
+                    FilterChip(modifier = Modifier.testTag("server-filter:${serverLabel(origin)}"), selected = filter == origin, onClick = { savedFilter = origin }, label = { Text(serverLabel(origin)) }, leadingIcon = {
                         val connection = if (origin in needsLogin) "offline" else states[origin]?.connection
                         val color = when (connection) { "connected" -> Color(0xFF2E7D32); "connecting" -> Color(0xFFEF6C00); else -> Color(0xFFC62828) }
                         val label = stringResource(when (connection) { "connected" -> Res.string.reading_connected; "connecting" -> Res.string.reading_connecting; else -> Res.string.reading_offline })
