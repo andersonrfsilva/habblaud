@@ -57,6 +57,14 @@ import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
 import kotlinx.coroutines.launch
 
+internal fun readingErrorResource(error: String): StringResource = when (error) {
+    "changed" -> Res.string.session_changed
+    "forbidden" -> Res.string.terminal_blocked
+    "missing" -> Res.string.reading_missing
+    "oversize" -> Res.string.reading_oversize
+    else -> Res.string.network_error
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store: LocalStateStore, onUnauthorized: (String) -> Unit, onLogin: (String?) -> Unit, onLogout: (String) -> Unit) {
@@ -247,7 +255,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
         )
     }) { padding ->
     Column(Modifier.fillMaxSize().padding(padding).imePadding().background(if (selected == null) MaterialTheme.colorScheme.background else if (MaterialTheme.colorScheme.background.luminance() < 0.5f) MaterialTheme.colorScheme.surfaceContainerLowest else MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        state.error?.let { error -> Text(stringResource(when (error) { "changed" -> Res.string.session_changed; "forbidden" -> Res.string.terminal_blocked; "missing" -> Res.string.reading_missing; "oversize" -> Res.string.reading_oversize; else -> Res.string.network_error }), color = MaterialTheme.colorScheme.error) }
+        state.error?.let { error -> Text(stringResource(readingErrorResource(error)), color = MaterialTheme.colorScheme.error) }
         castStatus()
         if (selected == null) {
             needsLogin.forEach { origin ->
@@ -257,7 +265,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                 }
             }
             states.forEach { (origin, serverState) -> serverState.error?.let {
-                Text((if (apis.size > 1) serverLabel(origin) + ": " else "") + stringResource(when (it) { "forbidden" -> Res.string.terminal_blocked; "missing" -> Res.string.reading_missing; else -> Res.string.network_error }), color = MaterialTheme.colorScheme.error)
+                Text((if (apis.size > 1) serverLabel(origin) + ": " else "") + stringResource(readingErrorResource(it)), color = MaterialTheme.colorScheme.error)
             } }
             if (apis.size > 1) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(modifier = Modifier.testTag("server-filter:all"), selected = filter == null, onClick = { savedFilter = null }, label = { Text(stringResource(Res.string.filter_all)) })

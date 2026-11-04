@@ -2,8 +2,18 @@ package br.com.xlinx.habblaud.data
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import br.com.xlinx.habblaud.readingErrorResource
+import br.com.xlinx.habblaud.resources.*
 
 class ServersTest {
+    @Test fun listErrorsKeepOriginalMessages() {
+        assertEquals(Res.string.session_changed, readingErrorResource("changed"))
+        assertEquals(Res.string.terminal_blocked, readingErrorResource("forbidden"))
+        assertEquals(Res.string.reading_missing, readingErrorResource("missing"))
+        assertEquals(Res.string.reading_oversize, readingErrorResource("oversize"))
+        assertEquals(Res.string.network_error, readingErrorResource("network"))
+    }
+
     @Test fun legacyCookies() {
         assertEquals(mapOf("https://a.example" to "habblaud_remote=a"), decodeCookies("""{"origin":"https://a.example","cookie":"habblaud_remote=a"}"""))
     }

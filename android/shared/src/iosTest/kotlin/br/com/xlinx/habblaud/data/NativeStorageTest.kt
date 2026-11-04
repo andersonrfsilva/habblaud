@@ -19,6 +19,21 @@ class NativeStorageTest {
     }
 
     @Test
+    fun migratedSeenRepliesKeepOriginalSessionHash() = runBlocking {
+        val store = LocalStateStore()
+        val origin = "https://native-storage.invalid"
+        val key = SessionKey(origin, "claude", "test", "legacy-seen")
+        val hash = storageHash(key.serialize())
+        store.clear()
+        try {
+            protectedWrite("$privateDirectory/local_state.json", """{"origin":"$origin","seen_replies":{"$hash":123}}""")
+            assertEquals(listOf(origin), store.servers())
+            assertEquals(hash, store.seenId(key))
+            assertEquals(123L, store.seenReplies(origin)[store.seenId(key)])
+        } finally { store.clear() }
+    }
+
+    @Test
     fun startupCleanupRemovesOrphansButRetainsDraftAttachments() = runBlocking {
         val store = LocalStateStore()
         val origin = "https://native-storage.invalid"

@@ -72,9 +72,14 @@ class LocalStateStoreTest {
         val key = SessionKey(origin, "omp", "account", "session")
         val hash = hash(key.serialize())
         try {
+            val directory = context.filesDir.resolve("conversations/legacy-generation").apply { mkdirs() }
+            val cached = directory.resolve("$hash.json").apply { writeText("conversa antiga") }
+            val pending = directory.resolve("$hash.json.tmp").apply { writeText("conversa pendente") }
+            val tagged = directory.resolve("other-tag/other.json").apply { parentFile!!.mkdirs(); writeText("outro cache") }
             context.localState.edit {
                 it.clear()
                 it[stringPreferencesKey("origin")] = origin
+                it[stringPreferencesKey("conversation_generation")] = "legacy-generation"
                 it[stringPreferencesKey("message_$hash")] = """{"text":"rascunho antigo","revision":7}"""
                 it[stringPreferencesKey("view_$hash")] = "prompts"
                 it[stringPreferencesKey("deliver_$hash")] = "steer"
@@ -87,6 +92,9 @@ class LocalStateStoreTest {
             assertEquals("steer", store.sessionDeliverAs(key))
             assertEquals(mapOf(hash to 123L), store.seenReplies(origin))
             assertFalse(context.localState.data.first().asMap().keys.any { it.name == "origin" || it.name == "message_$hash" })
+            assertFalse(cached.exists())
+            assertFalse(pending.exists())
+            assertTrue(tagged.exists())
         } finally { store.clear() }
     }
 

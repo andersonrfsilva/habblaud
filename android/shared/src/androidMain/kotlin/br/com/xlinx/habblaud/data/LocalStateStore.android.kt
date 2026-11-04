@@ -71,6 +71,13 @@ actual class LocalStateStore(private val context: Context) : MessageStore {
         val previous = context.localState.data.first()
         val origin = previous[originKey] ?: return
         if (previous[serversKey] != null) return
+        withContext(Dispatchers.IO) {
+            val directory = previous[cacheGenerationKey]?.let { java.io.File(conversations, it) } ?: conversations
+            val files = if (directory.exists()) checkNotNull(directory.listFiles()) { "Could not list legacy conversation cache" } else emptyArray()
+            files.filter { it.isFile && (it.extension == "json" || it.extension == "tmp") }.forEach {
+                check(it.delete()) { "Could not remove legacy conversation cache" }
+            }
+        }
         context.localState.edit { data ->
             data[serversKey] = org.json.JSONArray(listOf(origin)).toString()
             previous.asMap().forEach { (key, value) ->
