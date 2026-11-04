@@ -48,6 +48,7 @@ kotlin {
         getByName("androidHostTest").dependencies {
             implementation(libs.junit)
             implementation(libs.mockwebserver)
+            implementation("io.ktor:ktor-client-mock:3.6.1")
             implementation("org.json:json:20250517")
         }
         getByName("androidDeviceTest").dependencies {

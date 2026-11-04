@@ -51,8 +51,10 @@ jobs:
       - run: npm ci
       - name: Record real generated tasks
         run: android/gradlew -p android :shared:tasks --all
-      - name: Shared native and Android host tests
-        run: android/gradlew -p android :shared:allTests :app:testDebugUnitTest
+      - name: Shared Android host tests
+        run: android/gradlew -p android :shared:testAndroidHostTest :app:testDebugUnitTest
+      - name: Shared native tests in simulator application
+        run: bash scripts/ios-native-tests.sh
       - name: Build simulator application
         run: bash scripts/ios-build.sh simulator
       - name: Real fixture UI smoke
@@ -76,5 +78,7 @@ jobs:
             ios/build/smoke/*.png
             ios/build/smoke/*.log
             ios/build/smoke/*.xcresult
+            ios/build/native-tests/*.log
+            ios/build/native-tests/report.json
             android/shared/build/reports/tests/
             android/app/build/reports/tests/
