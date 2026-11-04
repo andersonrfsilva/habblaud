@@ -22,6 +22,16 @@ kotlin {
             baseName = "ZaplaudShared"
             isStatic = true
         }
+        if (target.name == "iosSimulatorArm64") {
+            providers.gradleProperty("zaplaud.nativeTestEntitlements").orNull?.let { path ->
+                target.binaries.withType<org.jetbrains.kotlin.gradle.plugin.mpp.TestExecutable>().configureEach {
+                    // Simulator entitlements belong in Mach-O sections, not the host macOS code signature.
+                    linkerOpts("-sectcreate", "__TEXT", "__entitlements", path,
+                        "-sectcreate", "__TEXT", "__ents_der", "$path.der")
+                    linkTaskProvider.configure { inputs.files(path, "$path.der") }
+                }
+            }
+        }
     }
     sourceSets {
         commonMain.dependencies {

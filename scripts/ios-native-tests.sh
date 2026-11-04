@@ -2,7 +2,6 @@
 set -euo pipefail
 [[ $(uname -s) == Darwin && $(uname -m) == arm64 ]] || { echo 'Native iOS tests require Apple Silicon macOS and Xcode.' >&2; exit 1; }
 cd "$(dirname "$0")/.."
-android/gradlew -p android :shared:linkDebugTestIosSimulatorArm64
 python3 - <<'PY'
 import json
 import os
@@ -31,6 +30,15 @@ def interrupt(signum, frame):
 for sig in (signal.SIGINT, signal.SIGTERM):
     signal.signal(sig, interrupt)
 try:
+    entitlements = out / 'entitlements.plist'
+    entitlements.write_bytes(plistlib.dumps({
+        'application-identifier': bundle_id,
+        'keychain-access-groups': [bundle_id],
+    }))
+    run('/usr/bin/derq', 'query', '--raw', '-f', 'xml', '-i', str(entitlements),
+        '-o', str(entitlements) + '.der')
+    subprocess.run(['android/gradlew', '-p', 'android', ':shared:linkDebugTestIosSimulatorArm64',
+                    f'-Pzaplaud.nativeTestEntitlements={entitlements}'], check=True)
     if not binary.is_file():
         raise RuntimeError(f'Generated native test executable is missing: {binary}')
     app.mkdir(exist_ok=True)
@@ -49,12 +57,21 @@ try:
         'LSRequiresIPhoneOS': True,
         'UIDeviceFamily': [2],
     }))
-    entitlements = out / 'entitlements.plist'
-    entitlements.write_bytes(plistlib.dumps({
-        'application-identifier': bundle_id,
-        'keychain-access-groups': [bundle_id],
-    }))
-    run('codesign', '--force', '--sign', '-', '--entitlements', str(entitlements), str(app))
+    # iOS entitlements in the host macOS signature are rejected by launchd; linker sections carry them instead.
+    run('codesign', '--force', '--sign', '-', str(app))
+    with (out / 'signing.log').open('w') as diagnostics:
+        for command in (
+            ['codesign', '--verify', '--strict', '--verbose=4', str(app)],
+            ['codesign', '--display', '--verbose=4', '--entitlements', ':-', str(executable)],
+            ['xcrun', 'otool', '-l', str(executable)],
+        ):
+            diagnostics.write(' '.join(command) + '\n')
+            diagnostics.flush()
+            subprocess.run(command, stdout=diagnostics, stderr=subprocess.STDOUT, check=True)
+    signing = (out / 'signing.log').read_text()
+    for section in ('__entitlements', '__ents_der'):
+        if not re.search(r'\bsectname\s+' + section + r'\b', signing):
+            raise RuntimeError(f'Native runner lacks linked simulator entitlement section {section}; see signing.log')
     devices = json.loads(run('xcrun', 'simctl', 'list', 'devices', 'available', '-j'))['devices']
     candidates = [(runtime, device) for runtime, group in devices.items() if '.iOS-' in runtime
                   for device in group if device.get('isAvailable') and device['name'].startswith('iPad')]

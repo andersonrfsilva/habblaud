@@ -54,10 +54,12 @@ jobs:
       - name: Shared Android host tests
         run: android/gradlew -p android :shared:testAndroidHostTest :app:testDebugUnitTest
       - name: Build simulator application
+        id: simulator
         run: bash scripts/ios-build.sh simulator
       - name: Shared native tests in simulator application
         run: bash scripts/ios-native-tests.sh
       - name: Real fixture UI smoke
+        if: ${{ !cancelled() && steps.simulator.outcome == 'success' }}
         run: bash scripts/ios-smoke.sh
       - name: Package unsigned device IPA
         run: bash scripts/ios-build.sh device
