@@ -3,7 +3,31 @@ name: Android
 on:
   push:
     branches: [main]
+    paths:
+      - '.github/workflows/android.yml'
+      - 'android/**'
+      - 'scripts/android-instrumented-ci.py'
+      - 'scripts/android-smoke.ts'
+      - 'server/**'
+      - 'shared/**'
+      - 'client/src/art/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.npmrc'
+      - 'tsconfig.json'
   pull_request:
+    paths:
+      - '.github/workflows/android.yml'
+      - 'android/**'
+      - 'scripts/android-instrumented-ci.py'
+      - 'scripts/android-smoke.ts'
+      - 'server/**'
+      - 'shared/**'
+      - 'client/src/art/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.npmrc'
+      - 'tsconfig.json'
 
 permissions:
   contents: read
@@ -23,6 +47,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
+          cache-dependency-path: |
+            android/**/*.gradle.kts
+            android/gradle.properties
+            android/gradle/libs.versions.toml
+            android/gradle/wrapper/gradle-wrapper.properties
 
       # O pacote padrão `tools` saiu do repositório do SDK (o sdkmanager falha ao procurá-lo).
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
@@ -44,6 +74,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
+          cache-dependency-path: |
+            android/**/*.gradle.kts
+            android/gradle.properties
+            android/gradle/libs.versions.toml
+            android/gradle/wrapper/gradle-wrapper.properties
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22.12'
