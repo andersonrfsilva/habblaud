@@ -121,43 +121,44 @@ fun ZaplaudApp(store: LocalStateStore = remember { LocalStateStore() }) {
                         dismissButton = { TextButton(onClick = { confirmLogout = null }) { Text(stringResource(Res.string.cancel)) } }
                     )
                 }
-                Column(Modifier.fillMaxSize()) {
-                    if (message.isNotEmpty()) Text(message, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(12.dp))
-                    Box(Modifier.weight(1f)) {
-                        when {
-                            !loaded -> Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) { CircularProgressIndicator() }
-                            servers.isEmpty() || showLogin -> key(loginOrigin) {
-                                LoginForm(
-                                    initialUrl = loginOrigin.orEmpty(),
-                                    store = store,
-                                    onDone = { origin, api ->
-                                        apis.put(origin, api)?.close()
-                                        if (origin !in servers) servers = servers + origin
-                                        needsLogin = needsLogin - origin
-                                        showLogin = false
-                                        loginOrigin = null
-                                        message = ""
-                                        scope.launch {
-                                            if (store.notificationsEnabled()) notificationsPlatform.setEnabled(true)
-                                        }
-                                    },
-                                    onCancel = if (servers.isEmpty()) null else ({
-                                        showLogin = false
-                                        loginOrigin = null
-                                    })
-                                )
-                            }
-                            else -> ReadingScreen(
-                                apis = servers.mapNotNull { origin -> apis[origin]?.let { origin to it } }.toMap(),
-                                needsLogin = needsLogin,
-                                store = store,
-                                onUnauthorized = { origin -> needsLogin = needsLogin + origin },
-                                onLogin = { origin -> loginOrigin = origin; showLogin = true },
-                                onLogout = { origin -> if (!busy) confirmLogout = origin }
-                            )
-                        }
+                // No iOS, manter a tela na raiz preserva o foco e os toques no diálogo de HTTP.
+                when {
+                    !loaded -> Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) { CircularProgressIndicator() }
+                    servers.isEmpty() || showLogin -> key(loginOrigin) {
+                        LoginForm(
+                            initialUrl = loginOrigin.orEmpty(),
+                            store = store,
+                            onDone = { origin, api ->
+                                apis.put(origin, api)?.close()
+                                if (origin !in servers) servers = servers + origin
+                                needsLogin = needsLogin - origin
+                                showLogin = false
+                                loginOrigin = null
+                                message = ""
+                                scope.launch {
+                                    if (store.notificationsEnabled()) notificationsPlatform.setEnabled(true)
+                                }
+                            },
+                            onCancel = if (servers.isEmpty()) null else ({
+                                showLogin = false
+                                loginOrigin = null
+                            })
+                        )
                     }
+                    else -> ReadingScreen(
+                        apis = servers.mapNotNull { origin -> apis[origin]?.let { origin to it } }.toMap(),
+                        needsLogin = needsLogin,
+                        store = store,
+                        onUnauthorized = { origin -> needsLogin = needsLogin + origin },
+                        onLogin = { origin -> loginOrigin = origin; showLogin = true },
+                        onLogout = { origin -> if (!busy) confirmLogout = origin }
+                    )
                 }
+                if (message.isNotEmpty()) AlertDialog(
+                    onDismissRequest = { message = "" },
+                    text = { Text(message) },
+                    confirmButton = { TextButton(onClick = { message = "" }) { Text(stringResource(Res.string.confirm)) } }
+                )
             }
 }
 

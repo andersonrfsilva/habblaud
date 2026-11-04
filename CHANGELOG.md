@@ -16,6 +16,7 @@ do meio (0.**3**.0).
   servidor, login e saída por servidor e notificações Android de todos. Atualizar mantém o login e os rascunhos do
   servidor atual. A migração descarta somente o cache antigo de conversas e preserva as marcas de leitura no iPad.
   A lista mantém as mensagens específicas de erro, inclusive sessão alterada e conversa acima do limite.
+  No iPad, a tela de login permanece na raiz para preservar o foco dos campos e os toques na confirmação de HTTP.
 - **Zaplaud / plano 041:** extração das telas, regras e transporte para Kotlin Multiplatform e Compose Multiplatform,
   com host Android preservado e novo host UIKit para iPad. O código usa Ktor, adaptadores Apple de Keychain,
   arquivos privados e seleção de documentos. No iPad, funciona somente em primeiro plano, sem notificações.
