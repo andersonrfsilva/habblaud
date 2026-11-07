@@ -5,12 +5,6 @@ import org.jetbrains.compose.resources.*
 import androidx.compose.ui.platform.testTag
 
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.background
@@ -33,8 +27,6 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
@@ -361,10 +353,10 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
             LaunchedEffect(following) { if (following) unread = 0 }
             // Ao enviar, volta a seguir o fim: o prompt e a resposta que chegam aparecem sem rolar à mão.
             fun stickToEnd() { unread = 0; scope.launch { listState.scrollToItem(0) } }
-            // Item novo no pé (entrada ou o indicador de trabalho) seguindo o fim: a lista seguraria o item que estava
-            // no pé, pela chave, e o novo ficaria escondido abaixo. Pedido ainda na composição, antes da medida que o
-            // insere: sem um quadro com o botão "↓" piscando.
-            val bottom = if (working) "working" else rows.lastOrNull()?.entry?.id
+            // Entrada nova no pé seguindo o fim: a lista seguraria o item que estava no pé, pela chave, e o novo ficaria
+            // escondido abaixo. Pedido ainda na composição, antes da medida que o insere: sem um quadro com o botão "↓"
+            // piscando.
+            val bottom = rows.lastOrNull()?.entry?.id
             val bottomSeen = remember(selected.key) { arrayOfNulls<String>(1) }
             val wasFollowing = following
             if (bottom != bottomSeen[0]) {
@@ -381,7 +373,6 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 LazyColumn(Modifier.fillMaxSize(), state = listState, reverseLayout = true, contentPadding = PaddingValues(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom)) {
                     // Lista invertida: o primeiro item fica no pé da conversa, logo abaixo da última mensagem.
-                    if (working) item(key = "working") { WorkingIndicator(api, selected) }
                     items(rows.asReversed(), key = { it.entry.id }) { row ->
                         val entry = row.entry
                         EntryView(entry, results, row.count, row.tools, recovered = entry.id in recovered, cachedSummary = controller.summary(entry), summarize = if (summarizeReplies) { text -> controller.summarize(entry, text) } else null) { before, now ->
@@ -409,7 +400,11 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                     }
                 }
             }
-            if (working) StatusLine(selected, Modifier.padding(horizontal = 4.dp))
+            // Avatar parado na linha de estado: animar o "digitando" no pé redesenhava a tela a 60 qps enquanto o agente trabalhava.
+            if (working) Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                CharacterAvatar(api, selected, 20.dp)
+                StatusLine(selected, Modifier.weight(1f))
+            }
             if (composer.key == selected.key && selected.agentId != null && !selected.sub) {
                 val agentId = selected.agentId
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -573,29 +568,6 @@ internal fun stopwatch(ms: Long): String {
     val total = ms.coerceAtLeast(0) / 1000
     val h = total / 3600; val m = total % 3600 / 60; val s = total % 60
     return if (h > 0) "$h:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}" else "$m:${s.toString().padStart(2, '0')}"
-}
-
-/** Avatar do contato pulando, com três pontos "digitando", enquanto o agente trabalha (parado com as animações do sistema desligadas). */
-@Composable
-private fun WorkingIndicator(api: HabblaudApi, session: SessionItem) {
-    val label = stringResource(Res.string.status_working)
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val lifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
-    val transition = if (animationsEnabled() && lifecycleState.isAtLeast(Lifecycle.State.STARTED)) rememberInfiniteTransition(label = "working") else null
-    val bounce = transition?.animateFloat(0f, 1f, infiniteRepeatable(tween(600), RepeatMode.Reverse), label = "bounce")
-    Row(Modifier.padding(horizontal = 4.dp).semantics { contentDescription = label }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Box(Modifier.padding(top = 6.dp).drawWithContent {
-            translate(top = -6.dp.toPx() * (bounce?.value ?: 0f)) { this@drawWithContent.drawContent() }
-        }) { CharacterAvatar(api, session, 32.dp) }
-        Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
-            Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                repeat(3) { i ->
-                    val dot = transition?.animateFloat(0.3f, 1f, infiniteRepeatable(tween(450, delayMillis = i * 150), RepeatMode.Reverse), label = "dot$i")
-                    Box(Modifier.size(7.dp).graphicsLayer { alpha = dot?.value ?: 1f }.background(MaterialTheme.colorScheme.onSurfaceVariant, CircleShape))
-                }
-            }
-        }
-    }
 }
 
 @Composable

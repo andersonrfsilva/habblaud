@@ -50,7 +50,8 @@ do meio (0.**3**.0).
 ### Corrigido
 
 - **Zaplaud:** com agentes trabalhando, a lista não refaz a tela várias vezes por segundo: o spinner e o cronômetro
-  mudam juntos uma vez por segundo, e o indicador de "digitando" anima só no desenho. Com o app em segundo plano ou a
+  mudam juntos uma vez por segundo. Na conversa, o avatar do contato fica parado na linha de estado, no lugar do avatar
+  pulando com pontos "digitando" no pé, que redesenhava a tela a 60 qps. Com o app em segundo plano ou a
   tela bloqueada, cronômetros, animações e consultas periódicas (pedidos do elenco, cotas e papéis) param. No M35 o
   processo gastava ~25% de um núcleo com a lista parada e ~27% com a tela bloqueada.
 - **Zaplaud:** com um servidor offline ou pedindo login, as ações de chamar personagem continuam disponíveis no
