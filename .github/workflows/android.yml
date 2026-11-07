@@ -67,8 +67,6 @@ jobs:
       - run: sdkmanager 'platforms;android-37.0' 'build-tools;36.0.0'
       - run: ./gradlew :shared:testAndroidHostTest :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
         working-directory: android
-      - run: ./gradlew :app:testReleaseUnitTest --tests '*VpnGuardTest*'
-        working-directory: android
 
   instrumentado:
     runs-on: ubuntu-latest

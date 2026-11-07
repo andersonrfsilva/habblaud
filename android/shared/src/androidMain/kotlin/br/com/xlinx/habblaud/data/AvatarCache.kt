@@ -12,7 +12,7 @@ internal actual class NativeAvatarCache actual constructor() {
     private companion object {
         val memory = object : LruCache<String, Bitmap>(4 * 1024 * 1024) { override fun sizeOf(key: String, value: Bitmap) = value.byteCount }
     }
-    private val directory = File(storageContext.cacheDir, "avatars")
+    private val directory by lazy { File(storageContext.cacheDir, "avatars") }
     private fun file(key: String) = File(directory, MessageDigest.getInstance("SHA-256").digest(key.toByteArray()).joinToString("") { "%02x".format(it) })
     actual fun read(key: String): ImageBitmap? {
         memory.get(key)?.let { return it.asImageBitmap() }

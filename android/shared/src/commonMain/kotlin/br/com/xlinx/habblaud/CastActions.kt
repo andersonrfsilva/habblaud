@@ -24,6 +24,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import br.com.xlinx.habblaud.data.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -38,6 +41,7 @@ private val sessionIdPattern = Regex("^[0-9a-fA-F][0-9a-fA-F-]{7,199}$")
 @Composable
 internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Boolean, openCast: Set<String>, onUnauthorized: () -> Unit, onPermission: () -> Unit, menu: @Composable (close: () -> Unit, dismissItem: @Composable () -> Unit) -> Unit, content: @Composable (@Composable () -> Unit, @Composable () -> Unit, @Composable () -> Unit) -> Unit) {
     val scope = rememberCoroutineScope()
+    val lifecycleOwner = LocalLifecycleOwner.current
     var availability by remember(api) { mutableStateOf("loading") }
     var characters by remember(api) { mutableStateOf(emptyList<CastChoice>()) }
     var folders by remember(api) { mutableStateOf(emptyList<String>()) }
@@ -60,9 +64,12 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
             }
         folders = wireJson.parseToJsonElement(api.request("/api/cast/folders")).jsonObject.objects("folders").mapNotNull { it.string("path") }
     }
-    LaunchedEffect(api, connected, refresh) {
+    LaunchedEffect(api, connected, refresh, lifecycleOwner) {
         if (!connected) { availability = "offline"; return@LaunchedEffect }
         var castLoaded = false
+        var unauthorized = false
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+        if (unauthorized) return@repeatOnLifecycle
         while (true) {
             try {
                 val jobResponse = wireJson.parseToJsonElement(api.request("/api/cast/jobs")).jsonObject
@@ -79,10 +86,11 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
                 if (availability == "available" && !castLoaded) { loadCast(); castLoaded = true }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                if (e is ApiException && e.status == 401) { onUnauthorized(); return@LaunchedEffect }
+                if (e is ApiException && e.status == 401) { unauthorized = true; onUnauthorized(); return@repeatOnLifecycle }
                 availability = if (e is ApiException && e.status == 403) "forbidden" else "offline"
             }
             delay(5_000)
+        }
         }
     }
     LaunchedEffect(dialog) {
