@@ -152,7 +152,8 @@ class MessageSendTest {
             server.enqueue(MockResponse().setBody("{\"id\":\"stop1\",\"status\":\"queued\"}"))
             server.enqueue(MockResponse().setResponseCode(404))
             val c = controller(this, store, server); open(c, a); c.interrupt("agent")
-            waitFor { c.state.value.control?.status == "unknown" }
+            waitFor { c.state.value.control?.id == "stop1" }
+            waitFor { c.state.value.control?.id == "stop1" && c.state.value.control?.status == "unknown" }
             c.interrupt("agent")
             assertEquals("confirm", c.state.value.controlError)
             assertEquals(2, server.requestCount)
