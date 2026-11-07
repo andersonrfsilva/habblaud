@@ -272,6 +272,10 @@ Para gerar o APK release assinado, configure fora do repositório as variáveis 
 keystore), `HABBLAUD_KEYSTORE_PASSWORD`, `HABBLAUD_KEY_ALIAS` e `HABBLAUD_KEY_PASSWORD`. Também podem ser propriedades
 Gradle em `~/.gradle/gradle.properties`. Use uma chave persistente do operador e não versione chaves nem senhas.
 
+Para uso diário no aparelho pessoal, use o release assinado com a chave atual, guardada fora do repositório.
+Preserve essa chave e mantenha um backup seguro: trocar de chave exige desinstalar o app e perde login e rascunhos.
+Não instale o debug por cima para uso diário; ele continua disponível para desenvolvimento.
+
 ```bash
 android/gradlew -p android :app:assembleRelease
 adb install -r android/app/build/outputs/apk/release/app-release.apk
@@ -279,6 +283,8 @@ adb install -r android/app/build/outputs/apk/release/app-release.apk
 
 Sem as quatro informações de assinatura, o build release falha. Também é possível instalar o APK assinado diretamente
 no aparelho, permitindo a instalação pelo aplicativo de origem quando o Android solicitar.
+O release usa R8 para otimizar e reduzir código e recursos. Antes de distribuir mudanças nas regras de otimização,
+valide login, lista, conversa, envio, avatar e notificação no emulador com a fixture e compare as métricas no aparelho.
 
 #### Testes instrumentados com fixture
 
