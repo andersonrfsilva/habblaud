@@ -65,6 +65,9 @@ internal fun readingErrorResource(error: String): StringResource = when (error) 
     else -> Res.string.network_error
 }
 
+internal fun actionsAvailable(state: ReadingState, loginRequired: Boolean, selectedPermission: Boolean): Boolean =
+    !loginRequired && state.connection == "connected" && (state.terminalAllowed || selectedPermission)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store: LocalStateStore, onUnauthorized: (String) -> Unit, onLogin: (String?) -> Unit, onLogout: (String) -> Unit) {
@@ -165,7 +168,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
         return
     }
     PlatformBackHandler(enabled = selected != null && permissionSession == null && !menuExpanded) { controller.close() }
-    CastActions(api, selected, state.connection == "connected" && (state.terminalAllowed || selected?.permission == true) && (selected != null || filter != null || apis.size == 1), state.sessions.filter { it.agentId != null }.mapNotNull { it.cast }.toSet(), { onUnauthorized(api.origin) }, { permissionSession = selected }, menu = { close, dismissItem ->
+    CastActions(api, selected, actionsAvailable(states.getValue(actionOrigin), actionOrigin in needsLogin, selected?.permission == true) && (selected != null || filter != null || apis.size == 1), state.sessions.filter { it.agentId != null }.mapNotNull { it.cast }.toSet(), { onUnauthorized(api.origin) }, { permissionSession = selected }, menu = { close, dismissItem ->
         // Menu em páginas: a principal lista os grupos; tocar num grupo troca o conteúdo pela lista dele, com "‹ Voltar".
         var page by remember { mutableStateOf("") }
         val agentId = selected?.agentId
