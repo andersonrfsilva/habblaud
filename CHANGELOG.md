@@ -49,6 +49,8 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Zaplaud:** o agrupamento de pensamentos e ferramentas acumula texto e entradas sem recopiar o grupo a cada
+  evento, preservando a ordem, a contagem e a hora exibidas.
 - **Android:** rolagem. Na conversa, a mensagem nova e o indicador de trabalho aparecem no pé sem o botão "↓" piscar
   e sem ficarem escondidos; expandir um item ou o resumo deixa o ponto tocado no lugar mesmo quando o texto cresce
   depois. Na lista de conversas, a que sobe para o topo aparece em vez de ficar acima da tela, e voltar de uma
