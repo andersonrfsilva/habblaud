@@ -49,6 +49,18 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Zaplaud:** com agentes trabalhando, a lista não refaz a tela várias vezes por segundo: o spinner e o cronômetro
+  mudam juntos uma vez por segundo, e o indicador de "digitando" anima só no desenho. Com o app em segundo plano ou a
+  tela bloqueada, cronômetros, animações e consultas periódicas (pedidos do elenco, cotas e papéis) param. No M35 o
+  processo gastava ~25% de um núcleo com a lista parada e ~27% com a tela bloqueada.
+- **Zaplaud:** com um servidor offline ou pedindo login, as ações de chamar personagem continuam disponíveis no
+  servidor filtrado que está conectado.
+- **Zaplaud:** falha ao gravar o estado local (marcas de leitura, cache de conversa ou última sessão) não fecha mais
+  o app; os dados seguem em memória e a próxima gravação tenta de novo.
+- **Zaplaud:** o build release usa R8 (APK de 15,3 MB para 2,3 MB). O README explica como manter a chave do app
+  pessoal fora do repositório.
+- **CI Android:** saiu a etapa `VpnGuardTest`, que não rodava nenhum teste. O README do app agora descreve vários
+  servidores e o SDK `android-37.0`.
 - **Zaplaud:** o agrupamento de pensamentos e ferramentas acumula texto e entradas sem recopiar o grupo a cada
   evento, preservando a ordem, a contagem e a hora exibidas.
 - **Android:** rolagem. Na conversa, a mensagem nova e o indicador de trabalho aparecem no pé sem o botão "↓" piscar
