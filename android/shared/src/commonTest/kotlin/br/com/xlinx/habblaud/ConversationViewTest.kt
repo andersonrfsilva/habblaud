@@ -27,6 +27,78 @@ class ConversationViewTest {
         assertEquals(listOf("z"), rows[6].tools.map { it.id })
     }
 
+    @Test fun threeThoughtsDiscardBlankMiddleText() {
+        val first = TerminalEntry("t1", "thinking", "um", at = 1)
+        assertEquals(listOf(EntryRow(first.copy(text = "um\n\ntrês", at = 3), count = 3)), groupTurn(listOf(
+            first, TerminalEntry("t2", "thinking", " \n\t", at = 2),
+            TerminalEntry("t3", "thinking", "três", at = 3),
+        )))
+    }
+
+    @Test fun interleavedThoughtsAndToolsKeepFirstPositionsAndMetadata() {
+        val first = TerminalEntry("t1", "thinking", "um", at = 1)
+        val tool = TerminalEntry("x", "tool", "ls", at = 2)
+        val nextTool = TerminalEntry("y", "tool", "cat", at = 4)
+        val answer = TerminalEntry("a", "assistant", "ok")
+        assertEquals(listOf(
+            EntryRow(first.copy(text = "um\n\ndois", at = 3), count = 2),
+            EntryRow(tool.copy(at = 4), count = 2, tools = listOf(tool, nextTool)),
+            EntryRow(answer),
+        ), groupTurn(listOf(
+            first, tool, TerminalEntry("t2", "thinking", "dois", at = 3),
+            answer, nextTool, TerminalEntry("rx", "result", "arquivo", toolUseId = "x"),
+        )))
+    }
+
+    @Test fun emptyFirstThoughtAddsNoLeadingSeparator() {
+        for (blank in listOf("", " \n\t")) {
+            val first = TerminalEntry("t1", "thinking", blank)
+            assertEquals(listOf(EntryRow(first.copy(text = "dois\n\ntrês"), count = 3)), groupTurn(listOf(
+                first, TerminalEntry("t2", "thinking", "dois"), TerminalEntry("t3", "thinking", "três"),
+            )))
+        }
+    }
+
+    @Test fun blankThoughtStaysUnchangedUntilAnotherThoughtJoins() {
+        val first = TerminalEntry("t1", "thinking", " \n\t")
+        assertEquals(listOf(EntryRow(first)), groupTurn(listOf(first)))
+        assertEquals(listOf(EntryRow(first.copy(text = ""), count = 2)), groupTurn(listOf(
+            first, TerminalEntry("t2", "thinking", " "),
+        )))
+    }
+
+    @Test fun nullTimestampsKeepLastNonNullTimestampInEachGroup() {
+        val first = TerminalEntry("t1", "thinking", "um")
+        val tool = TerminalEntry("x", "tool", "ls")
+        val nextTool = TerminalEntry("y", "tool", "cat", at = 8)
+        val lastTool = TerminalEntry("z", "tool", "pwd")
+        assertEquals(listOf(
+            EntryRow(first.copy(text = "um\n\ndois\n\ntrês", at = 7), count = 3),
+            EntryRow(tool.copy(at = 8), count = 3, tools = listOf(tool, nextTool, lastTool)),
+        ), groupTurn(listOf(
+            first, tool, TerminalEntry("t2", "thinking", "dois", at = 7),
+            nextTool, TerminalEntry("t3", "thinking", "três"), lastTool,
+        )))
+    }
+
+    @Test fun userStartsIndependentThoughtAndToolGroups() {
+        val first = TerminalEntry("t1", "thinking", "um", at = 1)
+        val tool = TerminalEntry("x", "tool", "ls", at = 2)
+        val user = TerminalEntry("u", "user", "próximo")
+        val next = TerminalEntry("t3", "thinking", "", at = 5)
+        val nextTool = TerminalEntry("z", "tool", "pwd", at = 6)
+        assertEquals(listOf(
+            EntryRow(first.copy(text = "um\n\ndois", at = 3), count = 2),
+            EntryRow(tool, tools = listOf(tool)),
+            EntryRow(user),
+            EntryRow(next.copy(text = "quatro"), count = 2),
+            EntryRow(nextTool, count = 2, tools = listOf(nextTool, TerminalEntry("w", "tool", "date"))),
+        ), groupTurn(listOf(
+            first, tool, TerminalEntry("t2", "thinking", "dois", at = 3), user,
+            next, nextTool, TerminalEntry("t4", "thinking", "quatro"), TerminalEntry("w", "tool", "date"),
+        )))
+    }
+
     @Test fun responseErrorIsRecoveredOnlyWhenTheAgentContinuesInTheSameTurn() {
         // 12:14: resposta cortada (texto já veio) → erro → continuação; depois um erro final sem continuação antes da sua mensagem.
         val recovered = recoveredErrors(listOf(

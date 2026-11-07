@@ -733,30 +733,61 @@ internal data class EntryRow(val entry: TerminalEntry, val count: Int = 1, val t
  */
 internal fun groupTurn(entries: List<TerminalEntry>): List<EntryRow> {
     val toolIds = entries.filter { it.kind == "tool" }.mapTo(HashSet()) { it.id }
-    val rows = mutableListOf<EntryRow>()
-    var thinking = -1
-    var tools = -1
-    for (entry in entries) {
-        if (entry.kind == "result" && entry.toolUseId in toolIds) continue
-        if (entry.kind == "user") { thinking = -1; tools = -1 }
-        when {
-            entry.kind == "thinking" && thinking >= 0 -> {
-                val row = rows[thinking]
-                val first = row.entry
-                rows[thinking] = row.copy(entry = first.copy(text = listOf(first.text, entry.text).filter { it.isNotBlank() }.joinToString("\n\n"), at = entry.at ?: first.at), count = row.count + 1)
+    val rows = mutableListOf<EntryRow?>()
+    class Group(val first: TerminalEntry, val index: Int) {
+        var count = 1
+        var at = first.at
+        val text = if (first.kind == "thinking") StringBuilder().apply {
+            if (first.text.isNotBlank()) append(first.text)
+        } else null
+        val tools = if (first.kind == "tool") mutableListOf(first) else null
+
+        fun add(entry: TerminalEntry) {
+            count++
+            at = entry.at ?: at
+            if (text != null && entry.text.isNotBlank()) {
+                if (text.isNotEmpty()) text.append("\n\n")
+                text.append(entry.text)
             }
-            entry.kind == "tool" && tools >= 0 -> {
-                val row = rows[tools]
-                rows[tools] = row.copy(entry = row.entry.copy(at = entry.at ?: row.entry.at), count = row.count + 1, tools = row.tools + entry)
-            }
-            else -> {
-                if (entry.kind == "thinking") thinking = rows.size
-                if (entry.kind == "tool") tools = rows.size
-                rows += EntryRow(entry, tools = if (entry.kind == "tool") listOf(entry) else emptyList())
-            }
+            tools?.add(entry)
+        }
+
+        fun finish() {
+            val entry = if (count == 1) first else first.copy(text = text?.toString() ?: first.text, at = at)
+            rows[index] = EntryRow(entry, count, tools ?: emptyList())
         }
     }
-    return rows
+    var thinking: Group? = null
+    var tools: Group? = null
+    for (entry in entries) {
+        if (entry.kind == "result" && entry.toolUseId in toolIds) continue
+        if (entry.kind == "user") {
+            thinking?.finish()
+            tools?.finish()
+            thinking = null
+            tools = null
+        }
+        when (entry.kind) {
+            "thinking" -> {
+                val group = thinking
+                if (group != null) group.add(entry) else {
+                    thinking = Group(entry, rows.size)
+                    rows.add(null)
+                }
+            }
+            "tool" -> {
+                val group = tools
+                if (group != null) group.add(entry) else {
+                    tools = Group(entry, rows.size)
+                    rows.add(null)
+                }
+            }
+            else -> rows.add(EntryRow(entry))
+        }
+    }
+    thinking?.finish()
+    tools?.finish()
+    return rows.requireNoNulls()
 }
 
 /** "14:05" hoje; "02/11 14:05" em outro dia, no fuso do aparelho. */
