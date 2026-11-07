@@ -13,6 +13,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.io.IOException
 import kotlinx.serialization.json.*
 
@@ -113,7 +115,9 @@ class HabblaudApi(val origin: String) : AutoCloseable {
     suspend fun logout(): Boolean = try { request("/api/remote/logout", buildJsonObject {}); true } catch (_: IOException) { false } finally { cancelCalls(); cookies.clear() }
     suspend fun avatarBytes(path: String): ByteArray? {
         require(path.startsWith("/api/") && !path.startsWith("//"))
-        return base.prepareGet(origin + path) { authorize(this) }.execute { response ->
+        var received = false
+        suspend fun attempt(): ByteArray? = base.prepareGet(origin + path) { authorize(this) }.execute { response ->
+            received = true
             receive(response)
             if (!response.status.isSuccess()) return@execute null
             if (response.contentType()?.withoutParameters() != ContentType.Image.PNG) return@execute null
@@ -126,6 +130,11 @@ class HabblaudApi(val origin: String) : AutoCloseable {
                 count += read
             }
             if (count > 1024 * 1024) null else bytes.copyOf(count)
+        }
+        return try { attempt() } catch (e: IOException) {
+            currentCoroutineContext().ensureActive()
+            if (received) throw e
+            attempt()
         }
     }
     private fun cancelCalls(except: Job?) {
