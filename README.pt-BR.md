@@ -246,8 +246,9 @@ A extensão vale para as sessões do omp abertas **depois** da instalação. Vej
 
 O Zaplaud, cliente nativo Android, acompanha sessões e contatos sem a interface do escritório. Requer Android 8.0 (API 26) ou
 superior e uma instalação do Habblaud com login remoto configurado. O endereço deve apontar para a **porta remota**, nunca
-para a porta local sem autenticação. O aplicativo aceita uma instalação por vez; informe endereço, usuário e senha do acesso
-remoto. A senha não é persistida. HTTPS usa a validação normal de certificado e nome do Android.
+para a porta local sem autenticação. O aplicativo aceita vários servidores ao mesmo tempo, com login por servidor; informe
+endereço, usuário e senha de cada um. As sessões aparecem em uma lista única, com filtro por servidor. A senha não é
+persistida. HTTPS usa a validação normal de certificado e nome do Android.
 
 O aplicativo acompanha o tema claro ou escuro do sistema. As mensagens exibem Markdown selecionável, incluindo
 listas, tabelas e código; links abrem ao toque. Imagens remotas e HTML não são carregados ou interpretados.
@@ -303,7 +304,7 @@ Para reproduzir o gate instrumentado, instale as dependências com `npm ci` e, c
 conectado ao `adb`, execute `python3 scripts/android-instrumented-ci.py` na raiz. O script inicia a fixture,
 configura os encaminhamentos, executa `:app:connectedDebugAndroidTest` e valida os resultados XML, incluindo a
 presença de `FixtureUiInstrumentedTest`. São necessários Python 3, Java 17, Node 22.12 ou superior e Android SDK
-com plataforma 36 e build-tools 36.0.0; a CI usa um emulador API 35 com KVM. Sem KVM, o workflow avisa e não
+com `platforms;android-37.0` e `build-tools;36.0.0`; a CI usa um emulador API 35 com KVM. Sem KVM, o workflow avisa e não
 executa a etapa instrumentada.
 
 Use um emulador ou aparelho conectado e execute os comandos na raiz do repositório. Em um terminal, mantenha a
