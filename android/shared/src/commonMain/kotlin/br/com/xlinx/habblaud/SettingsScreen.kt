@@ -20,6 +20,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import br.com.xlinx.habblaud.data.AccountQuota
 import br.com.xlinx.habblaud.data.ApiException
 import br.com.xlinx.habblaud.data.HabblaudApi
@@ -53,6 +56,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun SettingsScreen(apis: Map<String, HabblaudApi>, store: LocalStateStore, onClose: () -> Unit, onLogin: (String?) -> Unit, onLogout: (String) -> Unit) {
     val notificationsPlatform = LocalNotificationPlatform.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     var origin by remember { mutableStateOf(apis.keys.first()) }
     LaunchedEffect(apis.keys) { if (origin !in apis) origin = apis.keys.first() }
     val api = apis[origin] ?: apis.values.first()
@@ -73,11 +77,13 @@ fun SettingsScreen(apis: Map<String, HabblaudApi>, store: LocalStateStore, onClo
     var quotaError by remember(origin) { mutableStateOf(false) }
     // Modelos que os agentes omp abertos anunciam: são as opções do seletor dos papéis.
     var models by remember(origin) { mutableStateOf(emptyList<String>()) }
-    LaunchedEffect(origin) {
+    LaunchedEffect(origin, lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
         while (true) {
             try { val snapshot = api.request("/api/snapshot"); quotas = parseAccounts(snapshot); models = snapshotModels(snapshot); quotaError = false }
-            catch (e: Exception) { if (e is CancellationException) throw e; if (e is ApiException && e.status == 401) return@LaunchedEffect; quotaError = true }
+            catch (e: Exception) { if (e is CancellationException) throw e; if (e is ApiException && e.status == 401) return@repeatOnLifecycle; quotaError = true }
             delay(60_000)
+        }
         }
     }
     // Papéis do omp (global): o auxiliar do host lê e grava o modelRoles; recarrega enquanto a tela está aberta.
@@ -85,7 +91,8 @@ fun SettingsScreen(apis: Map<String, HabblaudApi>, store: LocalStateStore, onClo
     var rolesStatus by remember(origin) { mutableStateOf("loading") }
     var rolesPending by remember(origin) { mutableStateOf(false) }
     var rolesRefresh by remember(origin) { mutableIntStateOf(0) }
-    LaunchedEffect(origin, rolesRefresh) {
+    LaunchedEffect(origin, rolesRefresh, lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
         while (true) {
             try {
                 val r = wireJson.parseToJsonElement(api.request("/api/cast/roles")).jsonObject
@@ -94,11 +101,12 @@ fun SettingsScreen(apis: Map<String, HabblaudApi>, store: LocalStateStore, onClo
                 rolesStatus = if (r["available"]?.toString() == "true") "available" else "unavailable"
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                if (e is ApiException && e.status == 401) return@LaunchedEffect
+                if (e is ApiException && e.status == 401) return@repeatOnLifecycle
                 // Falha passageira com papéis já lidos: mantém a lista na tela e tenta de novo na próxima rodada.
                 if (e is ApiException && e.status == 403) rolesStatus = "forbidden" else if (roles == null) rolesStatus = "error"
             }
             delay(if (rolesPending) 1_500 else 10_000)
+        }
         }
     }
     var editingRole by remember(origin) { mutableStateOf<String?>(null) }

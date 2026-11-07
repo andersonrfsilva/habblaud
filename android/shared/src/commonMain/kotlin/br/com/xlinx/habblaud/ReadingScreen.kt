@@ -6,6 +6,7 @@ import androidx.compose.ui.platform.testTag
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -33,6 +34,8 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
@@ -50,6 +53,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.currentStateAsState
+import androidx.lifecycle.repeatOnLifecycle
 import br.com.xlinx.habblaud.data.*
 import com.mikepenz.markdown.compose.components.markdownComponents
 import com.mikepenz.markdown.m3.Markdown
@@ -521,10 +526,8 @@ private fun SubagentBranch(api: HabblaudApi, sub: SubAgent, last: Boolean, onOpe
     }
 }
 
-/** Quadros do spinner, os mesmos do rodapé do terminal na web (client/src/ui/terminal.ts). */
-private val SPINNER = listOf("·", "✢", "✳", "✶", "✻", "✽", "✻", "✶", "✳", "✢")
-private val CODEX_SPINNER = listOf("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
-private const val SPINNER_MS = 120L
+/** Período do spinner, correspondente aos dez quadros do rodapé do terminal na web. */
+private const val SPINNER_PERIOD_MS = 1200
 
 /**
  * Linha de estado enquanto o agente trabalha, como o rodapé do terminal na web: spinner, atividade e cronômetro.
@@ -532,17 +535,29 @@ private const val SPINNER_MS = 120L
  * desligadas, o símbolo fica parado e só o cronômetro anda.
  */
 @Composable
-private fun StatusLine(session: SessionItem, modifier: Modifier = Modifier) {
+internal fun StatusLine(session: SessionItem, modifier: Modifier = Modifier, onTextUpdate: ((Long) -> Unit)? = null) {
     val codex = session.key.provider == "codex"
-    val frames = if (codex) CODEX_SPINNER else SPINNER
-    val animate = animationsEnabled()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val lifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
+    val animate = animationsEnabled() && lifecycleState.isAtLeast(Lifecycle.State.STARTED)
+    val transition = if (animate) rememberInfiniteTransition(label = "status") else null
+    val rotation = transition?.animateFloat(0f, 360f, infiniteRepeatable(tween(SPINNER_PERIOD_MS, easing = LinearEasing)), label = "spinner")
     var now by remember { mutableLongStateOf(uiNowMillis()) }
-    LaunchedEffect(animate) { while (true) { kotlinx.coroutines.delay(if (animate) SPINNER_MS else 1000L); now = uiNowMillis() } }
-    val glyph = if (animate) frames[((now / SPINNER_MS) % frames.size).toInt()] else if (codex) "•" else "✻"
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            now = uiNowMillis()
+            while (true) {
+                kotlinx.coroutines.delay(1000 - uiNowMillis() % 1000)
+                now = uiNowMillis()
+            }
+        }
+    }
+    SideEffect { onTextUpdate?.invoke(now) }
+    val glyph = if (codex) { if (animate) "⠋" else "•" } else "✻"
     val text = statusLineText(session.activity) ?: stringResource(Res.string.status_line_working)
     val colors = MaterialTheme.colorScheme
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(glyph, Modifier.width(14.dp).clearAndSetSemantics { }, color = colors.primary, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
+        Text(glyph, Modifier.width(14.dp).clearAndSetSemantics { }.graphicsLayer { rotationZ = rotation?.value ?: 0f }, color = colors.primary, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
         Text("$text…", Modifier.weight(1f, fill = false), color = colors.primary, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
         session.statusSince?.let { Text("(${stopwatch(now - it)})", color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum")) }
     }
@@ -562,10 +577,14 @@ internal fun stopwatch(ms: Long): String {
 @Composable
 private fun WorkingIndicator(api: HabblaudApi, session: SessionItem) {
     val label = stringResource(Res.string.status_working)
-    val transition = if (animationsEnabled()) rememberInfiniteTransition(label = "working") else null
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val lifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
+    val transition = if (animationsEnabled() && lifecycleState.isAtLeast(Lifecycle.State.STARTED)) rememberInfiniteTransition(label = "working") else null
     val bounce = transition?.animateFloat(0f, 1f, infiniteRepeatable(tween(600), RepeatMode.Reverse), label = "bounce")
     Row(Modifier.padding(horizontal = 4.dp).semantics { contentDescription = label }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Box(Modifier.graphicsLayer { translationY = -6.dp.toPx() * (bounce?.value ?: 0f) }) { CharacterAvatar(api, session, 32.dp) }
+        Box(Modifier.padding(top = 6.dp).drawWithContent {
+            translate(top = -6.dp.toPx() * (bounce?.value ?: 0f)) { this@drawWithContent.drawContent() }
+        }) { CharacterAvatar(api, session, 32.dp) }
         Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
             Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 repeat(3) { i ->
