@@ -67,7 +67,9 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
     LaunchedEffect(api, connected, refresh, lifecycleOwner) {
         if (!connected) { availability = "offline"; return@LaunchedEffect }
         var castLoaded = false
+        var unauthorized = false
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+        if (unauthorized) return@repeatOnLifecycle
         while (true) {
             try {
                 val jobResponse = wireJson.parseToJsonElement(api.request("/api/cast/jobs")).jsonObject
@@ -84,7 +86,7 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
                 if (availability == "available" && !castLoaded) { loadCast(); castLoaded = true }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                if (e is ApiException && e.status == 401) { onUnauthorized(); return@repeatOnLifecycle }
+                if (e is ApiException && e.status == 401) { unauthorized = true; onUnauthorized(); return@repeatOnLifecycle }
                 availability = if (e is ApiException && e.status == 403) "forbidden" else "offline"
             }
             delay(5_000)

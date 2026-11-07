@@ -6,7 +6,6 @@ import androidx.compose.ui.platform.testTag
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -526,8 +525,9 @@ private fun SubagentBranch(api: HabblaudApi, sub: SubAgent, last: Boolean, onOpe
     }
 }
 
-/** Período do spinner, correspondente aos dez quadros do rodapé do terminal na web. */
-private const val SPINNER_PERIOD_MS = 1200
+/** Quadros do spinner, os mesmos do rodapé do terminal na web (client/src/ui/terminal.ts). */
+private val SPINNER = listOf("·", "✢", "✳", "✶", "✻", "✽", "✻", "✶", "✳", "✢")
+private val CODEX_SPINNER = listOf("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
 
 /**
  * Linha de estado enquanto o agente trabalha, como o rodapé do terminal na web: spinner, atividade e cronômetro.
@@ -537,11 +537,10 @@ private const val SPINNER_PERIOD_MS = 1200
 @Composable
 internal fun StatusLine(session: SessionItem, modifier: Modifier = Modifier, onTextUpdate: ((Long) -> Unit)? = null) {
     val codex = session.key.provider == "codex"
+    val frames = if (codex) CODEX_SPINNER else SPINNER
     val lifecycleOwner = LocalLifecycleOwner.current
     val lifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
     val animate = animationsEnabled() && lifecycleState.isAtLeast(Lifecycle.State.STARTED)
-    val transition = if (animate) rememberInfiniteTransition(label = "status") else null
-    val rotation = transition?.animateFloat(0f, 360f, infiniteRepeatable(tween(SPINNER_PERIOD_MS, easing = LinearEasing)), label = "spinner")
     var now by remember { mutableLongStateOf(uiNowMillis()) }
     LaunchedEffect(lifecycleOwner) {
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -553,11 +552,11 @@ internal fun StatusLine(session: SessionItem, modifier: Modifier = Modifier, onT
         }
     }
     SideEffect { onTextUpdate?.invoke(now) }
-    val glyph = if (codex) { if (animate) "⠋" else "•" } else "✻"
+    val glyph = if (animate) frames[((now / 1000) % frames.size).toInt()] else if (codex) "•" else "✻"
     val text = statusLineText(session.activity) ?: stringResource(Res.string.status_line_working)
     val colors = MaterialTheme.colorScheme
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(glyph, Modifier.width(14.dp).clearAndSetSemantics { }.graphicsLayer { rotationZ = rotation?.value ?: 0f }, color = colors.primary, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
+        Text(glyph, Modifier.width(14.dp).clearAndSetSemantics { }, color = colors.primary, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
         Text("$text…", Modifier.weight(1f, fill = false), color = colors.primary, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
         session.statusSince?.let { Text("(${stopwatch(now - it)})", color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum")) }
     }

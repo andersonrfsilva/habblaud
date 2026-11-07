@@ -37,7 +37,7 @@ class StatusLineInstrumentedTest {
             }
             compose.mainClock.advanceTimeByFrame()
             compose.waitForIdle()
-            // O relógio Compose move o spinner; delay e uiNowMillis usam tempo real.
+            // Avance os quadros Compose; o tick do spinner e do cronômetro usa tempo real.
             // Descarte a composição inicial e a sincronização imediata de ON_START.
             SystemClock.sleep(100)
             compose.mainClock.advanceTimeByFrame()

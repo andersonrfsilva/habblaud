@@ -78,10 +78,12 @@ fun SettingsScreen(apis: Map<String, HabblaudApi>, store: LocalStateStore, onClo
     // Modelos que os agentes omp abertos anunciam: são as opções do seletor dos papéis.
     var models by remember(origin) { mutableStateOf(emptyList<String>()) }
     LaunchedEffect(origin, lifecycleOwner) {
+        var unauthorized = false
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+        if (unauthorized) return@repeatOnLifecycle
         while (true) {
             try { val snapshot = api.request("/api/snapshot"); quotas = parseAccounts(snapshot); models = snapshotModels(snapshot); quotaError = false }
-            catch (e: Exception) { if (e is CancellationException) throw e; if (e is ApiException && e.status == 401) return@repeatOnLifecycle; quotaError = true }
+            catch (e: Exception) { if (e is CancellationException) throw e; if (e is ApiException && e.status == 401) { unauthorized = true; return@repeatOnLifecycle }; quotaError = true }
             delay(60_000)
         }
         }
@@ -92,7 +94,9 @@ fun SettingsScreen(apis: Map<String, HabblaudApi>, store: LocalStateStore, onClo
     var rolesPending by remember(origin) { mutableStateOf(false) }
     var rolesRefresh by remember(origin) { mutableIntStateOf(0) }
     LaunchedEffect(origin, rolesRefresh, lifecycleOwner) {
+        var unauthorized = false
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+        if (unauthorized) return@repeatOnLifecycle
         while (true) {
             try {
                 val r = wireJson.parseToJsonElement(api.request("/api/cast/roles")).jsonObject
@@ -101,7 +105,7 @@ fun SettingsScreen(apis: Map<String, HabblaudApi>, store: LocalStateStore, onClo
                 rolesStatus = if (r["available"]?.toString() == "true") "available" else "unavailable"
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                if (e is ApiException && e.status == 401) return@repeatOnLifecycle
+                if (e is ApiException && e.status == 401) { unauthorized = true; return@repeatOnLifecycle }
                 // Falha passageira com papéis já lidos: mantém a lista na tela e tenta de novo na próxima rodada.
                 if (e is ApiException && e.status == 403) rolesStatus = "forbidden" else if (roles == null) rolesStatus = "error"
             }
