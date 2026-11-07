@@ -1,5 +1,6 @@
 package br.com.xlinx.habblaud.data
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
@@ -17,6 +18,15 @@ import kotlinx.io.IOException
 
 /** Gravações do cache de conversas: duram o processo, não a tela (o descarte cancela o escopo da tela). */
 private val persistScope = CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+
+internal fun launchPersist(scope: CoroutineScope, block: suspend () -> Unit): Job = scope.launch {
+    try {
+        block()
+    } catch (e: Exception) {
+        if (e is CancellationException) throw e
+        // O estado em memória permanece; a próxima gravação tenta persistir de novo.
+    }
+}
 
  data class ReadingState(
     val sessions: List<SessionItem> = emptyList(), val selected: SessionItem? = null,
@@ -126,7 +136,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         messages.stop(); api.cancelCalls()
         mutable.value = mutable.value.copy(connection = "offline", readingError = if (mutable.value.selected != null && mutable.value.readingError == null) "network" else mutable.value.readingError)
     }
-    fun close() { persist(); cachedKey = null; dropSummaries(); generation++; conversationJob?.cancel(); messages.close(); restore = null; val write = store.conversationWrite(api.origin, conversationEpoch); scope.launch { store.setLastSession(null, write) }; mutable.value = mutable.value.copy(selected = null, entries = emptyList(), error = null, readingError = null); refreshUnread() }
+    fun close() { persist(); cachedKey = null; dropSummaries(); generation++; conversationJob?.cancel(); messages.close(); restore = null; val write = store.conversationWrite(api.origin, conversationEpoch); launchPersist(scope) { store.setLastSession(null, write) }; mutable.value = mutable.value.copy(selected = null, entries = emptyList(), error = null, readingError = null); refreshUnread() }
     /** Até quando cada conversa foi lida (`LocalStateStore.seenId` → hora do servidor); null até ler do aparelho. */
     private var seen: Map<String, Long>? = null
     private var seenJob: Job? = null
@@ -145,7 +155,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         val marks = seen ?: return
         seenJob?.cancel()
         // Escopo próprio, como as conversas: stop() roda no descarte da tela.
-        seenJob = persistScope.launch { delay(delayMs); store.setSeenReplies(api.origin, marks, conversationEpoch) }
+        seenJob = launchPersist(persistScope) { delay(delayMs); store.setSeenReplies(api.origin, marks, conversationEpoch) }
     }
     /** Sessão cuja conversa está em `conversation` (veio do aparelho ou do servidor) e pode ser guardada. */
     private var cachedKey: SessionKey? = null
@@ -183,7 +193,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         val kept = HashMap(summaries)
         val write = store.conversationWrite(api.origin, conversationEpoch)
         // Escopo próprio: stop()/close() rodam no descarte da tela, quando `scope` já foi cancelado.
-        persistScope.launch { store.setConversation(key, entries, truncated, write, kept) }
+        launchPersist(persistScope) { store.setConversation(key, entries, truncated, write, kept) }
     }
     private fun changed() { close(); mutable.value = mutable.value.copy(error = "changed") }
     private fun failure(event: StreamEvent.Failure, conversation: Boolean) {
@@ -206,7 +216,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         messages.open(item.key)
         if (!active || !accessReady || !repository.terminalAllowed) return
         val base = if (item.agentId != null) "/api/agents/${encode(item.agentId)}/terminal" else "/api/sessions/${encode(item.key.account)}/${encode(item.key.sessionId)}/terminal"
-        if (!item.sub) { val write = store.conversationWrite(api.origin, conversationEpoch); scope.launch { store.setLastSession(item.key, write) } }
+        if (!item.sub) { val write = store.conversationWrite(api.origin, conversationEpoch); launchPersist(scope) { store.setLastSession(item.key, write) } }
         conversationJob = scope.launch {
             // O que já foi lido aparece na hora; o servidor manda só o que veio depois da última entrada guardada.
             // Subagentes não ficam guardados: são conversas curtas, e cada uma viraria um arquivo a mais no aparelho.
