@@ -47,6 +47,10 @@ do meio (0.**3**.0).
 - **Android:** o menu de modelo da sessão agrupa por provedor, com a versão mais nova primeiro, como o seletor dos
   papéis; o item do menu mostra o provedor do modelo atual.
 
+### Alterado
+
+- **Zaplaud:** títulos longos na lista de sessões usam até duas linhas.
+
 ### Corrigido
 
 - **Zaplaud:** com agentes trabalhando, a lista não refaz a tela várias vezes por segundo: o spinner e o cronômetro
