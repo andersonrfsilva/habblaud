@@ -284,7 +284,7 @@ tap 'Limpar busca'
 shot busca-aberta
 tap 'Fechar busca'
 tap Abertas
-tap 'projeto · parado'
+tap 'Ana Fictícia · projeto · parado'
 wait_text 'Bash(echo fixture)'
 shot conversa-fim
 tap 'Pensando…'
@@ -470,7 +470,7 @@ adb shell input keyevent 4
 reset_app
 fill_login http://127.0.0.1:14749 android-test
 wait_text Abertas
-tap 'projeto · parado'
+tap 'Ana Fictícia · projeto · parado'
 wait_text 'O servidor precisa ser atualizado para enviar mensagens.'
 shot modo-leitura
 kill "$FIXTURE_PID" "$READONLY_PID"
