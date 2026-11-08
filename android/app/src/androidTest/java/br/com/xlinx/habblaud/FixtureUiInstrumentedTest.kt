@@ -14,7 +14,13 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeDown
+import androidx.compose.ui.test.swipeUp
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -107,8 +113,10 @@ class FixtureUiInstrumentedTest {
         compose.onNodeWithTag("server-filter:all", useUnmergedTree = true).assertIsSelected()
         compose.onNodeWithText("127.0.0.1:14748").assertIsDisplayed()
         compose.onNodeWithText("localhost:14748").assertIsDisplayed()
-        compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText(text(R.string.search_sessions)))
-        compose.onNodeWithText(text(R.string.search_sessions)).performTextInput("Ana Fictícia")
+        compose.onNode(hasScrollToNodeAction()).performTouchInput {
+            swipeDown(startY = top + 20f, endY = bottom - 20f, durationMillis = 600)
+        }
+        compose.onNodeWithTag("session-search").performTextInput("Ana Fictícia")
         android.os.ParcelFileDescriptor.AutoCloseInputStream(
             InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("input keyevent KEYCODE_BACK")
         ).use { it.readBytes() }
@@ -126,6 +134,47 @@ class FixtureUiInstrumentedTest {
             compose.onAllNodesWithTag(rowTag).assertCountEquals(1)
             compose.onNodeWithTag("server-filter:all", useUnmergedTree = true).performClick().assertIsSelected()
             awaitRows(2)
+        }
+    }
+
+    @Test fun searchRevealsOnlyAfterLongPullAndStaysPinned() {
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        await(R.string.message_text)
+        compose.onNodeWithContentDescription(text(R.string.back_sessions)).performClick()
+        await(R.string.open_sessions)
+        compose.onAllNodesWithTag("session-search").assertCountEquals(0)
+        compose.onNode(hasScrollToNodeAction()).performTouchInput {
+            swipeDown(startY = top + 20f, endY = top + 20f + 40.dp.toPx(), durationMillis = 400)
+        }
+        compose.onAllNodesWithTag("session-search").assertCountEquals(0)
+        compose.onNode(hasScrollToNodeAction()).performTouchInput {
+            swipeDown(startY = top + 20f, endY = bottom - 20f, durationMillis = 600)
+        }
+        compose.waitUntil(15_000) { compose.onAllNodesWithTag("session-search").fetchSemanticsNodes().size == 1 }
+        compose.onNodeWithTag("session-search").assertIsDisplayed()
+        compose.onNode(hasScrollToNodeAction()).performTouchInput { swipeUp() }
+        compose.onNodeWithTag("session-search").assertIsDisplayed()
+        compose.onNodeWithContentDescription(text(R.string.search_close)).performClick()
+        compose.onAllNodesWithTag("session-search").assertCountEquals(0)
+    }
+
+    @Test fun searchWithoutMatchesOffersClear() {
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        await(R.string.message_text)
+        compose.onNodeWithContentDescription(text(R.string.back_sessions)).performClick()
+        await(R.string.open_sessions)
+        compose.onNode(hasScrollToNodeAction()).performTouchInput {
+            swipeDown(startY = top + 20f, endY = bottom - 20f, durationMillis = 600)
+        }
+        compose.waitUntil(15_000) { compose.onAllNodesWithTag("session-search").fetchSemanticsNodes().size == 1 }
+        compose.onNodeWithTag("session-search").performTextInput("busca-impossivel")
+        compose.onNodeWithText(text(R.string.search_no_match)).assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.sessions_empty)).assertDoesNotExist()
+        compose.onNodeWithText(text(R.string.search_clear)).performClick()
+        compose.waitUntil(15_000) {
+            compose.onAllNodes(SemanticsMatcher("row") {
+                it.config.getOrNull(SemanticsProperties.TestTag)?.startsWith("session-row:") == true
+            }).fetchSemanticsNodes().isNotEmpty()
         }
     }
 
