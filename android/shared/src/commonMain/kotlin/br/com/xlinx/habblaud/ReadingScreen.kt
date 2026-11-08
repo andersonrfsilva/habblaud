@@ -5,6 +5,7 @@ import org.jetbrains.compose.resources.*
 import androidx.compose.ui.platform.testTag
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.background
@@ -29,10 +30,13 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material3.*
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
@@ -40,6 +44,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -622,23 +627,26 @@ private fun EntryView(entry: TerminalEntry, results: Map<String?, List<TerminalE
         return
     }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (entry.kind == "user") Arrangement.End else Arrangement.Start) {
+        val isGroup = entry.kind == "tool" || entry.kind == "thinking"
         Surface(
             modifier = Modifier.fillMaxWidth(0.85f),
-            shape = RoundedCornerShape(16.dp),
-            color = if (entry.kind == "user") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+            shape = RoundedCornerShape(if (isGroup) 12.dp else 16.dp),
+            color = if (isGroup) Color.Transparent else if (entry.kind == "user") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+            border = if (isGroup) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant) else null,
         ) {
-            Column(Modifier.padding(12.dp)) {
-                if (entry.kind == "tool" || entry.kind == "thinking") {
+            Column(if (isGroup) Modifier.padding(horizontal = 12.dp, vertical = 8.dp) else Modifier.padding(12.dp)) {
+                if (isGroup) {
                     val label = "${stringResource(if (entry.kind == "thinking") Res.string.thinking else Res.string.tools)} ($count)"
                     // Hora do último evento do grupo no cabeçalho (nas ferramentas, o último resultado também conta): dá
                     // para ver, sem expandir, se o agente segue trabalhando ou parou.
                     val last = if (entry.kind == "tool") (tools.mapNotNull { it.at } + tools.flatMap { results[it.id].orEmpty() }.mapNotNull { it.at }).maxOrNull() ?: entry.at else entry.at
                     Row(Modifier.fillMaxWidth().onGloballyPositioned { headerY = it.positionInWindow().y }.clickable { val before = headerY; expanded = !expanded; keepPlace(before) { headerY } }, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        if (entry.kind == "tool") Icon(Icons.Default.Build, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
+                        Icon(if (entry.kind == "tool") Icons.Default.Build else Icons.Outlined.Psychology, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         last?.let { Text(entryTime(it), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    if (expanded) SelectionContainer {
+                    if (expanded) SelectionContainer(Modifier.padding(top = 8.dp)) {
                         if (entry.kind == "thinking") {
                             Text(entry.text, color = MaterialTheme.colorScheme.onSurfaceVariant, fontStyle = FontStyle.Italic)
                         } else {
