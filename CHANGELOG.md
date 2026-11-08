@@ -50,6 +50,7 @@ do meio (0.**3**.0).
 ### Alterado
 
 - **Zaplaud:** botões e indicadores usam ícones Material no lugar de caracteres de texto.
+- **Zaplaud:** "Abertas" e "Recentes" usam um botão segmentado no lugar das abas.
 
 ### Corrigido
 
