@@ -151,6 +151,7 @@ PY
     adb shell input text "$2"
     adb shell input keyevent 4
 }
+open_search() { adb shell input swipe 540 700 540 1800 600; wait_text 'Fechar busca'; }
 shot() { sleep 1; adb exec-out screencap -p >"$OUT/$1-$THEME.png"; echo "$OUT/$1-$THEME.png"; }
 # `pm clear` também tira a permissão de notificações; sem ela, o pedido do sistema cobre a lista depois do login.
 reset_app() { adb shell pm clear "$PACKAGE" >/dev/null; adb shell pm grant "$PACKAGE" android.permission.POST_NOTIFICATIONS 2>/dev/null || true; adb shell am start -n "$PACKAGE/.MainActivity" >/dev/null; wait_text 'Endereço do servidor'; }
@@ -274,12 +275,13 @@ wait_text 'Aprovação pendente'
 shot sessoes-abertas
 tap Recentes
 shot sessoes-recentes
+open_search
 tap 'Buscar por título, projeto ou agente'; adb shell input text busca-impossivel; adb shell input keyevent 4
-wait_text 'Nenhuma sessão encontrada.'
+wait_text 'Nenhuma sessão corresponde à busca.'
 shot busca-vazia
-tap 'Buscar por título, projeto ou agente'; adb shell input keyevent KEYCODE_MOVE_END
-for _ in $(seq 1 20); do adb shell input keyevent KEYCODE_DEL KEYCODE_FORWARD_DEL; done
-adb shell input keyevent 4
+tap 'Limpar busca'
+shot busca-aberta
+tap 'Fechar busca'
 tap Abertas
 tap 'projeto · parado'
 wait_text 'Bash(echo fixture)'
@@ -442,6 +444,7 @@ printf 'cast-consume\n' >&3
 wait_text 'Pedido concluído.'
 tap 'Voltar às sessões'
 tap Recentes
+open_search
 enter_text 'Buscar por título, projeto ou agente' encerrada
 tap 'Conversa encerrada fictícia'
 wait_text 'Retomar conversa'
@@ -455,6 +458,8 @@ printf 'cast-consume\n' >&3
 wait_text 'Pedido concluído.'
 tap 'Voltar às sessões'
 tap Recentes
+tap 'Fechar busca'
+open_search
 enter_text 'Buscar por título, projeto ou agente' jardim
 tap 'Planejamento de jardim'
 tap 'Retomar conversa'
