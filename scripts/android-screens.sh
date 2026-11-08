@@ -159,6 +159,7 @@ fill_login() {
     enter_text 'Usuário' android-test
     enter_text 'Senha' "$2"
     tap 'Entrar'
+    tap Confirmar
 }
 fixture_check() {
     local expected_messages=$1 expected_uploads=$2 expected_files=$3
@@ -422,7 +423,7 @@ shot omp-historico-truncado
 tap 'Voltar às sessões'
 tap 'Chamar contato'
 wait_text 'Escolha um contato'
-shot elenco-personagem
+shot elenco-contato
 tap 'Caio Fictício'
 wait_text 'Escolha a pasta do projeto'
 shot elenco-pasta
@@ -432,9 +433,9 @@ shot elenco-aguardando
 printf 'cast-consume\n' >&3
 wait_text 'Pedido concluído.'
 tap 'Caio Fictício'
-wait_text 'Dispensar personagem'
-tap 'Dispensar personagem'
-wait_text 'Dispensar este personagem e fechar sua sessão no servidor?'
+wait_text 'Dispensar contato'
+tap 'Dispensar contato'
+wait_text 'Dispensar este contato e fechar a sessão dele no servidor?'
 shot elenco-dispensar
 tap Confirmar
 wait_text 'Pedido enviado. Aguardando o servidor.'
@@ -459,7 +460,7 @@ enter_text 'Buscar por título, projeto ou agente' jardim
 tap 'Planejamento de jardim'
 tap 'Retomar conversa'
 wait_text 'Escolha um contato'
-shot elenco-retomar-personagem
+shot elenco-retomar-contato
 adb shell input keyevent 4
 reset_app
 fill_login http://127.0.0.1:14749 android-test
