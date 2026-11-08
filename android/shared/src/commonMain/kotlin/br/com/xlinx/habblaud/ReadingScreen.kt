@@ -40,7 +40,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -233,7 +232,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                             Text(selected?.title ?: selected?.characterName ?: stringResource(Res.string.app_name), Modifier.weight(1f, fill = false), maxLines = 1, overflow = TextOverflow.Ellipsis)
                             if (selected == null) {
                                 val statusLabel = stringResource(when (state.connection) { "connected" -> Res.string.reading_connected; "connecting" -> Res.string.reading_connecting; else -> Res.string.reading_offline })
-                                val color = when (state.connection) { "connected" -> Color(0xFF2E7D32); "connecting" -> Color(0xFFEF6C00); else -> Color(0xFFC62828) }
+                                val color = connectionColor(state.connection)
                                 Box(Modifier.size(10.dp).background(color, CircleShape).semantics { contentDescription = statusLabel })
                             }
                         }
@@ -282,7 +281,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                 apis.keys.forEach { origin ->
                     FilterChip(modifier = Modifier.testTag("server-filter:${serverLabel(origin)}"), selected = filter == origin, onClick = { savedFilter = origin }, label = { Text(serverLabel(origin)) }, leadingIcon = {
                         val connection = if (origin in needsLogin) "offline" else states[origin]?.connection
-                        val color = when (connection) { "connected" -> Color(0xFF2E7D32); "connecting" -> Color(0xFFEF6C00); else -> Color(0xFFC62828) }
+                        val color = connectionColor(connection)
                         val label = stringResource(when (connection) { "connected" -> Res.string.reading_connected; "connecting" -> Res.string.reading_connecting; else -> Res.string.reading_offline })
                         Box(Modifier.size(10.dp).background(color, CircleShape).semantics { contentDescription = label })
                     })
@@ -503,7 +502,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
 private fun ContextBar(tokens: Long, window: Long) {
     val fraction = (tokens.toFloat() / window).coerceIn(0f, 1f)
     val pct = (fraction * 100).toInt()
-    val color = when { pct >= 80 -> MaterialTheme.colorScheme.error; pct >= 50 -> Color(0xFFEF6C00); else -> MaterialTheme.colorScheme.primary }
+    val color = when { pct >= 80 -> MaterialTheme.colorScheme.error; pct >= 50 -> warningColor(); else -> MaterialTheme.colorScheme.primary }
     val label = stringResource(Res.string.context_usage, pct, tokens / 1000, window / 1000)
     Box(Modifier.width(4.dp).height(40.dp).background(MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(2.dp)).semantics { contentDescription = label }, contentAlignment = Alignment.BottomCenter) {
         Box(Modifier.fillMaxWidth().fillMaxHeight(fraction).background(color, RoundedCornerShape(2.dp)))
