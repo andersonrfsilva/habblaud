@@ -52,6 +52,7 @@ do meio (0.**3**.0).
 - **Zaplaud:** botões e indicadores usam ícones Material no lugar de caracteres de texto.
 - **Zaplaud:** "Abertas" e "Recentes" usam um botão segmentado no lugar das abas.
 - **Zaplaud:** pontos de conexão e alertas de contexto e cota usam as cores do tema claro ou escuro.
+- **Zaplaud:** títulos longos na lista de sessões usam até duas linhas.
 
 ### Corrigido
 
