@@ -525,9 +525,21 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                 )
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                     val attachLabel = stringResource(Res.string.attach_files)
-                    IconButton(onClick = { pickerKey = selected.key; picker() }, enabled = !composer.loading && composer.draft.attachments.size < MAX_ATTACHMENTS, modifier = Modifier.size(32.dp).semantics { contentDescription = attachLabel }) { Icon(Icons.Default.AttachFile, contentDescription = null) }
-                    if (selected.contextTokens != null && selected.contextWindow != null) ContextBar(selected.contextTokens, selected.contextWindow)
-                    OutlinedTextField(composer.draft.text, { controller.messages.edit(text = it) }, Modifier.weight(1f).testTag("message-input"), enabled = !composer.loading, label = { Text(stringResource(Res.string.message_text)) }, supportingText = if (composer.draft.text.length >= 18000) { { Text("${composer.draft.text.length}/20000") } } else null, maxLines = 6, shape = RoundedCornerShape(24.dp))
+                    TextField(
+                        composer.draft.text,
+                        { controller.messages.edit(text = it) },
+                        Modifier.weight(1f).testTag("message-input"),
+                        enabled = !composer.loading,
+                        label = { Text(stringResource(Res.string.message_text)) },
+                        supportingText = if (composer.draft.text.length >= 18000) { { Text("${composer.draft.text.length}/20000") } } else null,
+                        maxLines = 6,
+                        shape = RoundedCornerShape(24.dp),
+                        colors = pillFieldColors(),
+                        leadingIcon = {
+                            IconButton(onClick = { pickerKey = selected.key; picker() }, enabled = !composer.loading && composer.draft.attachments.size < MAX_ATTACHMENTS, modifier = Modifier.semantics { contentDescription = attachLabel }) { Icon(Icons.Default.AttachFile, contentDescription = null) }
+                        },
+                        trailingIcon = if (selected.contextTokens != null && selected.contextWindow != null) { { ContextRing(selected.contextTokens, selected.contextWindow) } } else null,
+                    )
                     if (selected.key.provider == "omp" && selected.status in setOf("working", "busy", "shell")) {
                         val stopLabel = stringResource(Res.string.stop_agent)
                         FilledIconButton(
@@ -550,16 +562,20 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
     }
 }
 
-/** Barrinha vertical do contexto em uso (tokens / janela do modelo), cheia de baixo para cima. */
+/** Anel do contexto em uso (tokens / janela do modelo). */
 @Composable
-private fun ContextBar(tokens: Long, window: Long) {
+private fun ContextRing(tokens: Long, window: Long) {
     val fraction = (tokens.toFloat() / window).coerceIn(0f, 1f)
     val pct = (fraction * 100).toInt()
     val color = when { pct >= 80 -> MaterialTheme.colorScheme.error; pct >= 50 -> warningColor(); else -> MaterialTheme.colorScheme.primary }
     val label = stringResource(Res.string.context_usage, pct, tokens / 1000, window / 1000)
-    Box(Modifier.width(4.dp).height(40.dp).background(MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(2.dp)).semantics { contentDescription = label }, contentAlignment = Alignment.BottomCenter) {
-        Box(Modifier.fillMaxWidth().fillMaxHeight(fraction).background(color, RoundedCornerShape(2.dp)))
-    }
+    CircularProgressIndicator(
+        progress = { fraction },
+        modifier = Modifier.size(20.dp).semantics { contentDescription = label },
+        color = color,
+        trackColor = MaterialTheme.colorScheme.outlineVariant,
+        strokeWidth = 2.5.dp,
+    )
 }
 
 @Composable
