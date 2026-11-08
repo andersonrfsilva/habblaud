@@ -244,7 +244,7 @@ class FixtureUiInstrumentedTest {
                 await(banner)
                 compose.onNodeWithText(text(banner)).assertIsDisplayed()
             } else {
-                compose.onNodeWithText("ⓘ").assertDoesNotExist()
+                compose.onAllNodesWithTag("chat-banner", useUnmergedTree = true).assertCountEquals(0)
                 for (other in listOf(R.string.message_queued, R.string.message_sent, R.string.message_failed, R.string.message_unknown)) {
                     compose.onNodeWithText(text(other)).assertDoesNotExist()
                 }
