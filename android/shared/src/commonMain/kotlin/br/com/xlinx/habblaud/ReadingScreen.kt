@@ -279,9 +279,13 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
             }
             // Trocar de aba volta ao topo, com a busca escondida.
             fun showTab(value: Boolean) { recent = value; if (query.isEmpty()) scope.launch { withFrameNanos { }; sessionsList.scrollToItem(1) } }
-            TabRow(selectedTabIndex = if (recent) 1 else 0) {
-                Tab(selected = !recent, onClick = { showTab(false) }, text = { Text(stringResource(Res.string.open_sessions)) })
-                Tab(selected = recent, onClick = { showTab(true) }, text = { Text(stringResource(Res.string.recent_sessions)) })
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                SegmentedButton(selected = !recent, onClick = { showTab(false) }, shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)) {
+                    Text(stringResource(Res.string.open_sessions))
+                }
+                SegmentedButton(selected = recent, onClick = { showTab(true) }, shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)) {
+                    Text(stringResource(Res.string.recent_sessions))
+                }
             }
             if (!state.terminalAllowed) Text(stringResource(Res.string.terminal_blocked))
             // Como num chat: a conversa com a resposta mais nova no topo.
