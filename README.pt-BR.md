@@ -252,6 +252,7 @@ persistida. HTTPS usa a validação normal de certificado e nome do Android.
 
 O aplicativo acompanha o tema claro ou escuro do sistema. As mensagens exibem Markdown selecionável, incluindo
 listas, tabelas e código; links abrem ao toque. Imagens remotas e HTML não são carregados ou interpretados.
+Para buscar sessões, puxe a lista para baixo com firmeza estando no topo. A busca fica fixa acima da lista até ser fechada pelo X ou pelo Voltar.
 Para gerar capturas dos dois temas com dados fictícios, execute `scripts/android-screens.sh` com o AVD
 `habblaud034` disponível. As imagens ficam em `/tmp/android-screens/`.
 

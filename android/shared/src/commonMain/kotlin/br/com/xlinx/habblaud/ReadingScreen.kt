@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material3.*
@@ -46,6 +47,17 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontFamily
@@ -151,11 +163,12 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
     }
     val selected = state.selected
     var menuExpanded by remember { mutableStateOf(false) }
-    // Estado da lista de conversas fora do `if`: voltar de uma conversa mantém a aba, a busca e a posição.
+    // Estado fora do `if`: voltar de uma conversa mantém a aba, a busca fixa acima da lista e a posição.
     var query by remember { mutableStateOf("") }
+    var searchOpen by remember { mutableStateOf(false) }
     var recent by remember { mutableStateOf(false) }
-    // A busca é o primeiro item e começa fora da tela: aparece ao puxar a lista para baixo no topo.
-    val sessionsList = rememberLazyListState(initialFirstVisibleItemIndex = 1)
+    // A busca fica acima da lista, oculta até uma puxada longa para baixo no topo.
+    val sessionsList = rememberLazyListState()
     /** Conversa que estava no topo na última composição (sem ser estado: mudar não recompõe). */
     val sessionsTop = remember { arrayOfNulls<String>(1) }
     // O que a conversa mostra (tudo, só prompts ou sem ferramentas) e o modo de envio: cada sessão lembra os seus.
@@ -179,6 +192,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
         return
     }
     PlatformBackHandler(enabled = selected != null && permissionSession == null && !menuExpanded) { controller.close() }
+    PlatformBackHandler(enabled = selected == null && searchOpen) { query = ""; searchOpen = false }
     CastActions(api, selected, actionsAvailable(states.getValue(actionOrigin), actionOrigin in needsLogin, selected?.permission == true) && (selected != null || filter != null || apis.size == 1), state.sessions.filter { it.agentId != null }.mapNotNull { it.cast }.toSet(), { onUnauthorized(api.origin) }, { permissionSession = selected }, menu = { close, dismissItem ->
         // Menu em páginas: a principal lista os grupos; tocar num grupo troca o conteúdo pela lista dele, com "‹ Voltar".
         var page by remember { mutableStateOf("") }
@@ -293,7 +307,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                 }
             }
             // Trocar de aba volta ao topo, com a busca escondida.
-            fun showTab(value: Boolean) { recent = value; if (query.isEmpty()) scope.launch { withFrameNanos { }; sessionsList.scrollToItem(1) } }
+            fun showTab(value: Boolean) { recent = value; if (query.isEmpty()) { searchOpen = false; scope.launch { withFrameNanos { }; sessionsList.scrollToItem(0) } } }
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                 SegmentedButton(selected = !recent, onClick = { showTab(false) }, shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)) {
                     Text(stringResource(Res.string.open_sessions))
@@ -309,19 +323,55 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
             // chave) e a nova fica escondida acima dela.
             val top = items.firstOrNull()?.key?.serialize()
             if (top != sessionsTop[0]) {
-                if (sessionsTop[0] != null && sessionsList.firstVisibleItemIndex == 1) sessionsList.requestScrollToItem(1, sessionsList.firstVisibleItemScrollOffset)
+                if (sessionsTop[0] != null && sessionsList.firstVisibleItemIndex == 0) sessionsList.requestScrollToItem(0, sessionsList.firstVisibleItemScrollOffset)
                 sessionsTop[0] = top
             }
-            val density = androidx.compose.ui.platform.LocalDensity.current
-            // Lista curta não rola: um espaço no fim completa a altura para a busca caber acima da tela.
-            val fillerPx by remember { derivedStateOf {
-                val info = sessionsList.layoutInfo
-                val content = info.visibleItemsInfo.filter { it.key != "search" && it.key != "filler" }.sumOf { it.size + with(density) { 8.dp.roundToPx() } }
-                (info.viewportSize.height - content).coerceAtLeast(0)
-            } }
-            LazyColumn(state = sessionsList, modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                item(key = "search") { OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(Res.string.search_sessions)) }, singleLine = true) }
-                if (items.isEmpty()) item(key = "empty") { Text(stringResource(Res.string.sessions_empty), Modifier.fillMaxWidth().padding(32.dp), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyLarge) }
+            if (searchOpen) {
+                val focus = remember { FocusRequester() }
+                LaunchedEffect(Unit) { if (query.isEmpty()) focus.requestFocus() }
+                TextField(
+                    query, { query = it },
+                    Modifier.fillMaxWidth().focusRequester(focus).testTag("session-search"),
+                    placeholder = { Text(stringResource(Res.string.search_sessions)) },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    trailingIcon = {
+                        val closeLabel = stringResource(Res.string.search_close)
+                        IconButton(onClick = { query = ""; searchOpen = false }, modifier = Modifier.semantics { contentDescription = closeLabel }) {
+                            Icon(Icons.Default.Close, contentDescription = null)
+                        }
+                    },
+                    singleLine = true,
+                    shape = CircleShape,
+                    colors = pillFieldColors(),
+                )
+            }
+            val revealPx = with(LocalDensity.current) { SEARCH_REVEAL_PULL.toPx() }
+            val haptics = LocalHapticFeedback.current
+            val reveal = remember(revealPx) {
+                object : NestedScrollConnection {
+                    var pulled = 0f
+                    override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                        // Só sobra rolagem para baixo quando a lista já está no topo: é a "puxada" além do começo.
+                        if (source == NestedScrollSource.UserInput && available.y > 0f && !searchOpen) {
+                            pulled += available.y
+                            if (pulled >= revealPx) { pulled = 0f; searchOpen = true; haptics.performHapticFeedback(HapticFeedbackType.LongPress) }
+                        } else if (available.y < 0f || consumed.y != 0f) pulled = 0f
+                        return Offset.Zero
+                    }
+                    override suspend fun onPreFling(available: Velocity): Velocity { pulled = 0f; return Velocity.Zero }
+                }
+            }
+            LazyColumn(state = sessionsList, modifier = Modifier.fillMaxSize().nestedScroll(reveal), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (items.isEmpty()) item(key = "empty") {
+                    Column(Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (query.isNotBlank()) {
+                            Text(stringResource(Res.string.search_no_match), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyLarge)
+                            TextButton(onClick = { query = "" }) { Text(stringResource(Res.string.search_clear)) }
+                        } else {
+                            Text(stringResource(Res.string.sessions_empty), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyLarge)
+                        }
+                    }
+                }
                 items(items, key = { it.key.serialize() }) { session ->
                     Column(Modifier.fillMaxWidth().animateContentSize()) {
                     Row(Modifier.fillMaxWidth().testTag("session-row:${session.key.provider}:${session.key.sessionId}").clickable { open(session) }.padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -348,7 +398,6 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                     session.subagents.forEachIndexed { i, sub -> SubagentBranch(apis.getValue(session.key.origin), sub, last = i == session.subagents.lastIndex) { open(subSession(session, sub)) } }
                     }
                 }
-                item(key = "filler") { Spacer(Modifier.height(with(density) { fillerPx.toDp() })) }
             }
         } else {
             Spacer(Modifier.height(1.dp))
@@ -611,6 +660,8 @@ private fun ChatBanner(message: String, modifier: Modifier = Modifier) {
 
 /** O servidor guarda até 99 respostas por agente (REPLIES_LIMIT): daí para cima o balão mostra "99+". */
 private const val REPLIES_SHOWN = 99
+/** Quanto puxar além do topo da lista para revelar a busca: grande o bastante para não acontecer por acidente. */
+private val SEARCH_REVEAL_PULL = 120.dp
 /** Respostas até este tamanho já cabem em poucas frases: ficam inteiras, sem pedir resumo. */
 private const val SUMMARY_MIN_CHARS = 500
 /** O servidor aceita até 32 Ki caracteres; o resumo de uma resposta maior olha só o começo dela. */
@@ -880,3 +931,14 @@ internal fun thinkingLabel(level: String): String = when (level) {
     "max" -> stringResource(Res.string.thinking_max)
     else -> level
 }
+
+/** Campo em pílula preenchida, sem linha de foco: busca e (plano 061) mensagem. */
+@Composable
+internal fun pillFieldColors() = TextFieldDefaults.colors(
+    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+    disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+    focusedIndicatorColor = Color.Transparent,
+    unfocusedIndicatorColor = Color.Transparent,
+    disabledIndicatorColor = Color.Transparent,
+)
