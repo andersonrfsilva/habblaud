@@ -10,6 +10,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -125,7 +127,7 @@ fun SettingsScreen(apis: Map<String, HabblaudApi>, store: LocalStateStore, onClo
     Scaffold(topBar = {
         TopAppBar(
             title = { Text(stringResource(Res.string.settings)) },
-            navigationIcon = { val label = stringResource(Res.string.back); IconButton(onClick = onClose, modifier = Modifier.semantics { contentDescription = label }) { Text("‹", style = MaterialTheme.typography.headlineMedium) } },
+            navigationIcon = { val label = stringResource(Res.string.back); IconButton(onClick = onClose, modifier = Modifier.semantics { contentDescription = label }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null) } },
         )
     }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {

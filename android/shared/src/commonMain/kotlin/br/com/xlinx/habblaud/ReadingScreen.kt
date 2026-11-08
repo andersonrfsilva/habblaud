@@ -22,6 +22,17 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.*
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
@@ -170,10 +181,10 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
         val agentId = selected?.agentId
         val omp = selected?.key?.provider == "omp" && agentId != null && !selected.sub
         val canControl = omp && selected!!.canMessage && state.messagesAllowed && state.messageGuard && state.connection == "connected"
-        @Composable fun Back() = DropdownMenuItem(text = { Text(stringResource(Res.string.back), style = MaterialTheme.typography.labelLarge) }, leadingIcon = { Text("‹", style = MaterialTheme.typography.titleMedium) }, onClick = { page = "" })
+        @Composable fun Back() = DropdownMenuItem(text = { Text(stringResource(Res.string.back), style = MaterialTheme.typography.labelLarge) }, leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(20.dp)) }, onClick = { page = "" })
         @Composable fun Group(label: StringResource, value: String?, target: String, enabled: Boolean = true) = DropdownMenuItem(
             text = { Column { Text(stringResource(label)); value?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) } } },
-            trailingIcon = { Text("›", style = MaterialTheme.typography.titleMedium) }, enabled = enabled, onClick = { page = target })
+            trailingIcon = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) }, enabled = enabled, onClick = { page = target })
         @Composable fun Choice(label: String, checked: Boolean, onClick: () -> Unit) = DropdownMenuItem(text = { Text(label) }, leadingIcon = { RadioButton(selected = checked, onClick = null) }, onClick = onClick)
         val viewLabels = listOf("all" to Res.string.view_all, "prompts" to Res.string.view_prompts, "no_tools" to Res.string.view_no_tools)
         val deliverLabels = listOf("aside" to Res.string.deliver_aside, "followUp" to Res.string.deliver_follow_up, "steer" to Res.string.deliver_steer)
@@ -237,14 +248,14 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
             navigationIcon = {
                 if (selected != null) {
                     val backLabel = stringResource(Res.string.back_sessions)
-                    IconButton(onClick = controller::close, modifier = Modifier.semantics { contentDescription = backLabel }) { Text("‹", style = MaterialTheme.typography.headlineMedium) }
+                    IconButton(onClick = controller::close, modifier = Modifier.semantics { contentDescription = backLabel }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null) }
                 }
             },
             actions = {
                 if (selected != null) castActions()
                 if (selected == null) Box {
                     val menuLabel = stringResource(Res.string.menu)
-                    IconButton(onClick = { menuExpanded = true }, modifier = Modifier.semantics { contentDescription = menuLabel }) { Text("⋮", style = MaterialTheme.typography.headlineMedium) }
+                    IconButton(onClick = { menuExpanded = true }, modifier = Modifier.semantics { contentDescription = menuLabel }) { Icon(Icons.Default.MoreVert, contentDescription = null) }
                     DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                         DropdownMenuItem(text = { Text(stringResource(Res.string.settings)) }, onClick = { menuExpanded = false; settingsOpen = true })
                         DropdownMenuItem(modifier = Modifier.testTag("add-server"), text = { Text(stringResource(Res.string.add_server)) }, onClick = { menuExpanded = false; onLogin(null) })
@@ -396,7 +407,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                 if (!following && rows.isNotEmpty()) {
                     val label = stringResource(Res.string.go_to_end)
                     SmallFloatingActionButton(onClick = { stickToEnd() }, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp).semantics { contentDescription = label }, shape = CircleShape) {
-                        BadgedBox(badge = { if (unread > 0) Badge { Text(unread.toString()) } }) { Text("↓", style = MaterialTheme.typography.titleLarge) }
+                        BadgedBox(badge = { if (unread > 0) Badge { Text(unread.toString()) } }) { Icon(Icons.Default.KeyboardArrowDown, contentDescription = null) }
                     }
                 }
             }
@@ -432,7 +443,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     composer.draft.attachments.forEach { attachment ->
                         val removeLabel = stringResource(Res.string.attachment_remove)
-                        InputChip(selected = false, onClick = { controller.messages.remove(attachment) }, label = { Text(attachment.name, maxLines = 1) }, trailingIcon = { Text("×", Modifier.semantics { contentDescription = removeLabel }) })
+                        InputChip(selected = false, onClick = { controller.messages.remove(attachment) }, label = { Text(attachment.name, maxLines = 1) }, trailingIcon = { Icon(Icons.Default.Close, contentDescription = removeLabel, modifier = Modifier.size(18.dp)) })
                         if (attachment.uri in composer.unavailable) Text(stringResource(Res.string.attachment_reselect), color = MaterialTheme.colorScheme.error)
                         else if (!attachment.persistent) Text(stringResource(Res.string.attachment_temporary), style = MaterialTheme.typography.bodySmall)
                     }
@@ -458,7 +469,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                 )
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                     val attachLabel = stringResource(Res.string.attach_files)
-                    IconButton(onClick = { pickerKey = selected.key; picker() }, enabled = !composer.loading && composer.draft.attachments.size < MAX_ATTACHMENTS, modifier = Modifier.size(32.dp).semantics { contentDescription = attachLabel }) { Text("📎", style = MaterialTheme.typography.titleMedium) }
+                    IconButton(onClick = { pickerKey = selected.key; picker() }, enabled = !composer.loading && composer.draft.attachments.size < MAX_ATTACHMENTS, modifier = Modifier.size(32.dp).semantics { contentDescription = attachLabel }) { Icon(Icons.Default.AttachFile, contentDescription = null) }
                     if (selected.contextTokens != null && selected.contextWindow != null) ContextBar(selected.contextTokens, selected.contextWindow)
                     OutlinedTextField(composer.draft.text, { controller.messages.edit(text = it) }, Modifier.weight(1f).testTag("message-input"), enabled = !composer.loading, label = { Text(stringResource(Res.string.message_text)) }, supportingText = if (composer.draft.text.length >= 18000) { { Text("${composer.draft.text.length}/20000") } } else null, maxLines = 6, shape = RoundedCornerShape(24.dp))
                     if (selected.key.provider == "omp" && selected.status in setOf("working", "busy", "shell")) {
@@ -469,12 +480,11 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                             colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError),
                             modifier = Modifier.semantics { contentDescription = stopLabel },
                         ) {
-                            val color = LocalContentColor.current
-                            Canvas(Modifier.size(14.dp)) { drawRect(color) }
+                            Icon(Icons.Default.Stop, contentDescription = null)
                         }
                     }
                     val sendLabel = stringResource(Res.string.send_message)
-                    FilledIconButton(onClick = { if (agentId != null) { stickToEnd(); controller.messages.send(agentId) } }, enabled = enabled && !composer.loading && !composer.sending && composer.unavailable.isEmpty() && (composer.draft.text.isNotBlank() || composer.draft.attachments.isNotEmpty()), modifier = Modifier.testTag("message-send").semantics { contentDescription = sendLabel }) { Text("➤") }
+                    FilledIconButton(onClick = { if (agentId != null) { stickToEnd(); controller.messages.send(agentId) } }, enabled = enabled && !composer.loading && !composer.sending && composer.unavailable.isEmpty() && (composer.draft.text.isNotBlank() || composer.draft.attachments.isNotEmpty()), modifier = Modifier.testTag("message-send").semantics { contentDescription = sendLabel }) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null) }
                 }
                 }
             }
@@ -584,8 +594,8 @@ private fun relativeTime(timestamp: Long): String {
 @Composable
 private fun ChatBanner(message: String, modifier: Modifier = Modifier) {
     Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(10.dp), modifier = modifier.fillMaxWidth()) {
-        Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("ⓘ", color = MaterialTheme.colorScheme.onSecondaryContainer)
+        Row(Modifier.testTag("chat-banner").padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Outlined.Info, contentDescription = null, modifier = Modifier.size(18.dp))
             Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
         }
     }
@@ -621,7 +631,7 @@ private fun EntryView(entry: TerminalEntry, results: Map<String?, List<TerminalE
                     // para ver, sem expandir, se o agente segue trabalhando ou parou.
                     val last = if (entry.kind == "tool") (tools.mapNotNull { it.at } + tools.flatMap { results[it.id].orEmpty() }.mapNotNull { it.at }).maxOrNull() ?: entry.at else entry.at
                     Row(Modifier.fillMaxWidth().onGloballyPositioned { headerY = it.positionInWindow().y }.clickable { val before = headerY; expanded = !expanded; keepPlace(before) { headerY } }, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        if (entry.kind == "tool") Text("⚙", color = MaterialTheme.colorScheme.primary)
+                        if (entry.kind == "tool") Icon(Icons.Default.Build, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
                         Text(label, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
                         last?.let { Text(entryTime(it), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
