@@ -18,7 +18,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -296,7 +295,7 @@ private fun QuotaCard(account: AccountQuota) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(listOfNotNull(account.name, account.plan).joinToString(" · "), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                 when (account.status) {
-                    "stale" -> Text(stringResource(Res.string.quota_stale), style = MaterialTheme.typography.labelSmall, color = Color(0xFFEF6C00))
+                    "stale" -> Text(stringResource(Res.string.quota_stale), style = MaterialTheme.typography.labelSmall, color = warningColor())
                     "disabled" -> Text(stringResource(Res.string.quota_disabled), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
@@ -324,7 +323,7 @@ private fun LimitRow(limit: UsageLimit) {
     }
     val used = limit.utilization
     val fraction = ((used ?: 0.0) / 100).toFloat().coerceIn(0f, 1f)
-    val color = when { limit.exhausted || (used ?: 0.0) >= 90 -> MaterialTheme.colorScheme.error; (used ?: 0.0) >= 70 -> Color(0xFFEF6C00); else -> MaterialTheme.colorScheme.primary }
+    val color = when { limit.exhausted || (used ?: 0.0) >= 90 -> MaterialTheme.colorScheme.error; (used ?: 0.0) >= 70 -> warningColor(); else -> MaterialTheme.colorScheme.primary }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
