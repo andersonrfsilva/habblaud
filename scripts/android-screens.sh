@@ -285,12 +285,12 @@ shot busca-aberta
 tap 'Fechar busca'
 tap Abertas
 tap 'Ana Fictícia · projeto · parado'
-wait_text 'Bash(echo fixture)'
+wait_text 'Resposta fictícia'
 shot conversa-fim
-tap 'Pensando…'
+tap 'Pensando… (1)'
 wait_text $'Primeira linha do pensamento.\nSegunda linha do pensamento.\nTerceira linha do pensamento.'
 shot pensamento-expandido
-tap 'Pensando…'
+tap 'Pensando… (1)'
 for _ in $(seq 1 18); do adb shell input swipe 500 500 500 1850 150; done
 shot conversa-topo
 wait_text 'Relatório fictício'
@@ -298,8 +298,8 @@ shot markdown-rico
 adb shell input swipe 500 1650 500 900 400
 shot markdown-detalhes
 tap 'Ir para o fim'
-wait_text 'Bash(echo fixture)'
-tap 'Bash(echo fixture)'
+wait_text 'Ferramentas (3)'
+tap 'Ferramentas (3)'
 adb shell input swipe 500 1750 500 900 400
 shot ferramenta-expandida
 tap 'Mensagem'
@@ -435,6 +435,7 @@ shot elenco-aguardando
 printf 'cast-consume\n' >&3
 wait_text 'Pedido concluído.'
 tap 'Caio Fictício'
+tap Menu
 wait_text 'Dispensar contato'
 tap 'Dispensar contato'
 wait_text 'Dispensar este contato e fechar a sessão dele no servidor?'
