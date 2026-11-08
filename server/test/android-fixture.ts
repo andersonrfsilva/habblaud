@@ -127,6 +127,9 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
   const late: { messages?: MessageRegistry; permissions?: PermissionRegistry; launcher?: CastLauncher } = {};
   const office = new Office({ names: new NameStore(null), version: 'android-fixture', startedAt: Date.now(), accounts: s => accounts.list(s), sources: () => [], accountName: () => undefined, terminal: true, messages: () => late.messages?.reachable() ?? new Set(), permissions: () => late.permissions?.snapshot() ?? new Map(), castLauncher: () => late.launcher });
   for (const [index, agent] of AGENTS.entries()) office.addMain({ ...agent, cwd: `/fixture/${projects[index]}`, role: 'Agente principal', startedAt: Date.now() - index * 300_000, status: index % 2 ? 'working' : 'idle' });
+  // Contexto do omp (vem da extensão em produção) para o anel do campo de mensagem aparecer nas capturas: 60% = alerta.
+  const ompAgent = office.get('fixture:omp');
+  if (ompAgent) office.applyTranscript(ompAgent.id, { title: ompAgent.title, tasks: ompAgent.tasks, stats: ompAgent.stats, context: { tokens: 120_000, window: 200_000 } });
   if (office.putCast({ id: 'ana', name: 'Ana Fictícia', kind: 'main', seed: 1001, look: 'f', rooms: ['/fixture/projeto'] }, 'fixture:claude') !== 'ok' ||
       office.putCast({ id: 'bia', name: 'Bia Fictícia', kind: 'main', seed: 1002, look: 'f', rooms: ['/fixture/projeto'], last: { '/fixture/projeto': CLOSED } }) !== 'ok' ||
       office.putCast({ id: 'caio', name: 'Caio Fictício', kind: 'main', seed: 1003, look: 'm', rooms: [] }) !== 'ok' ||
