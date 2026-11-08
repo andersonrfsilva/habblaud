@@ -53,6 +53,7 @@ do meio (0.**3**.0).
 - **Zaplaud:** "Abertas" e "Recentes" usam um botão segmentado no lugar das abas.
 - **Zaplaud:** pontos de conexão e alertas de contexto e cota usam as cores do tema claro ou escuro.
 - **Zaplaud:** títulos longos na lista de sessões usam até duas linhas.
+- **Zaplaud:** a lista de sessões tem título grande, que encolhe ao rolar.
 - **Zaplaud:** ferramentas e pensamentos aparecem como linhas compactas com seta de expandir, sem competir com as respostas.
 - **Zaplaud:** a busca da lista fica oculta, aparece com uma puxada longa no topo e permanece fixa enquanto a lista rola. Sem resultados, o app oferece "Limpar busca".
 
