@@ -17,6 +17,8 @@ import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
 @Composable actual fun PlatformBackHandler(enabled: Boolean, onBack: () -> Unit) = BackHandler(enabled, onBack)
+@Composable actual fun PlatformSearchShortcut(enabled: Boolean, onSearch: () -> Unit) { }
+actual fun platformSendsOnEnter(): Boolean = false
 @Composable actual fun rememberAttachmentPicker(onResult: (List<String>) -> Unit): () -> Unit {
     val callback by rememberUpdatedState(onResult)
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { urls -> callback(urls.map { it.toString() }) }

@@ -20,6 +20,8 @@ val LocalNotificationPlatform = staticCompositionLocalOf<NotificationPlatform> {
 }
 
 @Composable expect fun PlatformBackHandler(enabled: Boolean = true, onBack: () -> Unit)
+@Composable expect fun PlatformSearchShortcut(enabled: Boolean, onSearch: () -> Unit)
+expect fun platformSendsOnEnter(): Boolean
 @Composable expect fun rememberAttachmentPicker(onResult: (List<String>) -> Unit): () -> Unit
 @Composable expect fun animationsEnabled(): Boolean
 expect fun uiNowMillis(): Long

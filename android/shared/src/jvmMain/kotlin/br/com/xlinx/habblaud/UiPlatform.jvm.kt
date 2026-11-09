@@ -23,6 +23,16 @@ private val backStack = mutableListOf<BackEntry>()
 }
 /** Chamada pelo host ao soltar Esc; true se algum handler consumiu. */
 fun dispatchDesktopBack(): Boolean = backStack.lastOrNull { it.enabled }?.let { it.onBack(); true } ?: false
+private class SearchEntry(var enabled: Boolean, var onSearch: () -> Unit)
+private val searchStack = mutableListOf<SearchEntry>()
+@Composable actual fun PlatformSearchShortcut(enabled: Boolean, onSearch: () -> Unit) {
+    val entry = remember { SearchEntry(enabled, onSearch) }
+    SideEffect { entry.enabled = enabled; entry.onSearch = onSearch }
+    DisposableEffect(entry) { searchStack += entry; onDispose { searchStack -= entry } }
+}
+/** Chamada pelo host em Ctrl+F/Cmd+F; true se algum handler consumiu. */
+fun dispatchDesktopSearch(): Boolean = searchStack.lastOrNull { it.enabled }?.let { it.onSearch(); true } ?: false
+actual fun platformSendsOnEnter(): Boolean = true
 @Composable actual fun rememberAttachmentPicker(onResult: (List<String>) -> Unit): () -> Unit {
     val callback by rememberUpdatedState(onResult)
     val title = stringResource(Res.string.attach_files)

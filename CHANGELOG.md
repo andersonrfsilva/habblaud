@@ -12,6 +12,9 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Zaplaud:** lista e conversa lado a lado em telas largas (desktop, iPad e tablet), com a sessão aberta destacada.
+  Esc fecha a conversa e Ctrl+F (Cmd+F no macOS) abre a busca. No desktop, Enter envia e Shift+Enter quebra linha.
+  No celular, a navegação continua em uma coluna e Enter continua quebrando linha.
 - **Zaplaud:** versão para Linux e macOS numa janela, com as mesmas telas do celular, anexos locais e navegação
   pela tecla Esc. O login usa o chaveiro do sistema; sem chaveiro, vale só até fechar o aplicativo. Execute
   `./gradlew :desktop:run` em `android/`. Notificações e pacotes de instalação vêm depois.

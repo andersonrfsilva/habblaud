@@ -56,6 +56,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.Velocity
@@ -141,13 +142,16 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
         states.values.any { it.connection == "connecting" } -> "connecting"
         else -> "connected"
     }
-    val state = if (selectedOrigin != null) states.getValue(selectedOrigin) else states.getValue(actionOrigin).copy(
+    fun mergedFrom(base: String) = states.getValue(base).copy(
         sessions = mergeSessions(states, filter),
         unread = states.values.flatMap { it.unread.entries }.associate { it.toPair() },
         connection = combinedConnection,
         terminalAllowed = states.values.any { it.terminalAllowed },
         error = null
     )
+    val conversationState = selectedOrigin?.let { states.getValue(it) }
+    val state = conversationState ?: mergedFrom(actionOrigin)
+    val sessionsStateWide = mergedFrom(filter ?: apis.keys.first())
     val composer by controller.messages.state.collectAsStateWithLifecycle()
     var permissionSession by remember { mutableStateOf<SessionItem?>(null) }
     val permissionState = permissionSession?.let { states[it.key.origin] } ?: state
@@ -246,38 +250,17 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
     var showInfo by remember(selected?.key) { mutableStateOf(false) }
     if (showInfo && selected != null) SessionInfoSheet(api, selected, state.entries, state.truncated) { showInfo = false }
     if (asideOpen && selected?.agentId != null) AsideSheet(controller.asides) { asideOpen = false; controller.asides.close() }
-    Scaffold(floatingActionButton = { if (selected != null || filter != null || apis.size == 1) castFab() }, topBar = {
+    val listTopBar: @Composable (ReadingState) -> Unit = { state ->
         TopAppBar(
             title = {
-                val infoLabel = stringResource(Res.string.session_info)
-                Row(Modifier.then(if (selected != null) Modifier.clickable(onClickLabel = infoLabel) { showInfo = true } else Modifier), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (selected != null) CharacterAvatar(api, selected, 36.dp)
-                    Column(Modifier.weight(1f)) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(selected?.title ?: selected?.characterName ?: stringResource(Res.string.app_name), Modifier.weight(1f, fill = false), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            if (selected == null) {
-                                val statusLabel = stringResource(when (state.connection) { "connected" -> Res.string.reading_connected; "connecting" -> Res.string.reading_connecting; else -> Res.string.reading_offline })
-                                val color = connectionColor(state.connection)
-                                Box(Modifier.size(10.dp).background(color, CircleShape).semantics { contentDescription = statusLabel })
-                            }
-                        }
-                        if (selected != null) {
-                            val projectStatus = listOfNotNull(selected.project?.substringAfterLast('/'), statusLabel(selected.status ?: selected.activity)).joinToString(" · ")
-                            val subtitle = listOfNotNull(selected.characterName.takeIf { it != null && it != selected.title }, projectStatus.takeIf { it.isNotEmpty() }).joinToString(" · ")
-                            Text(subtitle, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                    }
-                }
-            },
-            navigationIcon = {
-                if (selected != null) {
-                    val backLabel = stringResource(Res.string.back_sessions)
-                    IconButton(onClick = controller::close, modifier = Modifier.semantics { contentDescription = backLabel }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null) }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(stringResource(Res.string.app_name), Modifier.weight(1f, fill = false), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    val statusLabel = stringResource(when (state.connection) { "connected" -> Res.string.reading_connected; "connecting" -> Res.string.reading_connecting; else -> Res.string.reading_offline })
+                    Box(Modifier.size(10.dp).background(connectionColor(state.connection), CircleShape).semantics { contentDescription = statusLabel })
                 }
             },
             actions = {
-                if (selected != null) castActions()
-                if (selected == null) Box {
+                Box {
                     val menuLabel = stringResource(Res.string.menu)
                     IconButton(onClick = { menuExpanded = true }, modifier = Modifier.semantics { contentDescription = menuLabel }) { Icon(Icons.Default.MoreVert, contentDescription = null) }
                     DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
@@ -287,11 +270,33 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                 }
             }
         )
-    }) { padding ->
-    Column(Modifier.fillMaxSize().padding(padding).imePadding().background(if (selected == null) MaterialTheme.colorScheme.background else if (MaterialTheme.colorScheme.background.luminance() < 0.5f) MaterialTheme.colorScheme.surfaceContainerLowest else MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        state.error?.let { error -> Text(stringResource(readingErrorResource(error)), color = MaterialTheme.colorScheme.error) }
-        castStatus()
-        if (selected == null) {
+    }
+    val conversationTopBar: @Composable (SessionItem, Boolean) -> Unit = { selected, showBack ->
+        TopAppBar(
+            title = {
+                val infoLabel = stringResource(Res.string.session_info)
+                Row(Modifier.clickable(onClickLabel = infoLabel) { showInfo = true }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CharacterAvatar(api, selected, 36.dp)
+                    Column(Modifier.weight(1f)) {
+                        Row {
+                            Text(selected.title, Modifier.weight(1f, fill = false), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        val projectStatus = listOfNotNull(selected.project?.substringAfterLast('/'), statusLabel(selected.status ?: selected.activity)).joinToString(" · ")
+                        val subtitle = listOfNotNull(selected.characterName.takeIf { it != null && it != selected.title }, projectStatus.takeIf { it.isNotEmpty() }).joinToString(" · ")
+                        Text(subtitle, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            },
+            navigationIcon = {
+                if (showBack) {
+                    val backLabel = stringResource(Res.string.back_sessions)
+                    IconButton(onClick = controller::close, modifier = Modifier.semantics { contentDescription = backLabel }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null) }
+                }
+            },
+            actions = { castActions() }
+        )
+    }
+    val listContent: @Composable ColumnScope.(ReadingState, Boolean) -> Unit = { state, highlight ->
             needsLogin.forEach { origin ->
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(serverLabel(origin), Modifier.weight(1f))
@@ -380,7 +385,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                 }
                 items(items, key = { it.key.serialize() }) { session ->
                     Column(Modifier.fillMaxWidth().animateContentSize()) {
-                    Row(Modifier.fillMaxWidth().testTag("session-row:${session.key.provider}:${session.key.sessionId}").clickable { open(session) }.padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().testTag("session-row:${session.key.provider}:${session.key.sessionId}").then(if (highlight && selected?.key == session.key) Modifier.background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(12.dp)) else Modifier).clickable { open(session) }.padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         CharacterAvatar(apis.getValue(session.key.origin), session, 48.dp)
                         Column(Modifier.weight(1f)) {
                             // Não lida: título, personagem e linha de status em negrito, como num chat.
@@ -405,7 +410,9 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                     }
                 }
             }
-        } else {
+    }
+    val conversationContent: @Composable ColumnScope.(SessionItem, ReadingState) -> Unit = { selected, state ->
+        state.error?.let { error -> Text(stringResource(readingErrorResource(error)), color = MaterialTheme.colorScheme.error) }
             Spacer(Modifier.height(1.dp))
             if (selected.agentId == null) Text(stringResource(Res.string.history_read_only))
             if (!state.terminalAllowed) Text(stringResource(Res.string.terminal_blocked))
@@ -562,10 +569,17 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                 )
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                     val attachLabel = stringResource(Res.string.attach_files)
+                    val canSend = enabled && !composer.loading && !composer.sending && composer.unavailable.isEmpty() && (composer.draft.text.isNotBlank() || composer.draft.attachments.isNotEmpty())
+                    fun send() { stickToEnd(); controller.messages.send(agentId) }
                     TextField(
                         composer.draft.text,
                         { controller.messages.edit(text = it) },
-                        Modifier.weight(1f).testTag("message-input"),
+                        Modifier.weight(1f).testTag("message-input").onPreviewKeyEvent { event ->
+                            if (platformSendsOnEnter() && event.type == KeyEventType.KeyDown && event.key == Key.Enter && !event.isShiftPressed) {
+                                if (canSend) send()
+                                true
+                            } else false
+                        },
                         enabled = !composer.loading,
                         label = { Text(stringResource(Res.string.message_text)) },
                         supportingText = if (composer.draft.text.length >= 18000) { { Text("${composer.draft.text.length}/20000") } } else null,
@@ -589,11 +603,51 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                         }
                     }
                     val sendLabel = stringResource(Res.string.send_message)
-                    FilledIconButton(onClick = { if (agentId != null) { stickToEnd(); controller.messages.send(agentId) } }, enabled = enabled && !composer.loading && !composer.sending && composer.unavailable.isEmpty() && (composer.draft.text.isNotBlank() || composer.draft.attachments.isNotEmpty()), modifier = Modifier.testTag("message-send").semantics { contentDescription = sendLabel }) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null) }
+                    FilledIconButton(onClick = ::send, enabled = canSend, modifier = Modifier.testTag("message-send").semantics { contentDescription = sendLabel }) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null) }
                 }
                 }
             }
+    }
+    BoxWithConstraints {
+    if (maxWidth >= 840.dp) {
+        PlatformSearchShortcut(enabled = true) { searchOpen = true }
+        Row(Modifier.fillMaxSize()) {
+            Scaffold(Modifier.width(360.dp).fillMaxHeight(), topBar = { listTopBar(sessionsStateWide) },
+                floatingActionButton = { if (selected != null || filter != null || apis.size == 1) castFab() }) { padding ->
+                Column(Modifier.fillMaxSize().padding(padding).background(MaterialTheme.colorScheme.background).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    castStatus()
+                    listContent(sessionsStateWide, true)
+                }
+            }
+            VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            if (selected == null) {
+                Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+                        Text(stringResource(Res.string.select_conversation), Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                    }
+                }
+            } else {
+                Scaffold(Modifier.weight(1f).fillMaxHeight(), topBar = { conversationTopBar(selected, false) }) { padding ->
+                    Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
+                        Column(Modifier.widthIn(max = 840.dp).fillMaxSize().imePadding().background(if (MaterialTheme.colorScheme.background.luminance() < 0.5f) MaterialTheme.colorScheme.surfaceContainerLowest else MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            conversationContent(selected, conversationState!!)
+                        }
+                    }
+                }
+            }
         }
+    } else {
+    Scaffold(floatingActionButton = { if (selected != null || filter != null || apis.size == 1) castFab() }, topBar = {
+        if (selected == null) listTopBar(state) else conversationTopBar(selected, true)
+    }) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding).imePadding().background(if (selected == null) MaterialTheme.colorScheme.background else if (MaterialTheme.colorScheme.background.luminance() < 0.5f) MaterialTheme.colorScheme.surfaceContainerLowest else MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            castStatus()
+            if (selected == null) {
+                state.error?.let { error -> Text(stringResource(readingErrorResource(error)), color = MaterialTheme.colorScheme.error) }
+                listContent(state, false)
+            } else conversationContent(selected, state)
+        }
+    }
     }
     }
     }
