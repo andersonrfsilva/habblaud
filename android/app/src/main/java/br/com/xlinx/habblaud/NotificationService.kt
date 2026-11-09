@@ -26,7 +26,6 @@ import kotlinx.coroutines.*
 class NotificationService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null
-    private val apis = mutableListOf<HabblaudApi>()
     private var multipleServers = false
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -52,42 +51,7 @@ class NotificationService : Service() {
     }
 
     private suspend fun watch() {
-        val store = LocalStateStore(applicationContext)
-        val origins = store.servers().filter { UrlPolicy.origin(it) == it }
-        if (origins.isEmpty() || !store.notificationsEnabled()) { stopSelf(); return }
-        multipleServers = origins.size > 1
-        coroutineScope {
-            origins.map { origin -> launch {
-                val api = HabblaudApi(origin)
-                synchronized(apis) { apis.add(api) }
-                try {
-                    val sessions = SessionRepository(api)
-                    val streams = ConversationRepository(api)
-                    var previous: Map<SessionKey, AgentWatch>? = null
-                    while (currentCoroutineContext().isActive) {
-                        var unauthorized = false
-                        streams.stream("/api/stream").collect { event ->
-                            if (event is StreamEvent.Failure && event.status == 401) unauthorized = true
-                            // O snapshot depois de uma reconexão compara com o último antes da queda: o que mudou nela também avisa.
-                            if (event is StreamEvent.Data && event.type == "snapshot") {
-                                val current = sessions.snapshot(event.data)
-                                previous?.let { before ->
-                                    val (permission, done) = store.notifyEvents()
-                                    agentEvents(before, current).filter { if (it is AgentEvent.Permission) permission else done }.forEach(::notify)
-                                }
-                                previous = watchOf(current)
-                            }
-                        }
-                        // Fim do stream: login vencido (401) ou erro definitivo. Sem login, para; senão tenta de novo daqui a pouco.
-                        if (unauthorized) return@launch
-                        delay(30_000)
-                    }
-                } finally {
-                    synchronized(apis) { apis.remove(api) }
-                    api.close()
-                }
-            } }.joinAll()
-        }
+        watchAlerts(LocalStateStore(applicationContext), onServers = { multipleServers = it > 1 }, notify = ::notify)
         if (currentCoroutineContext().isActive) stopSelf()
     }
 
@@ -100,7 +64,6 @@ class NotificationService : Service() {
 
     override fun onDestroy() {
         scope.cancel()
-        synchronized(apis) { apis.forEach { it.close() }; apis.clear() }
         super.onDestroy()
     }
 
