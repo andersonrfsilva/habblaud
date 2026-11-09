@@ -180,6 +180,7 @@
     <string name="thinking_max">Máximo</string>
     <string name="shake">Shake (liberar contexto)</string>
     <string name="shake_short">Shake</string>
+    <string name="shake_confirm">Fazer shake e liberar o contexto desta sessão?</string>
     <string name="command_pending">%1$s: enviando…</string>
     <string name="command_sent">%1$s: confirmado pela sessão.</string>
     <string name="command_failed">%1$s: a sessão recusou.</string>

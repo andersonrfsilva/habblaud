@@ -15,6 +15,8 @@ import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.click
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.swipeDown
 import androidx.compose.ui.test.swipeUp
 import androidx.compose.ui.test.SemanticsMatcher
@@ -271,6 +273,25 @@ class FixtureUiInstrumentedTest {
         compose.onNodeWithText("Acrescentar agora").assertDoesNotExist()
         compose.onNodeWithText("Limites da entrega").assertDoesNotExist()
         compose.onNodeWithText(text(R.string.window_truncated)).assertDoesNotExist()
+    }
+
+    @Test fun longPressOnContextRingAsksBeforeShake() {
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        await(R.string.message_text)
+        compose.onNodeWithContentDescription(text(R.string.back_sessions)).performClick()
+        compose.waitUntil(15_000) { compose.onAllNodes(hasText("caderno · trabalhando")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("caderno · trabalhando").performClick()
+        val ring = androidx.compose.ui.test.hasContentDescription("Contexto em uso", substring = true)
+        compose.waitUntil(15_000) { compose.onAllNodes(ring).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(ring).performTouchInput { click() }
+        compose.onNodeWithText(text(R.string.shake_confirm)).assertDoesNotExist()
+        compose.onNode(ring).performTouchInput { longClick() }
+        compose.onNodeWithText(text(R.string.shake_confirm)).assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.cancel)).performClick()
+        compose.onNodeWithText(text(R.string.shake_confirm)).assertDoesNotExist()
+        compose.onNode(ring).performTouchInput { longClick() }
+        compose.onNodeWithText(text(R.string.confirm)).performClick()
+        compose.waitUntil(15_000) { compose.onAllNodes(hasText("Shake:", substring = true)).fetchSemanticsNodes().isNotEmpty() }
     }
 
     @Test fun deliveryBannerDisappearsOnlyAfterDelivery() {

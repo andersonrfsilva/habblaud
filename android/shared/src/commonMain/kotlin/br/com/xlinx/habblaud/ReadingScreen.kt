@@ -11,6 +11,8 @@ import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -64,6 +66,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -476,6 +479,16 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                 val agentId = selected.agentId
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 val enabled = agentId != null && selected.canMessage && state.messagesAllowed && state.messageGuard && state.connection == "connected"
+                // Toque longo no anel de contexto pede confirmação e manda o shake (o mesmo do menu da sessão).
+                var confirmShake by remember(selected.key) { mutableStateOf(false) }
+                val canShake = enabled && selected.key.provider == "omp"
+                if (confirmShake && canShake) AlertDialog(
+                    onDismissRequest = { confirmShake = false },
+                    title = { Text(stringResource(Res.string.shake)) },
+                    text = { Text(stringResource(Res.string.shake_confirm)) },
+                    confirmButton = { TextButton(onClick = { confirmShake = false; controller.messages.shake(agentId!!) }) { Text(stringResource(Res.string.confirm)) } },
+                    dismissButton = { TextButton(onClick = { confirmShake = false }) { Text(stringResource(Res.string.cancel)) } }
+                )
                 composer.progress?.let { Text(stringResource(Res.string.attachment_progress, it), style = MaterialTheme.typography.bodySmall) }
                 if (!state.messagesAllowed) ChatBanner(stringResource(Res.string.messages_blocked))
                 else if (!state.messageGuard) ChatBanner(stringResource(Res.string.message_guard_required))
@@ -538,7 +551,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                         leadingIcon = {
                             IconButton(onClick = { pickerKey = selected.key; picker() }, enabled = !composer.loading && composer.draft.attachments.size < MAX_ATTACHMENTS, modifier = Modifier.semantics { contentDescription = attachLabel }) { Icon(Icons.Default.AttachFile, contentDescription = null) }
                         },
-                        trailingIcon = if (selected.contextTokens != null && selected.contextWindow != null) { { ContextRing(selected.contextTokens, selected.contextWindow) } } else null,
+                        trailingIcon = if (selected.contextTokens != null && selected.contextWindow != null) { { ContextRing(selected.contextTokens, selected.contextWindow, if (canShake) { { confirmShake = true } } else null) } } else null,
                     )
                     if (selected.key.provider == "omp" && selected.status in setOf("working", "busy", "shell")) {
                         val stopLabel = stringResource(Res.string.stop_agent)
@@ -562,20 +575,27 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
     }
 }
 
-/** Anel do contexto em uso (tokens / janela do modelo). */
+/** Anel do contexto em uso (tokens / janela do modelo). Com [onLongPress], o toque longo pede o shake. */
 @Composable
-private fun ContextRing(tokens: Long, window: Long) {
+private fun ContextRing(tokens: Long, window: Long, onLongPress: (() -> Unit)?) {
     val fraction = (tokens.toFloat() / window).coerceIn(0f, 1f)
     val pct = (fraction * 100).toInt()
     val color = when { pct >= 80 -> MaterialTheme.colorScheme.error; pct >= 50 -> warningColor(); else -> MaterialTheme.colorScheme.primary }
     val label = stringResource(Res.string.context_usage, pct, tokens / 1000, window / 1000)
-    CircularProgressIndicator(
-        progress = { fraction },
-        modifier = Modifier.size(20.dp).semantics { contentDescription = label },
-        color = color,
-        trackColor = MaterialTheme.colorScheme.outlineVariant,
-        strokeWidth = 2.5.dp,
-    )
+    val shakeLabel = stringResource(Res.string.shake)
+    val haptics = LocalHapticFeedback.current
+    // Área de toque de 40 dp em volta do anel de 20 dp; o leitor de tela ganha a mesma ação como "ação de toque longo".
+    Box(Modifier.size(40.dp).then(if (onLongPress == null) Modifier else Modifier
+        .pointerInput(onLongPress) { detectTapGestures(onLongPress = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onLongPress() }) }
+        .semantics { onLongClick(label = shakeLabel) { onLongPress(); true } }), contentAlignment = Alignment.Center) {
+        CircularProgressIndicator(
+            progress = { fraction },
+            modifier = Modifier.size(20.dp).semantics { contentDescription = label },
+            color = color,
+            trackColor = MaterialTheme.colorScheme.outlineVariant,
+            strokeWidth = 2.5.dp,
+        )
+    }
 }
 
 @Composable
