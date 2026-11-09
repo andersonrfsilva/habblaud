@@ -3,7 +3,7 @@ import { basename, join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { setQuiet } from '../log';
 import { tempDir } from '../test/fixtures';
-import { accountIds, codexDirsRefused, discoverClaudeDirs, detectAccounts, isClaudeDir, isCodexHome, parseClaudeAliases, shortcutsByDir } from './detect';
+import { accountIds, codexDirsRefused, discoverClaudeDirs, detectAccounts, isClaudeDir, isCodexHome, parseClaudeAliases, parseToolAliases, shortcutsByDir } from './detect';
 import { AccountsService } from './service';
 import { rollover, STALE_AFTER_MS, usageFromCache, usageFromWindows, UsageStore } from './usage';
 
@@ -13,6 +13,9 @@ setQuiet(true);
 const H = resolve('/Users/fulano');
 
 describe('aliases de shell', () => {
+  it('ZeroClaw não inventa aliases de conta', () => {
+    expect(parseToolAliases("alias z='zeroclaw'", H, 'zeroclaw')).toEqual([]);
+  });
   it('só linhas alias que invocam o claude; CLAUDE_CONFIG_DIR expandido', () => {
     const rc = [
       'export OPENAI_API_KEY="sk-segredo"',

@@ -25,6 +25,31 @@ cópia da chamada `Agent` do pai (mesmo `tool_use` id do `.meta.json`) e o resul
 com a instrução do fork. O parser ignora essa cópia — senão o resultado herdado parece o fim do subagente e o fork
 nunca entra no escritório — e usa o texto depois de `</fork-boilerplate>` como o pedido dele.
 
+## ZeroClaw (opt-in)
+
+`HABBLAUD_ZEROCLAW_URL=http://127.0.0.1:42617` liga a fonte do gateway ZeroClaw Gluon.
+Ausente ou vazia, não abre rede, temporizadores nem diretórios dessa fonte. A URL aceita somente
+HTTP em loopback, sem credenciais, query, fragmento ou caminho. Este desenho usa `require_pairing=false`
+no gateway isolado do tenant, sem porta publicada. Não existe variável de token ZeroClaw.
+
+O estado fica em `<HABBLAUD_DATA_DIR>/zeroclaw/` (por padrão `~/.habblaud/zeroclaw/`):
+`open-sessions.json` guarda intenções de sessões abertas; `sessions.json` guarda metadados locais;
+`sessions/<UUID>.jsonl` preserva prompts, deltas e ferramentas no formato de leitura Claude.
+Somente intenções explícitas são retomadas. Inventário HTTP e arquivo histórico não são presença.
+Uma sessão aparece no escritório apenas com socket confirmado, gateway alcançável e projeto local conhecido.
+O histórico HTTP não informa projeto nem recupera ferramentas; sessões externas podem não ter sala.
+
+Reconexão conserva UUID e alias, usa backoff e nunca reenvia prompts. Quedas durante turnos deixam
+aviso de lacuna; `/state` reconcilia se ainda há inferência, sem inventar resposta, sucesso ou ferramentas.
+Fechar socket não interrompe inferência. STOP usa aborto HTTP; `no_active_response` confirma término
+mesmo sem frame WS. Tokens/custos do frame `done` não alimentam contexto nem uso da conta.
+O JSONL permanece legível com gateway offline e depois do fechamento da sessão.
+
+Esta fonte expõe transporte interno e histórico. Mensagens/controles, elenco e interface ZeroClaw
+dependem dos planos 070, 071 e 072; esta etapa não habilita envio pela UI.
+Para rollback, remova `HABBLAUD_ZEROCLAW_URL` e preserve a pasta `zeroclaw/`.
+
+
 ## Esperando o shell
 
 O status `shell` (ver `shared/types.ts`) é o agente que terminou o turno com comando(s) rodando em segundo

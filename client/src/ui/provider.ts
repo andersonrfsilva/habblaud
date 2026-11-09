@@ -9,7 +9,7 @@ import { shortcutHint } from './model';
 import { isNeutralBrand, tr, unbrand } from '../../../shared/i18n';
 
 /** Nome de cada ferramenta como aparece nos textos ("Agente" nas três, no modo sem marca). */
-export const PROVIDER_NAME: Record<Provider, string> = { claude: unbrand('Claude Code'), codex: unbrand('Codex'), omp: unbrand('omp') };
+export const PROVIDER_NAME: Record<Provider, string> = { claude: unbrand('Claude Code'), codex: unbrand('Codex'), omp: unbrand('omp'), zeroclaw: unbrand('ZeroClaw') };
 
 /** Ferramenta de um agente, conta, sessão ou pedido (ausente = Claude Code). */
 export function providerOf(x: { provider?: Provider } | null | undefined): Provider {

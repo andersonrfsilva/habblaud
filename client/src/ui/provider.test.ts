@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentInfo, OfficeSnapshot } from '../../../shared/types';
+import { setNeutralBrand } from '../../../shared/i18n';
 import {
   accountChipLabel,
   accountProvider,
@@ -12,10 +13,21 @@ import {
   looksLikeCodexId,
   looksLikeOmpId,
   providerOf,
+  PROVIDER_NAME,
   showsProviderTag,
 } from './provider';
 
 describe('ferramenta (Claude Code ou Codex)', () => {
+  it('nome ZeroClaw e selo no modo sem marca', () => {
+    expect(PROVIDER_NAME.zeroclaw).toBe('ZeroClaw');
+    expect(providerOf({ provider: 'zeroclaw' })).toBe('zeroclaw');
+    setNeutralBrand(true);
+    try {
+      expect(showsProviderTag('zeroclaw')).toBe(false);
+    } finally {
+      setNeutralBrand(false);
+    }
+  });
   it('provider ausente = Claude Code', () => {
     expect(providerOf(undefined)).toBe('claude');
     expect(providerOf({})).toBe('claude');
