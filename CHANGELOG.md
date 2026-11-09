@@ -17,7 +17,9 @@ do meio (0.**3**.0).
   No celular, a navegação continua em uma coluna e Enter continua quebrando linha.
 - **Zaplaud:** versão para Linux e macOS numa janela, com as mesmas telas do celular, anexos locais e navegação
   pela tecla Esc. O login usa o chaveiro do sistema; sem chaveiro, vale só até fechar o aplicativo. Execute
-  `./gradlew :desktop:run` em `android/`. Notificações e pacotes de instalação vêm depois.
+  `./gradlew :desktop:run` em `android/`. Pacotes de instalação vêm depois.
+- **Zaplaud:** no desktop, avisos de aprovação, pergunta e fim de turno com a janela em segundo plano.
+  No Linux, a ação "Abrir" leva à sessão do agente. Os avisos funcionam enquanto o aplicativo estiver aberto.
 - **Zaplaud:** o ▶ "Retomar conversa" aparece em toda sessão omp encerrada com pasta e oferece **Novo** (nome e
   visual sorteados) além dos contatos livres da pasta. `POST /api/cast/new` aceita `session` para retomar a conversa.
 - **Zaplaud:** toque longo no anel de contexto do campo de mensagem pergunta se quer fazer shake (liberar contexto) e,

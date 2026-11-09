@@ -14,6 +14,7 @@ class NotificationPlatform(
     val setEnabled: (Boolean) -> Unit,
     val openBackgroundSettings: () -> Unit,
     val setEnabledFromSettings: (Boolean, (Boolean) -> Unit) -> Unit,
+    val whileOpenOnly: Boolean = false,
 )
 val LocalNotificationPlatform = staticCompositionLocalOf<NotificationPlatform> {
     error("Android notification integration must be installed by the host")

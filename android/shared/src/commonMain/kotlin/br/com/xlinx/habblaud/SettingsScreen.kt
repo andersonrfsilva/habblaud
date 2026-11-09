@@ -192,7 +192,7 @@ fun SettingsScreen(apis: Map<String, HabblaudApi>, store: LocalStateStore, onClo
             if (notificationsPlatform.available) {
             Section(Res.string.notifications)
             notifications?.let { on ->
-                SwitchRow(stringResource(Res.string.settings_notifications_on), on) {
+                SwitchRow(stringResource(if (notificationsPlatform.whileOpenOnly) Res.string.settings_notifications_open else Res.string.settings_notifications_on), on) {
                     notifications = !on
                     scope.launch { store.setNotificationsEnabled(!on) }
                     notificationsPlatform.setEnabledFromSettings(!on) { granted ->
@@ -205,8 +205,10 @@ fun SettingsScreen(apis: Map<String, HabblaudApi>, store: LocalStateStore, onClo
                     SwitchRow(stringResource(Res.string.settings_notify_done), done, enabled = on) { events = permission to !done; scope.launch { store.setNotifyEvents(permission, !done) } }
                 }
             }
-            TextButton(onClick = notificationsPlatform.openBackgroundSettings, Modifier.padding(horizontal = 8.dp)) {
-                Text(stringResource(Res.string.background_settings))
+            if (!notificationsPlatform.whileOpenOnly) {
+                TextButton(onClick = notificationsPlatform.openBackgroundSettings, Modifier.padding(horizontal = 8.dp)) {
+                    Text(stringResource(Res.string.background_settings))
+                }
             }
 
             }

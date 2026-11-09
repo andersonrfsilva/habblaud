@@ -214,6 +214,7 @@
     <string name="settings_deliver_default">Modo de envio padrão (omp)</string>
     <string name="settings_per_session">Cada sessão lembra a visualização e o modo escolhidos no menu dela; estes valem para as sessões que ainda não têm escolha.</string>
     <string name="settings_notifications_on">Avisar com o app fechado</string>
+    <string name="settings_notifications_open">Avisar com a janela em segundo plano</string>
     <string name="settings_notify_permission">Pedidos de aprovação e perguntas</string>
     <string name="settings_notify_done">Turno concluído</string>
     <string name="settings_server">Servidores</string>
