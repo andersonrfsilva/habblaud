@@ -41,6 +41,9 @@
     <string name="open_sessions">Abertas</string>
     <string name="recent_sessions">Recentes</string>
     <string name="search_sessions">Buscar por título, projeto ou agente</string>
+    <string name="search_close">Fechar busca</string>
+    <string name="search_clear">Limpar busca</string>
+    <string name="search_no_match">Nenhuma sessão corresponde à busca.</string>
     <string name="reading_connecting">Conectando…</string>
     <string name="reading_connected">Conectado</string>
     <string name="reading_offline">Desconectado; conteúdo pode estar desatualizado.</string>
@@ -172,6 +175,7 @@
     <string name="thinking_max">Máximo</string>
     <string name="shake">Shake (liberar contexto)</string>
     <string name="shake_short">Shake</string>
+    <string name="shake_confirm">Fazer shake e liberar o contexto desta sessão?</string>
     <string name="command_pending">%1$s: enviando…</string>
     <string name="command_sent">%1$s: confirmado pela sessão.</string>
     <string name="command_failed">%1$s: a sessão recusou.</string>

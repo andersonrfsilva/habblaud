@@ -151,6 +151,7 @@ PY
     adb shell input text "$2"
     adb shell input keyevent 4
 }
+open_search() { adb shell input swipe 540 700 540 1800 600; wait_text 'Fechar busca'; }
 shot() { sleep 1; adb exec-out screencap -p >"$OUT/$1-$THEME.png"; echo "$OUT/$1-$THEME.png"; }
 # `pm clear` também tira a permissão de notificações; sem ela, o pedido do sistema cobre a lista depois do login.
 reset_app() { adb shell pm clear "$PACKAGE" >/dev/null; adb shell pm grant "$PACKAGE" android.permission.POST_NOTIFICATIONS 2>/dev/null || true; adb shell am start -n "$PACKAGE/.MainActivity" >/dev/null; wait_text 'Endereço do servidor'; }
@@ -159,6 +160,7 @@ fill_login() {
     enter_text 'Usuário' android-test
     enter_text 'Senha' "$2"
     tap 'Entrar'
+    tap Confirmar
 }
 fixture_check() {
     local expected_messages=$1 expected_uploads=$2 expected_files=$3
@@ -274,20 +276,21 @@ wait_text 'Aprovação pendente'
 shot sessoes-abertas
 tap Recentes
 shot sessoes-recentes
+open_search
 tap 'Buscar por título, projeto ou agente'; adb shell input text busca-impossivel; adb shell input keyevent 4
-wait_text 'Nenhuma sessão encontrada.'
+wait_text 'Nenhuma sessão corresponde à busca.'
 shot busca-vazia
-tap 'Buscar por título, projeto ou agente'; adb shell input keyevent KEYCODE_MOVE_END
-for _ in $(seq 1 20); do adb shell input keyevent KEYCODE_DEL KEYCODE_FORWARD_DEL; done
-adb shell input keyevent 4
+tap 'Limpar busca'
+shot busca-aberta
+tap 'Fechar busca'
 tap Abertas
-tap 'projeto · parado'
-wait_text 'Bash(echo fixture)'
+tap 'Ana Fictícia · projeto · parado'
+wait_text 'Resposta fictícia'
 shot conversa-fim
-tap 'Pensando…'
+tap 'Pensando… (1)'
 wait_text $'Primeira linha do pensamento.\nSegunda linha do pensamento.\nTerceira linha do pensamento.'
 shot pensamento-expandido
-tap 'Pensando…'
+tap 'Pensando… (1)'
 for _ in $(seq 1 18); do adb shell input swipe 500 500 500 1850 150; done
 shot conversa-topo
 wait_text 'Relatório fictício'
@@ -295,8 +298,8 @@ shot markdown-rico
 adb shell input swipe 500 1650 500 900 400
 shot markdown-detalhes
 tap 'Ir para o fim'
-wait_text 'Bash(echo fixture)'
-tap 'Bash(echo fixture)'
+wait_text 'Ferramentas (3)'
+tap 'Ferramentas (3)'
 adb shell input swipe 500 1750 500 900 400
 shot ferramenta-expandida
 tap 'Mensagem'
@@ -422,7 +425,7 @@ shot omp-historico-truncado
 tap 'Voltar às sessões'
 tap 'Chamar contato'
 wait_text 'Escolha um contato'
-shot elenco-personagem
+shot elenco-contato
 tap 'Caio Fictício'
 wait_text 'Escolha a pasta do projeto'
 shot elenco-pasta
@@ -432,9 +435,10 @@ shot elenco-aguardando
 printf 'cast-consume\n' >&3
 wait_text 'Pedido concluído.'
 tap 'Caio Fictício'
-wait_text 'Dispensar personagem'
-tap 'Dispensar personagem'
-wait_text 'Dispensar este personagem e fechar sua sessão no servidor?'
+tap Menu
+wait_text 'Dispensar contato'
+tap 'Dispensar contato'
+wait_text 'Dispensar este contato e fechar a sessão dele no servidor?'
 shot elenco-dispensar
 tap Confirmar
 wait_text 'Pedido enviado. Aguardando o servidor.'
@@ -442,6 +446,7 @@ printf 'cast-consume\n' >&3
 wait_text 'Pedido concluído.'
 tap 'Voltar às sessões'
 tap Recentes
+open_search
 enter_text 'Buscar por título, projeto ou agente' encerrada
 tap 'Conversa encerrada fictícia'
 wait_text 'Retomar conversa'
@@ -455,16 +460,18 @@ printf 'cast-consume\n' >&3
 wait_text 'Pedido concluído.'
 tap 'Voltar às sessões'
 tap Recentes
+tap 'Fechar busca'
+open_search
 enter_text 'Buscar por título, projeto ou agente' jardim
 tap 'Planejamento de jardim'
 tap 'Retomar conversa'
 wait_text 'Escolha um contato'
-shot elenco-retomar-personagem
+shot elenco-retomar-contato
 adb shell input keyevent 4
 reset_app
 fill_login http://127.0.0.1:14749 android-test
 wait_text Abertas
-tap 'projeto · parado'
+tap 'Ana Fictícia · projeto · parado'
 wait_text 'O servidor precisa ser atualizado para enviar mensagens.'
 shot modo-leitura
 kill "$FIXTURE_PID" "$READONLY_PID"

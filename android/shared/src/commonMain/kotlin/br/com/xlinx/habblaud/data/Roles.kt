@@ -38,6 +38,17 @@ fun providerLabel(id: String) = when (id) {
 /** "Provedor · modelo" para um id `provedor/modelo`; sem provedor, só o modelo. */
 fun modelLabel(model: String) = if ('/' in model) "${providerLabel(model.substringBefore('/'))} · ${model.substringAfter('/')}" else model
 
+/** Família do modelo curto da sessão (`claude-opus-5-5`, `gpt-5.5`, `gemini-3-pro`) para o símbolo junto do avatar. */
+fun modelBrand(model: String?): String? {
+    val m = model?.lowercase()?.substringAfterLast('/') ?: return null
+    return when {
+        m.startsWith("claude") -> "claude"
+        m.startsWith("gpt") || m.startsWith("codex") || Regex("^o\\d").containsMatchIn(m) -> "openai"
+        m.startsWith("gemini") -> "gemini"
+        else -> null
+    }
+}
+
 /**
  * Opções do seletor de um papel, agrupadas por provedor (em ordem alfabética) com o nome do modelo sem o provedor.
  * Some a variante `:batch` (API em lote, não serve para conversa) e a cópia datada (`-AAAAMMDD`) de um modelo que

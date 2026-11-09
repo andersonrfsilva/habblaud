@@ -68,10 +68,12 @@ export class CastLauncher {
   /**
    * "Novo": agente fora do elenco, numa sala livre. O escritório sorteia nome e visual (como numa sessão aberta à mão);
    * o id `novo-…` só serve para acompanhar a chamada, dispensar e encerrar por ociosidade como um personagem.
+   * Com `session`, retoma essa conversa do histórico (quando nenhum personagem livre trabalha na pasta).
    */
   startNew(raw: unknown): { job: CastJobInfo } | { status: number; error: string } {
     const body = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
     if (typeof body.room !== 'string' || (body.account !== undefined && typeof body.account !== 'string') || (body.prompt !== undefined && (typeof body.prompt !== 'string' || body.prompt.length > PROMPT_MAX || /^\s*-/.test(body.prompt)))) return { status: 422, error: tr('pedido inválido') };
+    if (body.session !== undefined && (typeof body.session !== 'string' || !/^[0-9a-f][0-9a-f-]{7,199}$/i.test(body.session))) return { status: 422, error: tr('pedido inválido') };
     const limit = this.limitError();
     if (limit) return limit;
     const room = normalizeCwd(body.room);
@@ -80,7 +82,7 @@ export class CastLauncher {
     const agentDir = this.opts.account(body.account as string | undefined);
     if (!agentDir) return { status: 422, error: tr('conta não encontrada') };
     const cast = `${NEW_CAST_PREFIX}${randomUUID().slice(0, 8)}`;
-    return { job: this.enqueue({ id: randomUUID(), op: 'start', cast, folder: room, agentDir, ...(body.prompt ? { prompt: body.prompt as string } : {}) }) };
+    return { job: this.enqueue({ id: randomUUID(), op: 'start', cast, folder: room, agentDir, ...(body.session ? { resume: body.session as string } : {}), ...(body.prompt ? { prompt: body.prompt as string } : {}) }) };
   }
   private limitError(): { status: number; error: string } | undefined {
     if (this.opts.max === undefined || this.openCount() < this.opts.max) return undefined;

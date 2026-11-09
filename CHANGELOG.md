@@ -12,6 +12,12 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Zaplaud:** o ▶ "Retomar conversa" aparece em toda sessão omp encerrada com pasta e oferece **Novo** (nome e
+  visual sorteados) além dos contatos livres da pasta. `POST /api/cast/new` aceita `session` para retomar a conversa.
+- **Zaplaud:** toque longo no anel de contexto do campo de mensagem pergunta se quer fazer shake (liberar contexto) e,
+  confirmado, envia o mesmo comando do menu da sessão. Só em sessões omp que aceitam mensagens.
+- **Zaplaud:** símbolo pequeno da família do modelo (Claude, OpenAI, Gemini) no canto do avatar da sessão, na lista e
+  no topo da conversa. Modelos de outras famílias ficam sem símbolo.
 - **Zaplaud:** conecta a vários servidores Habblaud ao mesmo tempo: uma lista com as sessões de todos, filtro por
   servidor, login e saída por servidor e notificações Android de todos. Atualizar mantém o login e os rascunhos do
   servidor atual. A migração descarta somente o cache antigo de conversas e preserva as marcas de leitura no iPad.
@@ -46,6 +52,16 @@ do meio (0.**3**.0).
   ferramentas mostram a hora do último evento (nas ferramentas, o último resultado também conta).
 - **Android:** o menu de modelo da sessão agrupa por provedor, com a versão mais nova primeiro, como o seletor dos
   papéis; o item do menu mostra o provedor do modelo atual.
+
+### Alterado
+
+- **Zaplaud:** botões e indicadores usam ícones Material no lugar de caracteres de texto.
+- **Zaplaud:** "Abertas" e "Recentes" usam um botão segmentado no lugar das abas.
+- **Zaplaud:** pontos de conexão e alertas de contexto e cota usam as cores do tema claro ou escuro.
+- **Zaplaud:** títulos longos na lista de sessões usam até duas linhas.
+- **Zaplaud:** ferramentas e pensamentos aparecem como linhas compactas com seta de expandir, sem competir com as respostas.
+- **Zaplaud:** a busca da lista fica oculta, aparece com uma puxada longa no topo e permanece fixa enquanto a lista rola. Sem resultados, o app oferece "Limpar busca".
+- **Zaplaud:** o campo de mensagem é uma pílula com o anexo e o uso de contexto dentro dela.
 
 ### Corrigido
 

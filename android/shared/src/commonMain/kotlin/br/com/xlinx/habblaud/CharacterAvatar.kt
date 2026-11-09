@@ -25,10 +25,27 @@ import br.com.xlinx.habblaud.data.Avatar
 import br.com.xlinx.habblaud.data.AvatarCache
 import br.com.xlinx.habblaud.data.HabblaudApi
 import br.com.xlinx.habblaud.data.SessionItem
+import br.com.xlinx.habblaud.data.modelBrand
+import androidx.compose.material3.Icon
+import androidx.compose.ui.unit.dp
 
+/** Avatar da sessão; a partir de 32 dp, com o símbolo pequeno da família do modelo no canto inferior direito. */
 @Composable
 internal fun CharacterAvatar(api: HabblaudApi, session: SessionItem, size: Dp) {
-    CharacterAvatar(api, session.avatar, session.characterName ?: session.title, size)
+    val brand = if (size >= 32.dp) modelBrand(session.model) else null
+    if (brand == null) return CharacterAvatar(api, session.avatar, session.characterName ?: session.title, size)
+    val (icon, tint) = when (brand) {
+        "claude" -> Res.drawable.ic_model_claude to Color(0xFFD97757)
+        "gemini" -> Res.drawable.ic_model_gemini to Color(0xFF8E75B2)
+        else -> Res.drawable.ic_model_openai to MaterialTheme.colorScheme.onSurface
+    }
+    val badge = size * 0.42f
+    Box(Modifier.size(size)) {
+        CharacterAvatar(api, session.avatar, session.characterName ?: session.title, size)
+        Box(Modifier.align(Alignment.BottomEnd).size(badge).clip(CircleShape).background(MaterialTheme.colorScheme.surface).testTag("model-badge:$brand"), contentAlignment = Alignment.Center) {
+            Icon(painterResource(icon), contentDescription = session.model, Modifier.size(badge * 0.7f), tint = tint)
+        }
+    }
 }
 
 @Composable

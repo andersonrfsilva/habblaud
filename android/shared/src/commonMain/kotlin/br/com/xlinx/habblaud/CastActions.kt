@@ -130,8 +130,9 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
     // Qualquer personagem livre que trabalha na pasta pode continuar a conversa omp encerrada; o dono vem primeiro.
     val eligible = if (selected?.project?.startsWith('/') == true) free.filter { it.rooms.isEmpty() || selected.project in it.rooms } else emptyList()
     val resumeChoices = eligible.sortedByDescending { it == current }
+    // "Novo" também retoma: o ▶ não depende de haver personagem livre na pasta.
     val resume = selected != null && selected.agentId == null && selected.key.provider == "omp" &&
-        selected.key.sessionId.matches(sessionIdPattern) && resumeChoices.isNotEmpty()
+        selected.key.sessionId.matches(sessionIdPattern) && selected.project?.startsWith('/') == true
     val dismiss = selected?.agentId != null && selected.castOpened && (current != null || newAgent)
     val actions: @Composable () -> Unit = {
         if (availability == "available" && resume) ActionIcon(Res.string.cast_resume, Icons.Default.PlayArrow, !sending) { choice = null; dialog = "resume-select" }
@@ -194,6 +195,12 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
     }, confirmButton = {}, dismissButton = { TextButton(onClick = { dialog = "" }) { Text(stringResource(Res.string.cancel)) } })
     if (dialog == "resume-select") AlertDialog(onDismissRequest = { dialog = "" }, title = { Text(stringResource(Res.string.cast_select_character)) }, text = {
         Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+            // "Novo": agente fora do elenco, com nome e visual sorteados pelo servidor, retoma a conversa.
+            val newLabel = stringResource(Res.string.cast_new)
+            Row(Modifier.fillMaxWidth().clickable { choice = CastChoice("", newLabel, emptyList(), null); dialog = "resume" }.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) { Icon(painterResource(Res.drawable.ic_person_add), contentDescription = null) }
+                Text(newLabel)
+            }
             resumeChoices.forEach { member ->
                 Row(Modifier.fillMaxWidth().clickable { choice = member; dialog = "resume" }.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     CharacterAvatar(api, member.avatar, member.name, 40.dp)
@@ -207,6 +214,7 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
     }, confirmButton = {
         TextButton(enabled = !sending, onClick = {
             if (dialog == "dismiss") selected?.agentId?.let { submit("/api/agents/${it.encodeURLPathPart()}/dismiss", buildJsonObject {}) }
+            else if (choice!!.id.isEmpty()) submit("/api/cast/new", buildJsonObject { put("room", selected!!.project); put("session", selected.key.sessionId); put("account", selected.key.account) })
             else submit("/api/cast/${choice!!.id.encodeURLPathPart()}/start", buildJsonObject { put("mode", "resume"); put("room", selected!!.project); put("session", selected.key.sessionId); put("account", selected.key.account) })
         }) { Text(stringResource(Res.string.cast_confirm)) }
     }, dismissButton = { TextButton(onClick = { dialog = "" }) { Text(stringResource(Res.string.cancel)) } })
