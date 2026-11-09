@@ -45,8 +45,8 @@ Fechar socket não interrompe inferência. STOP usa aborto HTTP; `no_active_resp
 mesmo sem frame WS. Tokens/custos do frame `done` não alimentam contexto nem uso da conta.
 O JSONL permanece legível com gateway offline e depois do fechamento da sessão.
 
-Esta fonte expõe transporte interno e histórico. Mensagens/controles, elenco e interface ZeroClaw
-dependem dos planos 070, 071 e 072; esta etapa não habilita envio pela UI.
+Esta fonte compartilha o conector com a entrega de mensagens e controles descrita abaixo.
+Elenco e interface ZeroClaw dependem dos planos 071 e 072; o transporte não habilita sozinho esses controles na UI.
 Para rollback, remova `HABBLAUD_ZEROCLAW_URL` e preserve a pasta `zeroclaw/`.
 
 
@@ -192,7 +192,7 @@ O auxiliar no host (`npm run codex:bridge`) abre sessões omp em `tmux` como `hb
 | `GET /api/messages/:id` | (página) situação da mensagem (`OutboxMessage`: `queued` \| `sent` \| `delivered` \| `failed`) |
 | `POST /api/mod/inbox` | (plugin `habblaud-mensagens`) `{session, account?}`: marca a presença da sessão e entrega `{messages: InboxMessage[]}` |
 | `POST /api/mod/inbox/ack` | (plugin) `{session, results: [{id, ok, error?}]}`: confirma cada mensagem entregue (ou a falha) |
-| `POST /api/messages/control` | (página, só omp) `{agentId, model?, thinking?, stop?, resume?, expectedSessionId?: string}`: controla a sessão viva; mesmas respostas de `POST /api/messages` |
+| `POST /api/messages/control` | (página) `{agentId, model?, thinking?, command?, stop?, resume?, expectedSessionId?: string}`: controles OMP; ZeroClaw aceita somente `{stop:true}` ou `{command:'new'}` isolados; mesmas respostas de `POST /api/messages` |
 | `POST /api/codex/events` | (hook do Codex) `{account?, codexHome?, event}`: `200 {ok}`; só pelo computador (a porta remota recebe 403) |
 | `POST /api/codex/bridge/poll` e `/ack` | (auxiliar `npm run codex:bridge`) busca as mensagens para o Codex e confirma cada entrega (`{results: [{id, ok, error?}]}`: `200 {ok: true}`); só pelo computador |
 | `GET /api/codex/bridge/files/:jobId/attachments/:fileId` | bytes de anexo de mensagem ou spawn para o auxiliar; somente arquivo pertencente a um job enviado e ainda vivo, com a mesma proteção local do poll/ack; nunca pela allowlist remota de arquivos |
@@ -439,38 +439,72 @@ ou resposta inválidos), 404 (pedido desconhecido, já entregue ou expirado), 40
 
 ## Mensagens pelo escritório
 
-A página manda texto a um agente principal (`POST /api/messages`, pela gaveta do agente ou pelo rodapé do terminal) e
-o plugin `habblaud-mensagens` da sessão o busca (`POST /api/mod/inbox`, a cada 2 s) e o entrega com
+A página manda texto a um agente principal (`POST /api/messages`, pela gaveta do agente ou pelo rodapé do terminal).
+No caminho do plugin, `habblaud-mensagens` busca o pedido (`POST /api/mod/inbox`, a cada 2 s) e o entrega com
 `$.prompt.submit({ text, asUser: true })`: o modelo lê como se você tivesse digitado. Depois confirma
 (`POST /api/mod/inbox/ack`). Detalhes do plugin em [`mod/README.md`](../mod/README.md).
 
 `messages/registry.ts` (`MessageRegistry`):
 
 - **presença:** cada pergunta do plugin marca a sessão (o principal com aquele `sessionId`, e a `account` igual se
-  vier); vista há até 10 s, o agente sai no snapshot com `canMessage: true`. O snapshot só muda quando a presença muda;
+  vier); vista há até 10 s, o agente sai no snapshot com `canMessage: true`. ZeroClaw usa o socket compartilhado da
+  fonte: exige sessão presente, conectada, continuidade conhecida e não estar em dispensa/substituição.
+  O snapshot só muda quando a presença muda;
 - **fila:** até 5 mensagens em aberto por agente (429) e 20.000 caracteres por mensagem; o texto vai como foi digitado,
   nunca aparece nas respostas para a página nem no log, e é descartado quando a mensagem se resolve;
-- **estados:** `queued` → `sent` (o plugin buscou) → `delivered` ou `failed`. `queued` sem ser buscada em 60 s, `sent`
-  sem confirmação em 30 s ou agente que saiu = `failed`, com o motivo. `delivered` significa aceitação pelo runtime,
-  não leitura pelo modelo nem conclusão do trabalho. Resolvidas ficam 10 min para o `GET`;
+- **estados:** admissão síncrona retorna `201` com cópia `queued`; a consulta pode já mostrar `sent`, `delivered` ou
+  `failed`. No caminho do plugin, `sent` significa que ele buscou e `delivered` exige confirmação do runtime.
+  No ZeroClaw, `sent` começa no despacho e `delivered` significa somente aceitação pelo buffer local do socket,
+  não confirmação do gateway, aplicação do steering, leitura pelo modelo nem resposta concluída.
+  `queued` expira em 60 s e `sent` em 30 s; saída ou troca de sessão também falha pendências.
+  Resolvidas ficam 10 min para o `GET`, sempre sem texto, conteúdo ou caminhos dos anexos;
 - entregue: atividade ✉️ "Mensagem pelo Habblaud" no agente (o detalhe mascarado e cortado); agentes do demo recebem
   mensagens fictícias, entregues em ~1 s, sem sessão real.
 
-No `POST /api/messages`, `deliverAs` é opcional e aceito somente para OMP: `aside`, `followUp` ou `steer`.
+No `POST /api/messages`, `deliverAs` é opcional para OMP e ZeroClaw; os demais provedores não aceitam o campo.
 Omissão preserva `followUp` para clientes antigos. Com OMP livre, qualquer modo inicia um turno; ocupado, `aside`
 entra no próximo limite de etapa sem cortar o lote comum de ferramentas, salvo esperas interruptíveis `wait`/`vibe_wait`;
 `followUp` espera o fim do turno; `steer` pode pular ferramentas pendentes, mas não desfaz alterações nem garante
 cancelar operação iniciada. Upload e polling da extensão, atualmente de até 5 s quando ocupada, acrescentam latência.
 O `aside` da mensagem principal não é o chat paralelo efêmero de `/api/asides`. O status retorna o modo aceito.
 
+### Suporte ZeroClaw
+
+| Pedido | ZeroClaw |
+| --- | --- |
+| Texto sem modo ou `followUp`, sessão idle | Envia `message` no socket existente |
+| Texto sem modo ou `followUp`, sessão busy | Aguarda `done`/`aborted` ou confirmação HTTP terminal; libera um followUp por término |
+| `steer`, sessão idle ou busy | Envia no mesmo socket; ocupado, o gateway aplica entre iterações |
+| `deliverAs:'aside'` | 400; não há conversa paralela equivalente |
+| Pergunta de `/api/asides` | Indisponível; não converte em followUp nem steer |
+| `{stop:true}` isolado | Abort HTTP da sessão exata, sem frame `stop` e sem fechar socket; mantém followUps válidos |
+| `{command:'new'}` isolado | Confirma término, cancela pendências antigas e abre UUID novo com o mesmo personagem, sala e alias |
+| `model`, `thinking`, `resume`, `shake`, advisor ou combinações | 409, antes de enfileirar ou fazer I/O |
+
+`expectedSessionId` é permitido também nos dois controles suportados; UUID antigo retorna 409 com
+`code:'session_changed'`, sem entregar no contexto novo. `/new` só se confirma após `session_start`.
+O histórico anterior permanece; texto e anexos pendentes não migram para a nova conversa.
+
+O gateway não fornece ack de aplicação correlacionado por mensagem. Aceitação no buffer não garante steering
+aplicado nem turno concluído. Erros de steering sem ID aparecem na sessão, sem atribuição arbitrária a uma mensagem.
+Não há replay nem reenvio automático após queda ou timeout: o resultado pode ser incerto, e repetir pode executar
+o pedido duas vezes. Reconexão sem continuidade bloqueia textos e falha pendências ainda não enviadas.
+STOP e `/new` podem recuperar uma sessão conectada com continuidade perdida, mas exigem término observado ou
+prova HTTP terminal da sessão exata; desconexão, `running`, 404 ou falha HTTP não provam idle.
+
+Anexos são gravados antes do despacho e entram no texto como lista de **caminhos absolutos**, usando
+`promptWithAttachments()`. O mesmo caminho precisa estar montado nos contêineres Habblaud e ZeroClaw do tenant.
+Não há upload ao gateway, conversão base64 nem promessa de suporte nativo a imagem, áudio ou vídeo.
+
 As rotas (`messages/http.ts`) seguem a trava do terminal e mais uma chave: `ServerConfig.messages` = terminal ligado e
 `HABBLAUD_MENSAGENS` não desligado (`0`, `false`, `off`, `no`). Desligado ou `Host` que não é local → 403 em todas.
-Erros de `POST /api/messages`: 400 (corpo inválido, texto vazio ou longo demais), 404 (agente desconhecido), 409 (o
-agente não recebe: subagente, saiu ou sessão sem o plugin conectado) e 429. O estado sai em `meta.messages` do
-snapshot e em `messages` no `/api/health`.
+Erros de `POST /api/messages`: 400 (corpo inválido, texto vazio/longo demais ou aside ZeroClaw),
+404 (agente desconhecido), 409 (sessão alterada ou indisponível: subagente, saiu, plugin/socket ausente,
+continuidade perdida ou em dispensa) e 429 (cinco entradas em aberto). O estado sai em `meta.messages` do
+snapshot e em `messages` no `/api/health`. Controles incompatíveis retornam 409.
 
 Qualquer processo local consegue chamar essas rotas (como as de permissão): ligar as mensagens é aceitar que um
-programa da própria máquina possa digitar nas sessões que têm o plugin.
+programa da própria máquina possa digitar nas sessões disponíveis, inclusive pelo socket ZeroClaw.
 
 ## Elenco de personagens
 

@@ -2,6 +2,13 @@
 // As lacunas {0}, {1}... (e as nomeadas, como {sala}) precisam aparecer na tradução, em qualquer ordem.
 // Chave ausente = o texto fica em PT. `npm run i18n:check` lista os textos sem tradução e as chaves que sobraram.
 export const FR: Readonly<Record<string, string>> = {
+  "a sessão ZeroClaw está indisponível ou em substituição": "la session ZeroClaw est indisponible ou en cours de remplacement",
+  "a continuidade do turno ZeroClaw foi perdida: interrompa ou abra uma conversa nova": "la continuité du tour ZeroClaw a été perdue : interrompez-le ou ouvrez une nouvelle conversation",
+  "ZeroClaw aceita somente STOP ou conversa nova, sem combinações": "ZeroClaw accepte uniquement STOP ou une nouvelle conversation, sans combinaison",
+  "ZeroClaw não oferece conversa paralela": "ZeroClaw ne propose pas de conversation parallèle",
+  "ZeroClaw não confirmou a entrada no buffer: não reenvie automaticamente": "ZeroClaw n'a pas confirmé l'entrée dans le tampon : ne renvoyez pas automatiquement",
+  "ZeroClaw não confirmou o fim do turno dentro do prazo": "ZeroClaw n'a pas confirmé la fin du tour dans le délai imparti",
+  "a mensagem ZeroClaw expirou esperando a sessão ficar disponível": "le message ZeroClaw a expiré en attendant que la session soit disponible",
   "Chamar": "Appeler",
   "Continuar": "Reprendre",
   "Nova": "Nouvelle",

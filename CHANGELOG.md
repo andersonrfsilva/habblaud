@@ -20,6 +20,10 @@ do meio (0.**3**.0).
 - **ZeroClaw (opt-in):** fonte do gateway HTTP em loopback, intenções persistidas e espelho JSONL de mensagens,
   deltas e ferramentas. Reconexão sem replay de prompts, lacunas explícitas e histórico local preservado offline.
   `HABBLAUD_ZEROCLAW_URL` habilita a fonte sem token neste desenho isolado; operação pela UI depende das etapas seguintes.
+- **ZeroClaw:** entrega pelo mesmo socket da fonte, com followUp em fila e steering durante o turno; STOP por
+  abort HTTP e conversa nova com UUID novo, preservando o personagem. Aside e controles OMP incompatíveis são
+  recusados. `delivered` indica somente aceitação no buffer local, sem ack de aplicação nem replay automático.
+  Anexos continuam como caminhos absolutos compartilhados, sem upload de mídia ao gateway.
 - **Zaplaud:** o ▶ "Retomar conversa" aparece em toda sessão omp encerrada com pasta e oferece **Novo** (nome e
   visual sorteados) além dos contatos livres da pasta. `POST /api/cast/new` aceita `session` para retomar a conversa.
 - **Zaplaud:** toque longo no anel de contexto do campo de mensagem pergunta se quer fazer shake (liberar contexto) e,
