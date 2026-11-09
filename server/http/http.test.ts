@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { mkdirSync, realpathSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ModSummary, OfficeSnapshot, PermissionRequestInfo, UpdateStatus } from '../../shared/types';
+import type { AgentInfo, ModSummary, OfficeSnapshot, PermissionRequestInfo, UpdateStatus } from '../../shared/types';
 import { CastLauncher } from '../cast/launcher';
 import { AccountsService } from '../accounts/service';
 import { setQuiet } from '../log';
@@ -25,7 +25,7 @@ interface Env {
   close: () => Promise<void>;
 }
 
-async function start(extra: Partial<ApiDeps> = {}, officeExtra: Partial<OfficeDeps> = {}): Promise<Env & { cleanup: () => void }> {
+async function start(extra: Partial<ApiDeps> = {}, officeExtra: Partial<OfficeDeps> = {}, seedAgent = true): Promise<Env & { cleanup: () => void }> {
   const tmp = tempDir();
   const dir = join(tmp.dir, '.claude');
   mkdirSync(join(dir, 'sessions'), { recursive: true });
@@ -60,7 +60,7 @@ async function start(extra: Partial<ApiDeps> = {}, officeExtra: Partial<OfficeDe
   });
   await new Promise<void>((ok) => server.listen(0, '127.0.0.1', ok));
   const port = (server.address() as AddressInfo).port;
-  office.addMain({ id: '.claude:1', account: '.claude', sessionId: 's1', cwd: '/p/loja', role: 'Agente principal', startedAt: Date.now(), status: 'working' });
+  if (seedAgent) office.addMain({ id: '.claude:1', account: '.claude', sessionId: 's1', cwd: '/p/loja', role: 'Agente principal', startedAt: Date.now(), status: 'working' });
   return {
     base: `http://127.0.0.1:${port}`,
     office,
@@ -96,6 +96,59 @@ function raw(base: string, path: string, opts: { method?: string; headers?: Reco
 }
 
 describe('rotas do auxiliar do elenco', () => {
+  it('publica o catálogo ZeroClaw antes de qualquer sessão e aceita somente GET', async () => {
+    const launcher = new CastLauncher({ dataDir: '/tmp', member: () => undefined, agents: () => [], account: () => undefined, changed: () => {} });
+    const catalog = {
+      provider: 'zeroclaw' as const,
+      models: [{ alias: 'm_0123456789ab', model: 'anthropic/claude-sonnet' }, { alias: 'm_abcdef012345', model: 'openai/gpt-6' }],
+      defaultModel: 'm_abcdef012345',
+    };
+    const models = vi.spyOn(launcher, 'models').mockReturnValue(catalog);
+    const env = await start({ terminal: true, castLauncher: launcher }, {}, false);
+    try {
+      expect((await snapshotOf(env.base)).agents).toEqual([]);
+      const res = await fetch(`${env.base}/api/cast/models`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual(catalog);
+      expect(models).toHaveBeenCalledTimes(1);
+      for (const method of ['HEAD', 'POST', 'PUT', 'PATCH', 'DELETE']) {
+        const denied = await fetch(`${env.base}/api/cast/models`, { method, headers: JSON_HEADERS });
+        expect(denied.status).toBe(405);
+        expect(denied.headers.get('allow')).toBe('GET');
+      }
+      expect((await raw(env.base, '/api/cast/models', { headers: { Host: 'habblaud.lan' } })).status).toBe(403);
+      expect(models).toHaveBeenCalledTimes(1);
+    } finally {
+      models.mockRestore();
+      await env.close();
+      env.cleanup();
+    }
+  });
+  it('publica catálogo OMP vazio sem auxiliar nem sessões', async () => {
+    const launcher = new CastLauncher({ dataDir: '/tmp', member: () => undefined, agents: () => [], account: () => undefined, changed: () => {} });
+    const env = await start({ terminal: true, castLauncher: launcher }, {}, false);
+    try {
+      expect(launcher.available()).toBe(false);
+      const res = await fetch(`${env.base}/api/cast/models`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ provider: 'omp', models: [] });
+    } finally {
+      await env.close();
+      env.cleanup();
+    }
+  });
+  it('recusa catálogo sem terminal ou sem launcher', async () => {
+    const launcher = new CastLauncher({ dataDir: '/tmp', member: () => undefined, agents: () => [], account: () => undefined, changed: () => {} });
+    for (const deps of [{ terminal: false, castLauncher: launcher }, { terminal: true }]) {
+      const env = await start(deps, {}, false);
+      try {
+        expect((await fetch(`${env.base}/api/cast/models`)).status).toBe(403);
+      } finally {
+        await env.close();
+        env.cleanup();
+      }
+    }
+  });
   it('navega somente pastas contidas nas raízes e exige a trava', async () => {
     const tmp = tempDir();
     const root = join(tmp.dir, 'root');
@@ -120,9 +173,10 @@ describe('rotas do auxiliar do elenco', () => {
     }
   });
   it('exige acesso local e aceita uma chamada após o poll', async () => {
+    const agents: AgentInfo[] = [];
     const launcher = new CastLauncher({
       dataDir: '/tmp', member: () => ({ id: 'ana', name: 'Ana', kind: 'main', look: 'f', seed: 1, rooms: ['/a'] }),
-      agents: () => [], account: () => '/tmp', changed: () => {},
+      agents: () => agents, account: () => '/tmp', changed: () => {},
     });
     const env = await start({ terminal: true, castLauncher: launcher });
     try {
@@ -131,9 +185,20 @@ describe('rotas do auxiliar do elenco', () => {
       expect((await post('/api/cast/ana/start', body)).status).toBe(503);
       expect((await raw(env.base, '/api/host/cast/poll', { method: 'POST', headers: { Host: 'habblaud.lan', ...JSON_HEADERS }, body: '{}' })).status).toBe(403);
       expect((await post('/api/host/cast/poll')).status).toBe(200);
-      expect((await post('/api/cast/ana/start', body)).status).toBe(202);
+      const started = await post('/api/cast/ana/start', body);
+      expect(started.status).toBe(202);
+      expect(await started.json()).toMatchObject({ job: { cast: 'ana', op: 'start', status: 'queued' } });
       expect((await post('/api/cast/ana/start', body)).status).toBe(409);
       expect((await post('/api/agents/unknown/dismiss')).status).toBe(404);
+      env.office.cast.put({ id: 'ana', name: 'Ana', kind: 'main', look: 'f', seed: 1, rooms: ['/a'] });
+      env.office.addMain({ id: 'cast-ana', account: '.claude', sessionId: 'ana-session', cast: 'ana', cwd: '/a', role: 'Agente principal', startedAt: Date.now(), status: 'idle' });
+      agents.push(env.office.get('cast-ana')!);
+      const [job] = launcher.poll();
+      launcher.ack({ results: [{ id: job.id, ok: true }] });
+      launcher.tick();
+      const dismissed = await post('/api/agents/cast-ana/dismiss');
+      expect(dismissed.status).toBe(202);
+      expect(await dismissed.json()).toMatchObject({ job: { cast: 'ana', op: 'stop', status: 'queued' } });
     } finally {
       await env.close();
       env.cleanup();
