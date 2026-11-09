@@ -163,8 +163,9 @@ const castLauncher = config.terminal ? new CastLauncher({
   ...(config.castMax ? { max: config.castMax } : {}),
 }) : undefined;
 late.castLauncher = castLauncher;
-// Resumo das respostas (Android): papel tiny da conta padrão do omp; manda texto ao modelo, então só com as mensagens.
+// Resumo das respostas (Android): HTTP configurado ou Tiny do omp; manda texto ao modelo, então só com as mensagens.
 const summaries = config.messages ? new Summarizer({
+  http: config.summaryHttp,
   bin: () => ompBinFrom(process.env, config.home),
   agentDir: () => accounts.entriesOf('omp')[0]?.detected.configDir,
 }) : undefined;

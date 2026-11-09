@@ -1,13 +1,14 @@
-// Resumo das respostas do agente (Android › Configurações › Resumir respostas): o papel `tiny` da conta padrão do omp.
-// Cada resumo abrindo um `omp -p` gastava uns 5 s só para o omp subir; aqui um `omp --mode rpc` fica aberto e cada
-// resumo é uma conversa nova nele. Sem sessão gravada, ferramentas, extensões, skills nem regras: não aparece no
-// escritório nem no histórico.
+// Resumo das respostas do agente por HTTP configurado ou pelo papel `tiny` da conta padrão do omp.
+// No RPC, um `omp --mode rpc` fica aberto e cada resumo é uma conversa nova nele, sem sessão gravada,
+// ferramentas, extensões, skills nem regras: não aparece no escritório nem no histórico.
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { statSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { tr } from '../../shared/i18n';
+import type { SummaryHttpConfig } from '../config';
 
 // Em caracteres; escapado em JSON ainda cabe no corpo de 256 KiB do readJson.
 export const SUMMARY_INPUT_MAX = 32 * 1024;
@@ -20,6 +21,56 @@ const PROMPT =
 export class SummaryUnavailable extends Error {}
 
 export type RunSummary = (bin: string, agentDir: string, text: string) => Promise<string>;
+
+/** Anthropic Messages não-stream. Credenciais são relidas somente quando um pedido sai do cache. */
+export function httpSummaryRunner(config: SummaryHttpConfig): (text: string) => Promise<string> {
+  return async (text) => {
+    let token: string;
+    try { token = (await readFile(config.tokenFile, 'utf8')).trim(); } catch {
+      throw new SummaryUnavailable('resumo indisponível: arquivo de token HTTP ilegível ou vazio');
+    }
+    if (!token) throw new SummaryUnavailable('resumo indisponível: arquivo de token HTTP ilegível ou vazio');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    try {
+      const response = await fetch(`${config.url}/v1/messages`, {
+        method: 'POST',
+        redirect: 'error',
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          'anthropic-version': '2023-06-01',
+          ...(config.auth === 'bearer' ? { Authorization: `Bearer ${token}` } : { 'x-api-key': token }),
+        },
+        body: JSON.stringify({
+          model: config.model,
+          system: PROMPT,
+          messages: [{ role: 'user', content: `Resposta do agente:\n\n${text}` }],
+          max_tokens: 512,
+          stream: false,
+        }),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const body: unknown = await response.json();
+      if (!body || typeof body !== 'object' || !('content' in body) || !Array.isArray(body.content)) {
+        throw new Error('resposta HTTP inválida');
+      }
+      const summary = body.content
+        .filter((block): block is { type: 'text'; text: string } =>
+          !!block && typeof block === 'object' && block.type === 'text' && typeof block.text === 'string')
+        .map((block) => block.text).join('\n').trim();
+      if (!summary) throw new Error('resposta HTTP inválida');
+      return summary;
+    } catch (error) {
+      // Nunca repassar mensagens do transporte, JSON ou corpo upstream: podem conter dados sensíveis.
+      if (controller.signal.aborted) throw new Error(`timeout (${TIMEOUT_MS / 1000} s)`);
+      if (error instanceof Error && (/^HTTP \d{3}$/.test(error.message) || error.message === 'resposta HTTP inválida')) throw error;
+      throw new Error('falha no resumo HTTP');
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+}
 
 type Frame = Record<string, unknown>;
 
@@ -167,6 +218,7 @@ export function rpcSummaryRunner(size = 2): RunSummary & { warm(bin: string, age
 interface Options {
   bin(): string | undefined;
   agentDir(): string | undefined;
+  http?: SummaryHttpConfig;
   run?: RunSummary & { warm?(bin: string, agentDir: string): void };
   /** O papel tiny da conta; sem ele configurado não há resumo (o usuário escolhe o modelo nas Configurações). */
   tiny?: ReadTinyRole;
@@ -180,18 +232,25 @@ export class Summarizer {
   private readonly cache = new Map<string, Promise<string>>();
   private readonly waiting: (() => void)[] = [];
   private running = 0;
-  private readonly run: RunSummary & { warm?(bin: string, agentDir: string): void };
-  private readonly tiny: ReadTinyRole;
+  readonly httpConfigured: boolean;
+  private readonly httpRun?: (text: string) => Promise<string>;
+  private readonly run?: RunSummary & { warm?(bin: string, agentDir: string): void };
+  private readonly tiny?: ReadTinyRole;
   constructor(private readonly opts: Options) {
-    this.run = opts.run ?? rpcSummaryRunner(opts.concurrency ?? 2);
-    this.tiny = opts.tiny ?? tinyRoleReader();
+    this.httpConfigured = !!opts.http;
+    if (opts.http) this.httpRun = httpSummaryRunner(opts.http);
+    else {
+      this.run = opts.run ?? rpcSummaryRunner(opts.concurrency ?? 2);
+      this.tiny = opts.tiny ?? tinyRoleReader();
+    }
   }
 
   /** Abre o omp que fica esperando o primeiro resumo; sem omp, conta ou papel tiny, não faz nada. */
   warm(): void {
+    if (this.httpRun) return;
     const bin = this.opts.bin();
     const agentDir = this.opts.agentDir();
-    if (bin && agentDir) void this.tiny(bin, agentDir).then((tiny) => { if (tiny) this.run.warm?.(bin, agentDir); });
+    if (bin && agentDir) void this.tiny!(bin, agentDir).then((tiny) => { if (tiny) this.run!.warm?.(bin, agentDir); });
   }
 
   summarize(text: string): Promise<string> {
@@ -202,19 +261,23 @@ export class Summarizer {
       this.cache.set(key, cached);
       return cached;
     }
-    const bin = this.opts.bin();
-    const agentDir = this.opts.agentDir();
-    if (!bin || !agentDir) return Promise.reject(new SummaryUnavailable(tr('resumo indisponível: omp ou conta do omp não encontrados')));
-    const job = this.tiny(bin, agentDir).then((tiny) => {
-      if (!tiny) throw new SummaryUnavailable(tr('resumo desligado: escolha um modelo para o papel Tiny nas Configurações'));
-      return this.slot(() => this.run(bin, agentDir, text));
-    });
+    const job = this.httpRun ? this.slot(() => this.httpRun!(text)) : this.rpcSummary(text);
     // Falha não fica guardada: a próxima vez tenta de novo.
     job.catch(() => { if (this.cache.get(key) === job) this.cache.delete(key); });
     this.cache.set(key, job);
     const max = this.opts.cacheMax ?? 500;
     while (this.cache.size > max) this.cache.delete(this.cache.keys().next().value!);
     return job;
+  }
+
+  private rpcSummary(text: string): Promise<string> {
+    const bin = this.opts.bin();
+    const agentDir = this.opts.agentDir();
+    if (!bin || !agentDir) return Promise.reject(new SummaryUnavailable(tr('resumo indisponível: omp ou conta do omp não encontrados')));
+    return this.tiny!(bin, agentDir).then((tiny) => {
+      if (!tiny) throw new SummaryUnavailable(tr('resumo desligado: escolha um modelo para o papel Tiny nas Configurações'));
+      return this.slot(() => this.run!(bin, agentDir, text));
+    });
   }
 
   private async slot<T>(work: () => Promise<T>): Promise<T> {

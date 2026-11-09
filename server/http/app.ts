@@ -462,6 +462,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
           // O terminal interativo (pty) nunca vale pela porta remota.
           pty: !!deps.pty && !remote,
           messages: !!deps.messages && (!remote || trusted(req, 'messages')),
+          summaryHttp: !!deps.summaries?.httpConfigured && trusted(req, 'messages'),
           codexEvents: !!deps.codexLive,
           ompEvents: !!deps.ompLive,
           // Modo sem marca (HABBLAUD_SEM_MARCA=1): o main.ts do navegador lê antes de montar a interface.
@@ -658,7 +659,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       return true;
     }
     if (path === '/api/summaries') {
-      // Manda texto ao modelo (papel tiny do omp): a mesma trava das mensagens.
+      // Manda texto ao modelo (HTTP configurado ou papel tiny do omp): a mesma trava das mensagens.
       if (method !== 'POST') methodNotAllowed(res, 'POST');
       else if (!deps.summaries) sendJson(res, 404, { error: tr('resumo indisponível: omp ou conta do omp não encontrados') });
       else if (!trusted(req, 'messages')) sendJson(res, 403, { error: denied(req, tr('o resumo só pode ser pedido pelo próprio computador')) });
