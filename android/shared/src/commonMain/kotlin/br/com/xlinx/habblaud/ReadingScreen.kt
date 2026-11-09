@@ -239,55 +239,47 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
     }) { castActions, castFab, castStatus ->
     var showInfo by remember(selected?.key) { mutableStateOf(false) }
     if (showInfo && selected != null) SessionInfoSheet(api, selected, state.entries, state.truncated) { showInfo = false }
-    val listBar = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    Scaffold(
-        modifier = if (selected == null) Modifier.nestedScroll(listBar.nestedScrollConnection) else Modifier,
-        floatingActionButton = { if (selected != null || filter != null || apis.size == 1) castFab() }, topBar = {
-        if (selected == null) {
-            LargeTopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(stringResource(Res.string.app_name), Modifier.weight(1f, fill = false), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        val statusLabel = stringResource(when (state.connection) { "connected" -> Res.string.reading_connected; "connecting" -> Res.string.reading_connecting; else -> Res.string.reading_offline })
-                        val color = connectionColor(state.connection)
-                        Box(Modifier.size(10.dp).background(color, CircleShape).semantics { contentDescription = statusLabel })
-                    }
-                },
-                actions = {
-                    Box {
-                        val menuLabel = stringResource(Res.string.menu)
-                        IconButton(onClick = { menuExpanded = true }, modifier = Modifier.semantics { contentDescription = menuLabel }) { Icon(Icons.Default.MoreVert, contentDescription = null) }
-                        DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                            DropdownMenuItem(text = { Text(stringResource(Res.string.settings)) }, onClick = { menuExpanded = false; settingsOpen = true })
-                            DropdownMenuItem(modifier = Modifier.testTag("add-server"), text = { Text(stringResource(Res.string.add_server)) }, onClick = { menuExpanded = false; onLogin(null) })
-                        }
-                    }
-                },
-                scrollBehavior = listBar,
-            )
-        } else {
-            TopAppBar(
-                title = {
-                    val infoLabel = stringResource(Res.string.session_info)
-                    Row(Modifier.clickable(onClickLabel = infoLabel) { showInfo = true }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        CharacterAvatar(api, selected, 36.dp)
-                        Column(Modifier.weight(1f)) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(selected.title ?: selected.characterName ?: stringResource(Res.string.app_name), Modifier.weight(1f, fill = false), maxLines = 1, overflow = TextOverflow.Ellipsis)
+    Scaffold(floatingActionButton = { if (selected != null || filter != null || apis.size == 1) castFab() }, topBar = {
+        TopAppBar(
+            title = {
+                val infoLabel = stringResource(Res.string.session_info)
+                Row(Modifier.then(if (selected != null) Modifier.clickable(onClickLabel = infoLabel) { showInfo = true } else Modifier), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (selected != null) CharacterAvatar(api, selected, 36.dp)
+                    Column(Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(selected?.title ?: selected?.characterName ?: stringResource(Res.string.app_name), Modifier.weight(1f, fill = false), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (selected == null) {
+                                val statusLabel = stringResource(when (state.connection) { "connected" -> Res.string.reading_connected; "connecting" -> Res.string.reading_connecting; else -> Res.string.reading_offline })
+                                val color = connectionColor(state.connection)
+                                Box(Modifier.size(10.dp).background(color, CircleShape).semantics { contentDescription = statusLabel })
                             }
+                        }
+                        if (selected != null) {
                             val projectStatus = listOfNotNull(selected.project?.substringAfterLast('/'), statusLabel(selected.status ?: selected.activity)).joinToString(" · ")
                             val subtitle = listOfNotNull(selected.characterName.takeIf { it != null && it != selected.title }, projectStatus.takeIf { it.isNotEmpty() }).joinToString(" · ")
                             Text(subtitle, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
-                },
-                navigationIcon = {
+                }
+            },
+            navigationIcon = {
+                if (selected != null) {
                     val backLabel = stringResource(Res.string.back_sessions)
                     IconButton(onClick = controller::close, modifier = Modifier.semantics { contentDescription = backLabel }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null) }
-                },
-                actions = { castActions() }
-            )
-        }
+                }
+            },
+            actions = {
+                if (selected != null) castActions()
+                if (selected == null) Box {
+                    val menuLabel = stringResource(Res.string.menu)
+                    IconButton(onClick = { menuExpanded = true }, modifier = Modifier.semantics { contentDescription = menuLabel }) { Icon(Icons.Default.MoreVert, contentDescription = null) }
+                    DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                        DropdownMenuItem(text = { Text(stringResource(Res.string.settings)) }, onClick = { menuExpanded = false; settingsOpen = true })
+                        DropdownMenuItem(modifier = Modifier.testTag("add-server"), text = { Text(stringResource(Res.string.add_server)) }, onClick = { menuExpanded = false; onLogin(null) })
+                    }
+                }
+            }
+        )
     }) { padding ->
     Column(Modifier.fillMaxSize().padding(padding).imePadding().background(if (selected == null) MaterialTheme.colorScheme.background else if (MaterialTheme.colorScheme.background.luminance() < 0.5f) MaterialTheme.colorScheme.surfaceContainerLowest else MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         state.error?.let { error -> Text(stringResource(readingErrorResource(error)), color = MaterialTheme.colorScheme.error) }
@@ -354,12 +346,12 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
             }
             val revealPx = with(LocalDensity.current) { SEARCH_REVEAL_PULL.toPx() }
             val haptics = LocalHapticFeedback.current
-            val reveal = remember(revealPx, listBar) {
+            val reveal = remember(revealPx) {
                 object : NestedScrollConnection {
                     var pulled = 0f
                     override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
                         // Só sobra rolagem para baixo quando a lista já está no topo: é a "puxada" além do começo.
-                        if (source == NestedScrollSource.UserInput && available.y > 0f && !searchOpen && listBar.state.collapsedFraction == 0f) {
+                        if (source == NestedScrollSource.UserInput && available.y > 0f && !searchOpen) {
                             pulled += available.y
                             if (pulled >= revealPx) { pulled = 0f; searchOpen = true; haptics.performHapticFeedback(HapticFeedbackType.LongPress) }
                         } else if (available.y < 0f || consumed.y != 0f) pulled = 0f
