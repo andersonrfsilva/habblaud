@@ -1,5 +1,11 @@
 package br.com.xlinx.habblaud.data
 
+import br.com.xlinx.habblaud.resources.Res
+import br.com.xlinx.habblaud.resources.notify_done
+import br.com.xlinx.habblaud.resources.notify_permission
+import br.com.xlinx.habblaud.resources.notify_question
+import org.jetbrains.compose.resources.StringResource
+
 import kotlinx.coroutines.*
 
 suspend fun watchAlerts(store: LocalStateStore, onServers: (Int) -> Unit, notify: (AgentEvent) -> Unit) {
@@ -37,3 +43,14 @@ suspend fun watchAlerts(store: LocalStateStore, onServers: (Int) -> Unit, notify
         } }.joinAll()
     }
 }
+
+fun alertText(event: AgentEvent): StringResource = when (event) {
+    is AgentEvent.Permission -> if (event.session.permissionQuestion) Res.string.notify_question else Res.string.notify_permission
+    is AgentEvent.TurnDone -> Res.string.notify_done
+}
+
+fun alertSubtitle(event: AgentEvent, multipleServers: Boolean): String? =
+    listOfNotNull(
+        event.session.project?.substringAfterLast('/'),
+        serverLabel(event.session.key.origin).takeIf { multipleServers },
+    ).joinToString(" · ").ifEmpty { null }
