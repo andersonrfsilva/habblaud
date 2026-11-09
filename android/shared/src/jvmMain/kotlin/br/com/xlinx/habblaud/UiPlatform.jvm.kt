@@ -8,6 +8,11 @@ import java.time.format.DateTimeFormatter
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
+import java.awt.FileDialog
+import java.awt.Frame
+import br.com.xlinx.habblaud.resources.Res
+import br.com.xlinx.habblaud.resources.attach_files
+import org.jetbrains.compose.resources.stringResource
 
 private class BackEntry(var enabled: Boolean, var onBack: () -> Unit)
 private val backStack = mutableListOf<BackEntry>()
@@ -18,7 +23,18 @@ private val backStack = mutableListOf<BackEntry>()
 }
 /** Chamada pelo host ao soltar Esc; true se algum handler consumiu. */
 fun dispatchDesktopBack(): Boolean = backStack.lastOrNull { it.enabled }?.let { it.onBack(); true } ?: false
-@Composable actual fun rememberAttachmentPicker(onResult: (List<String>) -> Unit): () -> Unit = TODO()
+@Composable actual fun rememberAttachmentPicker(onResult: (List<String>) -> Unit): () -> Unit {
+    val callback by rememberUpdatedState(onResult)
+    val title = stringResource(Res.string.attach_files)
+    return {
+        val dialog = FileDialog(null as Frame?, title, FileDialog.LOAD)
+        try {
+            dialog.isMultipleMode = true
+            dialog.isVisible = true
+            callback(dialog.files.map { it.toPath().toUri().toString() })
+        } finally { dialog.dispose() }
+    }
+}
 @Composable actual fun animationsEnabled(): Boolean = true
 actual fun uiNowMillis(): Long = System.currentTimeMillis()
 actual fun platformEntryTime(at: Long, now: Long): String {
