@@ -7,6 +7,7 @@ import http from 'node:http';
 import { join } from 'node:path';
 import { codexDirsRefused, isDefaultDir } from './accounts/detect';
 import { AccountsService } from './accounts/service';
+import { QuotaCollector } from './accounts/quota';
 import { isTruthy, loadConfig, messagesOffReason, terminalOffReason, worldSocketUrl } from './config';
 import { createApiHandler, sendJson } from './http/app';
 import { createRequestGuard, isLoopbackHost } from './http/guard';
@@ -128,8 +129,10 @@ const accounts = new AccountsService({
   home: config.home,
   env: process.env,
   usageDir: config.usageDir,
+  tenantQuota: !!config.quota,
   onChange: () => late.office?.markDirty(),
 });
+const quota = config.quota ? new QuotaCollector({ ...config.quota, onResult: (usage) => accounts.setTenantQuota(usage) }) : undefined;
 const office = new Office({
   names,
   cast,
@@ -385,6 +388,8 @@ if (config.demo) office.setDemo(true);
 // As fontes síncronas (a do Claude Code) terminam o boot aqui, antes de o hub começar a transmitir.
 void agents.start();
 accounts.start();
+quota?.start();
+if (quota) log.info('Consulta de cota ligada.');
 hub.start();
 if (timeline) {
   timeline.start();
@@ -652,6 +657,7 @@ function shutdown(signal: string): void {
     () => clearInterval(ticker),
     () => stats.stop(),
     () => agents.stop(),
+    () => quota?.stop(),
     () => accounts.stop(),
     () => hub.stop(),
     () => terminals?.stop(),

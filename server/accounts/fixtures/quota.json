@@ -1,0 +1,14 @@
+{
+  "generatedAt": 1800000000000,
+  "quota": true,
+  "reports": [
+    {"provider":"anthropic","fetchedAt":1800000000000,"limits":[
+      {"label":"Janela sintética curta","scope":{"shared":true},"window":{"durationMs":18000000,"resetsAt":1800018000000},"amount":{"usedFraction":0.25},"status":"ok"},
+      {"label":"Janela sintética longa","scope":{"shared":true},"window":{"durationMs":604800000,"resetsAt":1800604800000},"amount":{"usedFraction":0.5},"status":"ok"}
+    ]},
+    {"provider":"openai-codex","fetchedAt":1800000000000,"limits":[
+      {"label":"Janela sintética curta","scope":{"shared":true},"window":{"durationMs":18000000,"resetsAt":1800018000000},"amount":{"usedFraction":0.25},"status":"ok"},
+      {"label":"Janela sintética longa","scope":{"shared":true},"window":{"durationMs":604800000,"resetsAt":1800604800000},"amount":{"usedFraction":0.5},"status":"ok"}
+    ]}
+  ]
+}

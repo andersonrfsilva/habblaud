@@ -63,5 +63,6 @@ describe('loadConfig: omp', () => {
     expect(usage({ HABBLAUD_OMP_USAGE: '0' })).toBe(false);
     expect(usage({ HABBLAUD_OMP: '0' })).toBe(false);
     expect(usage({ HABBLAUD_IN_DOCKER: '1' })).toBe(false);
+    expect(usage({ HABBLAUD_QUOTA_URL: 'http://127.0.0.1:4000/v1/cota', HABBLAUD_QUOTA_TOKEN_FILE: join(h.home, 'token') })).toBe(false);
   });
 });
