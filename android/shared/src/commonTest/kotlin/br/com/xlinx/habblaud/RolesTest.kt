@@ -1,12 +1,25 @@
 package br.com.xlinx.habblaud
 
 import br.com.xlinx.habblaud.data.joinRole
+import br.com.xlinx.habblaud.data.modelBrand
 import br.com.xlinx.habblaud.data.roleModelGroups
 import br.com.xlinx.habblaud.data.snapshotModels
 import br.com.xlinx.habblaud.data.splitRole
 import kotlin.test.*
 
 class RolesTest {
+    @Test fun modelBrandByFamilyOnlyForKnownNames() {
+        assertEquals("claude", modelBrand("claude-opus-5-5"))
+        assertEquals("claude", modelBrand("anthropic/claude-sonnet-5-5"))
+        assertEquals("openai", modelBrand("gpt-5.5"))
+        assertEquals("openai", modelBrand("o3-mini"))
+        assertEquals("openai", modelBrand("codex-mini-latest"))
+        assertEquals("gemini", modelBrand("gemini-3-pro"))
+        assertNull(modelBrand("ollama-o1x"))
+        assertNull(modelBrand("llama3"))
+        assertNull(modelBrand(null))
+    }
+
     @Test fun thinkingSuffixOnlyWhenItIsAKnownLevel() {
         assertEquals("openai-codex/gpt-6-luna" to "high", splitRole("openai-codex/gpt-6-luna:high"))
         assertEquals("ollama/llama3:8b" to null, splitRole("ollama/llama3:8b"))
