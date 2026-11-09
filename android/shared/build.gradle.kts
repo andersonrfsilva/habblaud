@@ -17,6 +17,7 @@ kotlin {
         compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) }
         androidResources { enable = true }
     }
+    jvm { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
     listOf(iosArm64(), iosSimulatorArm64()).forEach { target ->
         target.binaries.framework {
             baseName = "ZaplaudShared"
@@ -54,6 +55,19 @@ kotlin {
             implementation(libs.ktor.client.okhttp)
         }
         iosMain.dependencies { implementation(libs.ktor.client.darwin) }
+        jvmMain.dependencies {
+            implementation(compose.desktop.common)
+            implementation(libs.okhttp)
+            implementation(libs.ktor.client.okhttp)
+            implementation(libs.java.keyring)
+            implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.11.0")
+        }
+        jvmTest.dependencies {
+            implementation(kotlin("test"))
+            implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
+            implementation(compose.desktop.currentOs)
+            implementation(compose.desktop.uiTestJUnit4)
+        }
         commonTest.dependencies { implementation(kotlin("test")); implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0") }
         getByName("androidHostTest").dependencies {
             implementation(libs.junit)
@@ -67,6 +81,13 @@ kotlin {
             implementation(libs.mockwebserver)
         }
     }
+}
+
+tasks.named<Test>("jvmTest") {
+    forkEvery = 1
+    systemProperty("zaplaud.keyring", "memory")
+    systemProperty("zaplaud.prefsNode", "br/com/xlinx/zaplaud-test")
+    systemProperty("zaplaud.dataDir", layout.buildDirectory.dir("jvmTest-data").get().asFile.absolutePath)
 }
 
 compose.resources {
