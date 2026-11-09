@@ -11,6 +11,33 @@ import { parseRemoteConfig, type RemoteConfig } from './http/remote';
 import { parseGithubRepo } from './updates/checker';
 import { tr } from '../shared/i18n';
 
+export interface SummaryHttpConfig {
+  url: string;
+  model: string;
+  tokenFile: string;
+  auth: 'x-api-key' | 'bearer';
+}
+
+/** Configuração explícita: qualquer variável preenchida exige o conjunto completo, sem fallback RPC. */
+export function parseSummaryHttpConfig(env: NodeJS.ProcessEnv): SummaryHttpConfig | undefined {
+  const url = env.HABBLAUD_SUMMARY_URL?.trim();
+  const model = env.HABBLAUD_SUMMARY_MODEL?.trim();
+  const tokenFile = env.HABBLAUD_SUMMARY_TOKEN_FILE?.trim();
+  const auth = env.HABBLAUD_SUMMARY_AUTH?.trim();
+  if (!url && !model && !tokenFile && !auth) return undefined;
+  if (!url) throw new Error('HABBLAUD_SUMMARY_URL obrigatória');
+  if (!model) throw new Error('HABBLAUD_SUMMARY_MODEL obrigatória');
+  if (!tokenFile) throw new Error('HABBLAUD_SUMMARY_TOKEN_FILE obrigatória');
+  let parsed: URL;
+  try { parsed = new URL(url); } catch { throw new Error('HABBLAUD_SUMMARY_URL inválida'); }
+  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password ||
+      url.includes('?') || url.includes('#') || /\/v1\/messages\/?$/.test(parsed.pathname.replace(/\/+$/, ''))) {
+    throw new Error('HABBLAUD_SUMMARY_URL inválida');
+  }
+  if (auth && auth !== 'x-api-key' && auth !== 'bearer') throw new Error('HABBLAUD_SUMMARY_AUTH inválida');
+  return { url: parsed.href.replace(/\/+$/, ''), model, tokenFile, auth: auth === 'bearer' ? 'bearer' : 'x-api-key' };
+}
+
 export interface ServerConfig {
   port: number;
   host: string;
@@ -42,6 +69,8 @@ export interface ServerConfig {
    * trava do terminal e HABBLAUD_MENSAGENS sem desligar (ver messagesOffReason).
    */
   messages: boolean;
+  /** Resumos por Anthropic Messages; ausente mantém o runner RPC. Nunca contém o token. */
+  summaryHttp?: SummaryHttpConfig;
   /** Grava a linha do tempo do escritório para o timelapse (<dataDir>/timeline); HABBLAUD_TIMELINE=0 desliga. */
   timeline: boolean;
   /** Raiz do projeto (onde fica o package.json); serve dist/client a partir daqui. */
@@ -259,6 +288,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     allowedHosts: parseAllowedHosts(env.HABBLAUD_ALLOWED_HOSTS),
     terminal: terminalOffReason(env, host, inDocker) === undefined,
     messages: messagesOffReason(env, host, inDocker) === undefined,
+    summaryHttp: parseSummaryHttpConfig(env),
     timeline: !env.HABBLAUD_TIMELINE?.trim() || isTruthy(env.HABBLAUD_TIMELINE),
     rootDir,
     version: pkg.version,

@@ -62,6 +62,65 @@ linhas com mais de 2 min), aviso e efeito na sala, publicado em `RoomInfo.effect
 until, agentId}`): festa (PR aberto/mergeado, release) por 12 s; alarme (CI vermelho) até um CI verde na sala (que vira
 festa) ou 10 min. Push só avisa. O mesmo CI visto de novo em 2 min não repete o aviso.
 
+## Resumos por HTTP ou RPC
+
+Com mensagens habilitadas, o resumidor usa Anthropic Messages HTTP quando configurado. Não exige binário,
+conta OMP nem papel Tiny nesse modo. Sem configuração HTTP, mantém o pool RPC e o papel Tiny existentes.
+
+| Variável | Valor |
+| --- | --- |
+| `HABBLAUD_SUMMARY_URL` | Base HTTP(S), sem `/v1/messages`, usuário, senha, query ou fragmento; aceita caminho-base e remove barras finais |
+| `HABBLAUD_SUMMARY_MODEL` | ID literal de inferência autorizado no gateway; não é alias ZeroClaw nem `@tiny` |
+| `HABBLAUD_SUMMARY_TOKEN_FILE` | Caminho do arquivo de token visto pelo processo; somente o caminho fica na configuração |
+| `HABBLAUD_SUMMARY_AUTH` | `x-api-key` (padrão) ou `bearer`; nunca deduzido pela porta |
+
+Todas ausentes ou vazias mantêm RPC. Qualquer variável preenchida exige URL, modelo e arquivo; configuração
+parcial ou inválida impede a inicialização com erro sem valores sensíveis. Para servidores externos, use
+**HTTPS obrigatório**: o token e o texto da conversa seguem para esse endpoint. HTTP destina-se a serviços locais.
+
+O pedido é `POST <base>/v1/messages`, não-stream, com versão Anthropic `2023-06-01`, `max_tokens:512` e somente
+o header de autenticação escolhido. Redirects são recusados. O prazo de 90 segundos inclui leitura do corpo.
+Somente blocos de texto entram no resumo; thinking e outros blocos não são expostos. Não há retry automático
+nem fallback RPC quando HTTP falha. A próxima solicitação pode tentar novamente, pois falhas saem do cache.
+
+O arquivo é lido e aparado a cada chamada efetiva; rotação vale na próxima chamada não atendida pelo cache.
+Arquivo ausente, ilegível ou vazio retorna 503 com mensagem fixa. O resumidor não lê `.env` nem token de pareamento
+ZeroClaw. Cache, deduplicação e fila são compartilhados pelos modos; por padrão são dois pedidos simultâneos.
+`warm()` em HTTP não abre processos nem faz rede.
+
+Exemplo para tenant futuro (somente após omp-tenant 039 e ativação autorizada no 043; montagem pelo 040):
+
+```sh
+HABBLAUD_SUMMARY_URL=http://127.0.0.1:4000
+HABBLAUD_SUMMARY_MODEL=ID_DE_MODELO_LIBERADO
+HABBLAUD_SUMMARY_TOKEN_FILE=/run/secrets/summary-token
+HABBLAUD_SUMMARY_AUTH=x-api-key
+```
+
+O proxy traduz o token do tenant para Bearer. O caminho deve corresponder ao arquivo montado pelo operador.
+
+Exemplo para host, com gateway direto (não é o gateway de sessões ZeroClaw na porta 42617):
+
+```sh
+HABBLAUD_SUMMARY_URL=http://127.0.0.1:4001
+HABBLAUD_SUMMARY_MODEL=ID_DE_MODELO_PERMITIDO
+HABBLAUD_SUMMARY_TOKEN_FILE=/CAMINHO/ABSOLUTO/summary-token
+HABBLAUD_SUMMARY_AUTH=bearer
+```
+
+O operador deve criar ou selecionar um token de cliente do gateway com grant para esse modelo. Grave-o em
+arquivo 0600 legível pelo processo Habblaud, sem o publicar em comandos, logs ou repositório. Em contêiner,
+monte o arquivo somente leitura; o caminho do ambiente é o visto pelo processo. `127.0.0.1` exige rede
+compartilhada com o host. Configurar o ambiente de `habblaud.service` e reiniciar para aplicar são tarefas do
+operador, não desta implementação. Alterações de modelo/configuração exigem reinício autorizado.
+
+Para voltar ao RPC, remova **todas as quatro variáveis** e reinicie numa instalação que ainda possua OMP,
+conta e Tiny. `/api/health.summaryHttp` anuncia apenas HTTP configurado e permissão `messages` nesta conexão,
+sem URL, modelo, caminho ou token. É falso em RPC, sem resumidor ou sem autorização remota; não testa o upstream.
+O plano Habblaud 072 libera o interruptor Android sem Tiny usando essa capacidade; antes dele, o backend pode
+funcionar com o interruptor ainda bloqueado. Os aproximadamente 470 MiB dos processos ociosos são referência
+fornecida de produção, não economia validada; medir somente após publicação.
+
 ## API
 
 O auxiliar no host (`npm run codex:bridge`) abre sessões omp em `tmux` como `hb-<id>`. Para ver o TUI, use
@@ -90,7 +149,7 @@ O auxiliar no host (`npm run codex:bridge`) abre sessões omp em `tmux` como `hb
 | `GET /api/stats/days?tz=<IANA>` | `StatsDaysResponse`: dias com dados reais (e do demo, se ligado), mais recente primeiro |
 | `GET /api/timeline/days` | `{recording, days:[{day, bytes, from, to}]}`: dias gravados para o timelapse, do mais recente ao mais antigo |
 | `GET /api/timeline/:dia` | o arquivo do dia (`AAAA-MM-DD`) em JSONL (`application/x-ndjson`, gzip se aceito); 400 para dia inválido, 404 sem gravação |
-| `GET /api/health` | `{ok, version, demo, docker, remote, terminal, permissions, pty, messages, codexEvents, ompEvents, semMarca, updates:{state, latest, available}, sources, accounts:[{id, provider?, usageStatus}]}` (`terminal`, `permissions` e `messages` valem para a conexão que perguntou; `pty` nunca vale pela porta remota) |
+| `GET /api/health` | `{ok, version, demo, docker, remote, terminal, permissions, pty, messages, summaryHttp, codexEvents, ompEvents, semMarca, updates:{state, latest, available}, sources, accounts:[{id, provider?, usageStatus}]}` (`terminal`, `permissions`, `messages` e `summaryHttp` valem para a conexão que perguntou; `pty` nunca vale pela porta remota) |
 | `POST /api/demo` | `{enabled: boolean}` liga/desliga agentes simulados (misturados aos reais) |
 | `POST /api/rooms/rename` | `{id, name}`: renomeia a sala (nome vazio volta ao padrão, o nome da pasta); `200 {name}`, `400`, `404` (sala desconhecida), `403` (terminal desligado ou fora do acesso local); o nome fica em `rooms.json` na pasta de dados |
 | `GET /api/access` | `AccessInfo`: `{remote, local, permissions, messages, messageSessionGuard?, terminal, spawn, world}`: o que esta conexão pode usar (a porta remota só vê o que `HABBLAUD_REMOTE_ALLOW` liberar) |
@@ -103,6 +162,7 @@ O auxiliar no host (`npm run codex:bridge`) abre sessões omp em `tmux` como `hb
 | `GET /api/permissions/:id` | (página) detalhe do pedido com os argumentos (`PermissionRequestInfo` com `input`) |
 | `POST /api/permissions/:id/decision` | (página) `PermissionDecision`: `{behavior: 'allow' \| 'deny' \| 'terminal' \| 'answer', message?, interrupt?, suggestion?, answers?}` |
 | `POST /api/messages` | (página) `{agentId, text, attachments?: string[], deliverAs?, expectedSessionId?: string}`: até cinco IDs; aceita somente anexos; `201 OutboxMessage`; trava `messages` |
+| `POST /api/summaries` | `{text}` não vazio, até 32768 caracteres: `200 {summary}`, `422` entrada inválida, `403` sem permissão `messages`, `404` sem resumidor, `503` indisponível e `502` falha upstream (inclusive 429); ver resumos abaixo |
 | `POST /api/messages/attachments` | (página) bytes `application/octet-stream` com headers de nome/tipo: `201 {id, name, size}`; até 15 MiB/arquivo, mesma trava `messages` e Origin; não aceita destino |
 | `GET /api/messages/:id` | (página) situação da mensagem (`OutboxMessage`: `queued` \| `sent` \| `delivered` \| `failed`) |
 | `POST /api/mod/inbox` | (plugin `habblaud-mensagens`) `{session, account?}`: marca a presença da sessão e entrega `{messages: InboxMessage[]}` |
