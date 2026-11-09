@@ -15,6 +15,8 @@ do meio (0.**3**.0).
 - **Resumos:** suporte opcional a Anthropic Messages por HTTP, sem processos OMP nem Tiny, com token em arquivo
   rotacionável e capacidade `summaryHttp` por conexão. Sem configuração, o RPC existente continua disponível;
   ativação em produção depende do operador.
+- **Cota da instalação:** consulta HTTP autenticada pelo arquivo de token do tenant, sem processo OMP ou sessão aberta.
+  A mesma cota aparece nas contas reais; sem a nova configuração, o comportamento legado permanece intacto.
 - **Zaplaud:** o ▶ "Retomar conversa" aparece em toda sessão omp encerrada com pasta e oferece **Novo** (nome e
   visual sorteados) além dos contatos livres da pasta. `POST /api/cast/new` aceita `session` para retomar a conversa.
 - **Zaplaud:** toque longo no anel de contexto do campo de mensagem pergunta se quer fazer shake (liberar contexto) e,

@@ -2,7 +2,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { isIP } from 'node:net';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { discoverClaudeDirs } from './accounts/detect';
 import { discoverOmpDirs } from './sources/omp/accounts';
@@ -90,6 +90,8 @@ export interface ServerConfig {
   ompDirs: string[];
   /** Roda `omp usage --json` para o uso do plano das contas do omp; HABBLAUD_OMP_USAGE=0 desliga; sempre desligado no Docker (sem omp nem credenciais no container). */
   ompUsage: boolean;
+  /** Cota global do tenant consultada por HTTP, sem processo OMP. */
+  quota?: { url: string; tokenFile: string };
   /** Segunda porta, com login, para o celular na rede local (http/remote.ts); ausente = desligada. */
   remote?: RemoteConfig;
   /** Por que o acesso remoto ficou desligado quando as variáveis estão incompletas. */
@@ -275,6 +277,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
   const pkg = readPackage(rootDir);
   const remote = parseRemoteConfig(env, inDocker);
   const omp = !env.HABBLAUD_OMP?.trim() || isTruthy(env.HABBLAUD_OMP);
+  const quotaUrl = env.HABBLAUD_QUOTA_URL?.trim();
+  const tokenFile = env.HABBLAUD_QUOTA_TOKEN_FILE?.trim();
+  let quota: ServerConfig['quota'];
+  if (quotaUrl || tokenFile) {
+    const invalid = () => new Error('Configuração de cota inválida: informe HABBLAUD_QUOTA_URL HTTP(S) sem credenciais/fragmento e HABBLAUD_QUOTA_TOKEN_FILE absoluto.');
+    if (!quotaUrl || !tokenFile || !isAbsolute(tokenFile)) throw invalid();
+    let url: URL;
+    try { url = new URL(quotaUrl); } catch { throw invalid(); }
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash || quotaUrl.includes('#')) throw invalid();
+    quota = { url: url.href, tokenFile };
+  }
   return {
     port: Number.isFinite(port) && port > 0 && port < 65536 ? port : 4747,
     host,
@@ -298,7 +311,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     ...(castMax(env.HABBLAUD_CAST_MAX) ? { castMax: castMax(env.HABBLAUD_CAST_MAX) } : {}),
     omp,
     ompDirs: omp ? discoverOmpDirs(env, home) : [],
-    ompUsage: omp && !inDocker && (!env.HABBLAUD_OMP_USAGE?.trim() || isTruthy(env.HABBLAUD_OMP_USAGE)),
+    ompUsage: !quota && omp && !inDocker && (!env.HABBLAUD_OMP_USAGE?.trim() || isTruthy(env.HABBLAUD_OMP_USAGE)),
+    quota,
     remote: remote.config,
     remoteWarning: remote.warning,
     world: parseWorldConfig(env, argv),

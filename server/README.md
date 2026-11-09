@@ -513,6 +513,27 @@ do Codex levam `provider: 'codex'` (ausente = Claude Code). Ids: `<conta>:<threa
   desliga; no Docker, sempre desligado.
   Retorno 0 = entrou na fila da sessão (`delivered`); o Codex consome a fila a cada ~10 s, quando a sessão fica ociosa.
 
+### Cota da instalação por HTTP
+
+`HABBLAUD_QUOTA_URL` recebe o endpoint completo, por exemplo `http://127.0.0.1:4000/v1/cota`;
+`HABBLAUD_QUOTA_TOKEN_FILE` recebe um caminho absoluto com somente o bearer do tenant.
+Monte o arquivo somente leitura, legível pelo usuário do servidor. Ele é relido a cada consulta para aceitar rotação.
+URL e caminho vêm somente do ambiente do servidor, nunca do navegador. Use loopback do pod ou HTTPS de destino
+confiável, sem credenciais na URL, fragmentos ou redirects. Não use token de pareamento ZeroClaw nem credencial
+administrativa do gateway. O operador do plano omp-tenant 040 configura mounts/env; este recurso não opera tenants.
+
+A consulta independe de OMP, Docker, binários e sessões. Ela começa imediatamente e repete após 5 min de sucesso
+ou 1 min de falha, com timeout total de 10 s incluindo o corpo e uma consulta em voo. A cota global substitui o uso
+local em todas as contas reais, inclusive contas registradas depois da coleta; não cria conta sintética.
+Os reports representam a mesma cota: seus percentuais não são somados. Antes do primeiro sucesso não há números.
+Falhas mantêm o último `fetchedAt`; após 30 min os dados ficam antigos. Janelas cujo reinício passou são omitidas,
+nunca convertidas em 0%. Exaustão continua 100%, com a data de renovação.
+
+Sem as duas variáveis, o caminho legado permanece intacto. Configuração parcial ou URL/caminho inválidos impedem
+a inicialização com erro sanitizado. No modo HTTP, `omp usage` fica desligado mesmo se o token estiver ilegível
+ou o endpoint indisponível; não há fallback. Para voltar ao caminho legado, remova ambas as variáveis e reinicie
+o servidor em uma janela operacional autorizada.
+
 ## Habblaud World
 
 Ligado por padrão, apontando para `server.habblaud.com` (`DEFAULT_WORLD_URL` em `config.ts`); nada sai do computador
@@ -644,6 +665,8 @@ em `shared/world/city.ts` (fonte da verdade; o servidor do mundo guarda a cópia
 | `HABBLAUD_CODEX_BIN` | `codex` do PATH | binário do Codex para o `codex queue` (modo Node e `npm run codex:bridge`) |
 | `HABBLAUD_OMP_USAGE` | ligado (Docker: desligado) | `0` desliga o `omp usage --json` (uso do plano das contas do omp) |
 | `HABBLAUD_OMP_BIN` | `omp` do PATH, senão `~/.bun/bin/omp` | executável do omp para o uso do plano (caminho ou nome no PATH) |
+| `HABBLAUD_QUOTA_URL` | — | endpoint HTTP(S) completo da cota do tenant; exige arquivo de token e desliga a coleta por `omp usage` |
+| `HABBLAUD_QUOTA_TOKEN_FILE` | — | arquivo absoluto contendo somente o bearer do tenant, montado RO; exige URL |
 | `HABBLAUD_MENSAGENS` | ligado (com o terminal) | `0`, `false`, `off` ou `no` desligam só as mensagens pelo escritório |
 | `HABBLAUD_CLAUDE_DIRS` | — | config dirs separados por vírgula; substitui a detecção (`~/.claude*` com `projects/` ou `sessions/` + `CLAUDE_CONFIG_DIR`) |
 | `HABBLAUD_DATA_DIR` | `~/.habblaud` (Docker: `/data`) | estado do Habblaud (nomes e personagens dos projetos persistidos em `names.json`, linha do tempo em `timeline/`, estatísticas do Meu dia em `stats/`, última verificação de versão em `updates.json`) |
