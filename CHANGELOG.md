@@ -14,7 +14,10 @@ do meio (0.**3**.0).
 
 - **Zaplaud:** versão para Linux e macOS numa janela, com as mesmas telas do celular, anexos locais e navegação
   pela tecla Esc. O login usa o chaveiro do sistema; sem chaveiro, vale só até fechar o aplicativo. Execute
-  `./gradlew :desktop:run` em `android/`. Notificações e pacotes de instalação vêm depois.
+  `./gradlew :desktop:run` em `android/`. Notificações vêm depois.
+- **Zaplaud desktop:** configuração de pacotes `.deb`, `.rpm` e `.dmg` com ícone e runtime Java incluído; instalação
+  no Arch pelo script `scripts/desktop-install-linux.sh`, sem `sudo`, e distribuição portátil `.tar.gz`.
+  A JVM usa Serial GC e limite de heap de 256 MiB. O CI verifica os testes JVM e a distribuição Linux.
 - **Zaplaud:** o ▶ "Retomar conversa" aparece em toda sessão omp encerrada com pasta e oferece **Novo** (nome e
   visual sorteados) além dos contatos livres da pasta. `POST /api/cast/new` aceita `session` para retomar a conversa.
 - **Zaplaud:** toque longo no anel de contexto do campo de mensagem pergunta se quer fazer shake (liberar contexto) e,

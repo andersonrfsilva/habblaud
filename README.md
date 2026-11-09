@@ -243,6 +243,35 @@ npm run omp:status         # confere
 
 The extension applies to omp sessions opened **after** the installation. See [omp (oh-my-pi)](#omp-oh-my-pi).
 
+### Desktop (Linux and macOS)
+
+Zaplaud runs in a native window with the shared client screens and remote login. Building requires JDK 17 or
+newer; the distribution includes its own Java runtime.
+
+```bash
+cd android
+./gradlew :desktop:run
+./gradlew :shared:jvmTest :desktop:createReleaseDistributable --max-workers=4
+./gradlew :desktop:packageReleaseDeb :desktop:packageReleaseRpm --max-workers=4
+```
+
+Packages appear in `android/desktop/build/compose/binaries/main-release/{deb,rpm}/`. Packaging requires
+`dpkg-deb` for Debian or `rpmbuild` for RPM. On Arch, run from the repository root:
+
+```bash
+bash scripts/desktop-install-linux.sh
+tar -C android/desktop/build/compose/binaries/main-release/app -czf Zaplaud-linux.tar.gz Zaplaud
+```
+
+The script replaces the previous installation in `~/.local/opt/zaplaud` and adds a menu entry without `sudo`.
+The archive includes the app and runtime; extract it and run `Zaplaud/bin/Zaplaud`.
+On macOS, generate `android/desktop/icons/zaplaud.icns` from the PNG, then run
+`./gradlew :desktop:packageReleaseDmg --max-workers=4` in `android/`. The `.dmg` appears in
+`desktop/build/compose/binaries/main-release/dmg/` and can only be built on a Mac.
+Packages are unsigned and not notarized: right-click → Open on first launch.
+The packaged JVM uses `-XX:+UseSerialGC -Xmx256m`. ProGuard optimization is disabled because of unresolved
+optional OkHttp references.
+
 ### Open on your phone (optional)
 
 By default Habblaud only accepts connections from the computer it runs on. To open it on your phone (on the same Wi-Fi), with Docker:

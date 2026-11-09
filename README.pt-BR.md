@@ -389,6 +389,35 @@ No Android, as notificações opcionais usam o serviço em primeiro plano existe
 O aplicativo não oferece terminal interativo, fila offline de comandos ou atualização automática. As sessões e
 conversas permanecem no servidor.
 
+### Desktop (Linux e macOS)
+
+O Zaplaud também abre numa janela nativa, com as mesmas telas e o mesmo login remoto. Requer JDK 17 ou
+superior para compilar; a distribuição inclui seu próprio runtime Java.
+
+```bash
+cd android
+./gradlew :desktop:run
+./gradlew :shared:jvmTest :desktop:createReleaseDistributable --max-workers=4
+./gradlew :desktop:packageReleaseDeb :desktop:packageReleaseRpm --max-workers=4
+```
+
+Os pacotes ficam em `android/desktop/build/compose/binaries/main-release/{deb,rpm}/`; a geração exige
+`dpkg-deb` no Debian ou `rpmbuild` no RPM. No Arch, execute na raiz do repositório:
+
+```bash
+bash scripts/desktop-install-linux.sh
+tar -C android/desktop/build/compose/binaries/main-release/app -czf Zaplaud-linux.tar.gz Zaplaud
+```
+
+O script instala em `~/.local/opt/zaplaud` e adiciona o ícone ao menu, sem `sudo`, substituindo a instalação anterior.
+O `.tar.gz` contém o aplicativo e o runtime; extraia-o e execute `Zaplaud/bin/Zaplaud`.
+No macOS, gere `android/desktop/icons/zaplaud.icns` a partir do PNG e execute
+`./gradlew :desktop:packageReleaseDmg --max-workers=4` em `android/`; o `.dmg` fica em
+`desktop/build/compose/binaries/main-release/dmg/`. O pacote só pode ser gerado num Mac. Não há assinatura
+nem notarização: na primeira abertura, use botão direito → Abrir.
+Os pacotes usam `-XX:+UseSerialGC -Xmx256m`; a otimização ProGuard está desligada por incompatibilidade com
+referências opcionais do OkHttp.
+
 ### Aplicativo iPadOS (Zaplaud; validação pendente)
 
 O código nativo do Zaplaud usa Kotlin Multiplatform e Compose Multiplatform. `android/app` mantém o host Android;
