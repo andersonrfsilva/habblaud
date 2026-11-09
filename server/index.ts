@@ -39,6 +39,7 @@ import { createAsideRoutes, handleAsideProgress } from './asides/http';
 import { AsideStore } from './asides/store';
 import { createMessageRoutes } from './messages/http';
 import { MessageRegistry } from './messages/registry';
+import { ZeroClawDelivery } from './messages/zeroclaw';
 import type { CodexLive } from './sources/codex/live';
 import { ClaudeWatcher } from './sources/watcher';
 import { discoverCodexDirs } from './sources/codex/accounts';
@@ -348,6 +349,11 @@ const whisper = config.messages && !config.inDocker ? findWhisper() : undefined;
 const dictation = config.messages
   ? new DictationService(whisper && !('missing' in whisper) ? { transcriber: createWhisperTranscriber(whisper) } : {})
   : undefined;
+const zeroclawDelivery = config.messages && zeroclawConnector ? new ZeroClawDelivery({
+  connector: zeroclawConnector,
+  onCancelSession: (sessionId, reason) => late.messages?.cancelZeroClawSession(sessionId, reason),
+  onReplacementFailed: (agentId) => office.closeMain(agentId),
+}) : undefined;
 const messages = config.messages
   ? new MessageRegistry({
       office,
@@ -357,6 +363,7 @@ const messages = config.messages
         run: codexBin ? createCodexQueueRunner(codexBin) : undefined,
         homeOf: (account) => accounts.entriesOf('codex').find((e) => e.id === account)?.detected.configDir,
       },
+      zeroclaw: zeroclawDelivery,
       attachments,
       writeAttachments: (files) => deliveryFiles!.writeAttachments(files),
       onSettled: (id, status, error) => asides?.settled(id, status, error),
@@ -686,6 +693,7 @@ function shutdown(signal: string): void {
     () => timeline?.stop(),
     () => permissions?.stop(),
     () => messages?.stop(),
+    () => zeroclawDelivery?.stop(),
     () => asides?.stop(),
     () => ptys?.stopAll(),
     () => updates.stop(),
