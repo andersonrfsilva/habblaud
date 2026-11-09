@@ -257,7 +257,7 @@ Para gerar capturas dos dois temas com dados fictícios, execute `scripts/androi
 `habblaud034` disponível. As imagens ficam em `/tmp/android-screens/`.
 
 Quando o acesso remoto permite `terminal` e o auxiliar do host está disponível, o aplicativo também chama e dispensa
-contatos (os personagens do elenco do escritório) e retoma sessões omp encerradas com o contato escolhido (o último a usá-la aparece primeiro). Um pedido sem confirmação não é
+contatos (os personagens do elenco do escritório) e retoma sessões omp encerradas com o contato escolhido (o último a usá-la aparece primeiro) ou com um contato **Novo**, de nome e visual sorteados, mesmo sem contato livre na pasta. Um pedido sem confirmação não é
 reenviado automaticamente. Os avatares usam a mesma arte do escritório e ficam em cache privado no aparelho. O nome
 do contato aparece junto ao avatar; toque longo nos ícones de ação mostra sua função.
 

@@ -12,6 +12,8 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Zaplaud:** o ▶ "Retomar conversa" aparece em toda sessão omp encerrada com pasta e oferece **Novo** (nome e
+  visual sorteados) além dos contatos livres da pasta. `POST /api/cast/new` aceita `session` para retomar a conversa.
 - **Zaplaud:** conecta a vários servidores Habblaud ao mesmo tempo: uma lista com as sessões de todos, filtro por
   servidor, login e saída por servidor e notificações Android de todos. Atualizar mantém o login e os rascunhos do
   servidor atual. A migração descarta somente o cache antigo de conversas e preserva as marcas de leitura no iPad.

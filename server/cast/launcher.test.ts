@@ -136,6 +136,17 @@ describe('CastLauncher', () => {
     expect(launcher.start('ana', { room: '/a', mode: 'resume', session: sid, account: '.omp' })).toHaveProperty('job');
     expect(launcher.poll()).toContainEqual(expect.objectContaining({ op: 'start', cast: 'ana', folder: '/a', resume: sid }));
   });
+  it('"Novo" retoma uma conversa do histórico (session) sem depender de personagem livre na pasta', () => {
+    const { launcher } = setup();
+    launcher.poll();
+    const sid = '01a17ce2-c30b-7021-a3bf-8d10a45dc21b';
+    expect(launcher.startNew({ room: '/b', session: '../x' })).toMatchObject({ status: 422 });
+    expect(launcher.startNew({ room: '/b', session: 7 })).toMatchObject({ status: 422 });
+    expect(launcher.startNew({ room: '/b', session: sid, account: '.omp' })).toHaveProperty('job');
+    const [job] = launcher.poll();
+    expect(job).toMatchObject({ op: 'start', folder: '/b', resume: sid });
+    expect(job.cast).toMatch(/^novo-[0-9a-f]{8}$/);
+  });
   it('limite de abertos (salas do tenant): chamada em andamento e sessão aberta contam; quem está sendo dispensado não', () => {
     const agents: AgentInfo[] = [];
     const launcher = new CastLauncher({ dataDir: '/tmp', member: () => member, agents: () => agents, account: () => '/tmp', changed: () => {}, now: () => 0, max: 1 });
