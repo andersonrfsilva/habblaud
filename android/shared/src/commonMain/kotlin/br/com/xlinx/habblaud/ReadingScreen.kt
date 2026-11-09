@@ -333,8 +333,8 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                 if (sessionsTop[0] != null && sessionsList.firstVisibleItemIndex == 0) sessionsList.requestScrollToItem(0, sessionsList.firstVisibleItemScrollOffset)
                 sessionsTop[0] = top
             }
-            // Com texto na busca, o título recolhe e "Limpar busca" fica acima do teclado; durante a puxada a barra ainda expandiria.
-            LaunchedEffect(searchOpen && query.isNotEmpty()) { if (searchOpen && query.isNotEmpty()) listBar.state.heightOffset = listBar.state.heightOffsetLimit }
+            // Recolher o título mantém "Limpar busca" visível acima do teclado.
+            LaunchedEffect(searchOpen) { if (searchOpen) listBar.state.heightOffset = listBar.state.heightOffsetLimit }
             if (searchOpen) {
                 val focus = remember { FocusRequester() }
                 LaunchedEffect(Unit) { if (query.isEmpty()) focus.requestFocus() }
