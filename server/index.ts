@@ -23,6 +23,7 @@ import { errMsg, log } from './log';
 import { NameStore } from './model/names';
 import { CastStore } from './model/cast';
 import { CastLauncher } from './cast/launcher';
+import { ZeroClawCast } from './cast/zeroclaw';
 import { Office } from './model/office';
 import { RoomAliases } from './model/room-aliases';
 import { OmpSettings } from './sources/omp/settings';
@@ -158,7 +159,7 @@ const office = new Office({
   world: () => world?.meta() ?? { enabled: false, configured: false, state: 'off' },
   ompRoomByProject: config.ompDirs.length ? () => ompSettings.roomByProject : undefined,
 });
-const castLauncher = config.terminal ? new CastLauncher({
+const castLauncher: CastLauncher | undefined = config.terminal ? new CastLauncher({
   dataDir: config.dataDir,
   member: (id) => cast.get(id),
   agents: () => office.list(),
@@ -168,6 +169,15 @@ const castLauncher = config.terminal ? new CastLauncher({
   },
   changed: () => office.markDirty(),
   idle: (agent) => office.castIdle(agent),
+  zeroclaw: config.zeroclawCatalog ? new ZeroClawCast({
+    catalog: config.zeroclawCatalog,
+    connector: () => zeroclawConnector,
+    delivery: () => zeroclawDelivery,
+    messages: () => late.messages,
+    account: () => zeroclaw?.accountId,
+    ready: () => !!zeroclaw?.sources().some((source) => source.ok),
+    afterOpen: async () => { await zeroclaw?.flush(); },
+  }) : undefined,
   ...(config.castMax ? { max: config.castMax } : {}),
 }) : undefined;
 late.castLauncher = castLauncher;
@@ -349,8 +359,9 @@ const whisper = config.messages && !config.inDocker ? findWhisper() : undefined;
 const dictation = config.messages
   ? new DictationService(whisper && !('missing' in whisper) ? { transcriber: createWhisperTranscriber(whisper) } : {})
   : undefined;
-const zeroclawDelivery = config.messages && zeroclawConnector ? new ZeroClawDelivery({
+const zeroclawDelivery: ZeroClawDelivery | undefined = config.messages && zeroclawConnector ? new ZeroClawDelivery({
   connector: zeroclawConnector,
+  isClosing: (sessionId) => castLauncher?.isClosing(sessionId) ?? false,
   onCancelSession: (sessionId, reason) => late.messages?.cancelZeroClawSession(sessionId, reason),
   onReplacementFailed: (agentId) => office.closeMain(agentId),
 }) : undefined;
@@ -374,6 +385,8 @@ const asides = messages
   ? new AsideStore({ dir: join(config.dataDir, 'asides'), office, queue: (id, req) => messages.aside(id, req), discard: (id) => messages.discard(id) })
   : undefined;
 late.messages = messages;
+// Attach before sources start so restored intentions and intentional closes keep their cast reservation.
+castLauncher?.tick();
 
 // Terminal interativo (abrir/assumir sessões e encerrar agentes): opt-in com HABBLAUD_PTY=1, só com bind local, fora
 // do Docker, com node-pty e o executável do claude no PATH.

@@ -554,11 +554,14 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
     }
     const castStart = /^\/api\/cast\/([a-z0-9-]{1,40})\/start$/.exec(path);
     const castDismiss = /^\/api\/agents\/([^/]+)\/dismiss$/.exec(path);
-    if (path === '/api/cast/jobs' || path === '/api/cast/folders' || path === '/api/cast/dirs' || path === '/api/cast/new' || path === '/api/cast/roles' || castStart || castDismiss) {
+    if (path === '/api/cast/models' || path === '/api/cast/jobs' || path === '/api/cast/folders' || path === '/api/cast/dirs' || path === '/api/cast/new' || path === '/api/cast/roles' || castStart || castDismiss) {
       const launcher = deps.castLauncher;
       // Mesma trava do terminal: local, ou a porta remota com login e `terminal` em HABBLAUD_REMOTE_ALLOW.
       if (!deps.terminal || !trusted(req, 'terminal') || !launcher) sendJson(res, 403, { error: denied(req, tr('o elenco só pode ser editado pelo próprio computador')) });
-      else if (path === '/api/cast/jobs') {
+      else if (path === '/api/cast/models') {
+        if (method !== 'GET') methodNotAllowed(res, 'GET');
+        else sendJson(res, 200, launcher.models());
+      } else if (path === '/api/cast/jobs') {
         if (!isRead) methodNotAllowed(res, 'GET');
         else sendJson(res, 200, { jobs: launcher.jobs(), available: launcher.available() });
       } else if (path === '/api/cast/roles' && isRead) {

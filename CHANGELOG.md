@@ -24,6 +24,9 @@ do meio (0.**3**.0).
   abort HTTP e conversa nova com UUID novo, preservando o personagem. Aside e controles OMP incompatíveis são
   recusados. `delivered` indica somente aceitação no buffer local, sem ack de aplicação nem replay automático.
   Anexos continuam como caminhos absolutos compartilhados, sem upload de mídia ao gateway.
+- **Elenco ZeroClaw:** abertura, retomada e dispensa pelo gateway, sem auxiliar ou tmux, com catálogo configurado
+  em `GET /api/cast/models`. Instruções são contexto textual; a dispensa confirma o fim do turno antes de fechar,
+  preservando histórico e limite de personagens. O caminho OMP permanece disponível sem configuração ZeroClaw.
 - **Zaplaud:** o ▶ "Retomar conversa" aparece em toda sessão omp encerrada com pasta e oferece **Novo** (nome e
   visual sorteados) além dos contatos livres da pasta. `POST /api/cast/new` aceita `session` para retomar a conversa.
 - **Zaplaud:** toque longo no anel de contexto do campo de mensagem pergunta se quer fazer shake (liberar contexto) e,

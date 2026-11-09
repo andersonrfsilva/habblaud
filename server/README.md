@@ -32,6 +32,42 @@ Ausente ou vazia, não abre rede, temporizadores nem diretórios dessa fonte. A 
 HTTP em loopback, sem credenciais, query, fragmento ou caminho. Este desenho usa `require_pairing=false`
 no gateway isolado do tenant, sem porta publicada. Não existe variável de token ZeroClaw.
 
+Com essa URL configurada e válida, o elenco usa ZeroClaw, sem auxiliar do host, conta OMP ou tmux.
+Sem a URL, o elenco continua usando OMP; configuração ZeroClaw inválida não faz fallback.
+O runtime ZeroClaw exige também:
+
+| Variável | Formato |
+| --- | --- |
+| `HABBLAUD_ZEROCLAW_AGENTS` | JSON não vazio `[{"alias":"m_<12 hex>","model":"provedor/modelo"}]`, na ordem do catálogo |
+| `HABBLAUD_ZEROCLAW_DEFAULT_AGENT` | Alias padrão presente nesse catálogo |
+
+O alias é `m_` seguido dos primeiros 12 dígitos hexadecimais minúsculos de SHA-256 do identificador
+`model` completo em UTF-8. O mesmo alias identifica o agente e o modelo na configuração do gateway.
+Não se usa slug, índice nem remoção de pontuação. Modelos e aliases devem ser únicos, sem espaços,
+controles ou curingas nos modelos; catálogo parcial, hash incorreto e default desconhecido são recusados.
+No perfil, `model` guarda o alias técnico. Um identificador legado exatamente igual a uma entrada
+é resolvido em memória, sem regravar perfis nem remover sufixos; modelo desconhecido recebe 422.
+Campo ausente usa o alias padrão. Retomar mantém UUID e alias originais, exige metadados ZeroClaw
+na mesma sala e recusa modelo incompatível; histórico OMP não vira conversa ZeroClaw.
+
+`GET /api/cast/models` funciona antes da primeira sessão, sob a mesma trava do terminal.
+ZeroClaw devolve `{provider:'zeroclaw',models:[{alias,model}],defaultModel:alias}`, na ordem configurada:
+`model` é o identificador legível, e `alias` é a chave enviada e armazenada.
+OMP devolve `{provider:'omp',models:[]}` e mantém sua descoberta existente.
+O endpoint não expõe URL, credenciais nem TOML e aceita somente GET.
+
+Na conversa nova, instruções do personagem são contexto textual, não system prompt:
+`Instruções do personagem:\n<instructions>`, seguido de `\n\nPedido inicial:\n<prompt>` quando houver pedido.
+Sem instruções, envia somente o pedido; sem ambos, abre a sessão sem inferência.
+Retomar envia apenas o pedido opcional, sem repetir instruções. Cada campo mantém o limite de 8.000 caracteres.
+
+A dispensa bloqueia novos envios e cancela pendências com `cancelSession`; se houver turno ativo ou
+continuidade incerta, aguarda `stopSession` confirmar término antes de `closeSession`.
+Sessão ociosa fecha sem abort. Fechar conexão não interrompe inferência, e nenhuma dispensa usa DELETE:
+o histórico e a referência para retomada permanecem. Falha ao parar mantém sessão aberta e vaga ocupada.
+`HABBLAUD_CAST_MAX` conta também sessões desconectadas e em dispensa até o fechamento confirmado.
+A dispensa por ociosidade usa o limite existente de 120 minutos ou `idleMinutes`; `0` desliga a regra.
+
 O estado fica em `<HABBLAUD_DATA_DIR>/zeroclaw/` (por padrão `~/.habblaud/zeroclaw/`):
 `open-sessions.json` guarda intenções de sessões abertas; `sessions.json` guarda metadados locais;
 `sessions/<UUID>.jsonl` preserva prompts, deltas e ferramentas no formato de leitura Claude.
@@ -46,7 +82,7 @@ mesmo sem frame WS. Tokens/custos do frame `done` não alimentam contexto nem us
 O JSONL permanece legível com gateway offline e depois do fechamento da sessão.
 
 Esta fonte compartilha o conector com a entrega de mensagens e controles descrita abaixo.
-Elenco e interface ZeroClaw dependem dos planos 071 e 072; o transporte não habilita sozinho esses controles na UI.
+O elenco usa esse mesmo transporte; a interface ZeroClaw depende do plano 072.
 Para rollback, remova `HABBLAUD_ZEROCLAW_URL` e preserve a pasta `zeroclaw/`.
 
 
@@ -158,6 +194,7 @@ O auxiliar no host (`npm run codex:bridge`) abre sessões omp em `tmux` como `hb
 | `GET /api/agents/:id` | `AgentDetail` (histórico de até 200 atividades) |
 | `GET /api/agents/:id/terminal` | SSE do terminal: eventos `init` e `append` (`TerminalMessage`); só com bind local (ver abaixo) |
 | `GET /api/cast` | `{members}` sem vínculos; acesso local ou pela porta remota após login, com `terminal` em `HABBLAUD_REMOTE_ALLOW` |
+| `GET /api/cast/models` | Catálogo configurado ZeroClaw com aliases e modelo padrão, ou `{provider:'omp',models:[]}`; disponível sem sessão; mesma trava do terminal |
 | `POST /api/cast` | Cria membro sem `id`; 201, 400 ou 409; mesma trava do terminal |
 | `PUT /api/cast/:id` | Edita membro e atualiza os agentes que o vestem; mesma trava do terminal |
 | `DELETE /api/cast/:id` | Apaga membro e vínculos; agentes voltam ao sorteio; mesma trava do terminal |
@@ -165,7 +202,7 @@ O auxiliar no host (`npm run codex:bridge`) abre sessões omp em `tmux` como `hb
 | `DELETE /api/agents/:id/cast` | Remove o vínculo e volta ao sorteio; mesma trava do terminal |
 | `POST /api/cast/:id/start` | `{room, mode: 'new' \| 'resume', prompt?}`: enfileira uma chamada; 202, 409 (ocupado ou limite de `HABBLAUD_CAST_MAX` personagens abertos), 422 ou 503; mesma trava do terminal |
 | `POST /api/agents/:id/dismiss` | Enfileira a dispensa de uma sessão aberta pelo Habblaud; mesma trava do terminal |
-| `GET /api/cast/jobs` | `{jobs, available}`: estado das chamadas e presença do auxiliar; mesma trava do terminal |
+| `GET /api/cast/jobs` | `{jobs, available}`: estado das chamadas e disponibilidade do runtime (auxiliar no OMP, conector no ZeroClaw); mesma trava do terminal |
 | `GET /api/cast/dirs?path=<absoluto>` | `{path, parent?, dirs}`: subpastas nas raízes de `HABBLAUD_CAST_ROOTS` (separadas por vírgulas) ou na pasta pessoal; mesma trava do terminal |
 | `POST /api/host/cast/poll`, `/api/host/cast/ack` | Auxiliar busca e confirma chamadas e dispensas; somente acesso local |
 | `GET /api/sessions/recent` | `RecentSessionsResponse`: sessões dos últimos 7 dias de todas as contas (até 150); mesma trava do terminal |

@@ -6,6 +6,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { discoverClaudeDirs } from './accounts/detect';
 import { discoverOmpDirs } from './sources/omp/accounts';
+import { parseZeroClawCatalog, type ZeroClawCatalog } from './cast/zeroclaw';
 import { parseAllowedHosts } from './http/guard';
 import { parseRemoteConfig, type RemoteConfig } from './http/remote';
 import { parseGithubRepo } from './updates/checker';
@@ -88,6 +89,8 @@ export interface ServerConfig {
   omp: boolean;
   /** Gateway ZeroClaw HTTP somente em loopback; ausente = fonte desligada. */
   zeroclawUrl?: string;
+  /** Catálogo validado do runtime ZeroClaw; aliases estáveis e modelo padrão explícito. */
+  zeroclawCatalog?: ZeroClawCatalog;
   /** Agent dirs do omp com sessions/ (HABBLAUD_OMP_DIRS › PI_CODING_AGENT_DIR › ~/.omp/agent); vazio com HABBLAUD_OMP=0. */
   ompDirs: string[];
   /** Roda `omp usage --json` para o uso do plano das contas do omp; HABBLAUD_OMP_USAGE=0 desliga; sempre desligado no Docker (sem omp nem credenciais no container). */
@@ -291,6 +294,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
   const pkg = readPackage(rootDir);
   const remote = parseRemoteConfig(env, inDocker);
   const omp = !env.HABBLAUD_OMP?.trim() || isTruthy(env.HABBLAUD_OMP);
+  const zeroclawUrl = parseZeroClawUrl(env.HABBLAUD_ZEROCLAW_URL);
+  if (!zeroclawUrl && (env.HABBLAUD_ZEROCLAW_AGENTS !== undefined || env.HABBLAUD_ZEROCLAW_DEFAULT_AGENT !== undefined)) {
+    throw new Error('HABBLAUD_ZEROCLAW_URL obrigatória com catálogo ZeroClaw');
+  }
+  const zeroclawCatalog = zeroclawUrl
+    ? parseZeroClawCatalog(env.HABBLAUD_ZEROCLAW_AGENTS, env.HABBLAUD_ZEROCLAW_DEFAULT_AGENT)
+    : undefined;
   const quotaUrl = env.HABBLAUD_QUOTA_URL?.trim();
   const tokenFile = env.HABBLAUD_QUOTA_TOKEN_FILE?.trim();
   let quota: ServerConfig['quota'];
@@ -324,7 +334,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     codex: !env.HABBLAUD_CODEX?.trim() || isTruthy(env.HABBLAUD_CODEX),
     ...(castMax(env.HABBLAUD_CAST_MAX) ? { castMax: castMax(env.HABBLAUD_CAST_MAX) } : {}),
     omp,
-    zeroclawUrl: parseZeroClawUrl(env.HABBLAUD_ZEROCLAW_URL),
+    zeroclawUrl,
+    zeroclawCatalog,
     ompDirs: omp ? discoverOmpDirs(env, home) : [],
     ompUsage: !quota && omp && !inDocker && (!env.HABBLAUD_OMP_USAGE?.trim() || isTruthy(env.HABBLAUD_OMP_USAGE)),
     quota,
