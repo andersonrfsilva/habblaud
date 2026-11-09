@@ -324,6 +324,23 @@ class FixtureUiInstrumentedTest {
         compose.onAllNodes(hasText("o que você está fazendo?", substring = true)).assertCountEquals(0)
     }
 
+    @Test fun longSwipeUpAtConversationEndOpensParallelChat() {
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        await(R.string.message_text)
+        compose.onNodeWithContentDescription(text(R.string.back_sessions)).performClick()
+        compose.waitUntil(15_000) { compose.onAllNodes(hasText("caderno · trabalhando")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("caderno · trabalhando").performClick()
+        compose.waitUntil(15_000) { compose.onAllNodesWithTag("conversation-list").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitForIdle()
+        // Curto: só rola (nada além do fim para revelar).
+        compose.onNodeWithTag("conversation-list").performTouchInput { swipeUp(startY = bottom - 20f, endY = bottom - 20f - 40.dp.toPx(), durationMillis = 400) }
+        compose.waitForIdle()
+        compose.onAllNodesWithTag("aside-input").assertCountEquals(0)
+        // Longo, de baixo para cima no fim da conversa: abre o bate-papo paralelo.
+        compose.onNodeWithTag("conversation-list").performTouchInput { swipeUp(startY = bottom - 20f, endY = top + 20f, durationMillis = 600) }
+        compose.waitUntil(15_000) { compose.onAllNodesWithTag("aside-input").fetchSemanticsNodes().isNotEmpty() }
+    }
+
     @Test fun deliveryBannerDisappearsOnlyAfterDelivery() {
         val statuses = listOf(
             "queued" to R.string.message_queued,

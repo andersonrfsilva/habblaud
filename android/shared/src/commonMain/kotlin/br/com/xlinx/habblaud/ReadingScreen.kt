@@ -351,7 +351,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                     colors = pillFieldColors(),
                 )
             }
-            val revealPx = with(LocalDensity.current) { SEARCH_REVEAL_PULL.toPx() }
+            val revealPx = with(LocalDensity.current) { REVEAL_PULL.toPx() }
             val haptics = LocalHapticFeedback.current
             val reveal = remember(revealPx) {
                 object : NestedScrollConnection {
@@ -444,8 +444,28 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                 val index = shown.indexOfLast { it.id == before }
                 unread += if (index >= 0) shown.size - index - 1 else 1
             }
+            // Puxar para cima além da mensagem mais nova abre o bate-papo paralelo (agente do omp que aceita mensagens).
+            val canAside = selected.agentId != null && !selected.sub && selected.key.provider == "omp" && selected.canMessage && state.messagesAllowed && state.messageGuard && state.connection == "connected"
+            val asideAgent by rememberUpdatedState(if (canAside) selected.agentId else null)
+            val asidePx = with(LocalDensity.current) { REVEAL_PULL.toPx() }
+            val asideHaptics = LocalHapticFeedback.current
+            val asideSwipe = remember(asidePx) {
+                object : NestedScrollConnection {
+                    var pulled = 0f
+                    override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                        // Lista invertida: no fim da conversa, o dedo subindo sobra como rolagem negativa não consumida.
+                        val agent = asideAgent
+                        if (source == NestedScrollSource.UserInput && available.y < 0f && agent != null && !asideOpen) {
+                            pulled -= available.y
+                            if (pulled >= asidePx) { pulled = 0f; controller.asides.open(agent); asideOpen = true; asideHaptics.performHapticFeedback(HapticFeedbackType.LongPress) }
+                        } else if (available.y > 0f || consumed.y != 0f) pulled = 0f
+                        return Offset.Zero
+                    }
+                    override suspend fun onPreFling(available: Velocity): Velocity { pulled = 0f; return Velocity.Zero }
+                }
+            }
             Box(Modifier.weight(1f).fillMaxWidth()) {
-                LazyColumn(Modifier.fillMaxSize(), state = listState, reverseLayout = true, contentPadding = PaddingValues(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom)) {
+                LazyColumn(Modifier.fillMaxSize().nestedScroll(asideSwipe).testTag("conversation-list"), state = listState, reverseLayout = true, contentPadding = PaddingValues(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom)) {
                     // Lista invertida: o primeiro item fica no pé da conversa, logo abaixo da última mensagem.
                     items(rows.asReversed(), key = { it.entry.id }) { row ->
                         val entry = row.entry
@@ -699,8 +719,8 @@ private fun ChatBanner(message: String, modifier: Modifier = Modifier) {
 
 /** O servidor guarda até 99 respostas por agente (REPLIES_LIMIT): daí para cima o balão mostra "99+". */
 private const val REPLIES_SHOWN = 99
-/** Quanto puxar além do topo da lista para revelar a busca: grande o bastante para não acontecer por acidente. */
-private val SEARCH_REVEAL_PULL = 120.dp
+/** Quanto puxar além do fim da lista para revelar algo (busca, bate-papo paralelo): grande o bastante para não acontecer por acidente. */
+private val REVEAL_PULL = 120.dp
 /** Respostas até este tamanho já cabem em poucas frases: ficam inteiras, sem pedir resumo. */
 private const val SUMMARY_MIN_CHARS = 500
 /** O servidor aceita até 32 Ki caracteres; o resumo de uma resposta maior olha só o começo dela. */

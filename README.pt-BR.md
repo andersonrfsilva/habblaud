@@ -261,7 +261,7 @@ contatos (os personagens do elenco do escritório) e retoma sessões omp encerra
 reenviado automaticamente. Os avatares usam a mesma arte do escritório e ficam em cache privado no aparelho. O nome
 do contato aparece junto ao avatar; toque longo nos ícones de ação mostra sua função. Com as mensagens liberadas, o
 menu da conversa de um agente do omp abre o **Bate-papo paralelo**: perguntas respondidas sem interromper o agente e
-fora da conversa dele, como na janela lateral da página.
+fora da conversa dele, como na janela lateral da página. No fim da conversa, uma puxada longa para cima também o abre.
 
 #### Compilar e instalar
 
