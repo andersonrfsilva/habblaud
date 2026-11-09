@@ -1,3 +1,30 @@
 package br.com.xlinx.habblaud.desktop
 
-fun main() { TODO() }
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.application
+import androidx.compose.ui.window.rememberWindowState
+import br.com.xlinx.habblaud.LocalNotificationPlatform
+import br.com.xlinx.habblaud.NotificationPlatform
+import br.com.xlinx.habblaud.ZaplaudApp
+import br.com.xlinx.habblaud.dispatchDesktopBack
+import br.com.xlinx.habblaud.resources.Res
+import br.com.xlinx.habblaud.resources.ic_zaplaud
+import org.jetbrains.compose.resources.painterResource
+
+fun main() = application {
+    val state = rememberWindowState(size = DpSize(1100.dp, 760.dp))
+    Window(onCloseRequest = ::exitApplication, state = state, title = "Zaplaud",
+        icon = painterResource(Res.drawable.ic_zaplaud),
+        onKeyEvent = { e -> e.type == KeyEventType.KeyUp && e.key == Key.Escape && dispatchDesktopBack() }) {
+        CompositionLocalProvider(
+            LocalNotificationPlatform provides NotificationPlatform(false, {}, {}, { _, result -> result(false) }),
+        ) { ZaplaudApp() }
+    }
+}
