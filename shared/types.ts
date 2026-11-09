@@ -76,8 +76,9 @@ export interface ReserveInfo {
  * - claude: Claude Code;
  * - codex: OpenAI Codex (CLI `codex` e o app desktop, que gravam no mesmo CODEX_HOME);
  * - omp: oh-my-pi (CLI `omp`, can1357/oh-my-pi), que grava as sessões em ~/.omp/agent/sessions.
+ * - zeroclaw: ZeroClaw Gluon, acompanhado pelo gateway local e espelhado em JSONL.
  */
-export type Provider = 'claude' | 'codex' | 'omp';
+export type Provider = 'claude' | 'codex' | 'omp' | 'zeroclaw';
 
 /**
  * Estado de alto nível de um agente — é o que dirige o comportamento do personagem.

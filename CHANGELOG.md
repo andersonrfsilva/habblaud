@@ -17,6 +17,9 @@ do meio (0.**3**.0).
   ativação em produção depende do operador.
 - **Cota da instalação:** consulta HTTP autenticada pelo arquivo de token do tenant, sem processo OMP ou sessão aberta.
   A mesma cota aparece nas contas reais; sem a nova configuração, o comportamento legado permanece intacto.
+- **ZeroClaw (opt-in):** fonte do gateway HTTP em loopback, intenções persistidas e espelho JSONL de mensagens,
+  deltas e ferramentas. Reconexão sem replay de prompts, lacunas explícitas e histórico local preservado offline.
+  `HABBLAUD_ZEROCLAW_URL` habilita a fonte sem token neste desenho isolado; operação pela UI depende das etapas seguintes.
 - **Zaplaud:** o ▶ "Retomar conversa" aparece em toda sessão omp encerrada com pasta e oferece **Novo** (nome e
   visual sorteados) além dos contatos livres da pasta. `POST /api/cast/new` aceita `session` para retomar a conversa.
 - **Zaplaud:** toque longo no anel de contexto do campo de mensagem pergunta se quer fazer shake (liberar contexto) e,

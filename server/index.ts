@@ -47,6 +47,10 @@ import { OmpHistory } from './sources/omp/history';
 import { CodexSource } from './sources/codex/source';
 import { OmpSource } from './sources/omp/source';
 import type { OmpLive } from './sources/omp/live';
+import { ZeroClawConnector } from './sources/zeroclaw/connector';
+import { ZeroClawMirror } from './sources/zeroclaw/mirror';
+import { ZeroClawSource } from './sources/zeroclaw/source';
+import { ZeroClawHistory } from './sources/zeroclaw/history';
 import { ompBinFrom } from './sources/omp/bin';
 import { Summarizer } from './summaries/summarizer';
 import { createBuildReader, readBuildInfo } from './build';
@@ -192,6 +196,18 @@ const omp = config.ompDirs.length
   : undefined;
 if (omp) agents.add(omp);
 const ompLive: OmpLive | undefined = omp;
+// Opt-in: no connector, timers or data directories exist without the loopback gateway URL.
+const zeroclawMirror = config.zeroclawUrl ? new ZeroClawMirror({ dataDir: config.dataDir, diagnostic: (message) => log.warn(message) }) : undefined;
+let zeroclaw: ZeroClawSource | undefined;
+const zeroclawConnector = config.zeroclawUrl && zeroclawMirror ? new ZeroClawConnector({
+  url: config.zeroclawUrl, dataDir: config.dataDir,
+  metadataOf: (id) => zeroclawMirror.metadataOf(id),
+  beforeOpen: (input) => zeroclaw!.prepare(input),
+}) : undefined;
+if (zeroclawConnector && zeroclawMirror) {
+  zeroclaw = new ZeroClawSource({ accounts, office, connector: zeroclawConnector, mirror: zeroclawMirror });
+  agents.add(zeroclaw);
+}
 late.office = office;
 late.agents = agents;
 // Página que pode responder pelo escritório: Host local na porta local; na remota, só com permissions liberado.
@@ -248,6 +264,11 @@ const history = config.terminal
   : undefined;
 if (history && codex) history.add(new CodexHistory({ accounts: () => accounts.entriesOf('codex'), openAgentOf: (acc, sid) => openMainAgent(office.list(), acc, sid) }));
 if (history && omp) history.add(new OmpHistory({ accounts: () => accounts.entriesOf('omp'), openAgentOf: (acc, sid) => openMainAgent(office.list(), acc, sid) }));
+if (history && zeroclaw && zeroclawConnector && zeroclawMirror) history.add(new ZeroClawHistory({
+  connector: zeroclawConnector, mirror: zeroclawMirror, account: () => zeroclaw!.accountId,
+  openAgentOf: (acc, sid) => openMainAgent(office.list(), acc, sid),
+  diagnostic: (message) => log.warn(message),
+}));
 // Último estado do agente de cada sessão: entregas de quem já saiu do escritório (sem agentId) mantêm nome e avatar.
 // shortcut: só em memória, some ao reiniciar o servidor; persistir se isso incomodar.
 const seenAgents = new Map<string, AgentInfo>();

@@ -86,6 +86,8 @@ export interface ServerConfig {
   castMax?: number;
   /** Observa as sessões do omp (sources/omp/); HABBLAUD_OMP=0 desliga. */
   omp: boolean;
+  /** Gateway ZeroClaw HTTP somente em loopback; ausente = fonte desligada. */
+  zeroclawUrl?: string;
   /** Agent dirs do omp com sessions/ (HABBLAUD_OMP_DIRS › PI_CODING_AGENT_DIR › ~/.omp/agent); vazio com HABBLAUD_OMP=0. */
   ompDirs: string[];
   /** Roda `omp usage --json` para o uso do plano das contas do omp; HABBLAUD_OMP_USAGE=0 desliga; sempre desligado no Docker (sem omp nem credenciais no container). */
@@ -268,6 +270,18 @@ export function castMax(raw: string | undefined): number | undefined {
   return Number.isInteger(n) && n >= 1 && n <= 50 ? n : undefined;
 }
 
+/** Pairing desligado exige gateway na mesma máquina, sem credenciais na URL. */
+export function parseZeroClawUrl(raw: string | undefined): string | undefined {
+  if (!raw?.trim()) return undefined;
+  const invalid = new Error('HABBLAUD_ZEROCLAW_URL deve ser uma origem HTTP loopback sem credenciais, caminho, query ou fragmento');
+  let url: URL;
+  try { url = new URL(raw.trim()); } catch { throw invalid; }
+  const host = url.hostname.replace(/^\[|\]$/g, '');
+  const loopback = host === 'localhost' || host === '::1' || (isIP(host) === 4 && host.startsWith('127.'));
+  if (url.protocol !== 'http:' || !loopback || url.username || url.password || url.search || url.hash || url.pathname !== '/') throw invalid;
+  return url.origin;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] = process.argv): ServerConfig {
   const home = env.HOME || homedir();
   const inDocker = detectDocker(env);
@@ -310,6 +324,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     codex: !env.HABBLAUD_CODEX?.trim() || isTruthy(env.HABBLAUD_CODEX),
     ...(castMax(env.HABBLAUD_CAST_MAX) ? { castMax: castMax(env.HABBLAUD_CAST_MAX) } : {}),
     omp,
+    zeroclawUrl: parseZeroClawUrl(env.HABBLAUD_ZEROCLAW_URL),
     ompDirs: omp ? discoverOmpDirs(env, home) : [],
     ompUsage: !quota && omp && !inDocker && (!env.HABBLAUD_OMP_USAGE?.trim() || isTruthy(env.HABBLAUD_OMP_USAGE)),
     quota,
