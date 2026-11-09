@@ -6,6 +6,8 @@ import { createInterface } from 'node:readline';
 import { OMP_SESSION_ID } from '../../shared/omp-events';
 import { AccountsService } from '../accounts/service';
 import { CastLauncher } from '../cast/launcher';
+import { createAsideRoutes, handleAsideProgress } from '../asides/http';
+import { AsideStore } from '../asides/store';
 import { createApiHandler } from '../http/app';
 import { createRequestGuard } from '../http/guard';
 import { createRemoteGate, isRemoteRequest, loadSecret, parseAllow, RemoteSessions } from '../http/remote';
@@ -146,6 +148,20 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
   let attachmentTimeOffset = 0;
   const attachments = new AttachmentStore({ dir: stagingDir, now: () => Date.now() + attachmentTimeOffset });
   const messages = new MessageRegistry({ office, attachments, presenceMs: Number.MAX_SAFE_INTEGER, writeAttachments: async files => ({ paths: await writeAttachments(deliveredDir, randomUUID(), files) }) });
+  // Bate-papo paralelo: sem extensão do omp, a fixture faz o papel dela (busca, resposta em duas partes e fim).
+  const asides: AsideStore = new AsideStore({ dir: null, office, discard: id => messages.discard(id), queue: (agentId, req) => {
+    const sent = messages.aside(agentId, req);
+    const sessionId = office.get(agentId)?.sessionId;
+    if ('message' in sent && sessionId) {
+      const answer = `Resposta paralela fictícia: ${req.question}`;
+      setTimeout(() => {
+        asides.settled(sent.message.id, 'delivered');
+        asides.progress({ sessionId, turnId: req.turnId, text: answer.slice(0, 20), state: 'running' });
+        setTimeout(() => asides.progress({ sessionId, turnId: req.turnId, text: answer, state: 'complete' }), 1_500);
+      }, 500);
+    }
+    return sent;
+  } });
   const permissions = new PermissionRegistry({ office, viewers: () => 1, answerLater: () => true, orphanMs: 300_000 });
   const permissionResults: Record<string, unknown> = {};
   const waitForPermission = (id: string): void => {
@@ -169,7 +185,7 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
     new OmpHistory({ accounts: () => accounts.entries().filter(account => account.provider === 'omp'), openAgentOf }),
   ]);
   const allowed = parseAllow(allow);
-  const api = createApiHandler({ office, hub, accounts, sources: () => [], version: 'android-fixture', inDocker: false, terminal: true, terminals, sessions: history, messages: createMessageRoutes(messages), permissions: createPermissionRoutes(permissions), castLauncher: launcher, spawnFolders: async () => projects.map(name => ({ name, path: `/fixture/${name}`, lastAt: Date.now(), sessions: 1 })), remote: { is: isRemoteRequest, allows: feature => allowed.has(feature) } });
+  const api = createApiHandler({ office, hub, accounts, sources: () => [], version: 'android-fixture', inDocker: false, terminal: true, terminals, sessions: history, messages: createMessageRoutes(messages), asides: { page: createAsideRoutes(asides), progress: (req, res) => handleAsideProgress(req, res, asides) }, permissions: createPermissionRoutes(permissions), castLauncher: launcher, spawnFolders: async () => projects.map(name => ({ name, path: `/fixture/${name}`, lastAt: Date.now(), sessions: 1 })), remote: { is: isRemoteRequest, allows: feature => allowed.has(feature) } });
   const passwordHashText = await hashPassword('android-test');
   const passwordHash = parsePasswordHash(passwordHashText);
   if (!passwordHash) throw new Error('Could not create fixture password');

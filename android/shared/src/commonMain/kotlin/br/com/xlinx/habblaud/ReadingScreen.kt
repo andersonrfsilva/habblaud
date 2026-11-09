@@ -194,6 +194,8 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
         return
     }
     PlatformBackHandler(enabled = selected != null && permissionSession == null && !menuExpanded) { controller.close() }
+    // Bate-papo paralelo do agente aberto: some ao trocar de conversa (o controlador também fecha).
+    var asideOpen by remember(selected?.key) { mutableStateOf(false) }
     PlatformBackHandler(enabled = selected == null && searchOpen) { query = ""; searchOpen = false }
     CastActions(api, selected, actionsAvailable(states.getValue(actionOrigin), actionOrigin in needsLogin, selected?.permission == true) && (selected != null || filter != null || apis.size == 1), state.sessions.filter { it.agentId != null }.mapNotNull { it.cast }.toSet(), { onUnauthorized(api.origin) }, { permissionSession = selected }, menu = { close, dismissItem ->
         // Menu em páginas: a principal lista os grupos; tocar num grupo troca o conteúdo pela lista dele, com "‹ Voltar".
@@ -235,6 +237,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                     if (selected!!.models.isNotEmpty()) Group(Res.string.model_menu, (currentModel ?: selected.model)?.let(::modelLabel), "model", canControl)
                     Group(Res.string.thinking_menu, selected.thinking?.let { thinkingLabel(it) }, "thinking", canControl)
                     DropdownMenuItem(text = { Text(stringResource(Res.string.shake)) }, enabled = canControl, onClick = { controller.messages.shake(agentId!!); close() })
+                    DropdownMenuItem(modifier = Modifier.testTag("aside-menu"), text = { Text(stringResource(Res.string.aside_menu)) }, enabled = canControl, onClick = { controller.asides.open(agentId!!); asideOpen = true; close() })
                 }
                 dismissItem()
             }
@@ -242,6 +245,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
     }) { castActions, castFab, castStatus ->
     var showInfo by remember(selected?.key) { mutableStateOf(false) }
     if (showInfo && selected != null) SessionInfoSheet(api, selected, state.entries, state.truncated) { showInfo = false }
+    if (asideOpen && selected?.agentId != null) AsideSheet(controller.asides) { asideOpen = false; controller.asides.close() }
     Scaffold(floatingActionButton = { if (selected != null || filter != null || apis.size == 1) castFab() }, topBar = {
         TopAppBar(
             title = {

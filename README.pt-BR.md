@@ -259,7 +259,9 @@ Para gerar capturas dos dois temas com dados fictícios, execute `scripts/androi
 Quando o acesso remoto permite `terminal` e o auxiliar do host está disponível, o aplicativo também chama e dispensa
 contatos (os personagens do elenco do escritório) e retoma sessões omp encerradas com o contato escolhido (o último a usá-la aparece primeiro) ou com um contato **Novo**, de nome e visual sorteados, mesmo sem contato livre na pasta. Um pedido sem confirmação não é
 reenviado automaticamente. Os avatares usam a mesma arte do escritório e ficam em cache privado no aparelho. O nome
-do contato aparece junto ao avatar; toque longo nos ícones de ação mostra sua função.
+do contato aparece junto ao avatar; toque longo nos ícones de ação mostra sua função. Com as mensagens liberadas, o
+menu da conversa de um agente do omp abre o **Bate-papo paralelo**: perguntas respondidas sem interromper o agente e
+fora da conversa dele, como na janela lateral da página.
 
 #### Compilar e instalar
 

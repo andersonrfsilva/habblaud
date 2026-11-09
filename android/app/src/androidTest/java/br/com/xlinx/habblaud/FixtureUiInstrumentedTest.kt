@@ -294,6 +294,36 @@ class FixtureUiInstrumentedTest {
         compose.waitUntil(15_000) { compose.onAllNodes(hasText("Shake:", substring = true)).fetchSemanticsNodes().isNotEmpty() }
     }
 
+    @Test fun parallelChatAnswersWithoutTouchingTheConversation() {
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        await(R.string.message_text)
+        compose.onNodeWithContentDescription(text(R.string.back_sessions)).performClick()
+        compose.waitUntil(15_000) { compose.onAllNodes(hasText("caderno · trabalhando")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("caderno · trabalhando").performClick()
+        awaitDescription(R.string.menu)
+        compose.onNodeWithContentDescription(text(R.string.menu)).performClick()
+        compose.onNodeWithTag("aside-menu").performClick()
+        compose.waitUntil(15_000) { compose.onAllNodes(hasText(text(R.string.aside_empty))).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("aside-input").performTextInput("o que você está fazendo?")
+        compose.onNodeWithTag("aside-send").performClick()
+        // A resposta chega em partes: primeiro em andamento (com o botão de parar), depois completa.
+        compose.waitUntil(15_000) { compose.onAllNodes(androidx.compose.ui.test.hasContentDescription(text(R.string.aside_stop))).fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(15_000) { compose.onAllNodes(hasText("Resposta paralela fictícia: o que você está fazendo?", substring = true)).fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(15_000) { compose.onAllNodesWithTag("aside-send").fetchSemanticsNodes().isNotEmpty() }
+        // A pergunta não vira mensagem da conversa do agente. O primeiro Voltar pode só fechar o teclado.
+        repeat(2) {
+            if (compose.onAllNodesWithTag("aside-input").fetchSemanticsNodes().isEmpty()) return@repeat
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(
+                InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("input keyevent KEYCODE_BACK")
+            ).use { it.readBytes() }
+            Thread.sleep(1_000)
+            compose.waitForIdle()
+        }
+        compose.waitUntil(15_000) { compose.onAllNodesWithTag("aside-input").fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithContentDescription(text(R.string.back_sessions)).assertExists()
+        compose.onAllNodes(hasText("o que você está fazendo?", substring = true)).assertCountEquals(0)
+    }
+
     @Test fun deliveryBannerDisappearsOnlyAfterDelivery() {
         val statuses = listOf(
             "queued" to R.string.message_queued,

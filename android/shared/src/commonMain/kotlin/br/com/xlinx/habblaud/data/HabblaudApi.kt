@@ -18,12 +18,13 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.io.IOException
 import kotlinx.serialization.json.*
 
-class ApiException(val status: Int, val retryAfter: String? = null, val code: String? = null, val attachmentsExpired: Boolean = false) : IOException("HTTP $status")
+/** `detail` = o texto de `error` que o servidor manda no corpo (para mostrar ao usuário), quando houver. */
+class ApiException(val status: Int, val retryAfter: String? = null, val code: String? = null, val attachmentsExpired: Boolean = false, val detail: String? = null) : IOException("HTTP $status")
 class RedirectException : IOException("Redirecionamento recusado")
 internal expect fun httpClient(): HttpClient
 internal fun apiError(status: Int, retryAfter: String?, body: String): ApiException {
     val error = runCatching { wireJson.parseToJsonElement(body).jsonObject }.getOrNull()
-    return ApiException(status, retryAfter, error?.string("code")?.ifEmpty { null }, error?.flag("attachmentsExpired") == true)
+    return ApiException(status, retryAfter, error?.string("code")?.ifEmpty { null }, error?.flag("attachmentsExpired") == true, error?.string("error")?.take(500)?.ifBlank { null })
 }
 
 class HabblaudApi(val origin: String) : AutoCloseable {

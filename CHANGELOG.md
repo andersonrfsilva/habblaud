@@ -18,6 +18,9 @@ do meio (0.**3**.0).
   confirmado, envia o mesmo comando do menu da sessão. Só em sessões omp que aceitam mensagens.
 - **Zaplaud:** símbolo pequeno da família do modelo (Claude, OpenAI, Gemini) no canto do avatar da sessão, na lista e
   no topo da conversa. Modelos de outras famílias ficam sem símbolo.
+- **Zaplaud:** bate-papo paralelo pelo menu da conversa de um agente do omp: perguntas sobre o que ele está fazendo,
+  respondidas sem interromper o agente nem entrar na conversa dele (a mesma `/api/asides` da janela lateral da
+  página). Troca entre as conversas da sessão, abre uma nova e para a pergunta em andamento.
 - **Zaplaud:** conecta a vários servidores Habblaud ao mesmo tempo: uma lista com as sessões de todos, filtro por
   servidor, login e saída por servidor e notificações Android de todos. Atualizar mantém o login e os rascunhos do
   servidor atual. A migração descarta somente o cache antigo de conversas e preserva as marcas de leitura no iPad.
