@@ -75,6 +75,32 @@ conditions e atualize sua linha ao terminar.
 | 050 | [Zaplaud: medir e, se valer, tirar parse do snapshot da UI](050-zaplaud-snapshot-fora-da-thread-da-ui.md) | P3 | S–M | 044 | REJECTED (medido: 20 snapshots/min de ~53 KB no servidor real; parse no ART do M35 0,57 ms p50 / 0,64 ms p95, abaixo do limite de 2 ms e 30/min) |
 | 051 | [Zaplaud: remover gate VPN vazio do CI e corrigir README do app](051-zaplaud-gate-ci-e-readme-movel.md) | P3 | S | — | DONE (`e40e4c2`; `i18n:check --strict` ok; YAML não validado por parser) |
 | 052 | [Zaplaud: agrupamento linear de pensamentos e ferramentas](052-zaplaud-agrupamento-linear.md) | P3 | S | — | DONE (`0c52efa` testes de caracterização antes, `46f9dfd` implementação; 11/11) |
+| 054 | [Zaplaud: roteiro de capturas confirma login HTTP e usa rótulos atuais](054-zaplaud-roteiro-de-capturas-funcionando.md) | P2 | S | — | BLOCKED (`7248b3e` + `e376ab9`/`20058cc` na integração: login HTTP, contato, conversa e menu corrigidos; 29 capturas claras até `elenco-aguardando`. Para em "Retomar conversa": o botão também não aparece no APK de `dab677d` com a fixture, então é divergência anterior entre roteiro e fixture/elenco; tema escuro não gerado pelo roteiro) |
+| 055 | [Zaplaud: ícones Material no lugar de caracteres de texto](055-zaplaud-icones-material.md) | P2 | S | 054 | IN PROGRESS (implementado `2aac91a`; gate "roteiro exit 0" pendente do 054; capturas equivalentes feitas à mão) |
+| 056 | [Zaplaud: ferramentas e pensamentos em linhas compactas com seta](056-zaplaud-ferramentas-e-pensamentos-compactos.md) | P2 | S | 055 | IN PROGRESS (implementado `9d48faa`; `conversa-fim`, `pensamento-expandido` e `ferramenta-expandida` geradas no claro; escuro à mão; gate do roteiro pendente do 054) |
+| 057 | [Zaplaud: "Abertas" e "Recentes" em botão segmentado](057-zaplaud-abertas-recentes-segmentado.md) | P3 | S | — | IN PROGRESS (implementado `f1dd022`; lista conferida nos dois temas e com fonte 1,3; gate do roteiro pendente do 054) |
+| 058 | [Zaplaud: cores de conexão, contexto e cota vêm do tema](058-zaplaud-cores-de-status-do-tema.md) | P3 | S | — | IN PROGRESS (implementado `d4ad8cc`; ponto e anel em alerta conferidos; texto de cota desatualizada não visto; gate do roteiro pendente do 054) |
+| 059 | [Zaplaud: busca oculta, revelada por puxada longa, fixa no topo e com "Limpar busca"](059-zaplaud-busca-oculta-e-fixa.md) | P2 | M | 054, 055, 057 | IN PROGRESS (implementado `00583e7` + `8d3d1ee`; 2 testes novos passando; `busca-vazia` e `busca-aberta` geradas pelo roteiro no claro; gate do roteiro pendente do 054) |
+| 060 | [Zaplaud: título da sessão na lista em até duas linhas](060-zaplaud-titulo-da-sessao-em-duas-linhas.md) | P3 | S | — | IN PROGRESS (implementado `f0222de`; fonte 1,3 conferida em 1080×1920: 4 sessões visíveis, sem sobreposição; gate do roteiro pendente do 054) |
+| 061 | [Zaplaud: anexo e uso de contexto dentro do campo de mensagem](061-zaplaud-campo-de-mensagem-integrado.md) | P3 | S | 055, 058, 059 | IN PROGRESS (implementado `3e91278`; fixture informa contexto do omp em `28efc0e`; anel 60% visto com descrição acessível; gate do roteiro pendente do 054) |
+| 062 | [Zaplaud: título grande na lista que encolhe ao rolar (opcional)](062-zaplaud-barra-superior-que-encolhe.md) | P3 | M | 059 | REJECTED (dono achou o espaço superior grande no M35; revertido em `84546ff`, `6482a01`, `6ebbc29`) |
+
+Integração 054–062 (2026-11-08): branch `advisor/zaplaud-modernizacao-054-062`, mesclada em `producao` e enviada a
+`fork/main` a pedido do dono. Instrumentados 141 testes, 0 falhas em `28efc0e` (antes de reverter o 062) e 142 em
+`f47c461`; host + lint + APK ok depois da reversão. Release assinado com a chave atual instalado no M35 com
+autorização do dono: 21:19 com o 062, 21:35 sem ele, 22:06 com o shake e 22:26 com o símbolo do modelo, sempre por
+cima, sem limpar dados. "Retomar sessão" sumido: a versão `dab677d` também não mostra o ▶ na mesma sessão no M35
+(nenhum contato livre na pasta).
+Pedido do dono (2026-11-08): retomar sessão omp encerrada com contato **Novo** sorteado quando nenhum contato livre
+trabalha na pasta. `87810aa` (`POST /api/cast/new` aceita `session`; ▶ sempre em sessão omp encerrada com pasta; teste
+em `launcher.test.ts`). Publicado no servidor pessoal (`localhost/habblaud:producao` = `deploy-87810aa`; rollback
+`rollback-9426ebc-20261108`) e no M35 às 21:57. Tenants não atualizados. Retomada real pelo celular não conferida.
+Também a pedido do dono: toque longo no anel de contexto pede shake (`f47c461`); símbolo da família do modelo junto do
+avatar (`f5eb112`, fixture com modelo em `329ed1d`). `ConversationStreamTest` (2 testes) estoura o tempo em host test
+também em `f47c461`, sem relação com essas mudanças; não investigado.
+Os planos 055–062 só viram DONE quando o roteiro de capturas terminar com exit 0 (bloqueio do 054). Causa provável:
+a sessão fechada da fixture (`CLOSED`) é Claude, mas o roteiro espera "Retomar conversa", que só aparece para sessões
+omp [INFERÊNCIA a partir de `CastActions.kt:133`].
 
 Em 2026-10-31 o branch `rpg` (elenco 031/032 e o que veio depois) foi promovido a `producao` por fast-forward
 (`759c0f9`): o standalone (`~/apps/habblaud` no branch `producao`) e os cinco tenants rodam essa versão. As notas
@@ -83,6 +109,13 @@ Em 2026-10-31 o branch `rpg` (elenco 031/032 e o que veio depois) foi promovido 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 
 ## Dependency notes
+
+- 054–062: modernização visual do Zaplaud (variante `plan`, skills `improve` e `improve-ui`), commit `dab677d`,
+  2026-11-08. Evidência: código e capturas do emulador `habblaud034` com a fixture, só tema escuro. Execute na ordem
+  numérica: todos menos 054 mexem em `ReadingScreen.kt`, e a ordem evita conflitos. 054 vem primeiro porque os outros
+  verificam com `scripts/android-screens.sh`. 059 depende do 057 (mesma região) e cria `pillFieldColors()`, usado
+  pelo 061; 058 cria `warningColor()`, usado pelo 061; 062 ajusta a puxada da busca do 059. Decisão do dono: busca
+  oculta, revelada só com esforço e fixa depois de aberta. Cada plano acrescenta uma linha em `CHANGELOG.md`.
 
 - 044–053: auditoria deep do Zaplaud com medições no M35 em 2026-11-07, base `778466839` (branch da 043, não mesclada). Evidências em [auditoria-zaplaud-deep-2026-11-07.md](auditoria-zaplaud-deep-2026-11-07.md). 047 fecha o gate host da 043. 045 e 050 dependem do 044 (o custo dos indicadores mascara os demais). 046 segue decisão do dono: manter a chave atual como identidade do app pessoal. 053 exige Mac. Os números de "antes" foram medidos com os serviços de acessibilidade APH e Reading mode ativos; o dono os removeu depois. Remeça o "antes" no estado atual. Instalação no M35 sempre com autorização; nunca desinstalar nem `pm clear`.
 
@@ -130,6 +163,10 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 
 ## Findings considered and rejected
 
+- Modernização do Zaplaud (054–062), não planejado: cores dinâmicas do Android 12+ (apagam o verde que identifica o
+  app); fonte nova (exige decisão de marca inexistente); animações extras (o app já pagou caro em GPU com o
+  "digitando", ver 044); componente `SearchBar` do Material 3 (abre busca expandida, conflita com a busca fixa
+  pedida). Adiado por decisão do dono: dica de primeira utilização da busca oculta (059).
 - Proibir HTTP no Android: contraria a escolha documentada para LAN/VPN; 037 prevê aviso sem remover suporte.
 - Logout deixa de limpar após erro de rede: `HabblaudApi.logout()` captura `IOException` e retorna `false`; falha de rede, isoladamente, não sustenta o achado.
 - Filtro release `VpnGuardTest` inexistente quebraria CI: comando com ambos filtros passou offline; não comprova cobertura VPN.
@@ -206,6 +243,8 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 
 ## Não auditado
 
+- Modernização 054–062: tema claro, iPad, teclado aberto, TalkBack, fonte grande e paisagem não foram inspecionados
+  antes dos planos; só capturas no tema escuro, em 1080×1920.
 - Arte em pixel (`client/src/art/**`) e textos das traduções.
 - O servidor do Habblaud World (fora do repositório); `shared/world/` e `server/world/` só quanto a rotas e guard.
 - Testes no Windows (CI cobre).
