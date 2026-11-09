@@ -58,7 +58,7 @@ export function updateProviderTag(tag: HTMLElement, provider: Provider, accountN
   setHidden(tag, !show);
   if (!show) return;
   setText(tag, PROVIDER_NAME[provider]);
-  setTitle(tag, provider === 'omp' ? tr('Agente do omp (oh-my-pi)') : tr('Agente do Codex (OpenAI)'));
+  setTitle(tag, provider === 'zeroclaw' ? tr('Agente do ZeroClaw') : provider === 'omp' ? tr('Agente do omp (oh-my-pi)') : tr('Agente do Codex (OpenAI)'));
 }
 
 /** Quadradinho de status (pixel), com pulso quando precisa de você. */

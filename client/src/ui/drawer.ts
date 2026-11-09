@@ -639,7 +639,7 @@ class AgentView {
     if (waiting) {
       const accName = account?.name ?? a.account;
       // Codex e omp: "Vá ao Codex (Conta X)" / "Vá ao omp"; sem repetir quando a conta já se chama "Codex".
-      const where = codex ? tr('ao Codex{0}', [/codex/i.test(accName) ? '' : ` (${accName})`]) : provider === 'omp' ? tr('ao omp') : tr('ao terminal da {0}', [accName]);
+      const where = provider === 'zeroclaw' ? tr('ao ZeroClaw') : codex ? tr('ao Codex{0}', [/codex/i.test(accName) ? '' : ` (${accName})`]) : provider === 'omp' ? tr('ao omp') : tr('ao terminal da {0}', [accName]);
       setText(this.alertText, tr('Vá {0} em {1} para responder{2}', [where, room?.name ?? tr('seu projeto'), a.waitingFor ? `: ${a.waitingFor}` : '.']));
     }
     // Perguntas do AskUserQuestion (só leitura): o Codex e o omp não perguntam pelo escritório.

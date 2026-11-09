@@ -32,6 +32,7 @@ import { h, iconButton, setAttr, setHidden, setText, setTitle } from './dom';
 import { access } from '../net/access';
 import { tr } from '../../../shared/i18n';
 import { formatBytes } from './spawn';
+import { normalizeDeliverAs } from './provider';
 
 export type ComposerVariant = 'drawer' | 'terminal';
 
@@ -348,8 +349,9 @@ export class MessageComposer {
   private async send(): Promise<void> {
     const agentId = this.agentId;
     const provider = this.provider;
+    const expectedSessionId = provider === 'zeroclaw' ? this.ctx.agent(agentId)?.sessionId : undefined;
     // Modo global (Configurações), lido no envio: trocar durante o upload não muda este envio.
-    const deliverAs = provider === 'omp' ? this.ctx.prefs.ompDeliverAs : undefined;
+    const deliverAs = normalizeDeliverAs(provider, this.ctx.prefs.ompDeliverAs);
     const raw = this.box.value;
     const batch = this.attachments.capture(agentId);
     if (this.destroyed || this.mode.kind !== 'ready' || !canSend(raw, batch.length) || this.states.get(agentId)?.phase === 'sending') return;
@@ -359,7 +361,7 @@ export class MessageComposer {
     try {
       const ids = await this.attachments.upload(batch, (file) => this.ctx.store.uploadMessageAttachment(file));
       if (this.destroyed) return;
-      r = await this.ctx.store.sendMessage(agentId, messageText(raw), ids, deliverAs);
+      r = await this.ctx.store.sendMessage(agentId, messageText(raw), ids, deliverAs, expectedSessionId);
     } catch (error) {
       r = { error: error instanceof Error ? error.message : OFFLINE_ERROR };
     }

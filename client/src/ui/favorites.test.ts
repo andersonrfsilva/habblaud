@@ -31,6 +31,25 @@ describe('favoritas', () => {
     ]);
   });
 
+  it('preserva identidades ZeroClaw e OMP com a mesma conta e sessão no armazenamento e na junção', () => {
+    const zero = session({ provider: 'zeroclaw', account: 'tenant', sessionId: '12345678-abcd', project: '/project', lastAt: 1 });
+    const omp = { ...zero, provider: 'omp' as const, title: 'Outra conversa' };
+    const data = new Map<string, string>();
+    const storage = { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => void data.set(key, value) };
+    const store = new FavoritesStore(() => storage);
+    store.toggle(zero);
+    store.toggle(omp);
+    const loaded = new FavoritesStore(() => storage).all();
+    expect(loaded).toHaveLength(2);
+    expect(loaded).toEqual(expect.arrayContaining([zero, omp]));
+    expect(sessionKey(zero)).not.toBe(sessionKey(omp));
+    const joined = splitFavorites(loaded, [{ ...omp, open: true, agentId: 'omp-agent' }]);
+    expect(joined.favorites.find((s) => s.provider === 'zeroclaw')).toEqual(zero);
+    expect(joined.favorites.find((s) => s.provider === 'omp')?.agentId).toBe('omp-agent');
+    expect(joined.updated.find((s) => s.provider === 'zeroclaw')).toEqual(zero);
+    expect(toggleFavorite(loaded, zero)).toEqual([omp]);
+  });
+
   it('toggleFavorite adiciona, remove e respeita MAX_FAVORITES', () => {
     const s = session({ sessionId: 'a', lastAt: 1, open: true, agentId: 'ag' });
     const added = toggleFavorite([], s);
@@ -70,6 +89,7 @@ describe('agentSession (estrela da gaveta)', () => {
   it('provider codex/omp vai no retrato; claude fica sem; sem sala nem título, só o essencial', () => {
     expect(agentSession(agent({ provider: 'codex', account: '.codex' }), room, false)?.provider).toBe('codex');
     expect(agentSession(agent({ provider: 'omp' }), room, false)?.provider).toBe('omp');
+    expect(agentSession(agent({ provider: 'zeroclaw' }), room, false)?.provider).toBe('zeroclaw');
     expect(agentSession(agent({ provider: 'claude' }), room, false)?.provider).toBeUndefined();
     const bare = agentSession(agent({ title: undefined, lastEventAt: 0 }), undefined, false)!;
     expect(bare).toMatchObject({ projectDir: '', lastAt: 100 });
