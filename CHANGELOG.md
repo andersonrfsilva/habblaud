@@ -16,6 +16,8 @@ do meio (0.**3**.0).
   visual sorteados) além dos contatos livres da pasta. `POST /api/cast/new` aceita `session` para retomar a conversa.
 - **Zaplaud:** toque longo no anel de contexto do campo de mensagem pergunta se quer fazer shake (liberar contexto) e,
   confirmado, envia o mesmo comando do menu da sessão. Só em sessões omp que aceitam mensagens.
+- **Zaplaud:** símbolo pequeno da família do modelo (Claude, OpenAI, Gemini) no canto do avatar da sessão, na lista e
+  no topo da conversa. Modelos de outras famílias ficam sem símbolo.
 - **Zaplaud:** conecta a vários servidores Habblaud ao mesmo tempo: uma lista com as sessões de todos, filtro por
   servidor, login e saída por servidor e notificações Android de todos. Atualizar mantém o login e os rascunhos do
   servidor atual. A migração descarta somente o cache antigo de conversas e preserva as marcas de leitura no iPad.
