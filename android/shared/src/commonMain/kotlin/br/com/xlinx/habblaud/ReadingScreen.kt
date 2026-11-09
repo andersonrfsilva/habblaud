@@ -93,6 +93,20 @@ internal fun readingErrorResource(error: String): StringResource = when (error) 
 internal fun actionsAvailable(state: ReadingState, loginRequired: Boolean, selectedPermission: Boolean): Boolean =
     !loginRequired && state.connection == "connected" && (state.terminalAllowed || selectedPermission)
 
+internal fun ompTools(provider: String?) = provider == "omp"
+internal fun reliableContext(provider: String?, tokens: Long?, window: Long?) =
+    (provider == "omp" || provider == "claude" || provider == "codex") && tokens != null && window != null
+internal fun deliveryModes(provider: String?): List<String> = when (provider) {
+    "omp" -> listOf("aside", "followUp", "steer")
+    "zeroclaw" -> listOf("followUp", "steer")
+    else -> emptyList()
+}
+internal fun newSessionTarget(sessions: List<SessionItem>, previous: SessionKey, agentId: String): SessionItem? =
+    sessions.firstOrNull { it.agentId == agentId && it.key.origin == previous.origin &&
+        it.key.provider == previous.provider && it.key.account == previous.account && it.key != previous }
+internal fun sessionControlsAvailable(item: SessionItem?, state: ReadingState): Boolean =
+    item != null && supportsSessionControl(item.key.provider) && item.agentId != null && !item.sub &&
+        item.canMessage && state.messagesAllowed && state.messageGuard && state.connection == "connected"
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store: LocalStateStore, onUnauthorized: (String) -> Unit, onLogin: (String?) -> Unit, onLogout: (String) -> Unit) {
@@ -164,6 +178,35 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
         pickerKey = null
     }
     val selected = state.selected
+    var previousAgent by remember(selected?.key) { mutableStateOf(selected?.agentId) }
+    LaunchedEffect(selected?.key, selected?.agentId) {
+        val item = selected
+        if (item != null && previousAgent == null && item.agentId != null) open(item)
+        previousAgent = item?.agentId
+    }
+    var confirmNew by remember(selected?.key) { mutableStateOf(false) }
+    var newTarget by remember { mutableStateOf<Pair<SessionKey, String>?>(null) }
+    val newOriginState = newTarget?.first?.origin?.let(states::get)
+    val newOriginComposer = newTarget?.first?.origin?.let { controllers[it]?.messages?.state?.value }
+    LaunchedEffect(newOriginState?.sessions, newTarget, newOriginComposer?.controlError, newOriginComposer?.control?.status) {
+        newTarget?.let { (previous, agentId) ->
+            if (previous.origin !in apis || previous.origin in needsLogin || newOriginComposer?.controlError != null || newOriginComposer?.control?.status == "failed") newTarget = null
+            else newSessionTarget(newOriginState?.sessions.orEmpty(), previous, agentId)?.let { target -> newTarget = null; open(target) }
+        }
+    }
+    if (confirmNew && selected?.agentId != null) AlertDialog(
+        onDismissRequest = { confirmNew = false },
+        title = { Text(stringResource(Res.string.session_new)) },
+        text = { Text(stringResource(Res.string.session_new_confirm)) },
+        confirmButton = { TextButton(onClick = {
+            confirmNew = false
+            if (sessionControlsAvailable(selected, state) && !composer.loading && !composer.sending && composer.control?.status !in setOf("queued", "sent")) {
+                newTarget = selected.key to selected.agentId
+                controller.messages.newSession(selected.agentId, confirmed = true)
+            }
+        }) { Text(stringResource(Res.string.confirm)) } },
+        dismissButton = { TextButton(onClick = { confirmNew = false }) { Text(stringResource(Res.string.cancel)) } }
+    )
     var menuExpanded by remember { mutableStateOf(false) }
     // Estado fora do `if`: voltar de uma conversa mantém a aba, a busca fixa acima da lista e a posição.
     var query by remember { mutableStateOf("") }
@@ -199,10 +242,11 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
     PlatformBackHandler(enabled = selected == null && searchOpen) { query = ""; searchOpen = false }
     CastActions(api, selected, actionsAvailable(states.getValue(actionOrigin), actionOrigin in needsLogin, selected?.permission == true) && (selected != null || filter != null || apis.size == 1), state.sessions.filter { it.agentId != null }.mapNotNull { it.cast }.toSet(), { onUnauthorized(api.origin) }, { permissionSession = selected }, menu = { close, dismissItem ->
         // Menu em páginas: a principal lista os grupos; tocar num grupo troca o conteúdo pela lista dele, com "‹ Voltar".
-        var page by remember { mutableStateOf("") }
+        var page by remember(selected?.key) { mutableStateOf("") }
         val agentId = selected?.agentId
         val omp = selected?.key?.provider == "omp" && agentId != null && !selected.sub
-        val canControl = omp && selected!!.canMessage && state.messagesAllowed && state.messageGuard && state.connection == "connected"
+        val sessionControls = supportsSessionControl(selected?.key?.provider) && agentId != null && selected?.sub == false
+        val canControl = sessionControlsAvailable(selected, state)
         @Composable fun Back() = DropdownMenuItem(text = { Text(stringResource(Res.string.back), style = MaterialTheme.typography.labelLarge) }, leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(20.dp)) }, onClick = { page = "" })
         @Composable fun Group(label: StringResource, value: String?, target: String, enabled: Boolean = true) = DropdownMenuItem(
             text = { Column { Text(stringResource(label)); value?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) } } },
@@ -210,6 +254,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
         @Composable fun Choice(label: String, checked: Boolean, onClick: () -> Unit) = DropdownMenuItem(text = { Text(label) }, leadingIcon = { RadioButton(selected = checked, onClick = null) }, onClick = onClick)
         val viewLabels = listOf("all" to Res.string.view_all, "prompts" to Res.string.view_prompts, "no_tools" to Res.string.view_no_tools)
         val deliverLabels = listOf("aside" to Res.string.deliver_aside, "followUp" to Res.string.deliver_follow_up, "steer" to Res.string.deliver_steer)
+            .filter { it.first in deliveryModes(selected?.key?.provider) }
         // O modelo da sessão pode vir sem o provedor: o da lista que bate com ele, com o provedor.
         val currentModel = selected?.models?.firstOrNull { it == selected.model || it.substringAfter('/') == selected.model } ?: selected?.model?.takeIf { '/' in it }
         when (page) {
@@ -217,7 +262,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                 selected?.key?.let { key -> viewFor = key to value; scope.launch { store.setSessionView(key, value) } }
                 close()
             } } }
-            "deliver" -> { Back(); deliverLabels.forEach { (mode, label) -> Choice(stringResource(label), deliverMode == mode) {
+            "deliver" -> { Back(); deliverLabels.forEach { (mode, label) -> Choice(stringResource(label), messageDelivery(selected?.key?.provider, deliverMode) == mode) {
                 selected?.key?.let { key -> deliverFor = key to mode; scope.launch { store.setSessionDeliverAs(key, mode) } }
                 close()
             } } }
@@ -232,8 +277,13 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
             "thinking" -> { Back(); THINKING_LEVELS.forEach { level -> Choice(thinkingLabel(level), level == selected!!.thinking) { controller.messages.setThinking(agentId!!, level); close() } } }
             else -> {
                 Group(Res.string.view_menu, viewLabels.firstOrNull { it.first == view }?.let { stringResource(it.second) }, "view", loaded)
+                if (sessionControls) {
+                    Group(Res.string.deliver_mode, deliverLabels.firstOrNull { it.first == messageDelivery(selected?.key?.provider, deliverMode) }?.let { stringResource(it.second) }, "deliver", loaded)
+                    DropdownMenuItem(modifier = Modifier.testTag("session-new"), text = { Text(stringResource(Res.string.session_new)) },
+                        enabled = canControl && !composer.loading && !composer.sending && composer.control?.status !in setOf("queued", "sent"),
+                        onClick = { confirmNew = true; close() })
+                }
                 if (omp) {
-                    Group(Res.string.deliver_mode, deliverLabels.firstOrNull { it.first == deliverMode }?.let { stringResource(it.second) }, "deliver", loaded)
                     if (selected!!.models.isNotEmpty()) Group(Res.string.model_menu, (currentModel ?: selected.model)?.let(::modelLabel), "model", canControl)
                     Group(Res.string.thinking_menu, selected.thinking?.let { thinkingLabel(it) }, "thinking", canControl)
                     DropdownMenuItem(text = { Text(stringResource(Res.string.shake)) }, enabled = canControl, onClick = { controller.messages.shake(agentId!!); close() })
@@ -250,7 +300,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
         TopAppBar(
             title = {
                 val infoLabel = stringResource(Res.string.session_info)
-                Row(Modifier.then(if (selected != null) Modifier.clickable(onClickLabel = infoLabel) { showInfo = true } else Modifier), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.then(if (selected != null) Modifier.testTag("session-info-open").clickable(onClickLabel = infoLabel) { showInfo = true } else Modifier), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (selected != null) CharacterAvatar(api, selected, 36.dp)
                     Column(Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -517,7 +567,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                 if (!state.messagesAllowed) ChatBanner(stringResource(Res.string.messages_blocked))
                 else if (!state.messageGuard) ChatBanner(stringResource(Res.string.message_guard_required))
                 else if (agentId != null && !selected.canMessage) ChatBanner(stringResource(Res.string.message_unavailable))
-                if (selected.key.provider == "omp") {
+                if (supportsSessionControl(selected.key.provider)) {
                     composer.control?.takeUnless { it.status == "delivered" }?.let { control -> Text(stringResource(when (control.status) {
                         "queued", "sent" -> Res.string.stop_pending
                         "failed" -> Res.string.stop_failed
@@ -575,9 +625,9 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                         leadingIcon = {
                             IconButton(onClick = { pickerKey = selected.key; picker() }, enabled = !composer.loading && composer.draft.attachments.size < MAX_ATTACHMENTS, modifier = Modifier.semantics { contentDescription = attachLabel }) { Icon(Icons.Default.AttachFile, contentDescription = null) }
                         },
-                        trailingIcon = if (selected.contextTokens != null && selected.contextWindow != null) { { ContextRing(selected.contextTokens, selected.contextWindow, if (canShake) { { confirmShake = true } } else null) } } else null,
+                        trailingIcon = if (reliableContext(selected.key.provider, selected.contextTokens, selected.contextWindow)) { { ContextRing(selected.contextTokens!!, selected.contextWindow!!, if (canShake) { { confirmShake = true } } else null) } } else null,
                     )
-                    if (selected.key.provider == "omp" && selected.status in setOf("working", "busy", "shell")) {
+                    if (supportsSessionControl(selected.key.provider) && (selected.status in setOf("working", "busy", "shell") || selected.permission)) {
                         val stopLabel = stringResource(Res.string.stop_agent)
                         FilledIconButton(
                             onClick = { controller.messages.interrupt(agentId) },
@@ -941,11 +991,11 @@ private fun SessionInfoSheet(api: HabblaudApi, session: SessionItem, entries: Li
             Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
                 Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     session.model?.let { InfoLine(Res.string.model_menu, it.substringAfter('/')) }
-                    session.thinking?.let { InfoLine(Res.string.thinking_menu, thinkingLabel(it)) }
-                    if (session.contextTokens != null && session.contextWindow != null) {
-                        val fraction = (session.contextTokens.toFloat() / session.contextWindow).coerceIn(0f, 1f)
+                    if (ompTools(session.key.provider)) session.thinking?.let { InfoLine(Res.string.thinking_menu, thinkingLabel(it)) }
+                    if (reliableContext(session.key.provider, session.contextTokens, session.contextWindow)) {
+                        val fraction = (session.contextTokens!!.toFloat() / session.contextWindow!!).coerceIn(0f, 1f)
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            InfoLine(Res.string.info_context, "${(fraction * 100).toInt()}% · ${session.contextTokens / 1000} mil de ${session.contextWindow / 1000} mil")
+                            InfoLine(Res.string.info_context, "${(fraction * 100).toInt()}% · ${session.contextTokens!! / 1000} mil de ${session.contextWindow!! / 1000} mil")
                             LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth(), drawStopIndicator = {})
                         }
                     }

@@ -27,7 +27,7 @@ export function parseRecentSessions(raw: unknown): RecentSession[] {
     const firstAt = num(o.firstAt);
     const agentId = str(o.agentId);
     // Ausente = Claude Code (nunca grava 'claude').
-    if (o.provider === 'codex' || o.provider === 'omp') s.provider = o.provider;
+    if (o.provider === 'codex' || o.provider === 'omp' || o.provider === 'zeroclaw') s.provider = o.provider;
     if (project) s.project = project;
     if (title) s.title = title;
     if (firstAt !== undefined) s.firstAt = firstAt;

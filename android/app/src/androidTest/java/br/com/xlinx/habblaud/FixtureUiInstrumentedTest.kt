@@ -31,6 +31,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -41,6 +42,7 @@ import br.com.xlinx.habblaud.data.MessageDraft
 import br.com.xlinx.habblaud.data.MessageOperation
 import br.com.xlinx.habblaud.data.SessionKey
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.first
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -61,6 +63,39 @@ class FixtureUiInstrumentedTest {
     private val key = SessionKey(origin, "claude", ".claude", "00000000-0000-4000-8000-000000000001")
     private var scenario: ActivityScenario<MainActivity>? = null
     private var prepared = false
+    private var zeroClawFixture = false
+    private val zeroClawKey = SessionKey(origin, "zeroclaw", "zeroclaw", "00000000-0000-4000-8000-000000000008")
+    private fun fixture(path: String, body: JSONObject? = null): JSONObject {
+        val port = requireNotNull(InstrumentationRegistry.getArguments().getString("fixtureLocalPort")?.toIntOrNull())
+        val connection = URL("http://127.0.0.1:$port$path").openConnection() as HttpURLConnection
+        try {
+            connection.connectTimeout = 5_000; connection.readTimeout = 10_000
+            if (body != null) {
+                connection.requestMethod = "POST"; connection.doOutput = true
+                connection.setRequestProperty("Content-Type", "application/json")
+                connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+            }
+            assertTrue("Fixture HTTP ${connection.responseCode}", connection.responseCode in 200..299)
+            return JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+        } finally { connection.disconnect() }
+    }
+    private fun fixtureCommand(command: String) = fixture("/api/fixture/command", JSONObject().put("command", command))
+    private fun startZeroClaw() {
+        zeroClawFixture = true
+        fixtureCommand("zc-reset"); fixtureCommand("runtime zeroclaw")
+        runBlocking { LocalStateStore(context).setLastSession(zeroClawKey) }
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        await(R.string.message_text)
+    }
+    private fun assertNoZeroClawContext() {
+        compose.onAllNodes(androidx.compose.ui.test.hasContentDescription("Contexto em uso", substring = true)).assertCountEquals(0)
+        compose.onNodeWithTag("session-info-open").performClick()
+        compose.onNodeWithText(text(R.string.info_context)).assertDoesNotExist()
+        compose.onNodeWithText(text(R.string.thinking_menu)).assertDoesNotExist()
+        compose.onNodeWithText(text(R.string.info_hide_details)).assertDoesNotExist()
+        InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("input keyevent KEYCODE_BACK").close()
+        await(R.string.message_text)
+    }
     private fun text(id: Int) = context.getString(id)
     private fun awaitDescription(id: Int) = compose.waitUntil(15_000) { compose.onAllNodes(androidx.compose.ui.test.hasContentDescription(text(id))).fetchSemanticsNodes(atLeastOneRootRequired = false).isNotEmpty() }
     private fun await(id: Int) = compose.waitUntil(15_000) { compose.onAllNodes(hasText(text(id))).fetchSemanticsNodes(atLeastOneRootRequired = false).isNotEmpty() }
@@ -89,6 +124,7 @@ class FixtureUiInstrumentedTest {
 
     @After fun cleanup() {
         scenario?.close()
+        if (zeroClawFixture) fixtureCommand("runtime omp")
         if (prepared) {
             runBlocking { LocalStateStore(context).clear() }
             context.filesDir.resolve("remote-session").delete()
@@ -486,5 +522,127 @@ class FixtureUiInstrumentedTest {
         assertEquals("decided", result.getString("status"))
         assertEquals("answer", result.getString("behavior"))
         assertEquals(JSONArray("""[{"question":0,"options":[1]},{"question":1,"options":[0,2]},{"question":2,"other":"texto livre"}]""").toString(), result.getJSONArray("answers").toString())
+    }
+
+    @Test fun zeroClawControlsSendStopAndNewKeepSessionDraftsSeparate() {
+        startZeroClaw()
+        fixtureCommand("zc-context 120000")
+        assertNoZeroClawContext()
+        val before = fixture("/api/fixture/stats")
+        val messageCount = before.getJSONArray("messageRequests").length()
+        val controlCount = before.getJSONArray("controlRequests").length()
+        for (mode in listOf(R.string.deliver_steer, R.string.deliver_follow_up)) {
+            compose.onNodeWithContentDescription(text(R.string.menu)).performClick()
+            for (forbidden in listOf(R.string.shake, R.string.thinking_menu, R.string.model_menu, R.string.aside_menu)) {
+                compose.onNodeWithText(text(forbidden)).assertDoesNotExist()
+            }
+            compose.onNodeWithText(text(R.string.deliver_mode)).performClick()
+            compose.onNodeWithText(text(R.string.deliver_aside)).assertDoesNotExist()
+            compose.onNodeWithText(text(mode)).performClick()
+            compose.onNodeWithTag("message-input").performTextInput("pedido-$mode")
+            compose.onNodeWithTag("message-send").performClick()
+            compose.waitUntil(15_000) { runBlocking { LocalStateStore(context).message(zeroClawKey).draft.text.isEmpty() } }
+        }
+        val messages = fixture("/api/fixture/stats").getJSONArray("messageRequests")
+        assertEquals(messageCount + 2, messages.length())
+        for ((index, mode) in listOf("steer", "followUp").withIndex()) {
+            val body = messages.getJSONObject(messageCount + index)
+            assertEquals("fixture:zeroclaw", body.getString("agentId"))
+            assertEquals(zeroClawKey.sessionId, body.getString("expectedSessionId"))
+            assertEquals(mode, body.getString("deliverAs"))
+        }
+        fixtureCommand("zc-working")
+        awaitDescription(R.string.stop_agent)
+        compose.onNodeWithContentDescription(text(R.string.stop_agent)).performClick()
+        compose.waitUntil(15_000) { fixture("/api/fixture/stats").getJSONArray("controlRequests").length() > controlCount }
+        val stop = fixture("/api/fixture/stats").getJSONArray("controlRequests").getJSONObject(controlCount)
+        assertEquals("fixture:zeroclaw", stop.getString("agentId"))
+        assertTrue(stop.getBoolean("stop"))
+        assertEquals(zeroClawKey.sessionId, stop.getString("expectedSessionId"))
+        compose.onNodeWithTag("message-input").performTextInput("rascunho anterior")
+        compose.onNodeWithContentDescription(text(R.string.menu)).performClick()
+        compose.waitUntil(15_000) { compose.onAllNodes(hasTestTag("session-new") and androidx.compose.ui.test.isEnabled()).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("session-new").performClick()
+        compose.onNodeWithText(text(R.string.confirm)).performClick()
+        compose.waitUntil(15_000) {
+            runBlocking { LocalStateStore(context).lastSession()?.let { it.provider == "zeroclaw" && it.sessionId != zeroClawKey.sessionId } == true }
+        }
+        val next = runBlocking { requireNotNull(LocalStateStore(context).lastSession()) }
+        assertEquals(zeroClawKey.account, next.account)
+        assertEquals("rascunho anterior", runBlocking { LocalStateStore(context).message(zeroClawKey).draft.text })
+        assertEquals("", runBlocking { LocalStateStore(context).message(next).draft.text })
+        val controls = fixture("/api/fixture/stats").getJSONArray("controlRequests")
+        assertEquals(controlCount + 2, controls.length())
+        val new = controls.getJSONObject(controlCount + 1)
+        assertEquals("new", new.getString("command"))
+        assertEquals(zeroClawKey.sessionId, new.getString("expectedSessionId"))
+    }
+
+    @Test fun zeroClawSettingsHideRolesAndAsideAndAllowHttpSummaryWithoutTiny() {
+        startZeroClaw()
+        val before = fixture("/api/fixture/stats")
+        compose.onNodeWithContentDescription(text(R.string.back_sessions)).performClick()
+        compose.onNodeWithContentDescription(text(R.string.menu)).performClick()
+        compose.onNodeWithText(text(R.string.settings)).performClick()
+        compose.waitUntil(15_000) { compose.onAllNodes(hasText(text(R.string.deliver_follow_up))).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText(text(R.string.deliver_aside)).assertDoesNotExist()
+        compose.onNodeWithText(text(R.string.settings_roles)).assertDoesNotExist()
+        compose.onNodeWithText(text(R.string.settings_summarize)).performScrollTo().assertIsEnabled().performClick()
+        compose.waitUntil(15_000) { runBlocking { LocalStateStore(context).summarize.first() } }
+        val after = fixture("/api/fixture/stats")
+        assertEquals(before.getJSONObject("gets").optInt("/api/cast/roles"), after.getJSONObject("gets").optInt("/api/cast/roles"))
+        assertEquals(before.getJSONObject("posts").optInt("/api/cast/roles"), after.getJSONObject("posts").optInt("/api/cast/roles"))
+    }
+
+    @Test fun zeroClawClosedHistoryResumesOnlyThroughCast() {
+        startZeroClaw()
+        val closed = zeroClawKey.copy(sessionId = "00000000-0000-4000-8000-000000000009")
+        scenario!!.close(); scenario = null
+        runBlocking { LocalStateStore(context).setLastSession(closed) }
+        val before = fixture("/api/fixture/stats")
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        awaitDescription(R.string.cast_resume)
+        compose.onNodeWithContentDescription(text(R.string.cast_resume)).performClick()
+        compose.waitUntil(15_000) { compose.onAllNodes(hasText("Zora Fictícia")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Zora Fictícia").performClick()
+        compose.onNodeWithText(text(R.string.cast_confirm)).performClick()
+        compose.waitUntil(15_000) { fixture("/api/fixture/stats").getJSONArray("castRequests").length() > before.getJSONArray("castRequests").length() }
+        val requests = fixture("/api/fixture/stats").getJSONArray("castRequests")
+        val request = requests.getJSONObject(requests.length() - 1)
+        val body = request
+        assertEquals("resume", body.getString("mode"))
+        assertEquals(closed.sessionId, body.getString("session"))
+        assertEquals(closed.account, body.getString("account"))
+        assertEquals("/fixture/projeto", body.getString("room"))
+        assertEquals(before.getJSONArray("controlRequests").length(), fixture("/api/fixture/stats").getJSONArray("controlRequests").length())
+        compose.waitUntil(15_000) {
+            fixture("/api/fixture/stats").getJSONArray("castRequests").let { it.length() > 0 } &&
+                compose.onAllNodesWithTag("message-input").fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    @Test fun switchingFromOmpToZeroClawHidesBothContextPositionsAndOldSubmenus() {
+        zeroClawFixture = true
+        fixtureCommand("zc-reset"); fixtureCommand("runtime zeroclaw")
+        runBlocking { LocalStateStore(context).setLastSession(SessionKey(origin, "omp", ".omp", "00000000-0000-4000-8000-000000000002")) }
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        await(R.string.message_text)
+        compose.waitUntil(15_000) { compose.onAllNodes(androidx.compose.ui.test.hasContentDescription("Contexto em uso", substring = true)).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithContentDescription(text(R.string.menu)).performClick()
+        compose.onNodeWithText(text(R.string.thinking_menu)).performClick()
+        InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("input keyevent KEYCODE_BACK").close()
+        compose.onNodeWithContentDescription(text(R.string.back_sessions)).performClick()
+        val row = "session-row:zeroclaw:${zeroClawKey.sessionId}"
+        await(R.string.open_sessions)
+        compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasTestTag(row))
+        compose.onNodeWithTag(row).performClick()
+        await(R.string.message_text)
+        for (context in listOf("zc-context 0", "zc-context 120000")) {
+            fixtureCommand(context)
+            assertNoZeroClawContext()
+        }
+        compose.onNodeWithContentDescription(text(R.string.menu)).performClick()
+        compose.onNodeWithText(text(R.string.thinking_menu)).assertDoesNotExist()
+        compose.onNodeWithText(text(R.string.deliver_mode)).assertIsDisplayed()
     }
 }

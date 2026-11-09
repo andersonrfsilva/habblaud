@@ -6,13 +6,13 @@
 // busca acha "codex". Sessão encerrada do omp tem "Retomar em…" (escolhe um agente omp livre); aberto pelo /resume
 // da faixa do omp (pickFor), o histórico mostra só as sessões que dá para retomar naquele agente.
 import { access } from '../net/access';
-import type { AgentInfo, RecentSession } from '../../../shared/types';
+import type { AgentInfo, CastMember, RecentSession } from '../../../shared/types';
 import type { UiComponent, UiContext } from './context';
 import { h, iconButton, setAttr, setHidden, setText, setTitle } from './dom';
 import { favorites, sessionKey, splitFavorites } from './favorites';
 import { calendarDayDiff, formatClock, formatDateTime, normalizeSearch, plural, shortPath } from './format';
 import { ICONS } from './icons';
-import { PROVIDER_NAME, providerOf } from './provider';
+import { PROVIDER_NAME, providerOf, parseCastModelCatalog, type CastModelCatalog } from './provider';
 import { parseRecentSessions } from './recent-sessions';
 import { sessionProjectName, TERMINAL_UNAVAILABLE_HINT, type TerminalControl } from './terminal';
 import { createAccountChip, updateAccountChip } from './widgets';
@@ -89,6 +89,38 @@ export function resumeTargets(agents: readonly AgentInfo[]): AgentInfo[] {
   return agents.filter((a) => a.provider === 'omp' && a.kind === 'main' && a.canMessage === true && (a.status === 'idle' || a.status === 'shell'));
 }
 
+/** O elenco só retoma conversas do seu runtime, com identidade e pasta válidas. */
+export function canResumeViaCast(s: RecentSession, catalog: CastModelCatalog | undefined, accountProvider: string | undefined): boolean {
+  return !!catalog && s.provider === catalog.provider && accountProvider === s.provider && !s.open
+    && !!s.project?.startsWith('/') && /^[0-9a-f][0-9a-f-]{7,199}$/i.test(s.sessionId);
+}
+
+export function castResumeTargets(s: RecentSession, members: readonly CastMember[], agents: readonly AgentInfo[]): CastMember[] {
+  return members.filter((m) => m.kind === 'main' && (!m.rooms.length || m.rooms.includes(s.project ?? ''))
+    && (!m.account || m.account === s.account)
+    && !agents.some((a) => a.cast === m.id && a.status !== 'offline' && a.status !== 'done'));
+}
+
+/** Uma sessão já aberta nunca cria outra chamada, mesmo se a lista mudou depois de desenhar o menu. */
+export async function resumeHistoryCast(
+  s: RecentSession,
+  cast: string | undefined,
+  store: Pick<UiContext['store'], 'startCast'>,
+  terminal: Pick<TerminalControl, 'openSession'>,
+): Promise<string | undefined> {
+  if (s.open) { terminal.openSession(s); return; }
+  if (cast) return store.startCast(cast, s.project!, 'resume', '', { session: s.sessionId, account: s.account });
+  try {
+    const response = await fetch('/api/cast/new', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ room: s.project, session: s.sessionId, account: s.account }),
+    });
+    if (response.ok) return;
+    const data = await response.json().catch(() => ({})) as { error?: unknown };
+    return typeof data.error === 'string' ? data.error : tr('Não foi possível carregar o histórico.');
+  } catch { return tr('Não foi possível falar com o servidor.'); }
+}
+
 // ---------------------------------------------------------------- popover
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'error';
@@ -114,6 +146,8 @@ export class HistoryPopover implements UiComponent {
   private hintEl: HTMLElement;
   /** O que está desenhado na lista (evita refazer o DOM a cada quadro). */
   private drawn = '';
+  private catalog: CastModelCatalog | undefined;
+  private members: CastMember[] = [];
 
   constructor(
     private ctx: UiContext,
@@ -250,11 +284,17 @@ export class HistoryPopover implements UiComponent {
   /** Busca a lista no servidor a cada abertura (a anterior continua na tela enquanto isso). */
   private async load(): Promise<void> {
     const id = ++this.request;
+    this.catalog = undefined;
+    this.members = [];
     this.error = '';
     this.state = this.sessions.length ? 'ready' : 'loading';
     this.renderList();
     try {
-      const res = await fetch(HISTORY_URL, { headers: { Accept: 'application/json' } });
+      const [res, catalogResponse, cast] = await Promise.all([
+        fetch(HISTORY_URL, { headers: { Accept: 'application/json' } }),
+        fetch('/api/cast/models').catch(() => undefined),
+        this.ctx.store.castList(),
+      ]);
       if (!res.ok) {
         this.error = res.status === 403 ? `${TERMINAL_UNAVAILABLE_HINT}.` : tr('Não foi possível carregar o histórico.');
         throw new Error(String(res.status));
@@ -262,6 +302,8 @@ export class HistoryPopover implements UiComponent {
       const sessions = parseRecentSessions(await res.json());
       if (id !== this.request) return;
       this.sessions = sessions;
+      this.catalog = catalogResponse?.ok ? parseCastModelCatalog(await catalogResponse.json().catch(() => undefined)) : undefined;
+      this.members = 'members' in cast ? cast.members : [];
       this.state = 'ready';
     } catch {
       if (id !== this.request) return;
@@ -276,7 +318,7 @@ export class HistoryPopover implements UiComponent {
     const pick = this.picking ? this.ctx.agent(this.picking) : undefined;
     const split = splitFavorites(favorites.all(), this.sessions);
     if (this.state === 'ready' && JSON.stringify(split.updated) !== JSON.stringify(favorites.all())) favorites.replace(split.updated);
-    const usable = (list: RecentSession[]) => (pick ? list.filter((s) => canResume(s, pick.sessionId)) : list);
+    const usable = (list: RecentSession[]) => (pick ? list.filter((s) => pick.provider === 'omp' && canResume(s, pick.sessionId)) : list);
     const favPool = usable(split.favorites);
     const pool = usable(split.rest);
     setText(this.hintEl, pick ? tr('Escolha a conversa do omp para retomar em {0}. A atual dele continua no histórico.', [pick.name]) : tr('Últimos 7 dias, de todas as contas. Clique para ler a conversa no terminal.'));
@@ -300,7 +342,7 @@ export class HistoryPopover implements UiComponent {
     setHidden(this.footEl, !total);
 
     // Refaz o DOM só quando o conteúdo muda (a lista é pequena: no máximo ~150 sessões).
-    const sig = JSON.stringify([pick?.id, favorites.all().map(sessionKey), days.map((d) => [d.key, d.label]), [...shownFavs, ...shownRest].map((s) => [s.account, s.sessionId, s.title, s.lastAt, s.open, s.agentId && !!this.ctx.agent(s.agentId)])]);
+    const sig = JSON.stringify([pick?.id, this.catalog, this.members, this.ctx.store.snapshot?.agents, favorites.all().map(sessionKey), days.map((d) => [d.key, d.label]), [...shownFavs, ...shownRest].map((s) => [sessionKey(s), s.title, s.lastAt, s.open, s.agentId && !!this.ctx.agent(s.agentId)])]);
     if (sig === this.drawn) return;
     const focusedKey = (document.activeElement as HTMLElement | null)?.dataset?.session;
     this.drawn = sig;
@@ -331,8 +373,8 @@ export class HistoryPopover implements UiComponent {
     star.dataset.fav = key;
     setAttr(star, 'aria-pressed', String(pinned));
     const row = h('div', { class: 'ui-hist__row' }, btn);
-    if (!pick && canResume(s)) {
-      const resume = h('button', { class: 'ui-link-btn ui-hist__resume', type: 'button', text: tr('Retomar em…'), title: tr('Retomar esta conversa num agente do omp livre (a conversa atual dele continua no histórico)') });
+    if (!pick && (canResume(s) || this.canCastResume(s))) {
+      const resume = h('button', { class: 'ui-link-btn ui-hist__resume', type: 'button', text: tr('Retomar em…'), title: s.provider === 'omp' ? tr('Retomar esta conversa num agente do omp livre (a conversa atual dele continua no histórico)') : tr('Retomar em qual agente') });
       row.append(resume);
       resume.addEventListener('click', () => this.toggleResumeMenu(row, s));
     }
@@ -343,24 +385,39 @@ export class HistoryPopover implements UiComponent {
   private toggleResumeMenu(row: HTMLElement, s: RecentSession): void {
     const open = row.querySelector('.ui-hist__menu');
     if (open) return open.remove();
-    const targets = resumeTargets(this.ctx.store.snapshot?.agents ?? []);
+    if (s.open) { this.hide(); this.terminal.openSession(s); return; }
+    const agents = this.ctx.store.snapshot?.agents ?? [];
+    const targets = s.provider === 'omp' ? resumeTargets(agents) : [];
     // Personagens do elenco na reserva: o auxiliar abre o omp com eles já retomando esta conversa, na pasta dela.
-    const reserve = s.project ? (this.ctx.store.snapshot?.reserve ?? []).filter((m) => m.state === 'idle') : [];
+    const reserve = this.canCastResume(s) ? castResumeTargets(s, this.members, agents)
+      .filter((m) => !(this.ctx.store.snapshot?.reserve ?? []).some((r) => r.cast === m.id && r.state !== 'idle')) : [];
     const agentBtn = (a: AgentInfo) => h('button', { class: 'ui-btn ui-btn--sm', type: 'button', text: a.name, on: { click: () => { this.hide(); this.terminal.resumeIn(a.id, s); } } });
-    const castBtn = (m: (typeof reserve)[number]) => h('button', {
+    let sent = false;
+    const resumeCast = async (cast?: string) => {
+      if (sent || !this.canCastResume(s) || this.ctx.store.mock || this.ctx.store.replaying) return;
+      sent = true;
+      this.hide();
+      const live = this.ctx.store.snapshot?.agents.find((a) => a.provider === s.provider && a.account === s.account && a.sessionId === s.sessionId && a.kind === 'main' && a.status !== 'offline' && a.status !== 'done');
+      const current = live ? { ...s, open: true, agentId: live.id } : this.sessions.find((item) => sessionKey(item) === sessionKey(s)) ?? s;
+      const error = await resumeHistoryCast(current, cast, this.ctx.store, this.terminal);
+      this.ctx.announce(error ?? tr('chamando…'));
+    };
+    const castBtn = (m: CastMember) => h('button', {
       class: 'ui-btn ui-btn--sm ui-hist__cast',
       type: 'button',
       title: tr('Chamar {0} do elenco já nesta conversa', [m.name]),
-      on: { click: () => void (async () => {
-        this.hide();
-        const error = await this.ctx.store.startCast(m.cast, s.project!, 'resume', '', { session: s.sessionId, account: s.account });
-        this.ctx.announce(error ?? tr('Chamando {0}…', [m.name]));
-      })() },
+      on: { click: () => void resumeCast(m.id) },
     }, createAvatar({ seed: m.seed, look: m.look, kind: 'main', parts: m.parts }, 'xs'), h('span', { text: m.name }));
     const menu = h('div', { class: 'ui-hist__menu', role: 'group', attrs: { 'aria-label': tr('Retomar em qual agente') } }, ...targets.map(agentBtn));
+    if (this.canCastResume(s)) menu.append(h('button', { class: 'ui-btn ui-btn--sm', type: 'button', text: tr('Novo'), on: { click: () => void resumeCast() } }));
     if (reserve.length) menu.append(h('span', { class: 'ui-hist__menu-label', text: tr('Elenco:') }), ...reserve.map(castBtn));
-    if (!targets.length && !reserve.length) menu.append(h('span', { class: 'ui-hist__menu-empty', text: tr('Nenhum agente do omp livre agora.') }));
+    if (!targets.length && !reserve.length && !this.canCastResume(s)) menu.append(h('span', { class: 'ui-hist__menu-empty', text: tr('Nenhum agente do omp livre agora.') }));
     row.append(menu);
+  }
+
+  private canCastResume(s: RecentSession): boolean {
+    return !this.ctx.store.mock && !this.ctx.store.replaying
+      && canResumeViaCast(s, this.catalog, this.ctx.account(s.account)?.provider);
   }
 
   private item(s: RecentSession, now: number, pick?: string, fav = false): HTMLButtonElement {
@@ -380,7 +437,7 @@ export class HistoryPopover implements UiComponent {
     );
     if (live) meta.append(h('span', { class: 'ui-hist__live', text: tr('aberta') }));
     const btn = h('button', { class: `ui-hist__item${live ? ' is-live' : ''}`, type: 'button' }, chip, h('span', { class: 'ui-hist__text' }, h('span', { class: 'ui-hist__title', text: title }), meta));
-    btn.dataset.session = `${s.account}:${s.sessionId}`;
+    btn.dataset.session = sessionKey(s);
     const when = s.firstAt !== undefined && calendarDayDiff(s.firstAt, s.lastAt) !== 0 ? `${formatDateTime(s.firstAt)} → ${formatDateTime(s.lastAt)}` : s.firstAt !== undefined ? `${formatDateTime(s.firstAt)} → ${formatClock(s.lastAt, false)}` : formatDateTime(s.lastAt);
     setTitle(
       btn,

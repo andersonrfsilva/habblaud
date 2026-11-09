@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { appendFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { OMP_SESSION_ID } from '../../shared/omp-events';
@@ -27,6 +27,15 @@ import { createOmpTerminalParser } from '../sources/omp/terminal';
 import { HistorySet } from '../sources/source';
 import { encodeCwd } from '../sources/watcher';
 import { ATTACHMENT_TTL_MS, AttachmentStore, writeAttachments } from '../spawn/attachments';
+import { ZeroClawCast } from '../cast/zeroclaw';
+import { ZeroClawDelivery } from '../messages/zeroclaw';
+import { ZeroClawConnector } from '../sources/zeroclaw/connector';
+import { ZeroClawHistory } from '../sources/zeroclaw/history';
+import { ZeroClawMirror } from '../sources/zeroclaw/mirror';
+import { ZeroClawSource } from '../sources/zeroclaw/source';
+import { startTestGateway } from '../sources/zeroclaw/test-gateway';
+import { Summarizer } from '../summaries/summarizer';
+import { setNeutralBrand } from '../../shared/i18n';
 
 const CWD = '/fixture/projeto';
 const ACCOUNT = '.claude';
@@ -40,6 +49,11 @@ const AGENTS = [
   { id: 'fixture:testes', sessionId: '00000000-0000-4000-8000-000000000007', provider: 'claude' as const, account: ACCOUNT },
 ];
 const CLOSED = '00000000-0000-4000-8000-000000000003';
+const ZC_LIVE = '00000000-0000-4000-8000-000000000008';
+const ZC_CLOSED = '00000000-0000-4000-8000-000000000009';
+const ZC_MODELS = [
+  ...['fixture/model-legivel', 'fixture/model-alternativo'].map(model => ({ alias: `m_${createHash('sha256').update(model).digest('hex').slice(0, 12)}`, model })),
+];
 
 export async function startAndroidFixture(root: string, args: string[]): Promise<void> {
   let port = 14748;
@@ -137,8 +151,50 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
       office.putCast({ id: 'bia', name: 'Bia Fictícia', kind: 'main', seed: 1002, look: 'f', rooms: ['/fixture/projeto'], last: { '/fixture/projeto': CLOSED } }) !== 'ok' ||
       office.putCast({ id: 'caio', name: 'Caio Fictício', kind: 'main', seed: 1003, look: 'm', rooms: [] }) !== 'ok' ||
       office.putCast({ id: 'davi', name: 'Davi Fictício', kind: 'main', seed: 1004, look: 'm', rooms: ['/fixture/caderno'] }, 'fixture:omp') !== 'ok') throw new Error('Could not create fictional cast');
+  const gateway = await startTestGateway();
+  gateway.options.abortFrame = true;
+  const mirror = new ZeroClawMirror({ dataDir: root });
+  let zeroclaw: ZeroClawSource;
+  const connector = new ZeroClawConnector({ url: gateway.url, dataDir: root, metadataOf: id => mirror.metadataOf(id), beforeOpen: input => zeroclaw.prepare(input) });
+  zeroclaw = new ZeroClawSource({ accounts, office, connector, mirror });
+  accounts.setProviderAccounts('zeroclaw', [{ dir: mirror.root, detected: { id: 'zeroclaw', configDir: mirror.root, short: 'Z', name: 'Laboratório', color: '#5cc97b' } }]);
+  for (const [sessionId, name, cast] of [[ZC_LIVE, 'Zélia Fictícia', 'zelia'], [ZC_CLOSED, 'Conversa ZeroClaw encerrada', 'zora']]) {
+    const now = Date.now();
+    gateway.sessions.push({ session_id: sessionId, agent_alias: ZC_MODELS[0].alias, name, created_at: now, last_activity: now, channel_id: 'web' });
+    gateway.messages.set(sessionId, [{ role: 'user', content: 'Pedido ZeroClaw fictício' }, { role: 'assistant', content: 'Resposta ZeroClaw fictícia' }]);
+    await mirror.setMetadata({ sessionId, agent: ZC_MODELS[0].alias, name, cwd: CWD, cast, firstAt: now, lastAt: now });
+    await mirror.bootstrap(sessionId, gateway.messages.get(sessionId)!);
+  }
+  gateway.options.autoStart = false;
+  gateway.onConnection = connection => {
+    const existing = gateway.sessions.some(session => session.session_id === connection.sessionId);
+    if (!existing) gateway.sessions.push({ session_id: connection.sessionId, agent_alias: connection.url.searchParams.get('agent'), name: connection.url.searchParams.get('name'), created_at: Date.now(), last_activity: Date.now(), channel_id: 'web' });
+    connection.send({ type: 'session_start', session_id: connection.sessionId, resumed: existing, message_count: gateway.messages.get(connection.sessionId)?.length ?? 0, name: connection.url.searchParams.get('name') });
+  };
+  connector.onEvent(event => {
+    if (event.type === 'message-sent') {
+      gateway.states.set(event.sessionId, 'running');
+      const messages = gateway.messages.get(event.sessionId) ?? [];
+      messages.push({ role: 'user', content: event.content });
+      gateway.messages.set(event.sessionId, messages);
+    } else if (event.type === 'frame' && ['done', 'aborted'].includes(event.frame.type)) gateway.states.set(event.sessionId, 'idle');
+  });
+  if (office.putCast({ id: 'zelia', name: 'Zélia Fictícia', kind: 'main', seed: 1005, look: 'f', rooms: [CWD], model: ZC_MODELS[0].alias }) !== 'ok' ||
+      office.putCast({ id: 'zora', name: 'Zora Fictícia', kind: 'main', seed: 1006, look: 'f', rooms: [CWD], model: ZC_MODELS[0].alias, last: { [CWD]: ZC_CLOSED } }) !== 'ok') throw new Error('Could not create ZeroClaw cast');
+  await zeroclaw.start();
+  await connector.openSession({ sessionId: ZC_LIVE, agent: ZC_MODELS[0].alias, name: 'Zélia Fictícia', cwd: CWD, cast: 'zelia', officeAgentId: 'fixture:zeroclaw' });
+  await zeroclaw.flush();
+  await connector.sendMessage(ZC_LIVE, 'Turno ZeroClaw fictício em andamento');
+  gateway.states.set(ZC_LIVE, 'running');
+  // Deliberately stale context proves clients hide untrusted ZeroClaw measurements.
+  office.applyTranscript('fixture:zeroclaw', { ...office.get('fixture:zeroclaw')!, context: { tokens: 120_000, window: 200_000 } });
   const launcher = new CastLauncher({ dataDir: root, member: id => office.cast.get(id), agents: () => office.list(), account: id => !id || id === ACCOUNT ? accountDir : undefined, changed: () => office.markDirty() });
   late.launcher = launcher;
+  let runtime: 'omp' | 'zeroclaw' = 'omp';
+  let catalogMode = 'normal';
+  const delivery = new ZeroClawDelivery({ connector, isClosing: id => late.launcher?.isClosing(id) ?? false, onCancelSession: (id, reason) => late.messages?.cancelZeroClawSession(id, reason), onReplacementFailed: id => office.closeMain(id) });
+  const zcLauncher = new CastLauncher({ dataDir: root, member: id => office.cast.get(id), agents: () => office.list(), account: () => undefined, changed: () => office.markDirty(),
+    zeroclaw: new ZeroClawCast({ catalog: { models: ZC_MODELS, defaultModel: ZC_MODELS[0].alias }, connector: () => connector, delivery: () => delivery, messages: () => late.messages, account: () => zeroclaw.accountId, ready: () => true, afterOpen: () => zeroclaw.flush() }) });
   launcher.poll({ open: ['ana', 'davi'] });
   const presence = setInterval(() => launcher.ack({ results: [] }), 10_000);
   timers.add(presence);
@@ -147,7 +203,7 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
   const deliveredDir = join(root, 'attachments', 'delivered');
   let attachmentTimeOffset = 0;
   const attachments = new AttachmentStore({ dir: stagingDir, now: () => Date.now() + attachmentTimeOffset });
-  const messages = new MessageRegistry({ office, attachments, presenceMs: Number.MAX_SAFE_INTEGER, writeAttachments: async files => ({ paths: await writeAttachments(deliveredDir, randomUUID(), files) }) });
+  const messages = new MessageRegistry({ office, zeroclaw: delivery, attachments, presenceMs: Number.MAX_SAFE_INTEGER, writeAttachments: async files => ({ paths: await writeAttachments(deliveredDir, randomUUID(), files) }) });
   // Bate-papo paralelo: sem extensão do omp, a fixture faz o papel dela (busca, resposta em duas partes e fim).
   const asides: AsideStore = new AsideStore({ dir: null, office, discard: id => messages.discard(id), queue: (agentId, req) => {
     const sent = messages.aside(agentId, req);
@@ -178,37 +234,52 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
   permissions.start();
   hub.start();
   for (const agent of AGENTS) messages.inbox({ session: agent.sessionId, account: agent.account });
-  const terminals = new TerminalStreams({ office, transcriptPathOf: id => paths.get(id), parserFor: id => office.get(id)?.provider === 'omp' ? createOmpTerminalParser() : undefined, initEntries: 50 });
+  const terminals = new TerminalStreams({ office, transcriptPathOf: id => zeroclaw.transcriptPathOf(id) ?? paths.get(id), parserFor: id => office.get(id)?.provider === 'omp' ? createOmpTerminalParser() : undefined, initEntries: 50 });
   const openAgentOf = (account: string, session: string) => openMainAgent(office.list(), account, session);
   const history = new HistorySet([
     new SessionHistory({ accounts: () => accounts.entries().filter(account => account.provider === 'claude'), openAgentOf }),
     new OmpHistory({ accounts: () => accounts.entries().filter(account => account.provider === 'omp'), openAgentOf }),
+    new ZeroClawHistory({ connector, mirror, account: () => zeroclaw.accountId, openAgentOf }),
   ]);
   const allowed = parseAllow(allow);
-  const api = createApiHandler({ office, hub, accounts, sources: () => [], version: 'android-fixture', inDocker: false, terminal: true, terminals, sessions: history, messages: createMessageRoutes(messages), asides: { page: createAsideRoutes(asides), progress: (req, res) => handleAsideProgress(req, res, asides) }, permissions: createPermissionRoutes(permissions), castLauncher: launcher, spawnFolders: async () => projects.map(name => ({ name, path: `/fixture/${name}`, lastAt: Date.now(), sessions: 1 })), remote: { is: isRemoteRequest, allows: feature => allowed.has(feature) } });
+  const summaryToken = join(root, 'summary-fixture-token');
+  writeFileSync(summaryToken, 'fixture-only');
+  gateway.responses.set('POST /v1/messages', { body: { content: [{ type: 'text', text: 'Resumo HTTP fictício sem Tiny.' }] } });
+  const summaries = new Summarizer({ bin: () => undefined, agentDir: () => undefined, http: { url: gateway.url, model: 'fixture-summary', tokenFile: summaryToken, auth: 'bearer' } });
+  const api = createApiHandler({ office, hub, accounts, sources: () => zeroclaw.sources(), version: 'android-fixture', inDocker: false, terminal: true, terminals, sessions: history, messages: createMessageRoutes(messages), asides: { page: createAsideRoutes(asides), progress: (req, res) => handleAsideProgress(req, res, asides) }, permissions: createPermissionRoutes(permissions), get castLauncher() { return late.launcher; }, get summaries() { return runtime === 'zeroclaw' ? summaries : undefined; }, spawnFolders: async () => projects.map(name => ({ name, path: `/fixture/${name}`, lastAt: Date.now(), sessions: 1 })), remote: { is: isRemoteRequest, allows: feature => allowed.has(feature) } });
   const passwordHashText = await hashPassword('android-test');
   const passwordHash = parsePasswordHash(passwordHashText);
   if (!passwordHash) throw new Error('Could not create fixture password');
   const sessions = new RemoteSessions(loadSecret(join(root, 'remote-secret')), { user: 'android-test', passwordHashText }, Date.now, join(root, 'remote-revoked'));
   const gate = createRemoteGate({ config: { user: 'android-test', passwordHash }, sessions, secure: false });
   const guard = createRequestGuard({ allowedHosts: new Set() });
+  const localGuard = createRequestGuard({ looseLoopbackOrigin: true });
   const posts: Record<string, number> = { '/api/messages': 0 };
-  const messageRequests: Array<{ status: number; text?: string; attachments: number; expectedSessionId?: string }> = [];
+  const messageRequests: Array<Record<string, unknown>> = [];
+  const controlRequests: Array<Record<string, unknown>> = [];
+  const castRequests: Array<Record<string, unknown>> = [];
+  const gets: Record<string, number> = {};
+  const stats = () => ({ sse: hub.size, terminal: terminals.size, posts, gets, messageRequests, controlRequests, castRequests, lastHeaders, permissionResults, localAcks, castJobs: late.launcher?.jobs(), runtime, zeroclaw: { account: zeroclaw.accountId, agentId: 'fixture:zeroclaw', sessionId: office.get('fixture:zeroclaw')?.sessionId, closedSessionId: ZC_CLOSED, models: ZC_MODELS, gatewayRequests: gateway.requests } });
   let lastHeaders: Record<string, string | null> = {};
   let drop = false;
+  const localRequests = new WeakSet<http.IncomingMessage>();
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
     lastHeaders = { origin: req.headers.origin ?? null, referer: req.headers.referer ?? null, host: req.headers.host ?? null, 'content-type': req.headers['content-type'] ?? null };
     if (req.method === 'POST') posts[url.pathname] = (posts[url.pathname] ?? 0) + 1;
-    if (req.method === 'POST' && url.pathname === '/api/messages') {
+    if (req.method === 'GET') gets[url.pathname] = (gets[url.pathname] ?? 0) + 1;
+    if (req.method === 'POST' && (url.pathname === '/api/messages' || url.pathname === '/api/messages/control' || /^\/api\/cast\/[^/]+\/start$/.test(url.pathname) || url.pathname === '/api/cast/new')) {
       let body = '';
       req.on('data', (chunk: Buffer) => { if (body.length <= 131_072) body += chunk.toString(); });
       res.once('finish', () => {
         try {
-          const value = JSON.parse(body) as { text?: string; attachments?: unknown; expectedSessionId?: string };
-          messageRequests.push({ status: res.statusCode, text: value.text, attachments: Array.isArray(value.attachments) ? value.attachments.length : 0, expectedSessionId: value.expectedSessionId });
+          const value = JSON.parse(body) as Record<string, unknown>;
+          const record = { ...value, status: res.statusCode, ...(url.pathname === '/api/messages' ? { attachments: Array.isArray(value.attachments) ? value.attachments.length : 0 } : {}) };
+          if (url.pathname === '/api/messages') messageRequests.push(record);
+          else if (url.pathname === '/api/messages/control') controlRequests.push(record);
+          else castRequests.push({ ...record, path: url.pathname });
         } catch {
-          messageRequests.push({ status: res.statusCode, attachments: 0 });
+          if (url.pathname === '/api/messages') messageRequests.push({ status: res.statusCode, attachments: 0 });
         }
       });
     }
@@ -223,7 +294,11 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
         return end(...args);
       }) as typeof res.end;
     }
-    if (guard(req, res) || gate(req, res, url)) return;
+    if (!localRequests.has(req) && (guard(req, res) || gate(req, res, url))) return;
+    if (url.pathname === '/api/cast/models' && catalogMode !== 'normal') {
+      res.writeHead(catalogMode === 'error' ? 503 : 200, { 'Content-Type': 'application/json' }).end(JSON.stringify(catalogMode === 'error' ? { error: 'Catálogo indisponível na fixture' } : { provider: runtime, models: [], defaultModel: '' }));
+      return;
+    }
     const match = /^\/api\/agents\/([^/]+)\/terminal$/.exec(url.pathname);
     if (req.method === 'GET' && match && allowed.has('terminal')) {
       const path = paths.get(decodeURIComponent(match[1]));
@@ -274,12 +349,7 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
   const localAcks: Array<{ id: string; ok: boolean }> = [];
   const localServer = http.createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
-    if (guard(req, res)) return;
-    if (!['/api/mod/inbox', '/api/mod/inbox/ack', '/api/omp/events'].includes(url.pathname) &&
-        url.pathname !== '/api/permissions' && !url.pathname.startsWith('/api/permissions/')) {
-      res.writeHead(404).end();
-      return;
-    }
+    if (localGuard(req, res)) return;
     if (req.method === 'POST' && url.pathname === '/api/mod/inbox/ack') {
       let body = '';
       req.on('data', (chunk: Buffer) => {
@@ -301,7 +371,29 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
         }
       });
     }
-    if (!api(req, res, url)) res.writeHead(404).end();
+    if (url.pathname === '/api/fixture/stats' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(stats()));
+      return;
+    }
+    if (url.pathname === '/api/fixture/command' && req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk: Buffer) => { if (body.length <= 65_536) body += chunk.toString(); });
+      req.on('end', () => {
+        void (async () => {
+          try {
+            const value = JSON.parse(body) as { command: string };
+            const result = await fixtureCommand(value.command);
+            res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(result));
+          } catch {
+            res.writeHead(400).end(JSON.stringify({ error: 'Invalid fixture command' }));
+          }
+        })();
+      });
+      return;
+    }
+    // Browser proxy uses this local listener; share production handlers and request capture.
+    localRequests.add(req);
+    server.emit('request', req, res);
   });
   const localListening = Promise.withResolvers<void>();
   localServer.once('error', localListening.reject);
@@ -320,11 +412,67 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
   const localAddress = localServer.address();
   if (!localAddress || typeof localAddress === 'string') throw new Error('Local fixture listener has no port');
   const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
-  input.on('line', line => {
-    try {
+  const fixtureCommand = async (line: string): Promise<unknown> => {
       const [command, agentId, kind] = line.trim().split(/\s+/);
       let result: unknown;
-      if (command === 'stats') result = { sse: hub.size, terminal: terminals.size, posts, messageRequests, lastHeaders, permissionResults, localAcks, castJobs: launcher.jobs() };
+      if (command === 'stats') result = stats();
+      else if (command === 'runtime') {
+        if (agentId !== 'omp' && agentId !== 'zeroclaw') throw new Error('Expected runtime omp|zeroclaw');
+        runtime = agentId;
+        late.launcher = runtime === 'zeroclaw' ? zcLauncher : launcher;
+        catalogMode = 'normal';
+        office.markDirty();
+        result = { ok: true, runtime };
+      } else if (command === 'catalog') {
+        if (!['normal', 'empty', 'error'].includes(agentId)) throw new Error('Expected catalog normal|empty|error');
+        catalogMode = agentId;
+        result = { ok: true };
+      } else if (command === 'brand') {
+        if (agentId !== 'normal' && agentId !== 'neutral') throw new Error('Expected brand normal|neutral');
+        setNeutralBrand(agentId === 'neutral');
+        result = { ok: true };
+      } else if (command === 'zc-context') {
+        const agent = office.get('fixture:zeroclaw');
+        if (!agent || !['none', '0', '120000'].includes(agentId)) throw new Error('Expected zc-context none|0|120000');
+        office.applyTranscript(agent.id, { ...agent, context: agentId === 'none' ? undefined : { tokens: Number(agentId), window: 200_000 } });
+        if (agentId === 'none') { delete agent.context; office.markDirty(); }
+        result = { ok: true };
+      } else if (command === 'zc-working' || command === 'zc-no-active' || command === 'zc-done') {
+        const sessionId = office.get('fixture:zeroclaw')?.sessionId;
+        if (!sessionId) throw new Error('No ZeroClaw session');
+        if (command === 'zc-working') {
+          await connector.sendMessage(sessionId, 'Turno ZeroClaw fictício');
+          gateway.states.set(sessionId, 'running');
+          gateway.aborts.delete(sessionId);
+        } else if (command === 'zc-no-active') {
+          gateway.states.set(sessionId, 'idle');
+          gateway.aborts.set(sessionId, 'no_active_response');
+          office.setStatus('fixture:zeroclaw', 'working');
+        } else {
+          gateway.states.set(sessionId, 'idle');
+          gateway.connections.findLast(connection => connection.sessionId === sessionId && connection.open)?.send({ type: 'done', full_response: 'Resposta ZeroClaw fictícia' });
+        }
+        await zeroclaw.flush();
+        result = { ok: true, sessionId };
+      } else if (command === 'zc-reset') {
+        for (const session of connector.openSessions()) await connector.closeSession(session.sessionId);
+        await zeroclaw.flush();
+        gateway.aborts.clear();
+        gateway.states.clear();
+        await connector.openSession({ sessionId: ZC_LIVE, agent: ZC_MODELS[0].alias, name: 'Zélia Fictícia', cwd: CWD, cast: 'zelia', officeAgentId: 'fixture:zeroclaw' });
+        await zeroclaw.flush();
+        await connector.sendMessage(ZC_LIVE, 'Turno ZeroClaw fictício em andamento');
+        gateway.states.set(ZC_LIVE, 'running');
+        office.applyTranscript('fixture:zeroclaw', { ...office.get('fixture:zeroclaw')!, context: { tokens: 120_000, window: 200_000 } });
+        messageRequests.length = 0;
+        controlRequests.length = 0;
+        castRequests.length = 0;
+        result = { ok: true, sessionId: ZC_LIVE };
+      } else if (command === 'zc-close') {
+        for (const session of connector.openSessions()) await connector.closeSession(session.sessionId);
+        await zeroclaw.flush();
+        result = { ok: true };
+      }
       else if (command === 'cast-consume') {
         const jobs = launcher.poll();
         launcher.ack({ results: jobs.map(job => ({ id: job.id, ok: true })) });
@@ -391,8 +539,14 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
         waitForPermission(registered.id);
         result = { ok: true, id: registered.id };
       } else throw new Error('Unknown command');
-      process.stdout.write(`${JSON.stringify(result)}\n`);
-    } catch (error) { process.stdout.write(`${JSON.stringify({ ok: false, error: error instanceof Error ? error.message : 'Command failed' })}\n`); }
+      return result;
+  };
+  let inputQueue = Promise.resolve();
+  input.on('line', line => {
+    inputQueue = inputQueue.then(async () => {
+      try { process.stdout.write(`${JSON.stringify(await fixtureCommand(line))}\n`); }
+      catch (error) { process.stdout.write(`${JSON.stringify({ ok: false, error: error instanceof Error ? error.message : 'Command failed' })}\n`); }
+    });
   });
   let closing = false;
   const close = () => {
@@ -400,6 +554,8 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
     closing = true;
     input.close();
     for (const timer of timers) clearTimeout(timer);
+    delivery.stop();
+    zeroclaw.stop();
     messages.stop();
     permissions.stop();
     terminals.stop();
@@ -407,10 +563,16 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
     localServer.closeAllConnections();
     localServer.close();
     server.closeAllConnections();
-    server.close(() => { rmSync(root, { recursive: true, force: true }); });
+    server.close(() => {
+      void (async () => {
+        await zeroclaw.flush();
+        await gateway.close();
+        rmSync(root, { recursive: true, force: true });
+      })();
+    });
   };
   process.once('SIGINT', close);
   process.once('SIGTERM', close);
   input.once('close', close);
-  process.stdout.write(`${JSON.stringify({ ready: true, url: `http://127.0.0.1:${remoteAddress.port}`, localUrl: `http://127.0.0.1:${localAddress.port}`, user: 'android-test', password: 'android-test', home: root, stagingDir, deliveredDir, agents: AGENTS.map(agent => agent.id) })}\n`);
+  process.stdout.write(`${JSON.stringify({ ready: true, url: `http://127.0.0.1:${remoteAddress.port}`, localUrl: `http://127.0.0.1:${localAddress.port}`, user: 'android-test', password: 'android-test', home: root, stagingDir, deliveredDir, agents: [...AGENTS.map(agent => agent.id), 'fixture:zeroclaw'] })}\n`);
 }

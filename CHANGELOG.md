@@ -27,6 +27,12 @@ do meio (0.**3**.0).
 - **Elenco ZeroClaw:** abertura, retomada e dispensa pelo gateway, sem auxiliar ou tmux, com catálogo configurado
   em `GET /api/cast/models`. Instruções são contexto textual; a dispensa confirma o fim do turno antes de fechar,
   preservando histórico e limite de personagens. O caminho OMP permanece disponível sem configuração ZeroClaw.
+- **Clientes ZeroClaw:** navegador e Zaplaud reconhecem a identidade das sessões, preservam o provider no
+  histórico e nos favoritos e retomam conversas pelo elenco, sem cruzar sessões OMP e ZeroClaw.
+  O catálogo apresenta nomes legíveis de modelos e envia seus aliases, inclusive sem personagens abertos.
+  Mensagens oferecem `steer` e `followUp`; STOP e conversa nova mantêm proteção da sessão.
+  Controles exclusivos do OMP ficam ocultos. O contexto ZeroClaw não é exibido por falta de leitura confiável,
+  não porque esteja vazio. No Zaplaud, resumo HTTP dispensa Tiny quando o servidor anuncia essa capacidade.
 - **Zaplaud:** o ▶ "Retomar conversa" aparece em toda sessão omp encerrada com pasta e oferece **Novo** (nome e
   visual sorteados) além dos contatos livres da pasta. `POST /api/cast/new` aceita `session` para retomar a conversa.
 - **Zaplaud:** toque longo no anel de contexto do campo de mensagem pergunta se quer fazer shake (liberar contexto) e,

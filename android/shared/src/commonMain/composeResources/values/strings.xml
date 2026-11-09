@@ -101,10 +101,10 @@
     <string name="permission_deny">Recusar</string>
     <string name="permission_terminal">Terminal</string>
     <string name="stop_agent">Parar agente</string>
-    <string name="stop_pending">Interrupção na fila; aguardando confirmação.</string>
+    <string name="stop_pending">Controle na fila; aguardando confirmação.</string>
     <string name="stop_ack">Controle confirmado pela sessão. O efeito não é garantido.</string>
     <string name="stop_failed">A entrega do controle falhou.</string>
-    <string name="stop_unknown">Interrupção não confirmada. Confira a sessão; o pedido não será reenviado.</string>
+    <string name="stop_unknown">Controle não confirmado. Confira a sessão; o pedido não será reenviado.</string>
     <string name="status_idle">parado</string>
     <string name="status_working">trabalhando</string>
     <string name="status_line_working">Trabalhando</string>
@@ -181,6 +181,8 @@
     <string name="shake">Shake (liberar contexto)</string>
     <string name="shake_short">Shake</string>
     <string name="shake_confirm">Fazer shake e liberar o contexto desta sessão?</string>
+    <string name="session_new">Nova sessão</string>
+    <string name="session_new_confirm">Começar uma nova sessão com este contato? A conversa e o rascunho anteriores ficam separados. Se um pedido anterior não foi confirmado, confira o estado antes de repetir.</string>
     <string name="aside_menu">Bate-papo paralelo</string>
     <string name="aside_title">Bate-papo paralelo</string>
     <string name="aside_hint">Pergunte sem interromper o agente; nada entra na conversa dele.</string>
@@ -210,7 +212,7 @@
     <string name="theme_light">Claro</string>
     <string name="theme_dark">Escuro</string>
     <string name="settings_view_default">Visualização padrão</string>
-    <string name="settings_deliver_default">Modo de envio padrão (omp)</string>
+    <string name="settings_deliver_default">Modo de envio padrão</string>
     <string name="settings_per_session">Cada sessão lembra a visualização e o modo escolhidos no menu dela; estes valem para as sessões que ainda não têm escolha.</string>
     <string name="settings_notifications_on">Avisar com o app fechado</string>
     <string name="settings_notify_permission">Pedidos de aprovação e perguntas</string>
@@ -232,8 +234,9 @@
     <string name="response_interrupted">Resposta interrompida pelo provedor; o agente continuou abaixo</string>
     <string name="settings_summaries">Resumos</string>
     <string name="settings_summarize">Resumir as respostas do agente</string>
-    <string name="settings_summarize_hint">O papel tiny do omp resume cada resposta em até 5 frases. Toque no resumo para ver a resposta completa.</string>
+    <string name="settings_summarize_hint">O servidor resume cada resposta em até 5 frases. Toque no resumo para ver a resposta completa.</string>
     <string name="settings_summarize_needs_tiny">Para ligar os resumos, escolha um modelo para o papel Tiny abaixo.</string>
+    <string name="settings_summarize_unavailable">O servidor não informou um resumidor disponível.</string>
     <string name="summary_label">Resumo · toque para ver tudo</string>
     <string name="summary_loading">Resumindo… toque para ver a resposta completa</string>
     <string name="summary_collapse">Mostrar o resumo</string>

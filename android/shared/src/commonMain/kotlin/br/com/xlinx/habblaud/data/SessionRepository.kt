@@ -6,7 +6,9 @@ import kotlinx.serialization.json.longOrNull
 
 /** Personagem dono de uma sessão omp encerrada: o único membro do elenco cujo `last` aponta para ela. */
 internal fun castOwner(cast: List<JsonObject>, key: SessionKey): JsonObject? = cast.filter { member ->
-    key.provider == "omp" && (member.string("account") == null || member.string("account") == key.account) &&
+    (key.provider == "omp" || key.provider == "zeroclaw") &&
+        (member.string("provider") == null || member.string("provider") == key.provider) &&
+        (member.string("account") == null || member.string("account") == key.account) &&
         (member["last"] as? JsonObject)?.values?.any { value -> value.toString().trim('"') == key.sessionId } == true
 }.singleOrNull()
 
