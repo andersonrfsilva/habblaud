@@ -34,6 +34,8 @@ fun MainViewController(): UIViewController {
 
 // Navigation always has an explicit accessible back control on iPad.
 @Composable actual fun PlatformBackHandler(enabled: Boolean, onBack: () -> Unit) { }
+@Composable actual fun PlatformSearchShortcut(enabled: Boolean, onSearch: () -> Unit) { }
+actual fun platformSendsOnEnter(): Boolean = false
 @Composable actual fun animationsEnabled(): Boolean {
     var enabled by remember { mutableStateOf(!UIAccessibilityIsReduceMotionEnabled()) }
     DisposableEffect(Unit) {

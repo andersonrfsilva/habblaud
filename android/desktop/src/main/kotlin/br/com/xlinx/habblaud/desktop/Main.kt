@@ -5,6 +5,8 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
@@ -14,6 +16,7 @@ import br.com.xlinx.habblaud.LocalNotificationPlatform
 import br.com.xlinx.habblaud.NotificationPlatform
 import br.com.xlinx.habblaud.ZaplaudApp
 import br.com.xlinx.habblaud.dispatchDesktopBack
+import br.com.xlinx.habblaud.dispatchDesktopSearch
 import br.com.xlinx.habblaud.resources.Res
 import br.com.xlinx.habblaud.resources.ic_zaplaud
 import org.jetbrains.compose.resources.painterResource
@@ -22,7 +25,13 @@ fun main() = application {
     val state = rememberWindowState(size = DpSize(1100.dp, 760.dp))
     Window(onCloseRequest = ::exitApplication, state = state, title = "Zaplaud",
         icon = painterResource(Res.drawable.ic_zaplaud),
-        onKeyEvent = { e -> e.type == KeyEventType.KeyUp && e.key == Key.Escape && dispatchDesktopBack() }) {
+        onKeyEvent = { e ->
+            when {
+                e.type == KeyEventType.KeyUp && e.key == Key.Escape -> dispatchDesktopBack()
+                e.type == KeyEventType.KeyDown && e.key == Key.F && (e.isCtrlPressed || e.isMetaPressed) -> dispatchDesktopSearch()
+                else -> false
+            }
+        }) {
         CompositionLocalProvider(
             LocalNotificationPlatform provides NotificationPlatform(false, {}, {}, { _, result -> result(false) }),
         ) { ZaplaudApp() }
