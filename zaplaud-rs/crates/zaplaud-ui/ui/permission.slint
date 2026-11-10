@@ -49,7 +49,7 @@ export global PermissionState {
     callback close();
     callback decide(string, string);
     callback deny(string);
-    callback more-lines(int) -> string;
+    pure callback more-lines(int) -> string;
     callback select(int, int, bool, bool);
     callback other(int, bool, string);
     callback suggestion(int, bool);
@@ -73,7 +73,7 @@ export component PermissionSheet inherits Sheet {
     width: min(480px, root.width); height: root.height;
     key-released(event) => { if event.text == Key.Escape { PermissionState.close(); return accept; } return reject; }
     ScrollContainer {
-        width: parent.width; height: parent.height;
+        width: parent.width; height: parent.height; content-width: self.width;
         VerticalLayout { alignment: start; padding-left: 20px; padding-right: 20px; padding-bottom: 24px; padding-top: 20px; spacing: 6px;
             first := FocusScope {
                 height: 0px;
@@ -92,17 +92,18 @@ export component PermissionSheet inherits Sheet {
             }
             if PermissionState.blocked != "": Text { text: PermissionState.blocked; color: Theme.on-surface; wrap: word-wrap; }
             if PermissionState.loading || PermissionState.busy: ProgressRing { width: 24px; height: 24px; }
-            if PermissionState.has-detail && PermissionState.questions.length == 0: VerticalLayout {
+            if PermissionState.has-detail && PermissionState.questions.length == 0: VerticalLayout { width: min(480px, root.width) - 40px;
                 Text { text: PermissionState.tool-label; font-size: 12px; color: Theme.on-surface-variant; }
                 Text { text: PermissionState.tool; font-size: 16px; color: Theme.on-surface; wrap: char-wrap; }
                 Text { text: PermissionState.input-label; font-size: 12px; color: Theme.on-surface-variant; }
-                Rectangle { background: Theme.surface-container-highest; border-radius: 8px; height: min(220px, command.preferred-height + 24px);
+                Rectangle { width: min(480px, root.width) - 40px; background: Theme.surface-container-highest; border-radius: 8px; height: min(220px, command-metrics.preferred-height + 24px);
+                    command-metrics := Text { visible: false; width: min(480px, root.width) - 64px; text: PermissionState.input; wrap: char-wrap; font-size: 16px; font-family: "monospace"; }
                     line-metrics := Text { visible: false; text: "Mg"; font-size: 16px; font-family: "monospace"; }
-                    command-scroll := ScrollContainer { x: 12px; y: 12px; width: parent.width - 24px; height: parent.height - 24px;
-                        command := TextInput { width: command-scroll.width; height: self.preferred-height; text: PermissionState.input; read-only: true; wrap: char-wrap; font-size: 16px; font-family: "monospace"; color: Theme.on-surface; accessible-label: PermissionState.input-label; }
+                    command-scroll := ScrollContainer { x: 12px; y: 12px; width: min(480px, root.width) - 64px; height: parent.height - 24px; content-width: self.width;
+                        command := TextInput { width: min(480px, root.width) - 64px; height: command-metrics.preferred-height; text: PermissionState.input; read-only: true; wrap: char-wrap; font-size: 16px; font-family: "monospace"; color: Theme.on-surface; accessible-label: PermissionState.input-label; }
                     }
                 }
-                if command.preferred-height > command-scroll.height: Text { text: PermissionState.more-lines(ceil((command.preferred-height - command-scroll.height) / max(1px, line-metrics.preferred-height))); font-size: 12px; color: Theme.on-surface-variant; }
+                if command-metrics.preferred-height > command-scroll.height: Text { text: PermissionState.more-lines(ceil((command-metrics.preferred-height - command-scroll.height) / max(1px, line-metrics.preferred-height))); font-size: 12px; color: Theme.on-surface-variant; }
             }
             if PermissionState.deadline != "": Text { text: PermissionState.deadline; font-size: 12px; color: Theme.on-surface-variant; wrap: word-wrap; }
             for question in PermissionState.questions: VerticalLayout { spacing: 6px;
