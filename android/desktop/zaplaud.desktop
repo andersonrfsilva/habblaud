@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Zaplaud
+Comment=Cliente do Habblaud
+Exec=Zaplaud
+Icon=Zaplaud
+Terminal=false
+Categories=Network;Chat;
+StartupWMClass=br-com-xlinx-habblaud-desktop-MainKt

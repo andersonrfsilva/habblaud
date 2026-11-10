@@ -14,12 +14,15 @@ class NotificationPlatform(
     val setEnabled: (Boolean) -> Unit,
     val openBackgroundSettings: () -> Unit,
     val setEnabledFromSettings: (Boolean, (Boolean) -> Unit) -> Unit,
+    val whileOpenOnly: Boolean = false,
 )
 val LocalNotificationPlatform = staticCompositionLocalOf<NotificationPlatform> {
     error("Android notification integration must be installed by the host")
 }
 
 @Composable expect fun PlatformBackHandler(enabled: Boolean = true, onBack: () -> Unit)
+@Composable expect fun PlatformSearchShortcut(enabled: Boolean, onSearch: () -> Unit)
+expect fun platformSendsOnEnter(): Boolean
 @Composable expect fun rememberAttachmentPicker(onResult: (List<String>) -> Unit): () -> Unit
 @Composable expect fun animationsEnabled(): Boolean
 expect fun uiNowMillis(): Long

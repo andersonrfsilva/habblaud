@@ -67,6 +67,13 @@ jobs:
       - run: sdkmanager 'platforms;android-37.0' 'build-tools;36.0.0'
       - run: ./gradlew :shared:testAndroidHostTest :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
         working-directory: android
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: xvfb-run -a ./gradlew :shared:jvmTest :desktop:createReleaseDistributable --max-workers=4
+        working-directory: android
 
   instrumentado:
     runs-on: ubuntu-latest
