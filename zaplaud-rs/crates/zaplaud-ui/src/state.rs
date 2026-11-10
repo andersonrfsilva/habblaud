@@ -126,6 +126,10 @@ pub enum Event {
     },
     Logout(String),
     Unauthorized(String),
+    ReadingPosition {
+        origin: String,
+        visible: bool,
+    },
     Theme(bool),
     Shutdown,
 }

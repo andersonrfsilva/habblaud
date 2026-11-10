@@ -340,6 +340,12 @@ pub async fn run(
                     server.reading.needs_login = true;
                 }
             }
+            Event::ReadingPosition { origin, visible } => {
+                if let Some(server) = state.servers.iter_mut().find(|s| s.api.origin() == origin) {
+                    server.reading.set_reading_visible(visible);
+                    let _ = state.persistence.save_seen(&origin, &server.reading.seen);
+                }
+            }
             Event::Filter {
                 origin,
                 query,
