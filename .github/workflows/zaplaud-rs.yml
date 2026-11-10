@@ -1,0 +1,60 @@
+name: Zaplaud Rust
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, producao]
+    paths:
+      - '.github/workflows/zaplaud-rs.yml'
+      - 'zaplaud-rs/**'
+      - 'android/shared/src/commonMain/composeResources/**'
+      - 'android/shared/src/commonMain/kotlin/br/com/xlinx/habblaud/ZaplaudApp.kt'
+      - 'scripts/android-smoke.ts'
+      - 'server/**'
+      - 'shared/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.npmrc'
+  pull_request:
+    paths:
+      - '.github/workflows/zaplaud-rs.yml'
+      - 'zaplaud-rs/**'
+      - 'android/shared/src/commonMain/composeResources/**'
+      - 'android/shared/src/commonMain/kotlin/br/com/xlinx/habblaud/ZaplaudApp.kt'
+      - 'scripts/android-smoke.ts'
+      - 'server/**'
+      - 'shared/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.npmrc'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zaplaud-rs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Instalar toolchain fixada
+        working-directory: zaplaud-rs
+        run: rustup show active-toolchain
+      - name: Verificar formatação
+        working-directory: zaplaud-rs
+        run: cargo fmt --check
+      - name: Verificar clippy
+        working-directory: zaplaud-rs
+        run: cargo clippy --workspace --all-targets -j 4 -- -D warnings
+      - name: Testar workspace e contrato real
+        working-directory: zaplaud-rs
+        run: xvfb-run -a cargo test --workspace -j 4

@@ -1,0 +1,136 @@
+import { Button, LineEdit, ListView, ScrollView } from "std-widgets.slint";
+import { Theme, Icons } from "resources.slint";
+
+export global Labels {
+    in property <string> app-name;
+    in property <string> connection;
+    in property <string> server-url;
+    in property <string> user;
+    in property <string> password;
+    in property <string> login;
+    in property <string> sessions;
+    in property <string> select-conversation;
+    in property <string> http-login-title;
+    in property <string> confirm;
+    in property <string> cancel;
+}
+
+component Label inherits Text {
+    color: Theme.on-surface-variant;
+    font-size: 14px;
+}
+
+export component AppWindow inherits Window {
+    title: Labels.app-name;
+    icon: Icons.ic-zaplaud;
+    width: 1100px;
+    height: 760px;
+    background: Theme.background;
+    in-out property <string> server-url;
+    in-out property <string> username;
+    in-out property <string> password;
+    in property <bool> busy;
+    in property <bool> authenticated;
+    in property <bool> confirm-http;
+    in property <string> http-warning;
+    in property <string> status;
+    in property <[string]> sessions;
+    callback submit(bool);
+    callback cancel-http();
+
+    HorizontalLayout {
+        spacing: 0px;
+        Rectangle {
+            width: 360px;
+            background: Theme.surface-container-low;
+            VerticalLayout {
+                padding: 24px;
+                spacing: 16px;
+                HorizontalLayout {
+                    spacing: 12px;
+                    Image { source: Icons.ic-zaplaud; width: 36px; height: 36px; }
+                    Label { text: Labels.app-name; font-size: 25px; font-weight: 700; vertical-alignment: center; }
+                }
+                if !root.authenticated && !root.confirm-http: ScrollView {
+                    VerticalLayout {
+                        spacing: 12px;
+                        Label { text: Labels.connection; font-size: 22px; }
+                        Label { text: Labels.server-url; }
+                        LineEdit {
+                            text <=> root.server-url;
+                            enabled: !root.busy;
+                            accessible-label: Labels.server-url;
+                            accepted => { root.submit(false); }
+                        }
+                        Label { text: Labels.user; }
+                        LineEdit {
+                            text <=> root.username;
+                            enabled: !root.busy;
+                            accessible-label: Labels.user;
+                            accepted => { root.submit(false); }
+                        }
+                        Label { text: Labels.password; }
+                        LineEdit {
+                            text <=> root.password;
+                            input-type: InputType.password;
+                            enabled: !root.busy;
+                            accessible-label: Labels.password;
+                            accepted => { root.submit(false); }
+                        }
+                        Button {
+                            text: Labels.login;
+                            enabled: !root.busy && root.username != "" && root.password != "";
+                            clicked => { root.submit(false); }
+                        }
+                        Rectangle { vertical-stretch: 1; }
+                    }
+                }
+                if root.confirm-http: VerticalLayout {
+                    spacing: 16px;
+                    Label { text: Labels.http-login-title; font-size: 21px; wrap: word-wrap; }
+                    Label { text: root.http-warning; wrap: word-wrap; }
+                    Button { text: Labels.confirm; clicked => { root.submit(true); } }
+                    Button { text: Labels.cancel; clicked => { root.cancel-http(); } }
+                    Rectangle { vertical-stretch: 1; }
+                }
+                if root.authenticated: VerticalLayout {
+                    spacing: 16px;
+                    Label { text: Labels.sessions; font-size: 22px; }
+                    ListView {
+                        for session in root.sessions: Rectangle {
+                            height: max(64px, title.preferred-height + 24px);
+                            background: Theme.surface;
+                            border-radius: 12px;
+                            title := Label {
+                                x: 12px;
+                                y: 12px;
+                                width: parent.width - 24px;
+                                text: session;
+                                wrap: word-wrap;
+                                font-size: 16px;
+                            }
+                        }
+                    }
+                }
+                Label { text: root.status; wrap: word-wrap; }
+            }
+        }
+        Rectangle { width: 1px; background: Theme.surface-variant; }
+        Rectangle {
+            background: Theme.background;
+            Rectangle {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: empty-label.preferred-width + 40px;
+                height: 48px;
+                border-radius: 24px;
+                background: Theme.surface-container-high;
+                empty-label := Label {
+                    text: Labels.select-conversation;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}
