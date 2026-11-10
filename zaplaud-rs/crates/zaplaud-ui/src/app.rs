@@ -384,8 +384,7 @@ pub async fn run(
                     .servers
                     .iter_mut()
                     .find(|s| s.api.origin() == origin && s.generation == generation)
-                {
-                    if server
+                    && server
                         .reading
                         .apply_stream_event(
                             StreamEvent::Data {
@@ -396,9 +395,8 @@ pub async fn run(
                             now_millis(),
                         )
                         .is_err()
-                    {
-                        server.reading.failure(Some(-1));
-                    }
+                {
+                    server.reading.failure(Some(-1));
                 }
             }
             Event::Connection {

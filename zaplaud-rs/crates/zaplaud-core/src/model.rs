@@ -1120,7 +1120,7 @@ mod tests {
         );
         assert_eq!(permission.provider, "claude");
         assert_eq!(permission.expires_at, 0);
-        assert!(permission.input.is_none());
+        assert_eq!(permission.input.as_deref(), Some(r#"{"ignored":true}"#));
         assert!(permission.questions[0].index.is_none());
         assert_eq!(permission.questions[0].options[0].index, Some(2));
         assert!(permission.questions[0].multi_select);

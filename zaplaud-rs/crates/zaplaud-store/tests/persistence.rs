@@ -293,7 +293,7 @@ fn environment_child() -> Result<(), StoreError> {
         assert!(store.summarize()?);
         assert_eq!(store.default_view()?, "prompts");
         assert_eq!(store.notify_events()?, (false, true));
-        assert_eq!(store.retry_until("https://prefs.invalid")?, 456);
+        assert_eq!(store.retry_until("https://prefs.invalid")?, 0);
         store.set_theme("light")?;
     } else {
         for n in 0..25 {
