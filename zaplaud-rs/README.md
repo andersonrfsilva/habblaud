@@ -32,6 +32,12 @@ node --import tsx scripts/android-smoke.ts --port 14780 --allow terminal,message
 Use usuário e senha fictícios `android-test`. HTTP exige confirmação na tela; HTTPS não. O cliente não segue redirecionamentos. HTTPS confia nas CAs do sistema e nas raízes webpki, inclusive CAs privadas instaladas localmente. A API aceita persistência de cookies pelo contrato `SessionPersistence`; `SecureSessionStorage` usa o chaveiro do sistema, com fallback em memória quando indisponível. `ZAPLAUD_KEYRING=memory` força o modo sem persistência entre processos. Entradas existentes malformadas ou de versão desconhecida no chaveiro impedem gravações, sem apagar cookies de outras origens.
 Respostas `429` bloqueiam novas tentativas por no máximo 24 h, tanto para segundos quanto para datas HTTP. Essa proteção difere do Kotlin atual, que ainda aceita prazos sem esse limite; o cliente Kotlin não foi alterado.
 
+## Distribuição Linux
+
+O pacote de usuário `zaplaud-linux-x86_64.tar.gz` contém o executável release, o instalador, os ícones hicolor gerados do SVG canônico e as licenças de Noto Sans Mono, Noto Emoji e DejaVu. Extraia e execute `bash install-linux.sh`, sem `sudo`. Consulte [distribuição desktop](packaging/README.md) para instalação, remoção e bibliotecas de execução.
+
+O padrão é Skia por CPU (`skia-software`), com fallback automático para `software` do Slint. OpenGL é opcional; libstdc++, FreeType e Fontconfig são requisitos nativos. O tarball final local requer glibc 2.44 ou posterior; isso difere da base Ubuntu 24.04 do CI. A fonte emoji colorida do sistema habilita cor no Skia; o fallback `software` usa a fonte de contorno embutida.
+
 
 ## Arquitetura e propriedade dos módulos
 

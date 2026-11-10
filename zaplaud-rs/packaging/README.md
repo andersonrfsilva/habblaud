@@ -2,7 +2,7 @@
 
 ## Linux: pacote do usuário
 
-O artefato `zaplaud-linux-x86_64.tar.gz` inclui o binário, os ícones e `install-linux.sh`. Extraia o arquivo e execute `bash install-linux.sh` dentro da pasta extraída. Não use `sudo`. O instalador não baixa nem compila código.
+O artefato `zaplaud-linux-x86_64.tar.gz` inclui o binário, os ícones, `install-linux.sh` e as licenças das fontes embutidas Noto Sans Mono (`OFL-NotoSans.txt`), Noto Emoji (`OFL-NotoEmoji.txt`) e DejaVu (`LICENSE-DejaVu.txt`). Extraia o arquivo e execute `bash install-linux.sh` dentro da pasta extraída. Não use `sudo`. O instalador não baixa nem compila código.
 
 - O executável fica em `~/.local/bin/zaplaud`; acrescente `~/.local/bin` ao `PATH` para iniciar pelo terminal. O lançador usa caminho absoluto e não depende desse ajuste.
 - Desktop e ícones respeitam `XDG_DATA_HOME`, com fallback `~/.local/share`. Reutilize o mesmo valor na desinstalação.
@@ -12,19 +12,21 @@ O artefato `zaplaud-linux-x86_64.tar.gz` inclui o binário, os ícones e `instal
 
 ## Bibliotecas de execução
 
-O pacote portátil não inclui glibc ou bibliotecas gráficas. O CI usa Ubuntu 24.04 x86_64: o artefato requer **glibc 2.39 ou posterior**. Não use esse artefato em Ubuntu 22.04 ou Debian 12; construa na própria distribuição ou em uma base compatível. Não é um executável musl.
+O pacote portátil não inclui glibc ou bibliotecas gráficas. O CI usa Ubuntu 24.04 x86_64: o artefato produzido nessa base requer **glibc 2.39 ou posterior**. O tarball final construído localmente em Arch Linux requer **glibc 2.44 ou posterior**, conforme os símbolos ELF, além de `GLIBCXX_3.4.26` e `CXXABI_1.3.9`. Não use esse tarball local em Ubuntu 24.04, Ubuntu 22.04 ou Debian 12; construa na própria distribuição ou em uma base compatível. Não é um executável musl.
 
-A renderização é software, sem requisito de OpenGL, GTK, Qt, JVM ou OpenSSL. `fontconfig` é ligação nativa direta; suas dependências (FreeType, Expat e compressão) vêm do gerenciador de pacotes. Winit/softbuffer carregam as bibliotecas X11/Wayland em execução: `ldd` sozinho não lista todos esses requisitos.
+O padrão é Skia por CPU (`skia-software`), sem requisito de OpenGL, GTK, Qt, JVM ou OpenSSL. O fallback automático usa o renderer `software` do Slint; também pode ser selecionado com `SLINT_BACKEND=winit-software`. Esse fallback usa emoji de contorno embutido, não emoji colorido. O caminho opcional `SLINT_BACKEND=winit-skia-opengl` exige libEGL/libGL e um driver compatível. FreeType, Fontconfig e libstdc++ são ligações nativas diretas; as dependências de fontes e compressão vêm do gerenciador de pacotes. Winit/softbuffer carregam as bibliotecas X11/Wayland em execução: `ldd` sozinho não lista todos esses requisitos.
 
-Na inspeção local do release Linux com `ldd`, os vínculos diretos foram `libfontconfig.so.1`, `libgcc_s.so.1`, `libm.so.6` e `libc.so.6`, além do loader `ld-linux-x86-64.so.2`. Os vínculos transitivos observados foram `libfreetype.so.6`, `libexpat.so.1`, `libz.so.1`, `libbz2.so.1.0`, `libpng16.so.16`, `libbrotlidec.so.1` e `libbrotlicommon.so.1`. Essa inspeção corresponde ao release anterior à integração da bandeja; confira o artefato final com `ldd zaplaud` na distribuição de build.
+Na inspeção local do release final Linux com `ldd` e `readelf -d`, os vínculos diretos foram `libstdc++.so.6`, `libfreetype.so.6`, `libfontconfig.so.1`, `libgcc_s.so.1`, `libm.so.6` e `libc.so.6`, além do loader `ld-linux-x86-64.so.2`. Os vínculos transitivos observados foram `libexpat.so.1`, `libz.so.1`, `libbz2.so.1.0`, `libpng16.so.16`, `libbrotlidec.so.1` e `libbrotlicommon.so.1`. Em relação ao release anterior, a biblioteca adicionada é `libstdc++.so.6`; FreeType passou de transitiva a direta. Confira cada artefato com `ldd zaplaud` na distribuição de build.
 
 Instale os pacotes abaixo com o gerenciador da distribuição. São nomes de runtime, não os pacotes `-dev` usados na compilação:
 
 | Distribuição | Pacotes |
 | --- | --- |
-| Ubuntu 24.04 / Debian 13 | `libc6 libgcc-s1 libfontconfig1 libx11-6 libx11-xcb1 libxcursor1 libxrandr2 libxi6 libxcb1 libxcb-render0 libxcb-shm0 libxkbcommon0 libxkbcommon-x11-0 libwayland-client0 fonts-dejavu-core` |
-| Fedora | `glibc libgcc fontconfig libX11 libXcursor libXrandr libXi libxcb libxkbcommon libxkbcommon-x11 wayland-libs dejavu-sans-fonts` |
-| Arch Linux / CachyOS | `glibc gcc-libs fontconfig libx11 libxcursor libxrandr libxi libxcb libxkbcommon libxkbcommon-x11 wayland ttf-dejavu` |
+| Ubuntu 24.04 / Debian 13 | `libc6 libgcc-s1 libstdc++6 libfreetype6 libfontconfig1 libx11-6 libx11-xcb1 libxcursor1 libxrandr2 libxi6 libxcb1 libxcb-render0 libxcb-shm0 libxkbcommon0 libxkbcommon-x11-0 libwayland-client0 fonts-dejavu-core fonts-noto-color-emoji` |
+| Fedora | `glibc libgcc libstdc++ freetype fontconfig libX11 libXcursor libXrandr libXi libxcb libxkbcommon libxkbcommon-x11 wayland-libs dejavu-sans-fonts google-noto-color-emoji-fonts` |
+| Arch Linux / CachyOS | `glibc gcc-libs freetype2 fontconfig libx11 libxcursor libxrandr libxi libxcb libxkbcommon libxkbcommon-x11 wayland ttf-dejavu noto-fonts-emoji` |
+
+A tabela identifica os pacotes de runtime, não garante compatibilidade ABI com o tarball local. A fonte colorida permite emoji colorido no Skia; sem ela, a fonte Noto Emoji embutida mantém glifos de contorno.
 
 Uma sessão gráfica X11 ou Wayland é necessária. D-Bus de sessão, um serviço `org.freedesktop.Notifications` e um observador StatusNotifier habilitam notificações e bandeja; sua ausência não impede abrir o aplicativo. Nenhum `notify-send` ou `libdbus` C é exigido. Para manter cookies entre execuções no Linux, disponibilize um provedor Secret Service desbloqueado, como GNOME Keyring ou KeePassXC com essa integração ativada. Sem ele, a sessão fica apenas em memória. No macOS, usa-se o Keychain nativo.
 
