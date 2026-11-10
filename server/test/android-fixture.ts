@@ -1,11 +1,12 @@
 import http from 'node:http';
 import { appendFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { OMP_SESSION_ID } from '../../shared/omp-events';
 import { AccountsService } from '../accounts/service';
 import { CastLauncher } from '../cast/launcher';
+import { resolveRoots } from '../files/browse';
 import { createAsideRoutes, handleAsideProgress } from '../asides/http';
 import { AsideStore } from '../asides/store';
 import { createApiHandler } from '../http/app';
@@ -44,15 +45,19 @@ const CLOSED = '00000000-0000-4000-8000-000000000003';
 export async function startAndroidFixture(root: string, args: string[]): Promise<void> {
   let port = 14748;
   let allow: string | undefined;
+  let filesDir: string | undefined;
   let noSessionGuard = false;
   let ompCastEnabled = false;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--port' && args[i + 1]) port = Number(args[++i]);
     else if (args[i] === '--allow' && args[i + 1]) allow = args[++i];
+    else if (args[i] === '--files' && args[i + 1]) filesDir = args[++i];
     else if (args[i] === '--no-session-guard') noSessionGuard = true;
     else throw new Error(`Unknown or incomplete option: ${args[i]}`);
   }
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('Invalid port');
+  const filesRoots = filesDir === undefined ? undefined : resolveRoots([{ path: resolve(filesDir), label: basename(resolve(filesDir)) }]);
+  if (filesRoots?.length === 0) throw new Error('Invalid files directory: use an existing workspace directory accepted by the file browser');
   setQuiet(true);
   const accountDir = join(root, ACCOUNT);
   const ompDir = join(root, OMP_ACCOUNT);
@@ -186,7 +191,7 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
     new OmpHistory({ accounts: () => ompCastEnabled ? accounts.entriesOf('omp') : accounts.entries().filter(account => account.provider === 'omp'), openAgentOf }),
   ]);
   const allowed = parseAllow(allow);
-  const api = createApiHandler({ office, hub, accounts, sources: () => [], version: 'android-fixture', inDocker: false, terminal: true, terminals, sessions: history, messages: createMessageRoutes(messages), asides: { page: createAsideRoutes(asides), progress: (req, res) => handleAsideProgress(req, res, asides) }, permissions: createPermissionRoutes(permissions), castLauncher: launcher, spawnFolders: async () => projects.map(name => ({ name, path: `/fixture/${name}`, lastAt: Date.now(), sessions: 1 })), remote: { is: isRemoteRequest, allows: feature => allowed.has(feature) } });
+  const api = createApiHandler({ office, hub, accounts, sources: () => [], version: 'android-fixture', inDocker: false, terminal: true, terminals, sessions: history, messages: createMessageRoutes(messages), asides: { page: createAsideRoutes(asides), progress: (req, res) => handleAsideProgress(req, res, asides) }, permissions: createPermissionRoutes(permissions), castLauncher: launcher, spawnFolders: async () => projects.map(name => ({ name, path: `/fixture/${name}`, lastAt: Date.now(), sessions: 1 })), browse: filesRoots ? { roots: () => filesRoots } : undefined, remote: { is: isRemoteRequest, allows: feature => allowed.has(feature) } });
   const passwordHashText = await hashPassword('android-test');
   const passwordHash = parsePasswordHash(passwordHashText);
   if (!passwordHash) throw new Error('Could not create fixture password');

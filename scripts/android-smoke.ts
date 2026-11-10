@@ -2,6 +2,8 @@ import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 
+// --files <diretório> expõe somente essa raiz no navegador; requer --allow terminal para acesso remoto.
+// Sem --files, o navegador permanece desabilitado. O diretório fornecido nunca é removido pela fixture.
 const realHome = realpathSync(homedir());
 const root = mkdtempSync(join(tmpdir(), 'habblaud-android-'));
 const resolvedRoot = realpathSync(root);
