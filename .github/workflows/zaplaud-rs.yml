@@ -86,6 +86,22 @@ jobs:
       - name: Testar workspace e contrato real
         working-directory: zaplaud-rs
         run: ZAPLAUD_KEYRING=memory xvfb-run -a cargo test --locked --workspace -j 4
+      - name: Preparar smokes gráficos e AT-SPI
+        working-directory: zaplaud-rs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libxtst6 libatspi2.0-0 at-spi2-core dbus-x11 python3-pil
+          cargo build --locked -p zaplaud-ui --bin zaplaud -j 4
+      - name: Exercitar conversa, teclado e acessibilidade nos dois temas
+        run: |
+          export ZAPLAUD_CI_BINARY="$PWD/zaplaud-rs/target/debug/zaplaud"
+          for theme in light dark; do
+            export ZAPLAUD_CI_THEME="$theme"
+            for script in conversation-smoke keyboard-smoke accessibility-smoke; do
+              export ZAPLAUD_CI_SCRIPT="$script"
+              xvfb-run -a sh -c 'python3 "zaplaud-rs/scripts/$ZAPLAUD_CI_SCRIPT.py" --binary "$ZAPLAUD_CI_BINARY" --display "$DISPLAY" --port 14789 --theme "$ZAPLAUD_CI_THEME"'
+            done
+          done
 
   empacotar-linux:
     needs: verificar

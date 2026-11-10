@@ -27,7 +27,7 @@ export component ConversationPane inherits Rectangle {
         visible: ConversationState.selected;
         x: (parent.width - self.width) / 2; width: min(840px, parent.width); height: parent.height;
         VerticalLayout { spacing: 0px;
-            Rectangle { height: 0px; Rectangle { width: parent.width; height: 64px; background: Theme.surface; } }
+            Rectangle { height: 0px; Rectangle { x: 0px; y: 0px; width: parent.width; height: 64px; background: Theme.surface; } }
             HorizontalLayout { height: 64px; padding-left: 16px; padding-right: 8px; spacing: 8px;
                 if root.narrow: VerticalLayout { width: 40px; alignment: center; IconButton { icon: MaterialIcons.arrow-back; label: Labels.back-sessions; clicked => { ConversationState.close(); } } }
                 VerticalLayout { width: 36px; alignment: center; Avatar { width: 36px; height: 36px; source: ConversationState.avatar; initials: ConversationState.initials; } }

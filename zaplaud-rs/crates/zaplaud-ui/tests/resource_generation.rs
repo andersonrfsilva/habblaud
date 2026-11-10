@@ -248,6 +248,6 @@ fn extracted_material_icons_have_visible_paths_at_twenty_four_pixels()
         );
         count += 1;
     }
-    assert_eq!(count, 18);
+    assert_eq!(count, 20);
     Ok(())
 }

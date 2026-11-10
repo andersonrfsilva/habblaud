@@ -208,6 +208,7 @@ component MenuAction inherits TextButton {
     in property <string> label;
     in property <string> detail;
     in property <bool> group;
+    in property <image> leading-icon;
     text: "";
     accessible-label: root.label + (root.detail == "" ? "" : ", " + root.detail);
     foreground: Theme.on-surface;
@@ -215,12 +216,13 @@ component MenuAction inherits TextButton {
     preferred-height: self.min-height;
     border-radius: 0px;
     VerticalLayout {
-        padding-left: 12px; padding-right: root.group ? 36px : 12px;
+        padding-left: root.leading-icon.width > 0 ? 48px : 12px; padding-right: root.group ? 36px : 12px;
         padding-top: 4px; padding-bottom: 4px; spacing: 0px; alignment: center;
         Text { text: root.label; font-size: 14px; color: root.enabled ? Theme.on-surface : Theme.on-surface.with-alpha(0.38); }
         if root.detail != "": Text { text: root.detail; font-size: 12px; color: Theme.on-surface-variant; overflow: elide; }
     }
-    if root.group: Image { x: parent.width - 36px; y: (parent.height - 24px) / 2; width: 24px; height: 24px; source: MaterialIcons.keyboard-arrow-up; transform-rotation: 90deg; colorize: Theme.on-surface-variant; }
+    if root.leading-icon.width > 0: Image { x: 12px; y: (parent.height - 24px) / 2; width: 24px; height: 24px; source: root.leading-icon; colorize: Theme.on-surface-variant; }
+    if root.group: Image { x: parent.width - 36px; y: (parent.height - 24px) / 2; width: 24px; height: 24px; source: MaterialIcons.keyboard-arrow-right; colorize: Theme.on-surface-variant; }
 }
 export component ConversationMenu inherits Rectangle {
     function dismiss() { ConversationViewState.menu-open = false; ConversationViewState.menu-page = ""; }
@@ -268,7 +270,7 @@ export component ConversationMenu inherits Rectangle {
                 clicked => { ConversationViewState.menu-open = false; AsideState.open(); }
             }
             if CastState.dismiss-visible: MenuAction {
-                label: CastState.dismiss-label; enabled: CastState.enabled;
+                label: CastState.dismiss-label; leading-icon: MaterialIcons.exit-to-app; enabled: CastState.enabled;
                 clicked => { ConversationViewState.menu-open = false; CastState.dismiss(); }
             }
         }

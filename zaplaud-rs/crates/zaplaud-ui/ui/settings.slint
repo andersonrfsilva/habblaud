@@ -48,6 +48,7 @@ component Section inherits Rectangle {
 export component SettingsPane inherits Rectangle {
     background: Theme.background;
     forward-focus: settings-keys;
+    Rectangle { x: 0px; y: 0px; width: root.width; height: 64px; background: Theme.surface; }
     init => { settings-keys.focus(); }
     settings-keys := FocusScope {
         enabled: SettingsState.editing-role == "";
@@ -71,11 +72,11 @@ export component SettingsPane inherits Rectangle {
                     Rectangle {}
                 }
                 for row in SettingsState.rows: Rectangle {
-                    height: row.kind == "quota-end" ? 16px : row.kind == "section" ? 44px : row.kind == "hint" ? max(28px, hint.preferred-height + 8px) : row.kind == "quota" ? max(64px, hint.preferred-height + 42px) : row.kind == "role" ? 60px : row.kind == "radio" ? 44px : row.kind == "switch" ? 52px : 48px;
+                    height: row.kind == "quota-end" ? 22px : row.kind == "section" ? 44px : row.kind == "hint" ? max(28px, hint.preferred-height + 8px) : row.kind == "quota" ? 46px : row.kind == "role" ? 60px : row.kind == "radio" ? 44px : row.kind == "switch" ? 52px : 48px;
                     if row.card && row.kind != "quota" && row.kind != "quota-end": Rectangle { x: 16px; width: parent.width - 32px; background: Theme.surface-container-high; }
                     if row.kind == "quota-end": Rectangle { x: 16px; y: 0px; width: parent.width - 32px; height: parent.height - 6px; border-bottom-left-radius: 16px; border-bottom-right-radius: 16px; background: Theme.surface-container-high; }
                     if row.kind == "section": Section { text: row.text; }
-                    hint := Text { visible: row.kind == "hint"; x: row.card ? 32px : 16px; y: 4px; width: parent.width - (row.card ? 64px : 32px); text: row.kind == "quota" ? row.detail : row.text; wrap: word-wrap; font-size: 12px; color: row.severity == 2 ? Theme.error : Theme.on-surface-variant; }
+                    hint := Text { visible: row.kind == "hint"; x: row.card ? 32px : 16px; y: 4px; width: parent.width - (row.card ? 64px : 32px); text: row.text; wrap: word-wrap; font-size: row.key == "no-quota" ? 14px : 12px; color: row.severity == 2 ? Theme.error : Theme.on-surface-variant; }
                     if row.kind == "radio": RadioButton { x: 16px; width: parent.width - 32px; height: parent.height; indicator-width: 24px; label-spacing: 12px; text: row.text; checked: row.checked; enabled: row.enabled; toggled => { SettingsState.activate(row.key, row.value, true); } }
                     if row.kind == "switch": Switch { x: 16px; width: parent.width - 32px; height: parent.height; text: row.text; checked: row.checked; enabled: row.enabled; toggled => { SettingsState.activate(row.key, "", self.checked); } }
                     if row.kind == "role": TextButton { x: 8px; width: parent.width - 16px; height: parent.height; text: ""; accessible-label: row.text + ", " + row.detail; enabled: row.enabled; clicked => { SettingsState.edit-role(row.key); }
@@ -90,8 +91,10 @@ export component SettingsPane inherits Rectangle {
                     }
                     if row.kind == "button": TextButton { x: 8px; width: self.min-width; text: row.text; clicked => { SettingsState.activate(row.key, row.value, false); } }
                     if row.kind == "quota": Rectangle { x: 16px; y: 6px; width: parent.width - 32px; height: parent.height - 6px; border-top-left-radius: 16px; border-top-right-radius: 16px; background: Theme.surface-container-high;
-                        Text { x: 16px; y: 8px; text: row.text; font-size: 16px; color: Theme.on-surface; }
-                        detail := Text { x: 16px; y: 32px; width: parent.width - 32px; text: row.detail; font-size: 12px; wrap: word-wrap; color: row.severity == 2 ? Theme.error : Theme.on-surface-variant; }
+                        HorizontalLayout { x: 16px; y: 16px; width: parent.width - 32px; height: 24px; spacing: 8px;
+                            Text { text: row.text; font-size: 16px; font-weight: 500; color: Theme.on-surface; vertical-alignment: center; horizontal-stretch: 1; }
+                            Text { text: row.detail; font-size: 11px; letter-spacing: 0.5px; color: row.severity == 1 ? StatusColors.warning : Theme.on-surface-variant; vertical-alignment: center; horizontal-stretch: 0; }
+                        }
                     }
                     if row.kind == "limit": VerticalLayout { padding-left: 32px; padding-right: 32px; spacing: 4px;
                         HorizontalLayout { Text { text: row.text; color: Theme.on-surface; font-size: 14px; } Text { text: row.detail; color: row.severity == 2 ? Theme.error : Theme.on-surface; font-size: 14px; horizontal-alignment: right; } }

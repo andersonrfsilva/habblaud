@@ -16,7 +16,7 @@ spec = importlib.util.spec_from_file_location('shell_smoke', Path(__file__).with
 smoke = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(smoke)
 ROOT = smoke.ROOT
-SCREENS = ('login', 'http-warning', 'list', 'search', 'two-servers', 'narrow', 'relogin')
+SCREENS = ('login', 'http-warning', 'list', 'list-unread', 'search', 'two-servers', 'narrow', 'relogin')
 
 
 class Desktop(smoke.Desktop):
@@ -122,6 +122,11 @@ def capture(args, desktop, kind, theme):
                 save('login')
                 login(args.port, warning=True)
                 save('list')
+                fixtures[0].process.stdin.write('reply fixture:claude\n')
+                fixtures[0].process.stdin.flush()
+                assert json.loads(fixtures[0].process.stdout.readline())['ok']
+                time.sleep(1)
+                save('list-unread')
                 desktop.key('f', ('Control_L',))
                 save('search')
                 desktop.key('Escape')

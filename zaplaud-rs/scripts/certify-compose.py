@@ -39,8 +39,9 @@ def capture_features(args, theme):
         time.sleep(args.settle)
         image = d.image()
         modal = screen in {'aside', 'session-info', 'settings-role-dialog'} or screen.startswith(('permission-', 'cast-'))
-        base = smoke.palette(theme)['background' if screen == 'settings-role-dialog' else 'surface']
-        expected = tuple(round(channel * .4) for channel in base) if modal else base
+        base = smoke.palette(theme)['surface']
+        alpha = .32 if screen in {'aside', 'session-info'} or screen.startswith('permission-') else .6
+        expected = tuple(round(channel * (1 - alpha)) for channel in base) if modal else base
         if modal or screen in {'conversation-attachments', 'conversation-status-banner'}:
             assert max(abs(actual - wanted) for actual, wanted in zip(image.getpixel((10, 50)), expected)) <= 2, f'{screen}: estado modal incorreto'
         path = f'/tmp/zaplaud-rs-certify-candidate-{screen}-{theme}.png'
@@ -115,7 +116,9 @@ def capture_features(args, theme):
         wheel(d, 8)
         save('settings-quotas')
         d.key('Escape')
+        time.sleep(.4)
         d.key('Escape')
+        time.sleep(.4)
         d.click(316, 717)
         save('cast-picker')
         d.click(400, 304)
@@ -128,16 +131,25 @@ def capture_features(args, theme):
         d.key('Escape')
         keyboard.command(session.fixture, 'bind-omp 12345678-1234-1234-1234-123456789abc')
         time.sleep(1)
-        omp()
+        # A troca de sessão move Davi para o início e mostra o aviso acima da lista.
+        d.click(150, 210)
+        time.sleep(.5)
         menu()
         d.click(1010, 328)
         d.click(700, 426)
-        consumed = keyboard.command(session.fixture, 'cast-consume')
-        assert any(job['op'] == 'dismiss' for job in consumed['consumed']), consumed
-        time.sleep(1)
+        for _ in range(50):
+            consumed = keyboard.command(session.fixture, 'cast-consume')
+            if any(job['op'] == 'stop' for job in consumed['consumed']):
+                break
+            time.sleep(.1)
+        else:
+            raise AssertionError(f'Dispensa não chegou à fixture: {consumed}')
+        time.sleep(6)
         d.click(1024, 32)
         save('cast-resume-picker')
         d.click(400, 368)
+        time.sleep(.3)
+        assert ImageChops.difference(Image.open(f'/tmp/zaplaud-rs-certify-candidate-cast-resume-picker-{theme}.png'), d.image()).getbbox(), 'Elenco não abriu confirmação de retomada'
         save('cast-resume')
     finally:
         session.close()

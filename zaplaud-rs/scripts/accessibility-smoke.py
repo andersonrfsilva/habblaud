@@ -3,7 +3,6 @@
 import argparse
 import ctypes as C
 import ctypes.util
-import hashlib
 import importlib.util
 import json
 import os
@@ -31,6 +30,8 @@ class Tree:
             'atspi_accessible_get_child_at_index': ([C.c_void_p, C.c_int, C.c_void_p], C.c_void_p),
             'atspi_accessible_get_name': ([C.c_void_p, C.c_void_p], C.c_void_p),
             'atspi_accessible_get_role_name': ([C.c_void_p, C.c_void_p], C.c_void_p),
+            'atspi_accessible_get_text_iface': ([C.c_void_p], C.c_void_p),
+            'atspi_text_get_text': ([C.c_void_p, C.c_int, C.c_int, C.c_void_p], C.c_void_p),
         }
         for name, (arguments, result) in signatures.items():
             function = getattr(self.atspi, name)
@@ -56,6 +57,13 @@ class Tree:
                 return
             result.append({'role': string(self.atspi.atspi_accessible_get_role_name, node),
                            'name': string(self.atspi.atspi_accessible_get_name, node)})
+            if result[-1]['role'] == 'entry':
+                interface = self.atspi.atspi_accessible_get_text_iface(node)
+                if interface:
+                    pointer = self.atspi.atspi_text_get_text(interface, 0, -1, None)
+                    if pointer:
+                        result[-1]['value'] = C.string_at(pointer).decode('utf-8', errors='replace')
+                        self.glib.g_free(pointer)
             for index in range(max(0, self.atspi.atspi_accessible_get_child_count(node, None))):
                 child = self.atspi.atspi_accessible_get_child_at_index(node, index, None)
                 if child:
@@ -79,6 +87,7 @@ def main():
     parser.add_argument('--binary', required=True)
     parser.add_argument('--display', default='localhost:89')
     parser.add_argument('--port', type=int, default=14789)
+    parser.add_argument('--theme', choices=['light', 'dark'], default='light')
     parser.add_argument('--inside-bus', action='store_true', help=argparse.SUPPRESS)
     args = parser.parse_args()
     if not args.inside_bus:
@@ -87,7 +96,7 @@ def main():
                        XDG_DATA_HOME=home + '/data', XDG_CACHE_HOME=home + '/cache')
             return subprocess.call(['dbus-run-session', '--', sys.executable, __file__,
                                     '--binary', str(Path(args.binary).resolve()), '--display', args.display,
-                                    '--port', str(args.port), '--inside-bus'], env=env)
+                                    '--port', str(args.port), '--theme', args.theme, '--inside-bus'], env=env)
     subprocess.run(['gdbus', 'call', '--session', '--dest', 'org.a11y.Bus',
                     '--object-path', '/org/a11y/bus', '--method', 'org.freedesktop.DBus.Properties.Set',
                     'org.a11y.Status', 'IsEnabled', '<true>'], check=True)
@@ -100,21 +109,15 @@ def main():
     result = {}
     try:
         tree = Tree()
-        session = keyboard.Session(args.binary, args.display, args.port, 'light')
+        session = keyboard.Session(args.binary, args.display, args.port, args.theme)
         def labels(*required):
             return lambda nodes: all(any(node['name'] == label for node in nodes) for label in required)
         result['login'] = tree.require(labels('Zaplaud', 'Endereço do servidor', 'Usuário', 'Senha', 'Entrar'), 'Login sem nomes')
-        origin = f'http://127.0.0.1:{args.port}'
-        key = json.dumps({'origin': origin, 'provider': 'claude', 'account': '.claude',
-                          'sessionId': '00000000-0000-4000-8000-000000000001'}, separators=(',', ':'))
-        state_path = session.data / 'state/data/local_state.json'
-        state_path.parent.mkdir(parents=True, exist_ok=True)
-        state = json.loads(state_path.read_text()) if state_path.exists() else {}
-        state['seen_replies_' + hashlib.sha256(origin.encode()).hexdigest()[:16]] = {hashlib.sha256(key.encode()).hexdigest(): 0}
-        state_path.write_text(json.dumps(state))
         session.login()
-        result['list'] = tree.require(lambda nodes: any(node['role'] == 'list item' and 'parado' in node['name'] and 'não lida' in node['name'] for node in nodes), 'Linha sem título/estado/não lidas')
+        result['list'] = tree.require(lambda nodes: any(node['role'] == 'list item' and 'parado' in node['name'] for node in nodes), 'Linha sem título/estado')
         d = session.desktop
+        keyboard.command(session.fixture, 'reply fixture:claude')
+        result['unread'] = tree.require(lambda nodes: any(node['role'] == 'list item' and 'parado' in node['name'] and 'não lida' in node['name'] for node in nodes), 'Linha sem título/estado/não lidas')
         d.click(150, 250)
         result['conversation'] = tree.require(lambda nodes: any('Resposta OMP fictícia' in node['name'] for node in nodes) and any(node['role'] == 'entry' and node['name'] == 'Mensagem' for node in nodes) and labels('Enviar', 'Anexar arquivos (até 5)')(nodes), 'Bolhas/compositor sem texto')
         d.click(650, 32)
@@ -127,7 +130,7 @@ def main():
         keyboard.command(session.fixture, 'permission fixture:omp bash')
         time.sleep(.5)
         d.click(1024, 32)
-        result['permission'] = tree.require(lambda nodes: any('echo fixture' in node['name'] for node in nodes) and any('Permitir' in node['name'] for node in nodes), 'Permissão sem comando/controles')
+        result['permission'] = tree.require(lambda nodes: any('echo fixture' in node.get('value', '') for node in nodes) and any('Permitir' in node['name'] for node in nodes), 'Permissão sem comando/controles')
         d.key('Escape')
         d.click(328, 36)
         d.click(375, 88)

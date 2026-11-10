@@ -14,8 +14,12 @@ export component Pill inherits Rectangle {
     min-width: label.preferred-width + 32px;
     label := Text { text: root.text; color: root.foreground; font-size: root.text-size; horizontal-alignment: center; vertical-alignment: center; }
 }
-export component Badge inherits Pill {
-    background: Theme.primary; foreground: Theme.on-primary; text-size: 12px; min-height: 16px; min-width: 16px;
+export component Badge inherits Rectangle {
+    in property <string> text;
+    accessible-role: AccessibleRole.text; accessible-label: root.text;
+    background: Theme.primary; border-radius: 8px; height: 16px;
+    width: max(16px, label.preferred-width + 8px); horizontal-stretch: 0;
+    label := Text { text: root.text; color: Theme.on-primary; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
 }
 export component Avatar inherits Rectangle {
     in property <image> source;
@@ -296,7 +300,7 @@ export component Dialog inherits Rectangle {
             if root.title != "": Text { text: root.title; font-size: 24px; color: Theme.on-surface; wrap: word-wrap; }
             if root.text != "": Text { text: root.text; font-size: 14px; color: Theme.on-surface-variant; wrap: word-wrap; }
             @children
-            HorizontalLayout { height: 56px; padding-top: 8px; Rectangle {} if root.cancel != "": TextButton { horizontal-stretch: 0; text: root.cancel; clicked => { root.dismissed(); } } if root.confirm != "": TextButton { horizontal-stretch: 0; text: root.confirm; clicked => { root.confirmed(); } } }
+            HorizontalLayout { height: 56px; padding-top: 8px; spacing: 8px; Rectangle {} if root.cancel != "": TextButton { horizontal-stretch: 0; text: root.cancel; clicked => { root.dismissed(); } } if root.confirm != "": TextButton { horizontal-stretch: 0; text: root.confirm; clicked => { root.confirmed(); } } }
         }
     }
     }
