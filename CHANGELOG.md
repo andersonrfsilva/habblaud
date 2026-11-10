@@ -90,6 +90,11 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **ZeroClaw:** depois do /new, o terminal passa a mostrar a conversa nova; antes continuava na sessão anterior do
+  personagem e escondia as respostas novas.
+- **ZeroClaw:** cada resposta aparece como um item só no terminal, e não um item por pedaço recebido do streaming. O
+  texto entra quando o bloco termina; se o Habblaud reiniciar ou a conexão cair no meio do bloco, ele não aparece no
+  terminal (o histórico do gateway continua com a resposta).
 - **Zaplaud:** com agentes trabalhando, a lista não refaz a tela várias vezes por segundo: o spinner e o cronômetro
   mudam juntos uma vez por segundo. Na conversa, o avatar do contato fica parado na linha de estado, no lugar do avatar
   pulando com pontos "digitando" no pé, que redesenhava a tela a 60 qps. Com o app em segundo plano ou a
