@@ -150,6 +150,7 @@ fn message_decode(value: Option<&Value>) -> MessageLocalState {
                 mime: text(o, "mime")?,
                 size: o.get("size").and_then(number),
                 persistent: o.get("persistent").and_then(boolean) == Some(true),
+                identity: o.get("identity").cloned().and_then(|v| serde_json::from_value(v).ok()),
             })
         })
         .collect();
@@ -678,22 +679,6 @@ impl LocalStateStore {
             false,
         )
     }
-    pub fn set_seen_replies_with_epoch(
-        &self,
-        origin: &str,
-        seen: &BTreeMap<String, i64>,
-        epoch: u64,
-    ) -> Result<()> {
-        self.state(
-            |d| {
-                if epoch == self.conversation_epoch(origin) && require(d, origin).is_ok() {
-                    d.insert(format!("seen_replies_{}", tag(origin)), json!(seen));
-                }
-                Ok(())
-            },
-            true,
-        )
-    }
     pub fn remove_server(&self, origin: &str) -> Result<()> {
         self.state(
             |d| {
@@ -782,6 +767,42 @@ fn import_preferences(xml: &str) -> Map<String, Value> {
     };
     doc.descendants()
         .filter(|n| n.has_tag_name("entry"))
+        .filter(|n| {
+            matches!(
+                n.attribute("key"),
+                Some("theme" | "summarize_replies" | "notifications" | "deliver_as" | "view"
+                    | "notify_permission" | "notify_done")
+            )
+        })
         .filter_map(|n| Some((n.attribute("key")?.to_owned(), json!(n.attribute("value")?))))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn java_preferences_imports_only_kotlin_settings() {
+        let settings = import_preferences(
+            r#"<map>
+                <entry key="theme" value="dark"/>
+                <entry key="summarize_replies" value="true"/>
+                <entry key="notifications" value="true"/>
+                <entry key="deliver_as" value="steer"/>
+                <entry key="view" value="prompts"/>
+                <entry key="notify_permission" value="false"/>
+                <entry key="notify_done" value="false"/>
+                <entry key="password" value="fictional"/>
+                <entry key="cookie" value="fictional"/>
+                <entry key="future_unknown" value="ignored"/>
+            </map>"#,
+        );
+        assert_eq!(settings.len(), 7);
+        assert_eq!(settings["theme"], "dark");
+        assert_eq!(settings["notify_done"], "false");
+        assert!(!settings.contains_key("password"));
+        assert!(!settings.contains_key("cookie"));
+        assert!(!settings.contains_key("future_unknown"));
+    }
 }

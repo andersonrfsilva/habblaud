@@ -12,6 +12,23 @@ static MEMORY: LazyLock<Mutex<BTreeMap<String, String>>> = LazyLock::new(Default
 static KEYRING_LOCK: Mutex<()> = Mutex::new(());
 static UNAVAILABLE: AtomicBool = AtomicBool::new(false);
 
+fn decode_cookies(value: &str) -> Result<BTreeMap<String, String>, ()> {
+    let value: Value = serde_json::from_str(value).map_err(|_| ())?;
+    match value.get("v") {
+        Some(version) if version == 2 || version == "2" => {
+            serde_json::from_value(value.get("cookies").cloned().ok_or(())?).map_err(|_| ())
+        }
+        None | Some(Value::Number(_)) | Some(Value::String(_))
+            if value.get("v").is_none_or(|v| v == 1 || v == "1") =>
+        {
+            let origin = value.get("origin").and_then(Value::as_str).ok_or(())?;
+            let cookie = value.get("cookie").and_then(Value::as_str).ok_or(())?;
+            Ok(BTreeMap::from([(origin.to_owned(), cookie.to_owned())]))
+        }
+        _ => Err(()),
+    }
+}
+
 /// Sem Debug deliberadamente: o armazenamento pode conter cookies autenticados.
 pub struct SecureSessionStorage {
     memory_only: bool,
@@ -43,34 +60,17 @@ impl SecureSessionStorage {
             }
         }
     }
-    fn read(&self) -> BTreeMap<String, String> {
+    fn read(&self) -> Result<BTreeMap<String, String>, ()> {
         if let Some(entry) = self.entry() {
             match entry.get_password() {
-                Ok(value) => {
-                    if let Ok(value) = serde_json::from_str::<Value>(&value) {
-                        if value.get("v").is_some_and(|v| v == 2 || v == "2") {
-                            if let Some(cookies) = value.get("cookies").and_then(Value::as_object) {
-                                return cookies
-                                    .iter()
-                                    .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned())))
-                                    .collect();
-                            }
-                        } else if let (Some(origin), Some(cookie)) = (
-                            value.get("origin").and_then(Value::as_str),
-                            value.get("cookie").and_then(Value::as_str),
-                        ) {
-                            return BTreeMap::from([(origin.to_owned(), cookie.to_owned())]);
-                        }
-                    }
-                    return BTreeMap::new();
-                }
-                Err(keyring::Error::NoEntry) => return BTreeMap::new(),
+                Ok(value) => return decode_cookies(&value),
+                Err(keyring::Error::NoEntry) => return Ok(BTreeMap::new()),
                 Err(_) => {
                     UNAVAILABLE.store(true, Ordering::Relaxed);
                 }
             }
         }
-        MEMORY.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        Ok(MEMORY.lock().unwrap_or_else(|e| e.into_inner()).clone())
     }
     fn write(&self, cookies: BTreeMap<String, String>) {
         if let Some(entry) = self.entry() {
@@ -87,17 +87,21 @@ impl SecureSessionStorage {
     }
     pub fn load(&self, origin: &str) -> Option<String> {
         let _lock = KEYRING_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        self.read().remove(origin)
+        self.read().ok()?.remove(origin)
     }
     pub fn save(&self, origin: &str, cookie: &str) {
         let _lock = KEYRING_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let mut cookies = self.read();
+        let Ok(mut cookies) = self.read() else {
+            return;
+        };
         cookies.insert(origin.into(), cookie.into());
         self.write(cookies);
     }
     pub fn clear(&self, origin: &str) {
         let _lock = KEYRING_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let mut cookies = self.read();
+        let Ok(mut cookies) = self.read() else {
+            return;
+        };
         cookies.remove(origin);
         self.write(cookies);
     }
@@ -116,6 +120,35 @@ impl SessionPersistence for SecureSessionStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn malformed_or_unknown_keyring_entries_refuse_mutation() {
+        for value in [
+            "{",
+            "null",
+            r#"{"v":3,"origin":"other","cookie":"preserve"}"#,
+            r#"{"v":2,"cookies":{"other":"preserve","bad":12}}"#,
+            r#"{"v":2,"cookies":null}"#,
+            r#"{"v":2}"#,
+        ] {
+            assert!(decode_cookies(value).is_err(), "{value}");
+        }
+    }
+
+    #[test]
+    fn valid_keyring_entries_preserve_every_origin() {
+        let mut cookies = decode_cookies(
+            r#"{"v":2,"cookies":{"one":"first","other":"preserve"}}"#,
+        ).unwrap();
+        cookies.insert("one".into(), "updated".into());
+        assert_eq!(cookies["other"], "preserve");
+        let roundtrip = decode_cookies(&json!({"v":2,"cookies":cookies}).to_string()).unwrap();
+        assert_eq!(roundtrip, cookies);
+        for version in ["", r#""v":1,"#, r#""v":"1","#] {
+            let legacy = format!(r#"{{{version}"origin":"other","cookie":"preserve"}}"#);
+            assert_eq!(decode_cookies(&legacy).unwrap()["other"], "preserve");
+        }
+    }
+
     #[test]
     fn memory_is_shared_and_isolated_by_origin() {
         let a = SecureSessionStorage::memory();

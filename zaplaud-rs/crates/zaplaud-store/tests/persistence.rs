@@ -41,6 +41,11 @@ fn all_operations_persist_and_removal_is_isolated() -> Result<(), StoreError> {
         mime: "text/plain".into(),
         size: Some(12),
         persistent: true,
+        identity: Some(AttachmentIdentity {
+            modified_nanos: 123_456,
+            device: 7,
+            inode: 42,
+        }),
     };
     for k in [&a, &b] {
         s.add_server(&k.origin)?;
@@ -194,9 +199,12 @@ fn old_writes_cannot_restore_removed_origin_and_cache_retains_500() -> Result<()
     let epoch = s.conversation_epoch(&k.origin);
     let old = s.conversation_write(&k.origin, epoch);
     s.remove_server(&k.origin)?;
+    assert!(matches!(
+        s.set_seen_replies(&k.origin, &BTreeMap::from([("x".into(), 12)])),
+        Err(StoreError::ConnectionChanged)
+    ));
     s.add_server(&k.origin)?;
     s.set_conversation(&k, &[], false, &old, &BTreeMap::new())?;
-    s.set_seen_replies_with_epoch(&k.origin, &BTreeMap::from([("x".into(), 12)]), epoch)?;
     s.set_last_session_with_write(Some(&k), &old)?;
     assert!(s.conversation(&k)?.is_none());
     assert!(s.last_session()?.is_none());

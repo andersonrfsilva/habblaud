@@ -60,6 +60,7 @@ impl UrlPolicy {
 }
 
 /// Persistência opcional; implementações nunca devem registrar valores dos cookies.
+/// Interface síncrona; HabblaudApi executa cada operação em spawn_blocking, em ordem por sessão.
 pub trait SessionPersistence: Send + Sync {
     fn load(&self, origin: &str) -> Option<String>;
     fn save(&self, origin: &str, cookie: &str);
@@ -78,6 +79,7 @@ pub struct HabblaudApi {
     client: reqwest::Client,
     session: Arc<Mutex<Session>>,
     persistence: Option<Arc<dyn SessionPersistence>>,
+    persistence_order: Arc<tokio::sync::Mutex<()>>,
     cancellation: tokio::sync::watch::Sender<u64>,
 }
 
@@ -110,11 +112,23 @@ impl HabblaudApi {
     pub fn new(origin: &str) -> Result<Self, Error> {
         Self::build(origin, None)
     }
-    pub fn with_persistence(
+    /// Constrói o cliente e restaura o cookie fora do executor assíncrono.
+    pub async fn with_persistence(
         origin: &str,
         persistence: Arc<dyn SessionPersistence>,
     ) -> Result<Self, Error> {
-        Self::build(origin, Some(persistence))
+        let origin = origin.to_owned();
+        tokio::task::spawn_blocking(move || {
+            let api = Self::build(&origin, Some(persistence.clone()))?;
+            let value = persistence.load(&api.origin);
+            if let Some(value) = value {
+                let url = Url::parse(&api.origin).map_err(|_| Error::InvalidOrigin)?;
+                api.session().cookies.add_cookie_str(&value, &url);
+            }
+            Ok(api)
+        })
+        .await
+        .map_err(|_| Error::SessionEnded)?
     }
     fn build(
         origin: &str,
@@ -128,15 +142,12 @@ impl HabblaudApi {
             .read_timeout(std::time::Duration::from_secs(45))
             .build()?;
         let session = Session::default();
-        if let Some(value) = persistence.as_ref().and_then(|p| p.load(&origin)) {
-            let url = Url::parse(&origin).map_err(|_| Error::InvalidOrigin)?;
-            session.cookies.add_cookie_str(&value, &url);
-        }
         Ok(Self {
             origin,
             client,
             session: Arc::new(Mutex::new(session)),
             persistence,
+            persistence_order: Arc::new(tokio::sync::Mutex::new(())),
             cancellation: tokio::sync::watch::channel(0).0,
         })
     }
@@ -151,14 +162,31 @@ impl HabblaudApi {
     pub fn cancel_calls(&self) {
         self.cancellation.send_modify(|v| *v = v.wrapping_add(1));
     }
-    pub fn clear_session(&self) {
-        let mut session = self.session();
-        session.generation = session.generation.wrapping_add(1);
-        session.cookies = Jar::default();
-        if let Some(p) = &self.persistence {
-            p.clear(&self.origin);
+    /// Serializa a exclusão com gravações pendentes, sem bloquear o mutex da sessão.
+    pub async fn clear_session(&self) {
+        let order = self.persistence_order.clone().lock_owned().await;
+        {
+            let mut session = self.session();
+            session.generation = session.generation.wrapping_add(1);
+            session.cookies = Jar::default();
         }
         self.cancel_calls();
+        self.persist(order, None).await;
+    }
+    async fn persist(&self, order: tokio::sync::OwnedMutexGuard<()>, cookie: Option<String>) {
+        if let Some(persistence) = self.persistence.clone() {
+            let origin = self.origin.clone();
+            // O lock acompanha a tarefa mesmo se o chamador cancelar a espera.
+            let _ = tokio::task::spawn_blocking(move || {
+                let _order = order;
+                if let Some(cookie) = cookie {
+                    persistence.save(&origin, &cookie);
+                } else {
+                    persistence.clear(&origin);
+                }
+            })
+            .await;
+        }
     }
     fn url(&self, path: &str) -> Result<Url, Error> {
         if !path.starts_with("/api/") || path.contains('#') || path.contains('\\') {
@@ -201,6 +229,8 @@ impl HabblaudApi {
         if cancellation.has_changed().unwrap_or(true) {
             return Err(Error::SessionEnded);
         }
+        let order = self.persistence_order.clone().lock_owned().await;
+        let mut persisted = None;
         {
             let mut session = self.session();
             if generation != session.generation {
@@ -233,9 +263,7 @@ impl HabblaudApi {
                     {
                         session.cookies = Jar::default();
                         session.generation = session.generation.wrapping_add(1);
-                        if let Some(p) = &self.persistence {
-                            p.clear(&self.origin);
-                        }
+                        persisted = Some(None);
                     } else {
                         if cookie.domain().is_none() {
                             cookie.set_domain(host.to_owned());
@@ -252,25 +280,29 @@ impl HabblaudApi {
                             );
                         }
                         let value = cookie.to_string();
-                        if let Some(p) = &self.persistence {
-                            p.save(&self.origin, &value);
-                        }
+                        persisted = Some(Some(value.clone()));
                         session.cookies.add_cookie_str(&value, url);
                     }
                 }
             }
         }
         if response.status().as_u16() == 401 {
-            let mut session = self.session();
-            if generation == session.generation {
-                session.generation = session.generation.wrapping_add(1);
-                session.cookies = Jar::default();
-                if let Some(p) = &self.persistence {
-                    p.clear(&self.origin);
+            {
+                let mut session = self.session();
+                if generation == session.generation {
+                    session.generation = session.generation.wrapping_add(1);
+                    session.cookies = Jar::default();
+                    persisted = Some(None);
+                    self.cancel_calls();
                 }
-                self.cancel_calls();
+            }
+            if let Some(cookie) = persisted {
+                self.persist(order, cookie).await;
             }
             return Err(Error::Unauthorized);
+        }
+        if let Some(cookie) = persisted {
+            self.persist(order, cookie).await;
         }
         if response.status().is_redirection() {
             return Err(Error::Redirect(response.status().as_u16()));
@@ -368,7 +400,7 @@ impl HabblaudApi {
     /// Apaga a sessão local mesmo quando o servidor não confirma o logout.
     pub async fn logout(&self) -> Result<(), Error> {
         let result = self.request("/api/remote/logout", Some(&json!({}))).await;
-        self.clear_session();
+        self.clear_session().await;
         result.map(|_| ())
     }
     pub async fn stream(&self, path: &str) -> Result<EventStream, Error> {
@@ -524,6 +556,90 @@ impl SseDecoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct BlockingPersistence {
+        runtime_thread: std::thread::ThreadId,
+        started: tokio::sync::Notify,
+        release: Mutex<std::sync::mpsc::Receiver<()>>,
+        operations: Mutex<Vec<&'static str>>,
+        cookie: Mutex<Option<String>>,
+    }
+
+    impl SessionPersistence for BlockingPersistence {
+        fn load(&self, _: &str) -> Option<String> {
+            assert_ne!(std::thread::current().id(), self.runtime_thread);
+            self.operations.lock().unwrap().push("load");
+            self.cookie.lock().unwrap().clone()
+        }
+
+        fn save(&self, _: &str, cookie: &str) {
+            assert_ne!(std::thread::current().id(), self.runtime_thread);
+            self.started.notify_one();
+            self.release.lock().unwrap().recv().unwrap();
+            self.operations.lock().unwrap().push("save");
+            *self.cookie.lock().unwrap() = Some(cookie.to_owned());
+        }
+
+        fn clear(&self, _: &str) {
+            assert_ne!(std::thread::current().id(), self.runtime_thread);
+            self.operations.lock().unwrap().push("clear");
+            *self.cookie.lock().unwrap() = None;
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn persistence_offloads_and_preserves_order_after_caller_cancellation()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let origin = format!("http://{}", listener.local_addr()?);
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await?;
+            let mut reader = BufReader::new(&mut socket);
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).await? == 0 || line == "\r\n" {
+                    break;
+                }
+            }
+            socket.write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\nSet-Cookie: habblaud_remote=new; Path=/\r\n\r\n{\"ok\":true}",
+            ).await?;
+            Ok::<_, std::io::Error>(())
+        });
+        let (release, waiting) = std::sync::mpsc::channel();
+        let storage = Arc::new(BlockingPersistence {
+            runtime_thread: std::thread::current().id(),
+            started: tokio::sync::Notify::new(),
+            release: Mutex::new(waiting),
+            operations: Mutex::new(Vec::new()),
+            cookie: Mutex::new(Some("habblaud_remote=initial; Path=/".into())),
+        });
+        let api = HabblaudApi::with_persistence(&origin, storage.clone()).await?;
+        let url = Url::parse(api.origin())?;
+        assert_eq!(
+            api.session().cookies.cookies(&url).unwrap(),
+            "habblaud_remote=initial"
+        );
+        let caller = api.clone();
+        let save = tokio::spawn(async move { caller.login("android-test", "android-test").await });
+        tokio::time::timeout(std::time::Duration::from_secs(5), storage.started.notified()).await?;
+        assert!(api.session.try_lock().is_ok());
+        save.abort();
+        let _ = save.await;
+        let caller = api.clone();
+        let clear = tokio::spawn(async move { caller.clear_session().await });
+        tokio::task::yield_now().await;
+        assert!(!clear.is_finished());
+        release.send(())?;
+        tokio::time::timeout(std::time::Duration::from_secs(5), clear).await??;
+        assert_eq!(*storage.operations.lock().unwrap(), ["load", "save", "clear"]);
+        assert!(storage.cookie.lock().unwrap().is_none());
+        assert!(api.session().cookies.cookies(&url).is_none());
+        server.await??;
+        Ok(())
+    }
 
     #[test]
     fn origins_match_kotlin_policy() {
