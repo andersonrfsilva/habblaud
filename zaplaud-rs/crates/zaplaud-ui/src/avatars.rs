@@ -3,6 +3,23 @@ use std::{cell::RefCell, collections::VecDeque};
 use zaplaud_core::model::Avatar;
 
 pub const MAX_DECODED_BYTES: usize = 4 * 1024 * 1024;
+#[derive(Default)]
+pub struct Requests {
+    active: std::collections::HashSet<String>,
+    failed: std::collections::HashSet<String>,
+}
+impl Requests {
+    pub fn start(&mut self, key: &str) -> bool {
+        !self.failed.contains(key) && self.active.insert(key.to_owned())
+    }
+    pub fn finish(&mut self, key: String, failed: bool) {
+        self.active.remove(&key);
+        if failed {
+            self.failed.insert(key);
+        }
+    }
+}
+
 /// Cache de PNG em disco, compartilhado pelas tarefas de avatar.
 pub trait AvatarStorage: Send + Sync {
     fn read(&self, key: &str) -> Result<Option<Vec<u8>>, String>;
@@ -18,6 +35,12 @@ impl AvatarStorage for zaplaud_store::AvatarDiskCache {
             .map_err(|error| error.to_string())
     }
 }
+pub fn save_decoded(storage: &dyn AvatarStorage, key: &str, png: &[u8]) -> Option<Vec<u8>> {
+    let rgba = decode(png)?;
+    let _ = storage.save(key, png);
+    Some(rgba)
+}
+
 struct Entry {
     key: String,
     image: Image,
@@ -108,6 +131,34 @@ pub fn insert(key: String, rgba: &[u8]) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn invalid_avatar_is_never_written_to_disk() {
+        struct Storage(std::sync::atomic::AtomicUsize);
+        impl AvatarStorage for Storage {
+            fn read(&self, _: &str) -> Result<Option<Vec<u8>>, String> {
+                Ok(None)
+            }
+            fn save(&self, _: &str, _: &[u8]) -> Result<(), String> {
+                self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                Ok(())
+            }
+        }
+        let storage = Storage(std::sync::atomic::AtomicUsize::new(0));
+        assert!(save_decoded(&storage, "avatar", b"not png").is_none());
+        assert_eq!(storage.0.load(std::sync::atomic::Ordering::Relaxed), 0);
+    }
+    #[test]
+    fn failed_avatar_is_not_retried_but_other_origins_and_versions_are() {
+        let mut requests = Requests::default();
+        assert!(requests.start("https://a|avatar1"));
+        assert!(!requests.start("https://a|avatar1"));
+        requests.finish("https://a|avatar1".into(), true);
+        assert!(!requests.start("https://a|avatar1"));
+        assert!(requests.start("https://b|avatar1"));
+        assert!(requests.start("https://a|avatar2"));
+        requests.finish("https://b|avatar1".into(), false);
+        assert!(requests.start("https://b|avatar1"));
+    }
     #[test]
     fn rejects_invalid_and_wrong_dimensions() {
         assert!(decode(b"not png").is_none());

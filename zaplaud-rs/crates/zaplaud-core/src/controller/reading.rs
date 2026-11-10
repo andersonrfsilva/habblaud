@@ -11,6 +11,7 @@ pub struct ReadingController {
     pub seen: HashMap<String, i64>,
     pub needs_login: bool,
     pub snapshot_revision: u64,
+    pub seen_revision: u64,
     restore: Option<SessionKey>,
     reading_visible: bool,
 }
@@ -23,6 +24,7 @@ impl ReadingController {
             seen,
             needs_login: false,
             snapshot_revision: 0,
+            seen_revision: 0,
             restore,
             reading_visible: true,
         }
@@ -161,6 +163,7 @@ impl ReadingController {
                 self.repository.server_time,
             ) {
                 self.seen = next;
+                self.seen_revision = self.seen_revision.wrapping_add(1);
             }
         }
         self.state.unread = self
@@ -189,6 +192,20 @@ pub fn seen_id(key: &SessionKey) -> Result<String, serde_json::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn unchanged_snapshots_do_not_dirty_seen() {
+        let mut reading = ReadingController::new("http://a".into(), HashMap::new(), None);
+        reading.snapshot(snapshot("http://a", 100, 90));
+        let revision = reading.seen_revision;
+        assert!(revision > 0);
+        reading.snapshot(snapshot("http://a", 100, 90));
+        reading.set_reading_visible(false);
+        assert_eq!(reading.seen_revision, revision);
+        reading.open(reading.state.sessions[0].clone());
+        reading.set_reading_visible(true);
+        reading.snapshot(snapshot("http://a", 120, 110));
+        assert!(reading.seen_revision > revision);
+    }
     fn snapshot(origin: &str, time: i64, reply: i64) -> Snapshot {
         Snapshot::parse_at(origin, &format!(r#"{{"serverTime":{time},"agents":[{{"kind":"main","id":"a","account":"test","sessionId":"s","title":"Title","replies":[{reply}]}}]}}"#),time).unwrap()
     }
