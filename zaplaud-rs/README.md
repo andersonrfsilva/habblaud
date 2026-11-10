@@ -349,6 +349,49 @@ confirmado pelo comando `deliver`, sem alterar o código do servidor.
 e `ZAPLAUD_KEYRING=memory cargo test --workspace --locked` passaram: 194 testes,
 um teste JVM de interoperabilidade ignorado no gate normal.
 
+#### Símbolos de interface e apresentação de texto
+
+A fonte de emoji não deve pintar os quadros do indicador como imagens coloridas.
+A lista separa o glifo do texto de atividade e desenha somente o glifo com
+`font-family: "DejaVu Sans"`, tanto na lista quanto na conversa.
+A família genérica `monospace` não bastou no Slint: o quadro
+`✳` ainda podia cair na fonte colorida. Botões autônomos de voltar, retomar e menu
+usam `TextButton.text-font-family` para manter `‹`, `▶` e `⋮` em contorno.
+DejaVu Sans foi embutida sem modificação (759.720 bytes, licença Bitstream/DejaVu
+em `ui/fonts/LICENSE-DejaVu.txt`) somente para esses símbolos. Noto Emoji não
+cobre `⋮`; DejaVu Sans Mono também não cobre `⋮` nem os quadros braille.
+A cobertura foi conferida antes da escolha da fonte completa. Não há mescla.
+Os rótulos de atividade continuam na família sans-serif original.
+Marcas de família de modelo (Claude, Gemini e OpenAI) são SVGs, não glifos.
+
+O probe e o teste incluem `· • ✓ ‹ › ← → ↑ ↓ ↗ ▶ ◉ ○`, todos os seis quadros
+distintos `· ✢ ✳ ✶ ✻ ✽` e os dez quadros braille. O teste usa a mesma família
+nomeada DejaVu Sans e exige `swash::scale::image::Content::Mask`, além de cobertura e
+rasterização. Assim, bitmap colorido para um símbolo da interface falha no teste.
+O probe permite `ZAPLAUD_THEME=dark` e mostra a mesma matriz nos dois temas.
+As medições release acima precedem esse ajuste de símbolos; não medem o acréscimo
+da fonte de 759.720 bytes ao executável.
+Evidências do ajuste: `/tmp/zaplaud-rs-symbol-presentation-before-{light,dark}.png`
+preserva a apresentação colorida anterior. O probe corrigido está em
+`/tmp/zaplaud-rs-emoji-symbols-{skia,software}-{light,dark}.png`.
+Ciclos reais de doze amostras por aplicativo/tema, com os seis quadros distintos,
+foram capturados do Compose e dos dois renderizadores Rust em
+`/tmp/zaplaud-rs-symbol-frames-{compose,skia-software,software}-{light,dark}-sheet.png`.
+Cada linha da montagem é um recorte real; os PNGs completos têm sufixos `-00` a `-11`.
+
+Um ponto no estado “Trabalhando…” não significa que `✻` perdeu o glifo: `·` é o
+primeiro quadro da animação, tanto em `clock.rs:100` quanto em `ReadingScreen.kt:713`.
+Ao remover foco, Rust fixa `✻`; comparações precisam usar o mesmo foco/quadro.
+O defeito confirmado era outro quadro, `✳`, capturado pela fonte emoji colorida
+quando a lista não fixava a família do glifo. A família nomeada de contorno evita isso.
+
+Limitação aceita para o **conteúdo das mensagens**: caracteres cuja apresentação
+padrão é texto podem aparecer coloridos no Skia, como `▶`, `↗` e `✳`.
+Parley 0.11.1 ignora seletores de apresentação na cobertura
+(`src/shape/mod.rs:256-268`); acrescentar apenas U+FE0E não corrige essa seleção.
+Não há patch local nem cópia vendorizada do Parley. A proteção é aplicada aos
+símbolos controlados pela interface, sem reescrever mensagens dos agentes.
+
 
 `--damage` registra os retângulos realmente apresentados ao servidor X11 via XDamage. Use transporte Unix com MIT-SHM, por exemplo `--display :88`: o fallback TCP de `softbuffer` envia a imagem completa mesmo quando o renderer rasteriza somente regiões sujas. No Xvfb isolado por bwrap, habilitar `-listen unix -listen tcp` também permite o socket Unix abstrato do Linux, sem depender do `/tmp` interno.
 

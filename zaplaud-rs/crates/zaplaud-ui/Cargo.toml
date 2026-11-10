@@ -62,6 +62,7 @@ assets = [
     ["target/release/zaplaud", "usr/bin/zaplaud", "755"],
     ["../../packaging/zaplaud.desktop", "usr/share/applications/zaplaud.desktop", "644"],
     ["ui/fonts/OFL-NotoEmoji.txt", "usr/share/doc/zaplaud/OFL-NotoEmoji.txt", "644"],
+    ["ui/fonts/LICENSE-DejaVu.txt", "usr/share/doc/zaplaud/LICENSE-DejaVu.txt", "644"],
     ["../../packaging/icons/hicolor/16x16/apps/zaplaud.png", "usr/share/icons/hicolor/16x16/apps/zaplaud.png", "644"],
     ["../../packaging/icons/hicolor/24x24/apps/zaplaud.png", "usr/share/icons/hicolor/24x24/apps/zaplaud.png", "644"],
     ["../../packaging/icons/hicolor/32x32/apps/zaplaud.png", "usr/share/icons/hicolor/32x32/apps/zaplaud.png", "644"],
@@ -81,6 +82,7 @@ assets = [
     { source = "target/release/zaplaud", dest = "/usr/bin/zaplaud", mode = "755" },
     { source = "packaging/zaplaud.desktop", dest = "/usr/share/applications/zaplaud.desktop", mode = "644" },
     { source = "crates/zaplaud-ui/ui/fonts/OFL-NotoEmoji.txt", dest = "/usr/share/licenses/zaplaud/OFL-NotoEmoji.txt", mode = "644" },
+    { source = "crates/zaplaud-ui/ui/fonts/LICENSE-DejaVu.txt", dest = "/usr/share/licenses/zaplaud/LICENSE-DejaVu.txt", mode = "644" },
     { source = "packaging/icons/hicolor/16x16/apps/zaplaud.png", dest = "/usr/share/icons/hicolor/16x16/apps/zaplaud.png", mode = "644" },
     { source = "packaging/icons/hicolor/24x24/apps/zaplaud.png", dest = "/usr/share/icons/hicolor/24x24/apps/zaplaud.png", mode = "644" },
     { source = "packaging/icons/hicolor/32x32/apps/zaplaud.png", dest = "/usr/share/icons/hicolor/32x32/apps/zaplaud.png", mode = "644" },
@@ -112,7 +114,7 @@ identifier = "br.com.xlinx.zaplaud"
 icon = ["../../packaging/icons/hicolor/32x32/apps/zaplaud.png", "../../packaging/icons/hicolor/128x128/apps/zaplaud.png", "../../packaging/icons/hicolor/256x256/apps/zaplaud.png", "../../packaging/icons/hicolor/512x512/apps/zaplaud.png", "../../packaging/icons/hicolor/1024x1024/apps/zaplaud.png"]
 category = "public.app-category.social-networking"
 short_description = "Cliente desktop nativo de mensagens Zaplaud"
-resources = ["ui/fonts/OFL-NotoEmoji.txt"]
+resources = ["ui/fonts/OFL-NotoEmoji.txt", "ui/fonts/LICENSE-DejaVu.txt"]
 
 [package.metadata.bundle.osx]
 minimum_system_version = "11.0"

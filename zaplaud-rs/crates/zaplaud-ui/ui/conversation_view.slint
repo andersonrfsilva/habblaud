@@ -315,7 +315,7 @@ export component ConversationStatus inherits Rectangle {
     changed elapsed-needed => { Clock.conversation-needed = self.elapsed-needed; }
     HorizontalLayout { padding-left: 16px; padding-right: 16px; spacing: 6px;
         if ConversationViewState.working: Avatar { width: 20px; height: 20px; source: ConversationState.avatar; initials: ConversationState.initials; }
-        if ConversationViewState.working: Text { text: Clock.spinner(ConversationViewState.codex, Clock.tick, Clock.focused); color: Theme.primary; font-family: "monospace"; font-size: 14px; }
+        if ConversationViewState.working: Text { text: Clock.spinner(ConversationViewState.codex, Clock.tick, Clock.focused); color: Theme.primary; font-family: "DejaVu Sans"; font-size: 14px; }
         Text { text: CastState.status != "" ? CastState.status : ConversationViewState.activity; color: Theme.primary; font-size: 12px; overflow: elide; vertical-alignment: center; }
         if ConversationViewState.working: Text { text: Clock.elapsed(ConversationViewState.status-since, Clock.tick); color: Theme.on-surface-variant; font-size: 12px; vertical-alignment: center; }
     }

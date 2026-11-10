@@ -117,7 +117,11 @@ export component ListPane inherits Rectangle {
                             title := Text { x: 0px; y: 0px; width: parent.width; height: parent.height; text: row.title; color: Theme.on-surface; font-size: row.sub ? 14px : 16px; font-weight: row.unread != "" ? 700 : 500; wrap: word-wrap; overflow: elide; }
                         }
                         Text { text: row.subtitle; color: Theme.on-surface-variant; font-size: row.sub ? 12px : 14px; overflow: elide; font-weight: row.unread != "" ? 700 : 400; }
-                        if row.activity != "": Text { text: Clock.spinner(row.codex, Clock.tick, Clock.focused) + " " + (row.working && row.since != "" ? Clock.activity(row.activity-text, row.since, Clock.tick) : row.activity); color: Theme.primary; font-size: 12px; overflow: elide; }
+                        if row.activity != "": HorizontalLayout {
+                            spacing: 3px;
+                            Text { text: Clock.spinner(row.codex, Clock.tick, Clock.focused); font-family: "DejaVu Sans"; color: Theme.primary; font-size: 12px; horizontal-stretch: 0; }
+                            Text { text: row.working && row.since != "" ? Clock.activity(row.activity-text, row.since, Clock.tick) : row.activity; color: Theme.primary; font-size: 12px; overflow: elide; horizontal-stretch: 1; }
+                        }
                         if row.permission != "": TextButton { text: row.permission; foreground: Theme.error; clicked => { ListState.permission(row.key); } }
                     }
                     if !row.sub: VerticalLayout { alignment: center; spacing: 6px; width: max(32px, time-label.preferred-width);

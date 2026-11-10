@@ -16,6 +16,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )?;
     }
     let window = EmojiProbe::new()?;
+    window
+        .global::<Theme>()
+        .set_dark(std::env::var("ZAPLAUD_THEME").is_ok_and(|theme| theme == "dark"));
+    window.set_symbols(zaplaud_ui::emoji::TEXT_SYMBOLS.into());
     window.set_sample(zaplaud_ui::emoji::PROBE.into());
     window.set_blocks(
         std::rc::Rc::new(slint::VecModel::from(vec![MdBlock {

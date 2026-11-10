@@ -25,14 +25,14 @@ export component ConversationPane inherits Rectangle {
         x: (parent.width - self.width) / 2; width: min(840px, parent.width); height: parent.height;
         VerticalLayout { spacing: 0px;
             HorizontalLayout { height: 64px; padding: 12px; spacing: 8px;
-                if root.narrow: TextButton { text: "‹"; min-width: 32px; accessible-label: Labels.back-sessions; clicked => { ConversationState.close(); } }
+                if root.narrow: TextButton { text: "‹"; text-font-family: "DejaVu Sans"; min-width: 32px; accessible-label: Labels.back-sessions; clicked => { ConversationState.close(); } }
                 Avatar { width: 36px; height: 36px; source: ConversationState.avatar; initials: ConversationState.initials; }
                 Rectangle { horizontal-stretch: 1;
                     VerticalLayout { Text { text: ConversationState.title; color: Theme.on-surface; font-size: 18px; overflow: elide; } Text { text: ConversationState.subtitle; color: Theme.on-surface-variant; font-size: 12px; overflow: elide; } }
                     TouchArea { clicked => { ConversationState.info(); } }
                 }
-                if CastState.resume-visible: TextButton { text: "▶"; width: 40px; height: 40px; accessible-label: CastState.resume-label; enabled: CastState.enabled; clicked => { CastState.resume(); } }
-                TextButton { text: "⋮"; min-width: 40px; accessible-label: Labels.menu; clicked => { ConversationState.menu(); } }
+                if CastState.resume-visible: TextButton { text: "▶"; text-font-family: "DejaVu Sans"; width: 40px; height: 40px; accessible-label: CastState.resume-label; enabled: CastState.enabled; clicked => { CastState.resume(); } }
+                TextButton { text: "⋮"; text-font-family: "DejaVu Sans"; min-width: 40px; accessible-label: Labels.menu; clicked => { ConversationState.menu(); } }
             }
             // Próxima etapa monta transcript, avisos e compositor neste host nomeado.
             conversation-content := Rectangle { vertical-stretch: 1; @children }

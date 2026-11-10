@@ -122,6 +122,7 @@ jobs:
           cp packaging/zaplaud.desktop packaging/README.md dist/zaplaud-linux-x86_64/packaging/
           cp -R packaging/icons dist/zaplaud-linux-x86_64/packaging/
           cp crates/zaplaud-ui/ui/fonts/OFL-NotoEmoji.txt dist/zaplaud-linux-x86_64/
+          cp crates/zaplaud-ui/ui/fonts/LICENSE-DejaVu.txt dist/zaplaud-linux-x86_64/
           tar -C dist -czf dist/zaplaud-linux-x86_64.tar.gz zaplaud-linux-x86_64
           sha256sum dist/*.tar.gz target/debian/*.deb target/generate-rpm/*.rpm > dist/SHA256SUMS
       - name: Publicar artefatos de release

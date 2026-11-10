@@ -23,8 +23,19 @@ fn probe_has_no_notdef_and_paints_with_the_app_font_stack() -> Result<(), Box<dy
         };
         let mut context = LayoutContext::<()>::new();
         let mut scale = swash::scale::ScaleContext::new();
-        for token in zaplaud_ui::emoji::PROBE.split_whitespace() {
-            let builder = context.ranged_builder(&mut fonts, token, 1.0, true);
+        for token in zaplaud_ui::emoji::PROBE
+            .split_whitespace()
+            .chain(zaplaud_ui::emoji::TEXT_SYMBOLS.split_whitespace())
+        {
+            let text_symbol = zaplaud_ui::emoji::TEXT_SYMBOLS
+                .split_whitespace()
+                .any(|symbol| symbol == token);
+            let mut builder = context.ranged_builder(&mut fonts, token, 1.0, true);
+            if text_symbol {
+                builder.push_default(parley::StyleProperty::FontFamily(
+                    parley::FontFamily::Source(std::borrow::Cow::Borrowed("\"DejaVu Sans\"")),
+                ));
+            }
             let mut layout = builder.build(token);
             layout.break_all_lines(None);
             let mut painted = 0;
@@ -59,6 +70,15 @@ fn probe_has_no_notdef_and_paints_with_the_app_font_stack() -> Result<(), Box<dy
                             image.is_some(),
                             "Glifo invisível em {token:?}, software={software}"
                         );
+                        if text_symbol {
+                            assert!(
+                                matches!(
+                                    image.as_ref().map(|image| image.content),
+                                    Some(swash::scale::image::Content::Mask)
+                                ),
+                                "Símbolo de interface colorido em {token:?}, software={software}",
+                            );
+                        }
                         painted += 1;
                     }
                 }
