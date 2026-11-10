@@ -12,6 +12,8 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Zaplaud:** navegador de arquivos nas pastas de trabalho no Android, iOS e desktop Compose, com navegação por
+  pastas, download em fluxo com progresso e cancelamento e abertura do arquivo salvo, como no desktop Rust.
 - **Zaplaud:** novo cliente desktop nativo em Rust, com lista e conversa, Markdown, mensagens e anexos,
   aprovações, configurações, elenco e bate-papo paralelo, seguindo o comportamento do celular. O padrão Linux/macOS
   usa o renderizador leve do Slint e emoji de contorno embutido; Skia colorido é opt-in de compilação e execução.
