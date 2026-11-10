@@ -32,8 +32,12 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
     let weak = window.as_weak();
     let commands = context.commands.clone();
     context.runtime.spawn(async move {
-        let store = match zaplaud_store::LocalStateStore::new() {
-            Ok(store) => store,
+        let store = match tokio::task::spawn_blocking(zaplaud_store::LocalStateStore::new).await {
+            Ok(Ok(store)) => std::sync::Arc::new(store),
+            Ok(Err(error)) => {
+                eprintln!("alertas: {error}");
+                return;
+            }
             Err(error) => {
                 eprintln!("alertas: {error}");
                 return;
@@ -47,8 +51,13 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                 Err(_) => break,
             };
-            let enabled = store.notifications_enabled().unwrap_or(false);
-            let (permission, done) = store.notify_events().unwrap_or((false, false));
+            let preferences = store.clone();
+            let Ok((enabled, (permission, done))) = tokio::task::spawn_blocking(move || {
+                (
+                    preferences.notifications_enabled().unwrap_or(false),
+                    preferences.notify_events().unwrap_or((false, false)),
+                )
+            }).await else { continue };
             let origins: Vec<&str> = snapshot.servers.iter().map(|s| s.api.origin()).collect();
             controller.retain_origins(&origins);
             revisions.retain(|origin, _| origins.contains(&origin.as_str()));
@@ -103,8 +112,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                             .summary(&summary)
                             .body(&body)
                             .icon("zaplaud")
-                            .action("open", "Abrir")
-                            .timeout(10000);
+                            .action("open", "Abrir");
                         #[cfg(target_os = "macos")]
                         {
                             // Cocoa entrega o clique pela sua thread principal já ativa.
@@ -126,7 +134,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                         #[cfg(not(target_os = "macos"))]
                         match notification.show_async().await {
                             Ok(handle) => {
-                              let action = handle.wait_for_action_async(|response| {
+                              handle.wait_for_action_async(|response| {
                                 if matches!(response, notify_rust::NotificationResponse::Action(action) if action == "open") {
                                     let _ = commands.send(Event::Open(key.clone()));
                                     update_ui(&weak, move |window| {
@@ -140,9 +148,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                                         }
                                     });
                                 }
-                              });
-                              let _ = tokio::time::timeout(std::time::Duration::from_secs(10), action).await;
-                              handle.close_async().await;
+                              }).await;
                             },
                             Err(error) => eprintln!("notificação: {error}"),
                         }
