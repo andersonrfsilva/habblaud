@@ -10,7 +10,7 @@ use tokio::sync::mpsc;
 use zaplaud_core::{
     Error,
     controller::cast::State,
-    model::{CastChoice, Connection},
+    model::CastChoice,
 };
 #[derive(Clone)]
 enum Command {
@@ -32,6 +32,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
     global.set_resume_label(strings::CAST_RESUME.into());
     global.set_dismiss_label(strings::CAST_DISMISS.into());
     global.set_confirm_label(strings::CAST_CONFIRM.into());
+    global.set_empty_label(strings::CAST_NO_FOLDERS.into());
     window
         .global::<ListState>()
         .set_cast_icon(window.global::<Icons>().get_ic_person_add());
@@ -69,13 +70,15 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
     context.runtime.spawn(async move {
         let mut snapshot: Option<Arc<AppSnapshot>> = None; let mut state = State::default(); let mut dialog = Dialog::default(); let mut origin = String::new();
         let mut next_poll = tokio::time::Instant::now();
+        let mut loaded = false;
+        let mut avatar_keys = std::collections::HashSet::new();
         loop {
             let mut refresh = false;
             tokio::select! {
                 value = snapshots.recv() => {
                     let value = match value { Ok(value) => value, Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue, Err(_) => break };
                     let next_origin = value.selected.as_ref().map(|s| s.key.origin.as_str()).or(value.filter.as_deref()).or_else(|| (value.servers.len() == 1).then(|| value.servers[0].api.origin())).unwrap_or_default();
-                    if next_origin != origin { origin = next_origin.into(); state = State::default(); dialog = Dialog::default(); refresh = true; }
+                    if next_origin != origin { origin = next_origin.into(); state = State::default(); dialog = Dialog::default(); refresh = true; loaded = false; avatar_keys.clear(); }
                     if snapshot.as_ref().and_then(|s| s.selected.as_ref()).map(|s| &s.key) != value.selected.as_ref().map(|s| &s.key) { state.result.clear(); dialog = Dialog::default(); }
                     snapshot = Some(value);
                 }
@@ -84,7 +87,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                     let Some(command) = command else { break }; let Some(snap) = &snapshot else { continue };
                     let Some(server) = snap.servers.iter().find(|s| s.api.origin() == origin) else { continue };
                     let selected = snap.selected.as_ref();
-                    if !matches!(command, Command::Close) && (server.needs_login || server.reading.connection != Connection::Connected || state.availability != "available") { continue; }
+                    if !matches!(command, Command::Close) && (server.needs_login || server.reading.connection != "connected" || state.availability != "available") { continue; }
                     match command {
                         Command::Start if selected.is_none() => { dialog = Dialog { mode: "start".into(), ..Dialog::default() }; if let Err(error) = state.load(&server.api).await { unauthorized(&commands, &origin, &error); } }
                         Command::Resume if selected.is_some_and(State::can_resume) => { dialog = Dialog { mode: "resume".into(), ..Dialog::default() }; if let Err(error) = state.load(&server.api).await { unauthorized(&commands, &origin, &error); } }
@@ -97,7 +100,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                             } else if dialog.mode == "start" {
                                 if let Some(choice) = &dialog.choice && folders(&state, choice).contains(&id) {
                                     if let Err(error) = state.submit(&server.api, &choice.id, &id, None, None).await { unauthorized(&commands, &origin, &error); }
-                                    dialog = Dialog::default(); refresh = true;
+                                    dialog = Dialog::default(); refresh = true; loaded = false;
                                 }
                             }
                         }
@@ -109,7 +112,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                             } else if let (Some(choice), Some(s)) = (&dialog.choice, selected) && State::can_resume(s) {
                                 if let Err(error) = state.submit(&server.api, &choice.id, s.project.as_deref().unwrap_or_default(), Some(s), None).await { unauthorized(&commands, &origin, &error); }
                             }
-                            dialog = Dialog::default(); refresh = true;
+                            dialog = Dialog::default(); refresh = true; loaded = false;
                         }
                         _ => {}
                     }
@@ -117,9 +120,19 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
             }
             if let Some(snap) = &snapshot {
                 if let Some(server) = snap.servers.iter().find(|s| s.api.origin() == origin) {
-                    if !server.needs_login && server.reading.connection == Connection::Connected && (server.reading.terminal_allowed || snap.selected.as_ref().is_some_and(|s| s.permission)) {
-                        if refresh { let load = state.characters.is_empty() || !state.result.is_empty(); if let Err(error) = state.refresh(&server.api, load).await { unauthorized(&commands, &origin, &error); } next_poll = tokio::time::Instant::now() + Duration::from_secs(5); }
+                    if !server.needs_login && server.reading.connection == "connected" && (server.reading.terminal_allowed || snap.selected.as_ref().is_some_and(|s| s.permission)) {
+                        if refresh { if let Err(error) = state.refresh(&server.api, !loaded).await { unauthorized(&commands, &origin, &error); } else { loaded = true; } next_poll = tokio::time::Instant::now() + Duration::from_secs(5); }
                     } else { state.availability = "offline".into(); next_poll = tokio::time::Instant::now() + Duration::from_secs(5); }
+                    if !dialog.mode.is_empty() {
+                        for character in &state.characters {
+                            if let Some(avatar) = &character.avatar {
+                                let key = avatars::key(&origin, avatar);
+                                if avatar_keys.insert(key.clone()) && let Ok(Some(png)) = server.api.avatar_bytes(avatar).await && let Some(rgba) = avatars::decode(&png) {
+                                    update_ui(&weak, move |_| { avatars::insert(key, &rgba); });
+                                }
+                            }
+                        }
+                    }
                     publish(&weak, snap.clone(), state.clone(), &dialog, &origin);
                 } else { update_ui(&weak, |window| { window.global::<ListState>().set_cast_visible(false); window.global::<CastState>().set_resume_visible(false); window.global::<CastState>().set_dismiss_visible(false); }); }
             }

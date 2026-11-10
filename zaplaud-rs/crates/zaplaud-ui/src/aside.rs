@@ -51,7 +51,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
     let weak = window.as_weak();
     global.on_copy(move |text| {
         if let Some(window) = weak.upgrade() {
-            window.window().set_clipboard_text(text);
+            window.invoke_copy_conversation(text);
         }
     });
     global.on_link(move |url| {
@@ -155,7 +155,7 @@ fn publish(weak: &slint::Weak<AppWindow>, state: State) {
                                 .collect::<Vec<_>>()
                                 .join(" "))
                             .unwrap_or_default(),
-                        zaplaud_core::rules::time::entry_time(topic.created_at, now())
+                        zaplaud_core::rules::time::entry_time(topic.created_at, now()).unwrap_or_default()
                     )
                     .into(),
                 })
@@ -171,9 +171,7 @@ fn publish(weak: &slint::Weak<AppWindow>, state: State) {
                         .map(|turn| AsideTurnRow {
                             question: turn.question.clone().into(),
                             answer: turn.answer.clone().into(),
-                            blocks: zaplaud_ui::markdown::block_model(zaplaud_ui::markdown::parse(
-                                &turn.answer,
-                            )),
+                            blocks: crate::conversation_view::markdown(&turn.answer),
                             status: match turn.status.as_str() {
                                 "queued" => strings::ASIDE_QUEUED.into(),
                                 "running" if turn.answer.is_empty() => {
