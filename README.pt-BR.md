@@ -418,6 +418,10 @@ nem notarização: na primeira abertura, use botão direito → Abrir.
 Os pacotes usam `-XX:+UseSerialGC -Xmx256m`; a otimização ProGuard está desligada por incompatibilidade com
 referências opcionais do OkHttp.
 
+Arquitetura, peças de cada sistema, consumo medido e limitações: [docs/zaplaud-desktop.md](docs/zaplaud-desktop.md).
+Um cliente Rust + Slint está planejado por fases em
+[plans/074-zaplaud-cliente-rust-slint.md](plans/074-zaplaud-cliente-rust-slint.md); só começa por decisão do dono.
+
 ### Aplicativo iPadOS (Zaplaud; validação pendente)
 
 O código nativo do Zaplaud usa Kotlin Multiplatform e Compose Multiplatform. `android/app` mantém o host Android;

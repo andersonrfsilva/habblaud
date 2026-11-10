@@ -84,6 +84,12 @@ conditions e atualize sua linha ao terminar.
 | 060 | [Zaplaud: título da sessão na lista em até duas linhas](060-zaplaud-titulo-da-sessao-em-duas-linhas.md) | P3 | S | — | IN PROGRESS (implementado `f0222de`; fonte 1,3 conferida em 1080×1920: 4 sessões visíveis, sem sobreposição; gate do roteiro pendente do 054) |
 | 061 | [Zaplaud: anexo e uso de contexto dentro do campo de mensagem](061-zaplaud-campo-de-mensagem-integrado.md) | P3 | S | 055, 058, 059 | IN PROGRESS (implementado `3e91278`; fixture informa contexto do omp em `28efc0e`; anel 60% visto com descrição acessível; gate do roteiro pendente do 054) |
 | 062 | [Zaplaud: título grande na lista que encolhe ao rolar (opcional)](062-zaplaud-barra-superior-que-encolhe.md) | P3 | M | 059 | REJECTED (dono achou o espaço superior grande no M35; revertido em `84546ff`, `6482a01`, `6ebbc29`) |
+| 063 | [Zaplaud desktop: alvo JVM do Compose, janela no Linux e no macOS com as telas do celular](063-zaplaud-desktop-alvo-jvm.md) | P2 | L | — | DONE (branch `advisor/063-zaplaud-desktop-alvo-jvm`, `f968c77`; 063–066 mesclados em `producao` em `e214452`. 95 testes JVM e 99 host ok, revisor reconferiu o JVM. Passo 7 em Xvfb por XTest: login HTTP, lista, markdown, Esc, envio e anexo entregues (31 bytes idênticos). Sem chaveiro nesta máquina: reabrir pede login, como previsto. macOS e Secret Service não testados) |
+| 064 | [Zaplaud: lista e conversa lado a lado em tela larga (desktop, iPad, tablet), estilo Telegram Desktop](064-zaplaud-duas-colunas-em-tela-larga.md) | P2 | M | 063 | DONE (branch `advisor/064-zaplaud-duas-colunas`, `6992f13`, sobre o 063. 145 instrumentados sem falha, igual ao baseline; capturas do celular iguais ao baseline (as duas param no mesmo ponto do roteiro, como no 054); `TwoPaneWide/NarrowUiTest` ok com Xvfb; tablet 2560×1600 com duas colunas. iPad não testado) |
+| 065 | [Zaplaud desktop: avisos de aprovação, pergunta e fim de turno com a janela em segundo plano (sem bandeja)](065-zaplaud-desktop-notificacoes.md) | P2 | M | 063 | DONE (branch `advisor/065-zaplaud-desktop-notificacoes`, `cc5a727`, sobre o 063. `NotificationPrivacyInstrumentedTest` ok. Avisos verificados com `notify-send` **simulado** (argv, foco, "Abrir" → sessão, desligado); daemon real, minimizar real (Xvfb sem gerenciador de janelas), Wayland e macOS não verificados) |
+| 066 | [Zaplaud desktop: pacotes deb/rpm/dmg, instalação no Arch, flags da JVM e CI](066-zaplaud-desktop-pacotes-e-ci.md) | P3 | M | 063 (melhor depois de 064 e 065) | DONE (branch `advisor/066-zaplaud-desktop-pacotes`, `3c6f248`, sobre o 063. ProGuard desligado com aprovação do revisor: 50 referências opcionais do OkHttp não resolvidas. Distribuição 192 MiB (tar.gz 110 MiB); app empacotado enviou mensagem (201). Script de instalação validado num HOME temporário. `.deb`/`.rpm` não gerados: sem `dpkg-deb`/`rpmbuild` aqui; `.dmg` sem Mac. CI com `xvfb-run` não disparado) |
+| 067 | [Zaplaud desktop: medir o app real e decidir se vale Rust + Slint](067-zaplaud-desktop-medir-e-decidir-rust.md) | P3 | S (+L condicional) | 066 + uso real | DONE ([067-resultado.md](067-resultado.md); medido na integração `advisor/zaplaud-desktop-063-066` `3255ff4`, Xvfb com renderização por software. App real: abre em 1020 ms, PSS parado 339 MiB (heap Java 91 MiB, resto nativo), 0,10% de CPU minimizado. Nenhuma flag compensou: AppCDS dinâmico corta a abertura para 524 ms, mas exige `.jsa` por build (não integrado). Portão aberto por PSS > 300 MiB. Spike Rust + Slint: markdown com tabela e código selecionáveis, acentos pt-BR no X11 e SSE ao vivo funcionaram, com 22 MiB de PSS e 114 ms. Paridade estimada em 27 capacidades (7 S / 14 M / 6 L). Recomendação: **não reescrever agora**. Uso real do dono, Wayland e macOS não medidos) |
+| 074 | [Zaplaud desktop em Rust + Slint: roteiro por fases (27 capacidades, portões, harmonia gerada do Kotlin)](074-zaplaud-cliente-rust-slint.md) | P3 | L | decisão do dono (067: portão aberto, recomendação "não agora") | TODO (aguardando decisão do dono) |
 
 Integração 054–062 (2026-11-08): branch `advisor/zaplaud-modernizacao-054-062`, mesclada em `producao` e enviada a
 `fork/main` a pedido do dono. Instrumentados 141 testes, 0 falhas em `28efc0e` (antes de reverter o 062) e 142 em
@@ -109,6 +115,17 @@ Em 2026-10-31 o branch `rpg` (elenco 031/032 e o que veio depois) foi promovido 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 
 ## Dependency notes
+
+- 063–067: cliente desktop do Zaplaud (variante `deep` de direção, 2026-11-09, commit `694938f`). Decisões do dono:
+  **Compose agora, Rust depois** (só se o 067 abrir o portão), **paridade sem bandeja** (avisos só com o app aberto),
+  **duas colunas em toda tela larga** (≥ 840 dp; celular inalterado). Medição das pilhas (Compose, Rust + Slint,
+  Go + Fyne) em [063-medicao-pilhas-desktop.md](063-medicao-pilhas-desktop.md). Ordem: 063 → 064 e 065 (independentes
+  na lógica, mas os dois mexem em `strings.xml`, `UiPlatform.kt` e no `Main.kt` do desktop: mescle um antes de começar
+  o outro) → 066 → 067. O 064 muda a tela do celular por extração e precisa dos instrumentados sem falha nova.
+  Worktrees em `/tmp/habblaud-NNN`. 063 e 064 passaram por leitura fria de um revisor (19 apontamentos corrigidos).
+  **063–066 integrados em `advisor/zaplaud-desktop-063-066` (`3255ff4`) e mesclados em `producao` em `e214452`**
+  (2026-11-09, a pedido do dono; sem push). Documentação: [docs/zaplaud-desktop.md](../docs/zaplaud-desktop.md).
+  Rust: roteiro no 074, só com decisão do dono.
 
 - 054–062: modernização visual do Zaplaud (variante `plan`, skills `improve` e `improve-ui`), commit `dab677d`,
   2026-11-08. Evidência: código e capturas do emulador `habblaud034` com a fixture, só tema escuro. Execute na ordem
@@ -163,6 +180,12 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 
 ## Findings considered and rejected
 
+- Zaplaud desktop em Go + Fyne (2026-11-09): medido a 166 MiB RSS parado e 1,2% de CPU parada, perto da JVM e com
+  CPU ociosa maior; reescrita sem ganho. Wails (web) e Tauri: exigiriam uma terceira interface (web) além de
+  Compose. Rust + Slint não foi rejeitado: está condicionado ao portão do 067.
+- Zaplaud desktop com bandeja, iniciar com o sistema e rodar com a janela fechada: adiado por decisão do dono (065).
+- Store do desktop sobre DataStore + `org.json` (porta do Android): `org.json` é embutido no Android e duplicaria
+  classes num conjunto de fontes comum; o desktop porta o store iOS (JSON + `kotlinx.serialization`) no 063.
 - Modernização do Zaplaud (054–062), não planejado: cores dinâmicas do Android 12+ (apagam o verde que identifica o
   app); fonte nova (exige decisão de marca inexistente); animações extras (o app já pagou caro em GPU com o
   "digitando", ver 044); componente `SearchBar` do Material 3 (abre busca expandida, conflita com a busca fixa
@@ -243,6 +266,9 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 
 ## Não auditado
 
+- Zaplaud desktop (063–067): Wayland real, GNOME/KDE com Secret Service, macOS e acessibilidade (leitor de tela na
+  JVM) não foram testados; a máquina de análise não tinha sessão gráfica nem chaveiro (medição em Xvfb com
+  renderização por software). `java-keyring` 1.0.4 não foi exercitado.
 - Modernização 054–062: tema claro, iPad, teclado aberto, TalkBack, fonte grande e paisagem não foram inspecionados
   antes dos planos; só capturas no tema escuro, em 1080×1920.
 - Arte em pixel (`client/src/art/**`) e textos das traduções.

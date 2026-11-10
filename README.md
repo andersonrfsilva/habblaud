@@ -272,6 +272,10 @@ Packages are unsigned and not notarized: right-click → Open on first launch.
 The packaged JVM uses `-XX:+UseSerialGC -Xmx256m`. ProGuard optimization is disabled because of unresolved
 optional OkHttp references.
 
+Architecture, platform pieces, measured footprint and known limits: [docs/zaplaud-desktop.md](docs/zaplaud-desktop.md)
+(Portuguese). A possible Rust + Slint client is planned in phases in
+[plans/074-zaplaud-cliente-rust-slint.md](plans/074-zaplaud-cliente-rust-slint.md); it starts only on the owner's call.
+
 ### Open on your phone (optional)
 
 By default Habblaud only accepts connections from the computer it runs on. To open it on your phone (on the same Wi-Fi), with Docker:
