@@ -2,11 +2,21 @@
 //!
 //! `MarkdownView` recebe `blocks`, `source-markdown` e emite `link-clicked(string)`
 //! e `copy(string)`. O aplicativo deve copiar no clipboard e validar/abrir links.
-//! Slint 1.18.1 não seleciona `StyledText`: o botão Selecionar troca apenas aquele
-//! bloco por `TextInput` somente leitura, com seleção nativa e Ctrl+C. Código já
-//! usa esse controle. Não existe seleção entre blocos; copiar mensagem preserva
+//! Slint 1.18.1 não seleciona `StyledText`: Selecionar texto troca os blocos da
+//! mensagem por `TextInput` somente leitura, com seleção nativa e Ctrl+C.
+//! Código já usa esse controle. Não existe seleção entre blocos; copiar mensagem preserva
 //! o Markdown original. A lista externa deve virtualizar mensagens e chamar
 //! `parse` sob demanda; este módulo não retém mensagens nem cria runtimes.
+//!
+//! `MdBlock.kind` é `text`, `quote`, `code`, `table` ou `rule`; `level` é 1–6
+//! para títulos e zero para parágrafos. `depth` é a indentação de listas a partir
+//! de zero, e `marker` conserva a numeração ou o estado da tarefa. `spans` expõe
+//! texto, bold, italic, strike, code e link; `rich` mantém o fluxo inline nativo.
+//! Tabelas usam `cells` em ordem de linhas e `columns` colunas. `MdCell.alignment`
+//! é 0 (esquerda/padrão), 1 (centro) ou 2 (direita); `header` distingue o cabeçalho.
+//! `MdMessage` contém `source` e `blocks`. `message_model` analisa linhas pedidas
+//! pelo ListView sem reter resultados. Títulos usam negrito nativo (700): StyledText
+//! não expõe peso 600. O fundo inline de código é desenhado pelo próprio Slint.
 
 use pulldown_cmark::{Alignment, CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 use slint::{ModelExt, ModelRc, StyledText, VecModel};
@@ -20,7 +30,8 @@ fn model<T: Clone + 'static>(items: Vec<T>) -> ModelRc<T> {
 
 #[derive(Default)]
 struct Inline {
-    spans: Vec<MdSpan>,
+    spans: Vec<(MdSpan, String)>,
+    markup: String,
     bold: usize,
     italic: usize,
     strike: usize,
@@ -29,68 +40,54 @@ struct Inline {
 
 impl Inline {
     fn push(&mut self, text: &str, code: bool) {
+        if code {
+            // Os delimitadores crescem para preservar backticks no conteúdo.
+            let ticks = "`".repeat(text.split(|c| c != '`').map(str::len).max().unwrap_or(0) + 1);
+            self.markup.push_str(&format!("{ticks} {text} {ticks}"));
+        } else {
+            self.markup.push_str(&escape(text));
+        }
         let span = MdSpan {
-            text: text.into(),
+            text: Default::default(),
             bold: self.bold > 0,
             italic: self.italic > 0,
             strike: self.strike > 0,
             code,
             link: self.links.last().map_or("", String::as_str).into(),
         };
-        if let Some(last) = self.spans.last_mut()
+        if let Some((last, content)) = self.spans.last_mut()
             && last.bold == span.bold
             && last.italic == span.italic
             && last.strike == span.strike
             && last.code == span.code
             && last.link == span.link
         {
-            last.text = format!("{}{}", last.text, text).into();
+            content.push_str(text);
         } else {
-            self.spans.push(span);
+            self.spans.push((span, text.into()));
         }
     }
 
-    fn take(&mut self, heading: bool) -> (String, StyledText, Vec<MdSpan>) {
-        let spans = std::mem::take(&mut self.spans);
-        let mut plain = String::new();
-        let mut markup = String::new();
-        for span in &spans {
-            plain.push_str(&span.text);
-            let escaped = escape(&span.text);
-            let mut run = escaped;
-            if span.code {
-                // Os delimitadores crescem para preservar backticks no conteúdo.
-                let ticks = "`".repeat(
-                    span.text
-                        .split(|c| c != '`')
-                        .map(str::len)
-                        .max()
-                        .unwrap_or(0)
-                        + 1,
-                );
-                run = format!("{ticks} {} {ticks}", span.text);
-            }
-            if span.bold || heading {
-                run = format!("**{run}**");
-            }
-            if span.italic {
-                run = format!("*{run}*");
-            }
-            if span.strike {
-                run = format!("~~{run}~~");
-            }
-            if !span.link.is_empty() {
-                let url = span
-                    .link
-                    .replace('\\', "%5C")
-                    .replace('(', "%28")
-                    .replace(')', "%29")
-                    .replace('<', "%3C")
-                    .replace('>', "%3E");
-                run = format!("[{run}](<{url}>)");
-            }
-            markup.push_str(&run);
-        }
+    fn take(&mut self, heading: bool, quote: bool) -> (String, StyledText, Vec<MdSpan>) {
+        let spans: Vec<_> = std::mem::take(&mut self.spans)
+            .into_iter()
+            .map(|(mut span, text)| {
+                span.text = text.into();
+                span
+            })
+            .collect();
+        let plain = spans
+            .iter()
+            .map(|span| span.text.as_str())
+            .collect::<String>();
+        let markup = std::mem::take(&mut self.markup);
+        let markup = if heading {
+            format!("__{markup}__")
+        } else if quote {
+            format!("_{markup}_")
+        } else {
+            markup
+        };
         let rich = StyledText::from_markdown(&markup)
             .unwrap_or_else(|_| StyledText::from_plain_text(&plain));
         (plain, rich, spans)
@@ -128,7 +125,7 @@ impl Blocks {
         if self.inline.spans.is_empty() {
             return;
         }
-        let (text, rich, spans) = self.inline.take(self.level > 0);
+        let (text, rich, spans) = self.inline.take(self.level > 0, self.quote > 0);
         self.blocks.push(MdBlock {
             kind: if self.quote > 0 { "quote" } else { "text" }.into(),
             text: text.into(),
@@ -160,17 +157,44 @@ pub fn parse(markdown: &str) -> Vec<MdBlock> {
                 state.flush();
                 state.level = 0;
             }
-            Event::Start(Tag::Strong) => state.inline.bold += 1,
-            Event::End(TagEnd::Strong) => state.inline.bold -= 1,
-            Event::Start(Tag::Emphasis) => state.inline.italic += 1,
-            Event::End(TagEnd::Emphasis) => state.inline.italic -= 1,
-            Event::Start(Tag::Strikethrough) => state.inline.strike += 1,
-            Event::End(TagEnd::Strikethrough) => state.inline.strike -= 1,
+            Event::Start(Tag::Strong) => {
+                state.inline.bold += 1;
+                state.inline.markup.push_str("**");
+            }
+            Event::End(TagEnd::Strong) => {
+                state.inline.bold -= 1;
+                state.inline.markup.push_str("**");
+            }
+            Event::Start(Tag::Emphasis) => {
+                state.inline.italic += 1;
+                state.inline.markup.push('*');
+            }
+            Event::End(TagEnd::Emphasis) => {
+                state.inline.italic -= 1;
+                state.inline.markup.push('*');
+            }
+            Event::Start(Tag::Strikethrough) => {
+                state.inline.strike += 1;
+                state.inline.markup.push_str("~~");
+            }
+            Event::End(TagEnd::Strikethrough) => {
+                state.inline.strike -= 1;
+                state.inline.markup.push_str("~~");
+            }
             Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. }) => {
-                state.inline.links.push(dest_url.to_string())
+                state.inline.links.push(dest_url.to_string());
+                state.inline.markup.push('[');
             }
             Event::End(TagEnd::Link | TagEnd::Image) => {
-                state.inline.links.pop();
+                if let Some(link) = state.inline.links.pop() {
+                    let url = link
+                        .replace('\\', "%5C")
+                        .replace('(', "%28")
+                        .replace(')', "%29")
+                        .replace('<', "%3C")
+                        .replace('>', "%3E");
+                    state.inline.markup.push_str(&format!("](<{url}>)"));
+                }
             }
             Event::Start(Tag::List(start)) => {
                 state.flush();
@@ -235,7 +259,7 @@ pub fn parse(markdown: &str) -> Vec<MdBlock> {
             Event::End(TagEnd::TableHead) => state.table_head = false,
             Event::Start(Tag::TableRow) => state.column = 0,
             Event::End(TagEnd::TableCell) => {
-                let (text, rich, _) = state.inline.take(state.table_head);
+                let (text, rich, _) = state.inline.take(state.table_head, false);
                 let alignment = match state.alignments.get(state.column) {
                     Some(Alignment::Center) => 1,
                     Some(Alignment::Right) => 2,
@@ -373,5 +397,27 @@ mod tests {
                 .iter()
                 .any(|s| s.text == "imagem" && s.link == "https://example.com/image.png")
         );
+    }
+
+    #[test]
+    fn nested_styles_and_literal_markup_do_not_drop_rich_text() {
+        let blocks = parse(
+            "**forte e *itálico*** com <b>HTML literal</b> e [link](https://example.com/a%28b%29).",
+        );
+        assert!(blocks[0].spans.iter().any(|s| s.bold && s.italic));
+        assert_ne!(blocks[0].rich, StyledText::from_plain_text(&blocks[0].text));
+        let html = parse("Texto <u>literal</u>");
+        assert_eq!(html[0].rich, StyledText::from_plain_text(&html[0].text));
+        for source in [
+            "**forte *itálico* forte**",
+            "*itálico **forte** itálico*",
+            "a**forte**b e c*itálico*d",
+            "~~riscado **forte**~~ e `código`",
+        ] {
+            assert_eq!(
+                parse(source)[0].rich,
+                StyledText::from_markdown(source).expect("Markdown de teste válido")
+            );
+        }
     }
 }
