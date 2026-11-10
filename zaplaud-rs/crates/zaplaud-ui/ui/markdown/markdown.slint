@@ -61,13 +61,14 @@ component SelectableBlock inherits VerticalLayout {
     in property <MdBlock> block;
     callback link-clicked(string);
     in property <bool> selecting;
+    in property <color> foreground: Theme.on-surface;
     spacing: 3px;
     HorizontalLayout {
-        Text { text: root.block.marker; color: Theme.on-surface; width: root.block.marker == "" ? 0px : 28px; }
+        Text { text: root.block.marker; color: root.foreground; width: root.block.marker == "" ? 0px : 28px; }
         VerticalLayout {
             if !root.selecting: StyledText {
                 text: root.block.rich;
-                default-color: Theme.on-surface;
+                default-color: root.foreground;
                 default-font-size: root.block.level == 1 ? 24px : root.block.level == 2 ? 22px : root.block.level == 3 ? 16px : root.block.level == 4 ? 14px : root.block.level == 5 ? 16px : root.block.level == 6 || root.block.kind == "quote" ? 14px : 16px;
                 link-color: Theme.primary;
                 link-clicked(url) => { root.link-clicked(url); }
@@ -76,7 +77,7 @@ component SelectableBlock inherits VerticalLayout {
                 text: root.block.text;
                 read-only: true;
                 wrap: word-wrap;
-                color: Theme.on-surface;
+                color: root.foreground;
                 font-size: 16px;
                 selection-background-color: Theme.primary;
                 selection-foreground-color: Theme.on-primary;
@@ -91,6 +92,7 @@ export component MarkdownView inherits VerticalLayout {
     callback link-clicked(string);
     callback copy(string);
     in-out property <bool> selecting: false;
+    in property <color> foreground: Theme.on-surface;
     spacing: 8px;
     HorizontalLayout {
         Rectangle { horizontal-stretch: 1; }
@@ -102,13 +104,14 @@ export component MarkdownView inherits VerticalLayout {
         if block.kind == "rule": Rectangle { height: 1px; background: Theme.outline-variant; }
         if block.kind == "text": SelectableBlock {
             block: block;
+            foreground: root.foreground;
             selecting: root.selecting;
             link-clicked(url) => { root.link-clicked(url); }
         }
         if block.kind == "quote": HorizontalLayout {
             spacing: 8px;
             Rectangle { width: 3px; background: Theme.outline-variant; }
-            SelectableBlock { block: block; selecting: root.selecting; link-clicked(url) => { root.link-clicked(url); } }
+            SelectableBlock { block: block; foreground: root.foreground; selecting: root.selecting; link-clicked(url) => { root.link-clicked(url); } }
         }
         if block.kind == "code": Rectangle {
             background: Theme.on-background.with-alpha(0.1);
@@ -131,7 +134,7 @@ export component MarkdownView inherits VerticalLayout {
                         wrap: no-wrap;
                         font-family: "monospace";
                         font-size: 14px;
-                        color: Theme.on-surface;
+                        color: root.foreground;
                         selection-background-color: Theme.primary;
                         selection-foreground-color: Theme.on-primary;
                     }
@@ -154,7 +157,7 @@ export component MarkdownView inherits VerticalLayout {
                             padding: 8px;
                             if !root.selecting: StyledText {
                                 text: cell-box.cell.rich;
-                                default-color: Theme.on-surface;
+                                default-color: root.foreground;
                                 default-font-size: 16px;
                                 link-color: Theme.primary;
                                 horizontal-alignment: cell-box.cell.alignment == 1 ? center : cell-box.cell.alignment == 2 ? right : left;
@@ -165,7 +168,7 @@ export component MarkdownView inherits VerticalLayout {
                                 read-only: true;
                                 wrap: word-wrap;
                                 font-size: 16px;
-                                color: Theme.on-surface;
+                                color: root.foreground;
                                 selection-background-color: Theme.primary;
                                 selection-foreground-color: Theme.on-primary;
                             }

@@ -3,7 +3,7 @@ import { Labels } from "labels.slint";
 import { LoginPane, LoginState } from "login.slint";
 import { ListPane, ListState } from "list.slint";
 import { ConversationPane, ConversationState } from "conversation.slint";
-import { ConversationView, ConversationViewState, ConversationMenu, SessionInfoSheet } from "conversation_view.slint";
+import { ConversationView, ConversationStatus, ConversationViewState, ConversationMenu, SessionInfoSheet } from "conversation_view.slint";
 export { ConversationViewState, ConversationRow, InfoRow, ModelChoice, MdBlock, MdCell, MdSpan } from "conversation_view.slint";
 export { ComposerState, ComposerAttachment } from "composer.slint";
 import { Dialog } from "widgets/kit.slint";
@@ -59,7 +59,7 @@ export component AppWindow inherits Window {
             spacing: 0px;
             if root.wide || !ConversationState.selected: ListPane { width: root.wide ? 360px : parent.width; }
             if root.wide: Rectangle { width: 1px; background: Theme.outline-variant; }
-            if root.wide || ConversationState.selected: ConversationPane { narrow: !root.wide; ConversationView {} }
+            if root.wide || ConversationState.selected: ConversationPane { narrow: !root.wide; VerticalLayout { spacing: 0px; ConversationView {} ConversationStatus {} } }
         }
     }
     if ConversationViewState.menu-open: ConversationMenu {}

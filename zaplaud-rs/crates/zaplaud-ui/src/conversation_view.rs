@@ -5,7 +5,7 @@ use tokio::sync::mpsc;
 use zaplaud_core::{api::{HabblaudApi, retry_after}, controller::conversation::{ConversationController, snapshot_matches_session}, model::{SessionItem, StreamEvent}, rules::{conversation::{self, SummaryState, SummaryEvent, SummaryEffect}, time}};
 use zaplaud_store::LocalStateStore;
 
-enum Command { View(usize), Toggle(String), Position(bool), Metadata(Box<SessionItem>) }
+enum Command { View(usize), Toggle(String), Observe(String), Position(bool), Metadata(Box<SessionItem>) }
 #[derive(Clone, PartialEq)]
 struct RenderRow { id:String, kind:String, source:String, display:String, label:String, time:String, expanded:bool, summarized:bool }
 thread_local! { static ROWS: RefCell<Option<Rc<VecModel<RenderRow>>>> = const { RefCell::new(None) }; }
@@ -34,7 +34,7 @@ fn set_rows(window:&AppWindow, rows:Vec<RenderRow>, reset:bool) {
             for (index,row) in rows.iter().enumerate().take(old.min(rows.len())) {
                 if model.row_data(index).as_ref() != Some(row) { model.set_row_data(index,row.clone()); }
             }
-            if old > rows.len() { model.remove(rows.len(),old-rows.len()); }
+            for _ in rows.len()..old { model.remove(rows.len()); }
             for row in rows.into_iter().skip(old) { model.push(row); }
         }
     });
@@ -58,6 +58,7 @@ struct SessionRun {
 impl Drop for SessionRun { fn drop(&mut self) { self.save(); } }
 impl SessionRun {
     fn save(&self) {
+        if !self.controller.cache_ready() { return; }
         if let Some(item) = self.controller.selected.as_ref().filter(|s| !s.sub) {
             let write = self.store.conversation_write(&item.key.origin,self.epoch);
             let _ = self.store.set_conversation(&item.key,&self.controller.entries(),self.controller.conversation.truncated,&write,&self.controller.summaries);
@@ -74,7 +75,7 @@ impl SessionRun {
         }
         if self.following { self.new_count = 0; }
         let recovered = conversation::recovered_errors(&entries);
-        let rows = conversation::group_turn(&visible).into_iter().map(|row| {
+        let mut rows = conversation::group_turn(&visible).into_iter().map(|row| {
             let entry = &row.entry;
             let expanded = self.expanded.contains(&entry.id);
             let at = if entry.kind == "tool" { conversation::tool_group_time(&row,&entries) } else { entry.at };
@@ -107,6 +108,9 @@ impl SessionRun {
             };
             RenderRow { id:entry.id.clone(), kind:entry.kind.clone(), source, display, label, time:at.and_then(|at| time::entry_time(at,now_millis())).unwrap_or_default(), expanded,summarized }
         }).collect::<Vec<_>>();
+        if self.controller.conversation.truncated {
+            rows.insert(0, RenderRow { id:"local:window-truncated".into(),kind:"system".into(),source:strings::WINDOW_TRUNCATED.into(),display:String::new(),label:String::new(),time:String::new(),expanded:false,summarized:false });
+        }
         let notice = notice(self.controller.error.as_deref(),&self.controller.connection);
         let reduced = if self.controller.conversation.reduced { strings::WINDOW_REDUCED } else { "" };
         let truncated = if self.controller.conversation.truncated { strings::WINDOW_TRUNCATED } else { "" };
@@ -152,6 +156,10 @@ fn publish_info(window:&AppWindow,item:&SessionItem,entries:&[zaplaud_core::mode
     state.set_models(ModelRc::new(VecModel::from(choices)));
     state.set_model(item.model.clone().unwrap_or_default().into());
     state.set_thinking(item.thinking.clone().unwrap_or_default().into());
+    state.set_working(item.agent_id.is_some() && item.status.as_deref() == Some("working"));
+    state.set_activity(time::status_line_text(item.activity.as_deref()).unwrap_or_else(|| strings::STATUS_LINE_WORKING.into()).into());
+    state.set_status_since(item.status_since.map(|at| at.to_string()).unwrap_or_default().into());
+    state.set_elapsed(item.status_since.map(|at| time::stopwatch(now_millis().saturating_sub(at))).unwrap_or_default().into());
 }
 
 async fn confirm(api:&HabblaudApi,item:&SessionItem) -> Result<bool,zaplaud_core::Error> {
@@ -192,8 +200,33 @@ async fn run_session(item:SessionItem, api:HabblaudApi, weak:slint::Weak<AppWind
                         run.render(&weak,false);
                     },
                     Some(Command::Toggle(id)) => { if !run.expanded.remove(&id) { run.expanded.insert(id); } run.render(&weak,false); }
+                    Some(Command::Observe(id)) => {
+                        let entry = run.controller.conversation.snapshot().find(|entry| entry.id == id).cloned();
+                        if let Some(entry) = entry
+                            && conversation::wants_summary(&entry, run.enabled) {
+                            let key = conversation::summary_key(&entry);
+                            if !run.summaries.contains_key(&key) {
+                                let cached = run.controller.summaries.get(&key).cloned();
+                                let (state,effects) = conversation::reduce_summary(SummaryState::default(),SummaryEvent::Observe { entry,enabled:run.enabled,cached });
+                                run.summaries.insert(key,state);
+                                for effect in effects { if let SummaryEffect::Summarize { key,text } = effect { let api = api.clone(); summary_jobs.spawn(async move { (key,api.summary_utf16(&text).await) }); } }
+                                run.render(&weak,false);
+                            }
+                        }
+                    }
                     Some(Command::Position(following)) => { run.following = following; if following && run.new_count != 0 { run.new_count = 0; run.render(&weak,false); } }
-                    Some(Command::Metadata(item)) => { run.controller.selected = Some(*item); let enabled = run.store.summarize().unwrap_or(false); if run.enabled != enabled { run.enabled = enabled; run.render(&weak,false); } }
+                    Some(Command::Metadata(item)) => {
+                        let changed = run.controller.selected.as_ref() != Some(item.as_ref());
+                        run.controller.selected = Some(*item);
+                        let enabled = run.store.summarize().unwrap_or(false);
+                        if run.enabled != enabled { run.enabled = enabled; run.render(&weak,true); }
+                        else if changed {
+                            let item = run.controller.selected.clone();
+                            let entries = run.controller.entries();
+                            let partial = run.controller.conversation.truncated;
+                            update_ui(&weak,move |window| { if let Some(item) = item { publish_info(&window,&item,&entries,partial); } });
+                        }
+                    }
                     None => break,
                 }
             }
@@ -226,15 +259,6 @@ async fn run_session(item:SessionItem, api:HabblaudApi, weak:slint::Weak<AppWind
             }
             _ = tokio::time::sleep_until(save_at.unwrap_or_else(|| tokio::time::Instant::now()+Duration::from_secs(86400))), if save_at.is_some() => { run.save(); save_at = None; }
         }
-        for entry in run.controller.entries() {
-            if !conversation::wants_summary(&entry,run.enabled) { continue; }
-            let key = conversation::summary_key(&entry);
-            let state = run.summaries.remove(&key).unwrap_or_default();
-            let cached = run.controller.summaries.get(&key).cloned();
-            let (state,effects) = conversation::reduce_summary(state,SummaryEvent::Observe { entry,enabled:run.enabled,cached });
-            run.summaries.insert(key.clone(),state);
-            for effect in effects { if let SummaryEffect::Summarize { key,text } = effect { let api = api.clone(); summary_jobs.spawn(async move { (key,api.summary_utf16(&text).await) }); } }
-        }
     }
 }
 
@@ -248,13 +272,15 @@ pub fn setup(window:&AppWindow,context:&FeatureContext) {
     let weak = window.as_weak(); window.global::<ConversationState>().on_info(move || { if let Some(w) = weak.upgrade() { w.global::<ConversationViewState>().set_info_open(true); } });
     let weak = window.as_weak(); window.global::<ConversationState>().on_menu(move || { if let Some(w) = weak.upgrade() { w.global::<ConversationViewState>().set_menu_open(true); } });
     let (sender,mut receiver) = mpsc::unbounded_channel();
+    let weak = window.as_weak(); state.on_tick(move || { if let Some(window) = weak.upgrade() { let state = window.global::<ConversationViewState>(); if let Ok(at) = state.get_status_since().parse::<i64>() { state.set_elapsed(time::stopwatch(now_millis().saturating_sub(at)).into()); } } });
     let send = sender.clone(); state.on_choose_view(move |index| { if let Ok(index) = usize::try_from(index) { let _ = send.send(Command::View(index)); } });
     let send = sender.clone(); state.on_toggle(move |id| { let _ = send.send(Command::Toggle(id.into())); });
+    let send = sender.clone(); state.on_observe(move |id| { let _ = send.send(Command::Observe(id.into())); });
     state.on_position(move |following| { let _ = sender.send(Command::Position(following)); });
     let weak = window.as_weak(); state.on_copy(move |text| { if let Some(window) = weak.upgrade() { window.invoke_copy_conversation(text); } });
     let runtime = context.runtime.clone(); state.on_open_link(move |url| {
         let valid = url::Url::parse(&url).is_ok_and(|url| matches!(url.scheme(),"http"|"https") && url.host_str().is_some());
-        if valid { let url = url.to_string(); runtime.spawn(async move { let program = if cfg!(target_os="macos") { "open" } else { "xdg-open" }; let _ = std::process::Command::new(program).arg(url).spawn().and_then(|mut child| child.wait()); }); }
+        if valid { let url = url.to_string(); runtime.spawn_blocking(move || { let program = if cfg!(target_os="macos") { "open" } else { "xdg-open" }; let _ = std::process::Command::new(program).arg(url).spawn().and_then(|mut child| child.wait()); }); }
     });
     let mut snapshots = context.snapshots.subscribe();
     let weak = window.as_weak(); let context = context.clone();

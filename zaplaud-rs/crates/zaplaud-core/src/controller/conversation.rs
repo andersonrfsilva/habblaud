@@ -44,6 +44,7 @@ impl ConversationController {
     }
     pub fn generation(&self) -> u64 { self.generation }
     pub fn entries(&self) -> Vec<TerminalEntry> { self.conversation.snapshot().cloned().collect() }
+    pub fn cache_ready(&self) -> bool { self.cached }
     /// Retorna true apenas quando o conteúdo mudou. Eventos atrasados nunca contaminam outra sessão.
     pub fn apply(&mut self, generation: u64, event: StreamEvent) -> Result<bool, &'static str> {
         if generation != self.generation || self.selected.is_none() { return Ok(false); }
@@ -83,7 +84,7 @@ impl ConversationController {
     }
 }
 
-/// Chaque init confirme l'identité courante, sans confondre une réécriture du transcript avec une nouvelle session.
+/// Confirma cada init sem confundir uma reescrita do transcript com outra sessão.
 pub fn snapshot_matches_session(data: &str, item: &SessionItem) -> Result<bool, serde_json::Error> {
     let snapshot: serde_json::Value = serde_json::from_str(data)?;
     Ok(snapshot.get("agents").and_then(serde_json::Value::as_array).into_iter().flatten().any(|agent| {

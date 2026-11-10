@@ -6483,6 +6483,7 @@ dependencies = [
  "slint-build",
  "tempfile",
  "tokio",
+ "url",
  "usvg 0.45.1",
  "zaplaud-core",
  "zaplaud-store",
