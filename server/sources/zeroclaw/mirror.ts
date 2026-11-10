@@ -144,7 +144,8 @@ export class ZeroClawMirror {
     return this.serial(event.sessionId, async () => {
       await this.read(event.sessionId);
       const turn = this.turns.get(event.sessionId)!;
-      const streaming = event.type === 'frame' && (event.frame.type === 'chunk' || event.frame.type === 'thinking');
+      // A consulta periódica do estado do turno chega no meio do streaming: só fecha o bloco quando vai gravar algo.
+      const streaming = event.type === 'turn-state' || event.type === 'frame' && (event.frame.type === 'chunk' || event.frame.type === 'thinking');
       if (!streaming) await this.flushPending(event.sessionId, turn);
       if (event.type === 'session-open') {
         const { sessionId, agent, name, cwd, cast, officeAgentId } = event.descriptor;
@@ -164,6 +165,7 @@ export class ZeroClawMirror {
         return;
       }
       if (event.type === 'turn-state') {
+        if (event.continuityLost || event.terminalConfirmed && !event.busy) await this.flushPending(event.sessionId, turn);
         if (event.continuityLost) await this.gap(event.sessionId, turn);
         if (event.terminalConfirmed && !event.busy && turn.unknown) {
           await this.info(event.sessionId, 'info', 'Ausência de turno ativo confirmada pelo gateway.');

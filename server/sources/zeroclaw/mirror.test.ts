@@ -70,6 +70,15 @@ describe('ZeroClawMirror — contrato de frames e parsers reais', () => {
     expect(await mirror.load(sessionId)).toHaveLength(records.length);
   });
 
+  it('consulta do turno no meio do streaming não corta a resposta', async () => {
+    await mirror.consume(frame({ type: 'chunk', content: '1. **Prim' }));
+    await mirror.consume({ type: 'turn-state', sessionId, busy: true, continuityLost: false, terminalConfirmed: false, source: 'http-state' });
+    await mirror.consume(frame({ type: 'chunk', content: 'eiro**' }));
+    await mirror.consume(frame({ type: 'done', full_response: '1. **Primeiro**' }));
+    const { entries } = await parsed();
+    expect(entries.filter((entry) => entry.kind === 'assistant').map((entry) => entry.text)).toEqual(['1. **Primeiro**']);
+  });
+
   it('thinking vazio não inventa pensamento; deltas de raciocínio viram um bloco quando a resposta começa', async () => {
     await mirror.consume(frame({ type: 'thinking', content: '' }));
     await mirror.consume(frame({ type: 'thinking', content: 'Pensar\n' }));
