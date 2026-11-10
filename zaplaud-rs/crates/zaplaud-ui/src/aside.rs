@@ -54,31 +54,25 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
             window.invoke_copy_conversation(text);
         }
     });
+    let weak = window.as_weak();
     global.on_link(move |url| {
-        if !(url.starts_with("https://") || url.starts_with("http://"))
-            || url.chars().any(char::is_control)
-        {
-            return;
+        if let Some(window) = weak.upgrade() {
+            window
+                .global::<crate::ConversationViewState>()
+                .invoke_open_link(url);
         }
-        std::thread::spawn(move || {
-            let program = if cfg!(target_os = "macos") {
-                "open"
-            } else {
-                "xdg-open"
-            };
-            let _ = std::process::Command::new(program)
-                .arg(url.as_str())
-                .status();
-        });
     });
     let (visible, visibility) = watch::channel(true);
-    global.on_app_visibility(move |value| { visible.send_replace(value); });
+    global.on_app_visibility(move |value| {
+        visible.send_replace(value);
+    });
     let mut snapshots = context.snapshots.subscribe();
     let weak = window.as_weak();
     let commands = context.commands.clone();
     context.runtime.spawn(async move {
         let mut selected: Option<SessionItem> = None;
         let mut api = None;
+        let mut eligible = false;
         let mut runner: Option<tokio::task::JoinHandle<()>> = None;
         let mut input = None;
         let (initial, mut state) = watch::channel(State::default());
@@ -91,11 +85,16 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                     let changed = selected.as_ref().map(|s| (&s.key, &s.agent_id)) != snapshot.selected.as_ref().map(|s| (&s.key, &s.agent_id));
                     selected = snapshot.selected.clone();
                     api = selected.as_ref().and_then(|s| snapshot.servers.iter().find(|server| server.api.origin() == s.key.origin)).map(|server| server.api.clone());
+                    let available = selected.as_ref().is_some_and(|s| s.key.provider == "omp" && s.agent_id.is_some() && !s.sub);
+                    eligible = available && selected.as_ref().is_some_and(|s| s.can_message) && snapshot.servers.iter().find(|server| selected.as_ref().is_some_and(|s| s.key.origin == server.api.origin())).is_some_and(|server| !server.needs_login && server.reading.messages_allowed && server.reading.message_guard && server.reading.connection == "connected");
+                    let enabled = eligible;
+                    update_ui(&weak, move |window| { let global = window.global::<AsideState>(); global.set_available(available); global.set_enabled(enabled); });
                     if changed { if let Some(task) = runner.take() { task.abort(); } input = None; publish(&weak, State::default()); }
                 }
                 event = receive.recv() => {
                     let Some(event) = event else { break };
                     if matches!(event, Event::Open(_)) {
+                        if !eligible { continue; }
                         if let (Some(api), Some(agent)) = (api.clone(), selected.as_ref().and_then(|s| s.agent_id.clone())) {
                             if let Some(task) = runner.take() { task.abort(); }
                             let (send, receive) = mpsc::unbounded_channel(); let (out, changes) = watch::channel(State::default()); state = changes;

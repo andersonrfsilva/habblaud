@@ -6,6 +6,8 @@ export struct AsideTurnRow { question: string, answer: string, blocks: [MdBlock]
 export struct AsideTopicRow { id: string, title: string }
 export global AsideState {
     in-out property <bool> visible;
+    in property <bool> available;
+    in property <bool> enabled;
     in property <bool> loading;
     in property <bool> sending;
     in property <bool> running;
