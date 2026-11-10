@@ -1,128 +1,418 @@
-use std::path::PathBuf;
-use std::process::Stdio;
-use std::time::Duration;
-
+use futures_util::StreamExt;
 use serde_json::Value;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::Command;
-use tokio::time::timeout;
-use zaplaud_core::api::{EventStream, HabblaudApi};
-use zaplaud_core::model::{ServerEvent, Snapshot};
-
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+    process::Stdio,
+    time::Duration,
+};
+use tokio::{
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines},
+    process::{Child, ChildStdin, ChildStdout, Command},
+    time::timeout,
+};
+use zaplaud_core::{
+    Error,
+    api::*,
+    model::{SendMode, ServerEvent, Snapshot},
+};
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
-
-async fn next_snapshot(stream: &mut EventStream) -> TestResult<Snapshot> {
-    loop {
-        match stream.next_event().await? {
-            Some(ServerEvent::Snapshot(snapshot)) => return Ok(snapshot),
-            Some(_) => {}
-            None => return Err("Stream encerrado antes do snapshot".into()),
+struct Fixture {
+    child: Child,
+    input: ChildStdin,
+    lines: Lines<BufReader<ChildStdout>>,
+    ready: Value,
+}
+impl Fixture {
+    async fn start() -> TestResult<Option<Self>> {
+        match Command::new("node").arg("--version").output().await {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                eprintln!(
+                    "SKIP contract: Node.js ausente; instale Node.js e execute npm ci na raiz."
+                );
+                return Ok(None);
+            }
+            Err(e) => return Err(e.into()),
+            Ok(result) if !result.status.success() => return Err("Node.js não iniciou".into()),
+            Ok(_) => {}
         }
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(3)
+            .ok_or("raiz ausente")?
+            .to_path_buf();
+        let mut child = Command::new("node")
+            .args([
+                "--import",
+                "tsx",
+                "scripts/android-smoke.ts",
+                "--port",
+                "0",
+                "--allow",
+                "terminal,messages,permissions",
+            ])
+            .current_dir(root)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .kill_on_drop(true)
+            .spawn()?;
+        let input = child.stdin.take().ok_or("stdin ausente")?;
+        let mut lines = BufReader::new(child.stdout.take().ok_or("stdout ausente")?).lines();
+        let ready = timeout(Duration::from_secs(30), async {
+            while let Some(line) = lines.next_line().await? {
+                let value: Value = serde_json::from_str(&line)?;
+                if value["ready"] == true {
+                    return Ok::<_, Box<dyn std::error::Error>>(value);
+                }
+            }
+            Err("fixture encerrou antes de ready".into())
+        })
+        .await??;
+        Ok(Some(Self {
+            child,
+            input,
+            lines,
+            ready,
+        }))
+    }
+    async fn command(&mut self, command: &str) -> TestResult<Value> {
+        self.input
+            .write_all(format!("{command}\n").as_bytes())
+            .await?;
+        self.input.flush().await?;
+        let line = timeout(Duration::from_secs(10), self.lines.next_line())
+            .await
+            .map_err(|_| format!("timeout do comando {command}"))??
+            .ok_or("fixture encerrou")?;
+        let value: Value = serde_json::from_str(&line)?;
+        if value["ok"] == false {
+            return Err(format!("comando {command}: {value}").into());
+        }
+        Ok(value)
+    }
+    async fn finish(mut self) -> TestResult {
+        drop(self.input);
+        timeout(Duration::from_secs(10), self.child.wait())
+            .await
+            .map_err(|_| "timeout ao fechar fixture")??;
+        Ok(())
     }
 }
-
-#[tokio::test]
-async fn login_snapshot_permission_and_logout() -> TestResult {
-    match Command::new("node").arg("--version").output().await {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            eprintln!("SKIP contract: Node.js ausente; instale Node.js e execute npm ci na raiz.");
-            return Ok(());
-        }
-        Err(error) => return Err(error.into()),
-        Ok(output) if !output.status.success() => return Err("Node.js não iniciou".into()),
-        Ok(_) => {}
-    }
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .ancestors()
-        .nth(3)
-        .ok_or("Raiz da worktree ausente")?
-        .to_path_buf();
-    let mut child = Command::new("node")
-        .args([
-            "--import",
-            "tsx",
-            "scripts/android-smoke.ts",
-            "--port",
-            "0",
-            "--allow",
-            "terminal,messages,permissions",
-        ])
-        .current_dir(root)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .kill_on_drop(true)
-        .spawn()?;
-    let stdout = child.stdout.take().ok_or("stdout da fixture ausente")?;
-    let mut lines = BufReader::new(stdout).lines();
-    let ready = timeout(Duration::from_secs(30), async {
-        while let Some(line) = lines.next_line().await? {
-            let value: Value = serde_json::from_str(&line)?;
-            if value.get("ready").and_then(Value::as_bool) == Some(true) {
-                return Ok::<_, Box<dyn std::error::Error>>(value);
+fn required<'a>(value: &'a Value, field: &str) -> TestResult<&'a str> {
+    value[field]
+        .as_str()
+        .ok_or_else(|| format!("campo {field} ausente").into())
+}
+fn find_identical(dir: &Path, bytes: &[u8]) -> TestResult<bool> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        if entry.file_type()?.is_dir() {
+            if find_identical(&entry.path(), bytes)? {
+                return Ok(true);
             }
+        } else if std::fs::read(entry.path())? == bytes {
+            return Ok(true);
         }
-        Err("Fixture encerrou antes de anunciar a porta".into())
-    })
-    .await??;
-    let origin = ready
-        .get("url")
-        .and_then(Value::as_str)
-        .ok_or("URL da fixture ausente")?;
-    let agent_id = ready
-        .get("agents")
-        .and_then(Value::as_array)
-        .and_then(|agents| agents.first())
-        .and_then(Value::as_str)
-        .ok_or("Agente da fixture ausente")?;
-    let api = HabblaudApi::new(origin)?;
-    assert!(matches!(
-        api.request("/api/snapshot", None).await,
-        Err(zaplaud_core::Error::Api { status: 401, .. })
-    ));
-    api.login("android-test", "android-test").await?;
-    let isolated = HabblaudApi::new(origin)?;
-    assert!(matches!(
-        isolated.request("/api/snapshot", None).await,
-        Err(zaplaud_core::Error::Api { status: 401, .. })
-    ));
-    let mut stream = api.stream("/api/stream").await?;
-    let first = timeout(Duration::from_secs(10), next_snapshot(&mut stream)).await??;
-    assert!(
-        first
-            .sessions
-            .iter()
-            .any(|session| session.agent_id.as_deref() == Some(agent_id))
-    );
-    let mut input = child.stdin.take().ok_or("stdin da fixture ausente")?;
-    input
-        .write_all(format!("permission {agent_id} bash\n").as_bytes())
-        .await?;
-    input.flush().await?;
+    }
+    Ok(false)
+}
+async fn delivered(fixture: &mut Fixture, api: &HabblaudApi, agent: &str, id: &str) -> TestResult {
     timeout(Duration::from_secs(10), async {
         loop {
-            let snapshot = next_snapshot(&mut stream).await?;
-            if snapshot
-                .sessions
-                .iter()
-                .any(|session| session.agent_id.as_deref() == Some(agent_id) && session.permission)
-            {
+            fixture.command(&format!("deliver {agent}")).await?;
+            if api.message_status(id).await?.status.as_deref() == Some("delivered") {
                 return Ok::<_, Box<dyn std::error::Error>>(());
             }
+            tokio::time::sleep(Duration::from_millis(25)).await;
         }
     })
-    .await??;
-    drop(stream);
-    api.logout().await?;
-    assert!(matches!(
-        api.request("/api/snapshot", None).await,
-        Err(zaplaud_core::Error::Api { status: 401, .. })
-    ));
-    drop(input);
-    timeout(Duration::from_secs(10), child.wait()).await??;
+    .await
+    .map_err(|_| format!("timeout de entrega {id}"))??;
     Ok(())
 }
 
+#[tokio::test]
+async fn full_kotlin_http_contract() -> TestResult {
+    let Some(mut fixture) = Fixture::start().await? else {
+        return Ok(());
+    };
+    let api = HabblaudApi::new(required(&fixture.ready, "url")?)?;
+    assert!(matches!(api.snapshot().await, Err(Error::Unauthorized)));
+    api.login("android-test", "android-test").await?;
+    let access = api.access().await?;
+    assert!(
+        access.terminal && access.messages && access.permissions && access.message_session_guard
+    );
+    let snapshot = api.snapshot().await?;
+    let markdown = snapshot
+        .sessions
+        .iter()
+        .find(|s| s.agent_id.as_deref() == Some("fixture:claude"))
+        .ok_or("sessão markdown ausente")?;
+    let omp = snapshot
+        .sessions
+        .iter()
+        .find(|s| s.agent_id.as_deref() == Some("fixture:omp"))
+        .ok_or("sessão omp ausente")?;
+    let recent = api.recent_sessions().await?;
+    assert!(!recent.is_empty());
+    assert!(!api.cast().await?.is_empty());
+    assert!(!api.cast_folders().await?.is_empty());
+    assert!(api.cast_jobs().await?.available);
+    let mut global = api.stream("/api/stream").await?;
+    assert!(matches!(
+        timeout(Duration::from_secs(10), global.next_event())
+            .await
+            .map_err(|_| "timeout snapshot SSE")??,
+        Some(ServerEvent::Snapshot(_))
+    ));
+    let mut conversation = api.stream(&conversation_path(markdown, &[])).await?;
+    let init = timeout(Duration::from_secs(10), conversation.next_event())
+        .await
+        .map_err(|_| "timeout init SSE")??;
+    let entries = match init {
+        Some(ServerEvent::ConversationInit(init)) => init.entries,
+        _ => return Err("init ausente".into()),
+    };
+    assert!(
+        entries
+            .iter()
+            .any(|entry| entry.text.contains("# Relatório fictício"))
+    );
+    drop(conversation);
+    let mut incremental = api.stream(&conversation_path(markdown, &entries)).await?;
+    assert!(
+        matches!(timeout(Duration::from_secs(10),incremental.next_event()).await.map_err(|_| "timeout init incremental")??,Some(ServerEvent::ConversationInit(init)) if init.after_present)
+    );
+    drop(incremental);
+    let bytes = b"anexo ficticio de trinta e um!!";
+    assert_eq!(bytes.len(), 31);
+    let progress = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let recorded = progress.clone();
+    let attachment = api
+        .upload(
+            "fictício +.txt",
+            "text/plain",
+            std::io::Cursor::new(bytes.to_vec()),
+            Some(31),
+            move |count| {
+                recorded.store(count, std::sync::atomic::Ordering::Relaxed);
+            },
+        )
+        .await?;
+    assert_eq!(progress.load(std::sync::atomic::Ordering::Relaxed), 31);
+    let receipt = api
+        .send_message(&SendMessage {
+            agent_id: "fixture:claude",
+            text: "Mensagem fictícia",
+            expected_session_id: &markdown.key.session_id,
+            deliver_as: None,
+            attachments: vec![attachment],
+        })
+        .await?;
+    assert_eq!(receipt.status.as_deref(), Some("queued"));
+    delivered(&mut fixture, &api, "fixture:claude", &receipt.id).await?;
+    assert!(find_identical(
+        Path::new(required(&fixture.ready, "deliveredDir")?),
+        bytes
+    )?);
+    for mode in [SendMode::Aside, SendMode::FollowUp, SendMode::Steer] {
+        let receipt = api
+            .send_message(&SendMessage {
+                agent_id: "fixture:omp",
+                text: "Modo fictício",
+                expected_session_id: &omp.key.session_id,
+                deliver_as: Some(mode),
+                attachments: vec![],
+            })
+            .await?;
+        delivered(&mut fixture, &api, "fixture:omp", &receipt.id).await?;
+    }
+    for control in [
+        Control::Stop { stop: true },
+        Control::Shake {
+            command: "shake".into(),
+        },
+        Control::Model {
+            model: "anthropic/claude-opus-4-6".into(),
+        },
+        Control::Thinking {
+            thinking: "high".into(),
+        },
+    ] {
+        let receipt = api
+            .control_message(&ControlMessage {
+                agent_id: "fixture:omp",
+                expected_session_id: &omp.key.session_id,
+                control,
+            })
+            .await?;
+        delivered(&mut fixture, &api, "fixture:omp", &receipt.id).await?;
+    }
+    for decision in [
+        PermissionDecision::Allow { suggestion: None },
+        PermissionDecision::Deny {
+            message: Some("Negação fictícia".into()),
+            interrupt: false,
+        },
+    ] {
+        let created = fixture.command("permission fixture:claude bash").await?;
+        let id = required(&created, "id")?;
+        let detail = api.permission(id).await?;
+        assert_eq!(detail.provider, "claude");
+        assert!(
+            api.permissions()
+                .await?
+                .iter()
+                .any(|(_, permission)| permission == id)
+        );
+        api.decide_permission(id, &decision).await?;
+        assert!(matches!(
+            api.permission(id).await,
+            Err(Error::Api {
+                status: 404 | 409,
+                ..
+            })
+        ));
+    }
+    let question = fixture
+        .command("permission fixture:claude question-single")
+        .await?;
+    let id = required(&question, "id")?;
+    let detail = api.permission(id).await?;
+    let question = detail.questions.first().ok_or("pergunta ausente")?;
+    let choice = question
+        .options
+        .first()
+        .and_then(|o| o.index)
+        .ok_or("opção ausente")?;
+    api.decide_permission(
+        id,
+        &PermissionDecision::Answer {
+            answers: vec![QuestionAnswer {
+                question: question.index.ok_or("índice ausente")?,
+                options: vec![choice],
+                other: None,
+            }],
+        },
+    )
+    .await?;
+    let topic = api
+        .ask_aside("fixture:omp", "  Pergunta fictícia  ", None)
+        .await?
+        .ok_or("tópico ausente")?;
+    assert_eq!(topic.turns[0].question, "Pergunta fictícia");
+    assert!(
+        api.asides("fixture:omp")
+            .await?
+            .iter()
+            .any(|item| item.id == topic.id)
+    );
+    let mut aside_stream = Box::pin(api.aside_stream("fixture:omp"));
+    assert!(
+        aside_stream
+            .next()
+            .await
+            .ok_or("aside stream vazio")??
+            .iter()
+            .any(|topic| topic.turns.iter().any(|turn| turn.running()))
+    );
+    api.cancel_aside("fixture:omp", &topic.id).await?;
+    assert!(
+        !api.asides("fixture:omp")
+            .await?
+            .iter()
+            .flat_map(|topic| &topic.turns)
+            .any(|turn| turn.running())
+    );
+    assert!(
+        !aside_stream
+            .next()
+            .await
+            .ok_or("aside final ausente")??
+            .iter()
+            .any(|topic| topic.turns.iter().any(|turn| turn.running()))
+    );
+    assert!(aside_stream.next().await.is_none());
+    assert!(matches!(
+        api.summary("Texto fictício para resumo.").await,
+        Err(Error::Api { status: 404, .. })
+    ));
+    let _roles = api.roles().await?;
+    api.set_roles(&BTreeMap::from([(
+        "task".into(),
+        "anthropic/claude-opus-4-6:high".into(),
+    )]))
+    .await?;
+    assert!(api.roles().await?.pending);
+    fixture.command("cast-consume").await?;
+    let called = api.start_cast("caio", "/fixture/projeto", None).await?;
+    assert_eq!(called.cast.as_deref(), Some("caio"));
+    fixture.command("cast-consume").await?;
+    assert!(
+        api.snapshot()
+            .await?
+            .sessions
+            .iter()
+            .any(|s| s.agent_id.as_deref() == Some("fixture:cast:caio"))
+    );
+    api.dismiss_agent("fixture:cast:caio").await?;
+    fixture.command("cast-consume").await?;
+    let historical = recent
+        .iter()
+        .find(|s| s.key.session_id.ends_with("0003"))
+        .ok_or("histórico ausente")?;
+    api.start_cast(
+        "bia",
+        "/fixture/projeto",
+        Some(ResumeSession {
+            session: &historical.key.session_id,
+            account: &historical.key.account,
+        }),
+    )
+    .await?;
+    fixture.command("cast-consume").await?;
+    let resumed = api.snapshot().await?;
+    assert!(
+        resumed
+            .sessions
+            .iter()
+            .any(|s| s.agent_id.as_deref() == Some("fixture:cast:bia") && s.key == historical.key)
+    );
+    let new = api.new_cast("/fixture/projeto", None).await?;
+    assert!(new.cast.is_some());
+    fixture.command("cast-consume").await?;
+    // Novo também deve aceitar retomada sem personagem fixo.
+    let resumed_new = api
+        .new_cast(
+            "/fixture/projeto",
+            Some(ResumeSession {
+                session: &markdown.key.session_id,
+                account: &markdown.key.account,
+            }),
+        )
+        .await?;
+    let resumed_cast = resumed_new.cast.ok_or("cast Novo ausente")?;
+    fixture.command("cast-consume").await?;
+    assert!(
+        api.snapshot()
+            .await?
+            .sessions
+            .iter()
+            .any(|s| s.cast.as_deref() == Some(&resumed_cast)
+                && s.key.session_id == markdown.key.session_id)
+    );
+    if let Some(avatar) = &markdown.avatar {
+        assert!(api.avatar_bytes(avatar).await?.is_some());
+    }
+    let _quotas = api.quotas().await?;
+    drop(global);
+    api.logout().await?;
+    assert!(matches!(api.snapshot().await, Err(Error::Unauthorized)));
+    fixture.finish().await?;
+    Ok(())
+}
 #[test]
 fn real_server_payloads_decode() -> TestResult {
     let initial = Snapshot::parse("http://127.0.0.1", include_str!("fixtures/snapshot.json"))?;
@@ -131,15 +421,10 @@ fn real_server_payloads_decode() -> TestResult {
         include_str!("fixtures/snapshot-permission.json"),
     )?;
     assert!(!initial.sessions.is_empty());
-    assert!(!initial.sessions.iter().any(|session| session.permission));
-    assert!(permission.sessions.iter().any(|session| session.permission));
-    match ServerEvent::parse(
-        "http://127.0.0.1",
-        "init",
-        include_str!("fixtures/conversation-init.json"),
-    )? {
-        ServerEvent::ConversationInit(init) => assert!(!init.entries.is_empty()),
-        _ => return Err("Evento de conversa incorreto".into()),
-    }
+    assert!(!initial.sessions.iter().any(|s| s.permission));
+    assert!(permission.sessions.iter().any(|s| s.permission));
+    assert!(
+        matches!(ServerEvent::parse("http://127.0.0.1","init",include_str!("fixtures/conversation-init.json"))?,ServerEvent::ConversationInit(init) if !init.entries.is_empty())
+    );
     Ok(())
 }

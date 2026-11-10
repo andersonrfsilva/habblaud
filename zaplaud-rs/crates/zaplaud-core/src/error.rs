@@ -4,6 +4,14 @@ pub enum Error {
     InvalidOrigin,
     #[error("Caminho da API inválido")]
     InvalidPath,
+    #[error("Sessão não autorizada (HTTP 401)")]
+    Unauthorized,
+    #[error("Resposta HTTP excede o limite de memória")]
+    ResponseTooLarge,
+    #[error("Resposta HTTP incompleta: {0}")]
+    InvalidResponse(&'static str),
+    #[error("Falha de leitura do anexo: {0}")]
+    Io(#[from] std::io::Error),
     #[error("Redirecionamento recusado (HTTP {0})")]
     Redirect(u16),
     #[error("HTTP {status}: {detail}")]
