@@ -302,6 +302,7 @@ fn publish(weak: &slint::Weak<AppWindow>, item: SessionItem, state: State) {
                 .unwrap_or_default()
                 .into(),
         );
+        ui.set_summary(detail.map_or("", permission_summary).into());
         ui.set_input(
             detail
                 .and_then(|d| d.input.clone())
@@ -407,6 +408,14 @@ fn publish(weak: &slint::Weak<AppWindow>, item: SessionItem, state: State) {
     });
 }
 
+// `text` é o resumo humano do servidor; `description` e `input` não o substituem.
+fn permission_summary(permission: &zaplaud_core::model::Permission) -> &str {
+    permission
+        .raw
+        .get("text")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("")
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -419,5 +428,44 @@ mod tests {
         assert_eq!(original.row_data(0).as_deref(), Some("resposta completa"));
         let expanded = update_model(updated, vec!["a".into(), "b".into()]);
         assert_eq!(expanded.row_count(), 2);
+    }
+    use serde_json::json;
+    use zaplaud_core::model::Permission;
+
+    #[test]
+    fn approval_preserves_server_summary_separately_from_technical_input() {
+        let permission = Permission::parse(&json!({
+            "text":"Executar os testes do projeto", "description":"Descrição técnica",
+            "tool":"Bash", "input":{"command":"cargo test"}
+        }));
+        assert_eq!(
+            permission_summary(&permission),
+            "Executar os testes do projeto"
+        );
+        assert_eq!(
+            permission.input.as_deref(),
+            Some("{\"command\":\"cargo test\"}")
+        );
+        for value in [
+            json!({}),
+            json!({"text":null}),
+            json!({"text":42}),
+            json!({"text":""}),
+        ] {
+            assert_eq!(permission_summary(&Permission::parse(&value)), "");
+        }
+    }
+
+    #[test]
+    fn question_requests_keep_the_server_summary() {
+        let permission = Permission::parse(&json!({
+            "text":"Escolher o destino da publicação", "tool":"AskUserQuestion",
+            "questions":[{"index":0,"question":"Qual ambiente?","options":[{"index":0,"label":"Teste"}]}]
+        }));
+        assert_eq!(
+            permission_summary(&permission),
+            "Escolher o destino da publicação"
+        );
+        assert_eq!(permission.questions.len(), 1);
     }
 }

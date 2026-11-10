@@ -203,6 +203,7 @@ fn publish_info(
     let fraction = item
         .context_tokens
         .zip(item.context_window)
+        .filter(|_| zaplaud_core::rules::composer::reliable_context(&item.key.provider))
         .map(|(tokens, window)| (tokens as f32 / window as f32).clamp(0., 1.));
     if let (Some(fraction), Some(tokens), Some(size)) =
         (fraction, item.context_tokens, item.context_window)

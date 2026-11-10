@@ -273,17 +273,21 @@ export component ConversationMenu inherits Rectangle {
                 label: ConversationViewState.deliver-label; group: true; detail: ComposerState.mode-labels[ComposerState.mode-index];
                 clicked => { ConversationViewState.menu-page = "deliver"; }
             }
-            if ComposerState.modes-visible && ConversationViewState.models.length > 0: MenuAction {
+            if ComposerState.omp-tools && ConversationViewState.models.length > 0: MenuAction {
                 label: ConversationViewState.model-label; detail: ConversationViewState.model; group: true; enabled: ComposerState.can-shake;
                 clicked => { ConversationViewState.menu-page = "model"; }
             }
-            if ComposerState.modes-visible: MenuAction {
+            if ComposerState.omp-tools: MenuAction {
                 label: ConversationViewState.thinking-label; group: true; enabled: ComposerState.can-shake;
                 clicked => { ConversationViewState.menu-page = "thinking"; }
             }
-            if ComposerState.modes-visible: MenuAction {
+            if ComposerState.omp-tools: MenuAction {
                 label: ConversationViewState.shake-label; enabled: ComposerState.can-shake;
                 clicked => { ComposerState.command("shake", ""); ConversationViewState.menu-open = false; }
+            }
+            if ComposerState.new-visible: MenuAction {
+                label: ComposerState.new-label; enabled: ComposerState.stop-enabled;
+                clicked => { ComposerState.new-confirm = true; ConversationViewState.menu-open = false; }
             }
             if AsideState.available: MenuAction {
                 label: ConversationViewState.aside-label; enabled: AsideState.enabled;

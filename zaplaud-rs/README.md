@@ -94,6 +94,10 @@ Após salvar preferências, `SettingsState.preferences-changed()` avisa o recurs
 
 Para exercitar papéis na fixture real, envie `roles-seed {"tiny":"anthropic/claude-haiku-4-5","task":"openai-codex/gpt-5"}` ao stdin. O comando só semeia o snapshot do auxiliar; `cast-consume` confirma os trabalhos reais criados por `POST /api/cast/roles`. Sem esses comandos, o comportamento anterior da fixture permanece intacto.
 
+ZeroClaw usa o runtime informado por `/api/cast/models`, inclusive com catálogo vazio. Retomadas pelo elenco exigem o mesmo provider da conversa; o cliente não transforma histórico OMP em ZeroClaw. Mensagens preservam `expectedSessionId` e normalizam `aside` para `followUp` somente no envio, sem alterar a preferência persistida. ZeroClaw oferece `followUp`, `steer`, STOP e nova sessão; modelo, raciocínio, shake e bate-papo paralelo continuam exclusivos do OMP. A nova sessão conserva o rascunho antigo e navega pelo snapshot da mesma origem, conta e agente.
+
+Os dois medidores de contexto ficam ocultos no ZeroClaw, mesmo quando chegam tokens zero ou positivos. Configurações consultam `/api/health`: `summaryHttp` habilita resumos sem Tiny, e o editor de papéis só consulta `/api/cast/roles` no runtime OMP. Cotas continuam vindo do snapshot do Habblaud; o cliente nunca acessa `/v1/cota` nem credenciais do gateway diretamente. O contrato ZeroClaw exige Node.js e cobre catálogo vazio/erro, marca neutra, envio, STOP sem resposta ativa, nova sessão e chamada pelo elenco.
+
 Identificadores permanecem em inglês; portas de regras preservam o nome Kotlin convertido para snake_case. Comentários e documentação ficam em português. Não use `unwrap()`/`expect()` em caminhos de rede, disco ou entrada do usuário. Testes devem cobrir comportamento e erros, não detalhes textuais da implementação. Novos recursos devem reutilizar o modelo e as regras existentes, sem introduzir um segundo contrato.
 
 O lint compartilhado usa `unsafe_code = "deny"`, não `forbid`: o Rust gerado pelo Slint contém `unsafe` autorizado internamente. Lints adicionais contra macros de código incompleto também precisam distinguir código próprio do gerado pelo Slint; não altere os arquivos em `OUT_DIR`.
@@ -153,6 +157,7 @@ salvas a cada snapshot real, sem listener vazio nem stream adicional.
 O executor `controller::permission::run(api, commands, updates)` possui os pedidos e o timer de prazo;
 fechar a folha, trocar de pedido ou abandonar o consumidor cancela essas tarefas, sem repetir decisões POST.
 As decisões levam o ID exibido na folha e rejeitam IDs divergentes; uma oscilação da conexão não invalida a conclusão de um POST em andamento. Comandos e entradas completos quebram por caractere e permanecem acessíveis pela rolagem da folha; o indicador localizado de linhas adicionais sinaliza conteúdo fora do visor. Entradas JSON não textuais usam serialização compacta. Notificações não são fechadas à força e permanecem disponíveis conforme a política do centro de notificações.
+O resumo humano `PermissionRequestInfo.text` aparece sem rótulo entre a ferramenta e a entrada técnica; pedidos com perguntas também exibem esse resumo antes das perguntas. Texto ausente ou vazio não deixa espaço extra. A descrição técnica e o comando permanecem separados e completos.
 
 
 

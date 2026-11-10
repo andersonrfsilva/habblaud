@@ -1304,6 +1304,7 @@ fn cast_resume_free_owner_and_identity_boundaries() {
         &characters,
         &HashSet::from(["ocupado".into()]),
         &HashMap::new(),
+        Some("omp"),
     );
     assert!(available.resume);
     assert_eq!(
@@ -1325,6 +1326,7 @@ fn cast_resume_free_owner_and_identity_boundaries() {
         &characters,
         &HashSet::new(),
         &HashMap::from([("dono".into(), "waiting".into())]),
+        Some("omp"),
     );
     assert!(available.active_job && available.dismiss);
     assert!(!available.resume);
@@ -1338,12 +1340,22 @@ fn cast_resume_free_owner_and_identity_boundaries() {
                 }),
                 &[],
                 &HashSet::new(),
-                &HashMap::new()
+                &HashMap::new(),
+                Some("omp"),
             )
             .resume
         );
     }
-    assert!(c::cast_availability(Some(&session), &[], &HashSet::new(), &HashMap::new()).resume);
+    assert!(
+        c::cast_availability(
+            Some(&session),
+            &[],
+            &HashSet::new(),
+            &HashMap::new(),
+            Some("omp")
+        )
+        .resume
+    );
 }
 
 #[test]
@@ -1525,4 +1537,93 @@ fn polling_storage_failure_does_not_change_composer_error() {
         purpose: c::SavePurpose::Edit,
     });
     assert_eq!(h.state.composer.error.as_deref(), Some("storage"));
+}
+
+#[test]
+fn zeroclaw_exact_delivery_bodies_and_omp_only_commands() {
+    for (preference, expected) in [
+        ("steer", "steer"),
+        ("followUp", "followUp"),
+        ("aside", "followUp"),
+        ("invalid", "followUp"),
+    ] {
+        let mut h = Harness::default();
+        let mut key = key("zero");
+        key.provider = "zeroclaw".into();
+        h.open(key);
+        h.event(c::Event::SetDeliverAs(preference.into()));
+        h.edit("Mensagem fictícia");
+        let (_, body) = h.send(false);
+        assert_eq!(
+            body,
+            json!({"agentId":"agent","text":"Mensagem fictícia","expectedSessionId":"zero","deliverAs":expected})
+        );
+        assert_eq!(h.state.deliver_as, preference);
+    }
+    for kind in ["shake", "model", "thinking"] {
+        let mut h = Harness::default();
+        let mut key = key("zero");
+        key.provider = "zeroclaw".into();
+        h.open(key);
+        assert!(
+            h.event(c::Event::Command {
+                agent_id: "agent".into(),
+                kind: kind.into(),
+                value: "high".into(),
+                eligible: true
+            })
+            .is_empty()
+        );
+    }
+}
+
+#[test]
+fn zeroclaw_stop_and_new_persist_and_guard_session_without_touching_draft() {
+    for new_session in [false, true] {
+        let mut h = Harness::default();
+        let mut key = key("zero");
+        key.provider = "zeroclaw".into();
+        h.open(key);
+        h.edit("Rascunho anterior");
+        let event = if new_session {
+            c::Event::NewSession {
+                agent_id: "agent".into(),
+                confirmed: true,
+                eligible: true,
+            }
+        } else {
+            c::Event::Interrupt {
+                agent_id: "agent".into(),
+                confirmed: false,
+                eligible: true,
+            }
+        };
+        let effects = h.event(event);
+        let (token, body) = effects
+            .into_iter()
+            .find_map(|effect| {
+                if let c::Effect::Interrupt { token, body } = effect {
+                    Some((token, body))
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        let expected = if new_session {
+            json!({"agentId":"agent","command":"new","expectedSessionId":"zero"})
+        } else {
+            json!({"agentId":"agent","stop":true,"expectedSessionId":"zero"})
+        };
+        assert_eq!(body, expected);
+        h.event(c::Event::ControlAccepted {
+            token,
+            id: "control".into(),
+            status: "delivered".into(),
+        });
+        assert_eq!(
+            h.state.composer.control.as_ref().unwrap().status,
+            "delivered"
+        );
+        assert_eq!(h.state.composer.draft.text, "Rascunho anterior");
+    }
 }

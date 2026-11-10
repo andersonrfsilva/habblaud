@@ -98,7 +98,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                     match command {
                         // No desktop a lista fica ao lado da conversa: chamar um personagem não depende de seleção.
                         Command::Start => { dialog = Dialog { mode: "start".into(), ..Dialog::default() }; if let Err(error) = state.load(&server.api).await { unauthorized(&commands, &origin, &error); } }
-                        Command::Resume if selected.is_some_and(State::can_resume) => { dialog = Dialog { mode: "resume".into(), ..Dialog::default() }; if let Err(error) = state.load(&server.api).await { unauthorized(&commands, &origin, &error); } }
+                        Command::Resume if selected.is_some_and(|s| state.can_resume(s)) => { dialog = Dialog { mode: "resume".into(), ..Dialog::default() }; if let Err(error) = state.load(&server.api).await { unauthorized(&commands, &origin, &error); } }
                         Command::Dismiss if selected.is_some_and(|s| state.can_dismiss(s)) => { dialog = Dialog { mode: "dismiss".into(), confirming: true, ..Dialog::default() }; }
                         Command::Close => { dialog = Dialog::default(); }
                         Command::Choose(id) if !dialog.mode.is_empty() => {
@@ -113,7 +113,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                         Command::Confirm if dialog.confirming => {
                             if dialog.mode == "dismiss" {
                                 if let Some(s) = selected && state.can_dismiss(s) && !s.cast.as_ref().is_some_and(|id| state.active_job(id)) && let Some(id) = s.agent_id.as_deref() && let Err(error) = state.submit(&server.api, "", "", None, Some(id)).await { unauthorized(&commands, &origin, &error); }
-                            } else if let (Some(choice), Some(s)) = (&dialog.choice, selected) && State::can_resume(s) && let Err(error) = state.submit(&server.api, &choice.id, s.project.as_deref().unwrap_or_default(), Some(s), None).await { unauthorized(&commands, &origin, &error); }
+                            } else if let (Some(choice), Some(s)) = (&dialog.choice, selected) && state.can_resume(s) && let Err(error) = state.submit(&server.api, &choice.id, s.project.as_deref().unwrap_or_default(), Some(s), None).await { unauthorized(&commands, &origin, &error); }
                             dialog = Dialog::default(); refresh = true; loaded = false;
                         }
                         _ => {}
@@ -261,7 +261,11 @@ fn publish(
         let available = state.availability == "available";
         window.global::<ListState>().set_cast_visible(available);
         global.set_resume_visible(
-            available && snapshot.selected.as_ref().is_some_and(State::can_resume),
+            available
+                && snapshot
+                    .selected
+                    .as_ref()
+                    .is_some_and(|s| state.can_resume(s)),
         );
         global.set_dismiss_visible(
             available

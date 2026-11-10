@@ -291,6 +291,7 @@ async fn execute(
     effect: Effect,
     sender: &mpsc::UnboundedSender<Event>,
 ) -> Option<Event> {
+    let session_control = matches!(&effect, Effect::Interrupt { .. });
     Some(match effect {
         Effect::UploadAttachment {
             token, attachment, ..
@@ -311,10 +312,11 @@ async fn execute(
         Effect::SendMessage { token, body }
         | Effect::Interrupt { token, body }
         | Effect::OmpControl { token, body } => {
-            let control = body.get("stop").is_some();
-            let command = body.get("command").is_some()
-                || body.get("model").is_some()
-                || body.get("thinking").is_some();
+            let control = session_control;
+            let command = !session_control
+                && (body.get("command").is_some()
+                    || body.get("model").is_some()
+                    || body.get("thinking").is_some());
             let path = if control || command {
                 "/api/messages/control"
             } else {
