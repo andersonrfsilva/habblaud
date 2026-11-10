@@ -157,6 +157,7 @@ salvas a cada snapshot real, sem listener vazio nem stream adicional.
 O executor `controller::permission::run(api, commands, updates)` possui os pedidos e o timer de prazo;
 fechar a folha, trocar de pedido ou abandonar o consumidor cancela essas tarefas, sem repetir decisões POST.
 As decisões levam o ID exibido na folha e rejeitam IDs divergentes; uma oscilação da conexão não invalida a conclusão de um POST em andamento. Comandos e entradas completos quebram por caractere e permanecem acessíveis pela rolagem da folha; o indicador localizado de linhas adicionais sinaliza conteúdo fora do visor. Entradas JSON não textuais usam serialização compacta. Notificações não são fechadas à força e permanecem disponíveis conforme a política do centro de notificações.
+O resumo humano `PermissionRequestInfo.text` aparece sem rótulo entre a ferramenta e a entrada técnica; pedidos com perguntas também exibem esse resumo antes das perguntas. Texto ausente ou vazio não deixa espaço extra. A descrição técnica e o comando permanecem separados e completos.
 
 
 
