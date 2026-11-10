@@ -6474,16 +6474,18 @@ dependencies = [
 name = "zaplaud-ui"
 version = "0.1.0"
 dependencies = [
- "pulldown-cmark",
  "httpdate",
  "image",
+ "pulldown-cmark",
  "roxmltree 0.21.2",
  "serde_json",
  "slint",
  "slint-build",
+ "tempfile",
  "tokio",
  "usvg 0.45.1",
  "zaplaud-core",
+ "zaplaud-store",
 ]
 
 [[package]]
