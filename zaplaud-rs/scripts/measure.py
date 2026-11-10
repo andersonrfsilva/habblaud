@@ -122,14 +122,22 @@ def context_switches(pid):
 def font_memory(pid):
     font_mapping = False
     pss = 0
+    files = {}
     mappings = 0
     for line in Path(f'/proc/{pid}/smaps').read_text().splitlines():
         if '-' in line.split()[0]:
             font_mapping = line.lower().endswith(('.ttf', '.otf', '.ttc'))
             mappings += int(font_mapping)
+            if font_mapping:
+                font_path = line.split(maxsplit=5)[-1]
+                files.setdefault(font_path, 0)
         elif font_mapping and line.startswith('Pss:'):
             pss += int(line.split()[1])
-    return {'mapped_font_pss_kib': pss, 'font_mappings': mappings}
+            files[font_path] += int(line.split()[1])
+    return {
+        'mapped_font_pss_kib': pss, 'font_mappings': mappings,
+        'mapped_font_files': sorted(files), 'mapped_font_pss_by_file_kib': dict(sorted(files.items())),
+    }
 
 
 class DamageMonitor:
@@ -237,6 +245,7 @@ def measure_run(args, helpers, desktop, index):
         for name in ('home', 'data', 'cache', 'config', 'state', 'tmp', 'runtime'):
             (root / name).mkdir(mode=0o700)
         env = os.environ.copy()
+        env.pop('SLINT_BACKEND', None)
         env.update(
             DISPLAY=args.display, HOME=str(root / 'home'),
             XDG_DATA_HOME=str(root / 'data'), XDG_CACHE_HOME=str(root / 'cache'),
@@ -244,8 +253,10 @@ def measure_run(args, helpers, desktop, index):
             XDG_RUNTIME_DIR=str(root / 'runtime'),
             TMPDIR=str(root / 'tmp'), ZAPLAUD_DATA_DIR=str(root / 'zaplaud'),
             ZAPLAUD_KEYRING='memory', ZAPLAUD_THEME='light',
-            SLINT_BACKEND='winit-software', WINIT_UNIX_BACKEND='x11',
+            WINIT_UNIX_BACKEND='x11',
         )
+        if args.renderer:
+            env['SLINT_BACKEND'] = f'winit-{args.renderer}'
         if args.profile_render:
             env['SLINT_DEBUG_PERFORMANCE'] = 'refresh_lazy,console'
         trace_path = Path(f'/tmp/zaplaud-rs-fin-perf-{args.label}-strace-{index}.log')
@@ -356,6 +367,7 @@ def measure_run(args, helpers, desktop, index):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--binary', type=Path, required=True, help='Binário Zaplaud já construído')
+    parser.add_argument('--renderer', help='Override Slint; sem opção, mede o padrão do aplicativo')
     parser.add_argument('--display', required=True, help='Display X11 exclusivo, por exemplo localhost:85')
     fixture_group = parser.add_mutually_exclusive_group(required=True)
     fixture_group.add_argument('--fixture-url', type=fixture_origin, help='Origem de fixture externa; não semeia 200 entradas')
@@ -384,6 +396,7 @@ def main():
         resource_runs = [run for run in runs if 'idle' in run]
         median = statistics.median
         result = {
+            'renderer': args.renderer or 'app-default',
             'binary_size_bytes': args.binary.stat().st_size,
             'launch_to_mapped_median_ms': median(run['launch_to_mapped_ms'] for run in runs),
             'launch_coldish_ms': runs[0]['launch_to_mapped_ms'],

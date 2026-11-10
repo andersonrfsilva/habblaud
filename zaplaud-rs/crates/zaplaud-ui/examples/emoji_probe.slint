@@ -1,0 +1,20 @@
+import { MarkdownView, MdBlock, Theme } from "../ui/markdown/markdown.slint";
+export { MdBlock }
+export component EmojiProbe inherits Window {
+    title: "Zaplaud";
+    width: 1100px;
+    height: 390px;
+    background: #ffffff;
+    in property <string> sample;
+    in property <[MdBlock]> blocks;
+    VerticalLayout {
+        padding: 20px;
+        spacing: 12px;
+        Text { text: "Text"; color: #111111; }
+        Text { text: root.sample; font-size: 32px; color: #111111; }
+        Text { text: "TextInput"; color: #111111; }
+        TextInput { text: root.sample; font-size: 32px; color: #111111; }
+        Text { text: "MarkdownView"; color: #111111; }
+        MarkdownView { blocks: root.blocks; source-markdown: root.sample; }
+    }
+}
