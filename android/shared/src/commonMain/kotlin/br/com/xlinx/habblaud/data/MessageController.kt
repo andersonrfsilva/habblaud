@@ -21,6 +21,13 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.add
 import br.com.xlinx.habblaud.data.AttachmentBody
 
+internal fun supportsSessionControl(provider: String?) = provider == "omp" || provider == "zeroclaw"
+internal fun messageDelivery(provider: String?, preference: String): String? = when (provider) {
+    "omp" -> preference
+    "zeroclaw" -> if (preference == "steer") "steer" else "followUp"
+    else -> null
+}
+
 /** Comando omp pelo menu (shake, modelo, raciocínio): `kind` diz qual, `status` vai de pending a sent/failed/unknown. */
 data class CommandResult(val kind: String, val status: String)
 data class ComposerState(val key: SessionKey? = null, val draft: MessageDraft = MessageDraft(), val operation: MessageOperation? = null, val control: MessageOperation? = null, val controlError: String? = null, val loading: Boolean = false, val sending: Boolean = false, val error: String? = null, val progress: String? = null, val unavailable: Set<String> = emptySet(), val commandResult: CommandResult? = null)
@@ -210,7 +217,7 @@ class MessageController(
                 }
                 val body = buildJsonObject {
                     put("agentId", agentId); put("text", draft.text); put("expectedSessionId", key.sessionId)
-                    if (key.provider == "omp") put("deliverAs", deliverAs)
+                    messageDelivery(key.provider, deliverAs)?.let { put("deliverAs", it) }
                     if (ids.isNotEmpty()) put("attachments", buildJsonArray { ids.forEach { add(it) } })
                 }
                 dispatched = true
@@ -253,10 +260,12 @@ class MessageController(
         uploadJobs[key] = job
         job.start()
     }
-    fun interrupt(agentId: String, confirmed: Boolean = false) {
+    fun interrupt(agentId: String, confirmed: Boolean = false) = sessionControl(agentId, false, confirmed)
+    fun newSession(agentId: String, confirmed: Boolean = false) = sessionControl(agentId, true, confirmed)
+    private fun sessionControl(agentId: String, newSession: Boolean, confirmed: Boolean) {
         val current = state.value
         val key = current.key ?: return
-        if (key.provider != "omp" || !visible || current.loading || key in controlling || !eligible(key, agentId) || current.control?.status in setOf("queued", "sent")) return
+        if (!supportsSessionControl(key.provider) || !visible || current.loading || current.sending || key in controlling || !eligible(key, agentId) || current.control?.status in setOf("queued", "sent")) return
         if (current.control?.status == "unknown" && !confirmed) { mutable.value = current.copy(controlError = "confirm"); return }
         controlling.add(key)
         scope.launch {
@@ -271,7 +280,11 @@ class MessageController(
                     return@launch
                 }
                 if (state.value.key == key) mutable.value = state.value.copy(control = MessageOperation(), controlError = null)
-                val body = buildJsonObject { put("agentId", agentId); put("stop", true); put("expectedSessionId", key.sessionId) }
+                val body = buildJsonObject {
+                    put("agentId", agentId)
+                    if (newSession) put("command", "new") else put("stop", true)
+                    put("expectedSessionId", key.sessionId)
+                }
                 dispatched = true
                 val response = wireJson.parseToJsonElement(request("/api/messages/control", body.toString())).jsonObject
                 val op = MessageOperation(requireNotNull(response.string("id")), requireNotNull(response.string("status")))

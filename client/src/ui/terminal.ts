@@ -382,6 +382,7 @@ export function terminalFooter(agent: AgentInfo | undefined, agents: readonly Ag
     case 'waiting': {
       const text = agent.waitingFor ? tr('Esperando você: {0}', [agent.waitingFor]) : tr('Esperando você');
       if (agent.permission) return { kind: 'waiting', text, since: agent.statusSince };
+      if (agent.provider === 'zeroclaw') return { kind: 'waiting', text, since: agent.statusSince };
       // Sem o pedido no Habblaud (o hook já devolveu à sessão, a sessão abriu sem o plugin ou não havia página aberta
       // quando ele chegou): os botões não vêm, então diz onde responder.
       const hint =
@@ -788,7 +789,11 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     // Esc na caixa devolve o foco à conversa (o próximo fecha o terminal).
     this.composer = new MessageComposer(ctx, 'terminal', { onEscape: () => this.focusLog(), statusTarget: this.status });
     // /resume que deu certo: a conversa retomada é outro agente (ids por sessão); o terminal passa para ela.
-    this.ompBar.onResumed = (id) => this.open(id);
+    this.ompBar.onResumed = (id) => {
+      // ZeroClaw conserva o handle do personagem ao trocar o UUID; reabra também o stream desse mesmo agente.
+      if (this.id === id) this.id = null;
+      this.open(id);
+    };
 
     this.el = h(
       'section',
@@ -836,6 +841,7 @@ export class TerminalPanel implements UiComponent, TerminalControl {
   }
 
   resumeIn(agentId: string, session: RecentSession): void {
+    if (session.provider !== 'omp' || this.ctx.agent(agentId)?.provider !== 'omp') return;
     this.open(agentId);
     this.ompBar.resume(agentId, session.sessionId, session.title?.trim() || tr('Sessão sem título'));
   }

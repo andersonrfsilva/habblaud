@@ -28,6 +28,7 @@ import type { CodexQueueResult, CodexQueueRunner } from './codex';
 import { tr } from '../../shared/i18n';
 import type { IncomingMessage } from 'node:http';
 import { AttachmentStore, promptWithAttachments, type Attachment } from '../spawn/attachments';
+import { ZeroClawDelivery, ERR_ZEROCLAW_UNAVAILABLE, ERR_ZEROCLAW_CONTINUITY, ERR_ZEROCLAW_CONTROL, ERR_ZEROCLAW_ASIDE, ERR_ZEROCLAW_DELIVERY, ERR_ZEROCLAW_QUEUED } from './zeroclaw';
 
 /** Sessão que perguntou pela caixa de entrada há até este tempo: recebe mensagens (canMessage). */
 export const PRESENCE_MS = 10_000;
@@ -87,6 +88,7 @@ export interface MessageRegistryOptions {
   demoDeliver?: (agentId: string, text: string) => boolean;
   /** Mensagens aos agentes do Codex; ausente = eles não recebem. */
   codex?: CodexDeliveryOptions;
+  zeroclaw?: ZeroClawDelivery;
   attachments?: AttachmentStore;
   writeAttachments?: (files: readonly Attachment[]) => Promise<{ paths: string[] } | { error: string; status: number }>;
   now?: () => number;
@@ -140,6 +142,7 @@ interface Entry {
   demo?: boolean;
   /** Mensagem a um agente do Codex: sai pelo entregador do Codex ('node' = o servidor rodou; 'bridge' = o auxiliar). */
   codex?: true;
+  zeroclaw?: true;
   via?: 'node' | 'bridge';
   /** Falhou por falta de confirmação: uma confirmação atrasada ainda corrige a situação. */
   late?: boolean;
@@ -182,6 +185,7 @@ function unavailableReason(a: AgentInfo, reachable: boolean): string | undefined
   if (!present(a)) return tr('o agente já saiu do escritório');
   if (!reachable) {
     if (a.provider === 'codex') return ERR_CODEX_UNAVAILABLE;
+    if (a.provider === 'zeroclaw') return ERR_ZEROCLAW_UNAVAILABLE;
     return a.provider === 'omp' ? ERR_OMP_UNAVAILABLE : tr('a sessão não está com o plugin habblaud-mensagens conectado (npm run mod:install)');
   }
   return undefined;
@@ -265,6 +269,8 @@ export class MessageRegistry {
   private readonly sentTimeoutMs: number;
   private readonly keepMs: number;
   private readonly demoDeliveryMs: number;
+  private unsubscribeZeroClaw?: () => void;
+  private zeroClawPresence = new Set<string>();
 
   constructor(private readonly opts: MessageRegistryOptions) {
     this.now = opts.now ?? Date.now;
@@ -273,6 +279,15 @@ export class MessageRegistry {
     this.sentTimeoutMs = opts.sentTimeoutMs ?? SENT_TIMEOUT_MS;
     this.keepMs = opts.keepMs ?? KEEP_MS;
     this.demoDeliveryMs = opts.demoDeliveryMs ?? DEMO_DELIVERY_MS;
+    this.unsubscribeZeroClaw = opts.zeroclaw?.onEvent((event) => {
+      if (event.type === 'session-open' && event.continuityLost) {
+        for (const e of this.messages.values()) {
+          if (e.zeroclaw && !e.control && e.target === event.sessionId && e.msg.status === 'queued') this.fail(e, this.now(), ERR_ZEROCLAW_CONTINUITY);
+        }
+      }
+      this.updateZeroClawPresence();
+      this.pumpZeroClaw();
+    });
   }
 
   start(): void {
@@ -290,6 +305,8 @@ export class MessageRegistry {
   stop(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    this.unsubscribeZeroClaw?.();
+    this.unsubscribeZeroClaw = undefined;
   }
 
   /** Mensagens guardadas (inclusive as já resolvidas, até sumirem). */
@@ -305,12 +322,14 @@ export class MessageRegistry {
     const out = new Set<string>();
     for (const id of this.seen.keys()) if (this.canMessage(id)) out.add(id);
     if (this.codexAvailable()) for (const a of this.opts.office.list()) if (a.provider === 'codex' && a.kind === 'main' && present(a)) out.add(a.id);
+    for (const a of this.opts.office.list()) if (a.provider === 'zeroclaw' && this.canMessage(a.id)) out.add(a.id);
     return out;
   }
 
   canMessage(agentId: string): boolean {
     const a = this.opts.office.get(agentId);
     if (a?.provider === 'codex') return this.codexAvailable() && present(a) && a.kind === 'main';
+    if (a?.provider === 'zeroclaw') return present(a) && a.kind === 'main' && !!this.opts.zeroclaw?.available(a.sessionId);
     const at = this.seen.get(agentId);
     if (at === undefined || this.now() - at >= this.presenceMs) return false;
     return present(a) && a.kind === 'main';
@@ -334,8 +353,9 @@ export class MessageRegistry {
     const agent = real ?? demo;
     if (!agent) return { error: 'not-found' };
     if (expectedSessionId !== undefined && expectedSessionId !== agent.sessionId) return { error: 'unavailable', reason: ERR_SESSION_CHANGED, code: 'session_changed' };
-    if (deliverAs !== undefined && agent.provider !== 'omp') throw new InvalidRequest('deliverAs só é aceito para OMP');
-    const reason = unavailableReason(agent, real ? this.canMessage(agentId) : demo!.canMessage === true);
+    if (deliverAs !== undefined && agent.provider !== 'omp' && agent.provider !== 'zeroclaw') throw new InvalidRequest('deliverAs só é aceito para OMP');
+    if (agent.provider === 'zeroclaw' && deliverAs === 'aside') throw new InvalidRequest(ERR_ZEROCLAW_ASIDE);
+    const reason = agent.provider === 'zeroclaw' ? this.zeroClawReason(agent) : unavailableReason(agent, real ? this.canMessage(agentId) : demo!.canMessage === true);
     if (reason) return { error: 'unavailable', reason };
     if (this.openCount(agentId) >= MAX_OPEN) return { error: 'too-many' };
     const store = this.opts.attachments;
@@ -344,9 +364,10 @@ export class MessageRegistry {
     if ('error' in files) throw new InvalidRequest(files.error, files.attachmentsExpired);
 
     const entry = this.entry(agentId, agent.sessionId, { text, activity: describeMessage(text) });
-    if (agent.provider === 'omp') entry.msg.deliverAs = deliverAs ?? 'followUp';
+    if (agent.provider === 'omp' || agent.provider === 'zeroclaw') entry.msg.deliverAs = deliverAs ?? 'followUp';
     if (demo) entry.demo = true;
     else if (real?.provider === 'codex') entry.codex = true;
+    else if (real?.provider === 'zeroclaw') entry.zeroclaw = true;
     this.messages.set(entry.msg.id, entry);
     if (files.length) {
       entry.preparing = true;
@@ -358,6 +379,7 @@ export class MessageRegistry {
     }
     const out = { ...entry.msg };
     if (entry.codex) this.pumpCodex();
+    if (entry.zeroclaw) this.pumpZeroClaw();
     return { message: out };
   }
 
@@ -377,6 +399,7 @@ export class MessageRegistry {
       e.text = promptWithAttachments(e.text, result.paths);
       delete e.preparing;
       this.pumpCodex();
+      this.pumpZeroClaw();
     } catch (error) {
       if (!isFinal(e)) this.fail(e, this.now(), errMsg(error));
     } finally {
@@ -390,12 +413,33 @@ export class MessageRegistry {
    * resultados de `send`.
    */
   control(raw: unknown): SendResult {
-    const { agentId, expectedSessionId, ...change } = parseControl(raw);
+    const input = rec(raw);
+    const target = typeof input?.agentId === 'string' ? this.opts.office.get(input.agentId.trim()) : undefined;
+    if (target?.provider === 'zeroclaw') {
+      const expected = expectedSessionId(input!);
+      if (expected !== undefined && expected !== target.sessionId) return { error: 'unavailable', reason: ERR_SESSION_CHANGED, code: 'session_changed' };
+      const fields = ['stop', 'command', 'model', 'thinking', 'resume'].filter(key => input![key] !== undefined);
+      for (const key of fields) parseControl({ agentId: input!.agentId, [key]: input![key] });
+      if (fields.length > 0 && (fields.length !== 1 || !(input!.stop === true || input!.command === 'new'))) return { error: 'unavailable', reason: ERR_ZEROCLAW_CONTROL };
+    }
+    const { agentId, expectedSessionId: expectedTarget, ...change } = parseControl(raw);
     const real = this.opts.office.get(agentId);
     const demo = real ? undefined : this.opts.demoAgent?.(agentId);
     const agent = real ?? demo;
     if (!agent) return { error: 'not-found' };
-    if (expectedSessionId !== undefined && expectedSessionId !== agent.sessionId) return { error: 'unavailable', reason: ERR_SESSION_CHANGED, code: 'session_changed' };
+    if (expectedTarget !== undefined && expectedTarget !== agent.sessionId) return { error: 'unavailable', reason: ERR_SESSION_CHANGED, code: 'session_changed' };
+    if (agent.provider === 'zeroclaw') {
+      if (Object.keys(change).length !== 1 || !(change.stop === true || change.command === 'new')) return { error: 'unavailable', reason: ERR_ZEROCLAW_CONTROL };
+      const reason = this.zeroClawReason(agent, true);
+      if (reason) return { error: 'unavailable', reason };
+      if (this.openCount(agentId) >= MAX_OPEN) return { error: 'too-many' };
+      const entry = this.entry(agentId, agent.sessionId, { text: '', control: change });
+      entry.zeroclaw = true;
+      this.messages.set(entry.msg.id, entry);
+      const out = { ...entry.msg };
+      this.pumpZeroClaw();
+      return { message: out };
+    }
     if (agent.provider !== 'omp') return { error: 'unavailable', reason: tr('só agentes do omp trocam de modelo e raciocínio pela gaveta') };
     const reason = unavailableReason(agent, real ? this.canMessage(agentId) : false);
     if (reason) return { error: 'unavailable', reason };
@@ -414,6 +458,7 @@ export class MessageRegistry {
     const demo = real ? undefined : this.opts.demoAgent?.(agentId);
     const agent = real ?? demo;
     if (!agent) return { error: 'not-found' };
+    if (agent.provider === 'zeroclaw') return { error: 'unavailable', reason: ERR_ZEROCLAW_ASIDE };
     if (agent.provider !== 'omp') return { error: 'unavailable', reason: tr('só agentes do omp respondem perguntas paralelas') };
     const reason = unavailableReason(agent, real ? this.canMessage(agentId) : false);
     if (reason) return { error: 'unavailable', reason };
@@ -465,7 +510,7 @@ export class MessageRegistry {
     // O plugin do Claude Code e a extensão do omp usam esta rota (cada sessão tem o próprio id); agentes do Codex nunca recebem por aqui.
     const agent = this.opts.office
       .list()
-      .find((a) => a.kind === 'main' && a.provider !== 'codex' && a.sessionId === session && (!account || a.account === account) && present(a));
+      .find((a) => a.kind === 'main' && a.provider !== 'codex' && a.provider !== 'zeroclaw' && a.sessionId === session && (!account || a.account === account) && present(a));
     if (!agent) return [];
 
     const now = this.now();
@@ -478,7 +523,7 @@ export class MessageRegistry {
     let blocked = false;
     for (const e of this.messages.values()) {
       if (out.length >= INBOX_BATCH) break;
-      if (e.demo || e.codex || e.msg.agentId !== agent.id || e.msg.status !== 'queued' || e.target !== session) continue;
+      if (e.demo || e.codex || e.zeroclaw || e.msg.agentId !== agent.id || e.msg.status !== 'queued' || e.target !== session) continue;
       if (e.preparing) {
         blocked = true;
         continue;
@@ -504,7 +549,7 @@ export class MessageRegistry {
     const now = this.now();
     for (const x of ackResults(r)) {
       const e = this.messages.get(x.id);
-      if (!e || e.demo || e.codex || e.session !== session) continue;
+      if (!e || e.demo || e.codex || e.zeroclaw || e.session !== session) continue;
       if (e.msg.status !== 'sent' && !(e.msg.status === 'failed' && e.late)) continue;
       if (x.ok) this.finish(e, 'delivered', now);
       else this.fail(e, now, x.error ?? ERR_REFUSED);
@@ -580,13 +625,13 @@ export class MessageRegistry {
         continue;
       }
       const a = this.opts.office.get(e.msg.agentId);
-      if (!present(a)) this.fail(e, now, ERR_GONE);
-      else if (e.msg.status === 'queued' && a.sessionId !== e.target) this.fail(e, now, ERR_SESSION_CHANGED);
+      if (!present(a) && !(a && e.zeroclaw && this.opts.zeroclaw?.continuityLost(e.target))) this.fail(e, now, ERR_GONE);
+      else if (e.msg.status === 'queued' && a && a.sessionId !== e.target) this.fail(e, now, ERR_SESSION_CHANGED);
       else if (e.msg.status === 'queued' && now - e.msg.createdAt >= this.queuedTimeoutMs) {
-        this.fail(e, now, !e.codex ? ERR_NOT_FETCHED : this.opts.codex?.run ? ERR_CODEX_SLOW : ERR_CODEX_NOT_FETCHED);
+        this.fail(e, now, e.zeroclaw ? ERR_ZEROCLAW_QUEUED : !e.codex ? ERR_NOT_FETCHED : this.opts.codex?.run ? ERR_CODEX_SLOW : ERR_CODEX_NOT_FETCHED);
       } else if (e.msg.status === 'sent' && now - (e.sentAt ?? now) >= this.sentTimeoutMs) {
-        this.fail(e, now, e.codex ? ERR_CODEX_NOT_CONFIRMED : ERR_NOT_CONFIRMED);
-        e.late = true;
+        this.fail(e, now, e.zeroclaw ? ERR_ZEROCLAW_DELIVERY : e.codex ? ERR_CODEX_NOT_CONFIRMED : ERR_NOT_CONFIRMED);
+        if (!e.zeroclaw) e.late = true;
       }
     }
     // Presença que venceu (ou de quem saiu): o snapshot volta a dizer que não dá para mandar mensagem.
@@ -601,9 +646,68 @@ export class MessageRegistry {
       if (!this.opts.codex?.run) this.opts.office.markDirty();
     }
     this.pumpCodex();
+    this.updateZeroClawPresence();
+    this.pumpZeroClaw();
   }
 
   // ---------------------------------------------------------------- internos
+  /** Invalidates only unsent work captured for this UUID; an active /new remains resolvable. */
+  cancelZeroClawSession(sessionId: string, reason: string): void {
+    for (const e of this.messages.values()) {
+      if (e.zeroclaw && e.target === sessionId && e.msg.status === 'queued') this.fail(e, this.now(), reason);
+    }
+  }
+
+  private zeroClawReason(agent: AgentInfo, control = false): string | undefined {
+    const reason = unavailableReason(agent, !!this.opts.zeroclaw?.available(agent.sessionId, control));
+    if (reason && agent.kind === 'main' && present(agent) && !control && this.opts.zeroclaw?.continuityLost(agent.sessionId)) return ERR_ZEROCLAW_CONTINUITY;
+    return reason;
+  }
+
+  private updateZeroClawPresence(): void {
+    const next = new Set(this.opts.office.list().filter(a => a.provider === 'zeroclaw' && this.canMessage(a.id)).map(a => a.id));
+    if (next.size !== this.zeroClawPresence.size || [...next].some(id => !this.zeroClawPresence.has(id))) this.opts.office.markDirty();
+    this.zeroClawPresence = next;
+  }
+
+  private pumpZeroClaw(): void {
+    const delivery = this.opts.zeroclaw;
+    if (!delivery) return;
+    const blockedFollowUps = new Set<string>();
+    const blockedSteers = new Set<string>();
+    for (const e of this.messages.values()) {
+      if (!e.zeroclaw || e.msg.status !== 'queued') continue;
+      const agent = this.opts.office.get(e.msg.agentId);
+      if (!present(agent)) {
+        if (!(agent && delivery.continuityLost(e.target))) this.fail(e, this.now(), ERR_GONE);
+        continue;
+      }
+      if (agent.sessionId !== e.target) { this.fail(e, this.now(), ERR_SESSION_CHANGED); continue; }
+      if (this.now() - e.msg.createdAt >= this.queuedTimeoutMs) { this.fail(e, this.now(), ERR_ZEROCLAW_QUEUED); continue; }
+      const steer = e.msg.deliverAs === 'steer';
+      const blocked = steer ? blockedSteers : blockedFollowUps;
+      if (!e.control && (e.preparing || blocked.has(e.target))) { blocked.add(e.target); continue; }
+      if (!delivery.available(e.target, !!e.control)) continue;
+      if (!e.control && !steer && delivery.busy(e.target)) continue;
+      this.setStatus(e, 'sent', this.now());
+      e.sentAt = this.now();
+      const work = e.control
+        ? (e.control.stop ? delivery.stopSession(e.target) : delivery.newSession(e.target, agent.id)).then(() => ({ ok: true as const }))
+        : delivery.sendMessage(e.target, e.text);
+      void work.then(result => {
+        if (e.msg.status !== 'sent') return;
+        if (result.ok) this.finish(e, 'delivered', this.now());
+        else this.fail(e, this.now(), result.error);
+        this.updateZeroClawPresence();
+        this.pumpZeroClaw();
+      }, () => {
+        if (e.msg.status === 'sent') this.fail(e, this.now(), ERR_ZEROCLAW_UNAVAILABLE);
+        this.updateZeroClawPresence();
+        this.pumpZeroClaw();
+      });
+    }
+  }
+
 
   private bridgeRecent(): boolean {
     return this.bridgeAt !== undefined && this.now() - this.bridgeAt < this.presenceMs;

@@ -1,5 +1,5 @@
 // Contas observadas + uso de cada uma: tap de statusline (recomendado) e cache do /usage
-// gravado no .claude.json. Só arquivos locais: nada de credenciais nem chamadas de rede.
+// gravado no .claude.json. A cota HTTP chega pelo coletor separado, que lê a credencial do tenant.
 //
 // As contas do Claude Code saem dos config dirs (detectAccounts). As de outras ferramentas (Codex) chegam de fora,
 // descobertas pela fonte delas (setProviderAccounts), com ids únicos entre todas as contas; o uso delas também é
@@ -38,6 +38,8 @@ export interface AccountsServiceOptions {
   env: NodeJS.ProcessEnv;
   onChange: () => void;
   now?: () => number;
+  /** Sobrepõe o uso local pela cota global do tenant. */
+  tenantQuota?: boolean;
   /** Intervalo de releitura do .claude.json (cache de uso). */
   refreshMs?: number;
   /** Pasta com o uso capturado do statusline (scripts/statusline-tap.mjs). Sem ela, a fonte fica desligada. */
@@ -48,6 +50,7 @@ export interface AccountsServiceOptions {
 
 export class AccountsService {
   readonly usage = new UsageStore();
+  private readonly tenantUsage = new UsageStore();
   /** Contas do Claude Code (config dirs). */
   private list_: AccountEntry[] = [];
   /** Contas das outras ferramentas, por ferramenta (setProviderAccounts). */
@@ -160,6 +163,14 @@ export class AccountsService {
     return changed;
   }
 
+  /** Publica a cota global, inclusive antes de alguma conta ser descoberta. */
+  setTenantQuota(usage: AccountUsage): boolean {
+    const changed = this.tenantUsage.set('tenant', usage);
+    const viewChanged = this.usageViewChanged();
+    if (changed || viewChanged) this.opts.onChange();
+    return changed;
+  }
+
   /** Esquece o uso de uma origem da conta (ex.: a fonte não tem mais números). Devolve true se algo mudou. */
   clearUsage(accountId: string, source: UsageSource): boolean {
     const changed = this.usage.clear(accountId, source);
@@ -171,7 +182,7 @@ export class AccountsService {
   /** O uso exibido mudou (inclusive sozinho, com o tempo: ok -> stale, janelas reiniciam)? */
   private usageViewChanged(): boolean {
     const now = this.now();
-    const sig = JSON.stringify(this.allEntries().map((e) => this.usage.view(e.id, now)));
+    const sig = JSON.stringify(this.allEntries().map((e) => this.effectiveUsage(e.id, now)));
     if (sig === this.usageSig) return false;
     this.usageSig = sig;
     return true;
@@ -220,7 +231,12 @@ export class AccountsService {
   }
 
   usageView(id: string): UsageView {
-    return this.usage.view(id, this.now());
+    return this.effectiveUsage(id, this.now());
+  }
+
+  private effectiveUsage(id: string, now: number): UsageView {
+    if (!this.opts.tenantQuota) return this.usage.view(id, now);
+    return this.find(id) ? this.tenantUsage.view('tenant', now) : { status: 'disabled' };
   }
 
   /** Contas (de todas as ferramentas) no formato do protocolo; `sessions` = sessões abertas por conta. */
@@ -228,7 +244,7 @@ export class AccountsService {
     const now = this.now();
     return this.allEntries().map((e) => {
       const d = e.detected;
-      const view = this.usage.view(e.id, now);
+      const view = this.effectiveUsage(e.id, now);
       const info: AccountInfo = {
         id: e.id,
         short: d.short,

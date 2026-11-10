@@ -3,7 +3,7 @@ import { basename, join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { setQuiet } from '../log';
 import { tempDir } from '../test/fixtures';
-import { accountIds, codexDirsRefused, discoverClaudeDirs, detectAccounts, isClaudeDir, isCodexHome, parseClaudeAliases, shortcutsByDir } from './detect';
+import { accountIds, codexDirsRefused, discoverClaudeDirs, detectAccounts, isClaudeDir, isCodexHome, parseClaudeAliases, parseToolAliases, shortcutsByDir } from './detect';
 import { AccountsService } from './service';
 import { rollover, STALE_AFTER_MS, usageFromCache, usageFromWindows, UsageStore } from './usage';
 
@@ -13,6 +13,9 @@ setQuiet(true);
 const H = resolve('/Users/fulano');
 
 describe('aliases de shell', () => {
+  it('ZeroClaw não inventa aliases de conta', () => {
+    expect(parseToolAliases("alias z='zeroclaw'", H, 'zeroclaw')).toEqual([]);
+  });
   it('só linhas alias que invocam o claude; CLAUDE_CONFIG_DIR expandido', () => {
     const rc = [
       'export OPENAI_API_KEY="sk-segredo"',
@@ -279,6 +282,40 @@ describe('uso (5h e semanal)', () => {
     } finally {
       tmp.cleanup();
     }
+  });
+
+  it('cota global: duas contas sem sessões, registro tardio, precedência, remoção, stale e rollover', () => {
+    let now = NOW;
+    let changes = 0;
+    const svc = new AccountsService({ dirs: [], home: H, env: {}, tenantQuota: true, now: () => now, onChange: () => changes++ });
+    const input = (id: string) => ({ dir: join(H, id), detected: { id, configDir: join(H, id), short: 'C', name: 'Codex', color: '#fff' } });
+    svc.setProviderAccounts('codex', [input('first')]);
+    svc.setUsage('first', { source: 'codex', fetchedAt: NOW, fiveHour: { utilization: 99 } });
+    expect(svc.usageView('first')).toEqual({ status: 'disabled' });
+    svc.setProviderAccounts('codex', []);
+    changes = 0;
+    const quota = { source: 'omp' as const, quota: true, fetchedAt: NOW,
+      fiveHour: { utilization: 25, resetsAt: NOW + 3600000 }, sevenDay: { utilization: 50 } };
+    expect(svc.setTenantQuota(quota)).toBe(true);
+    expect(changes).toBe(1);
+    expect(svc.list(new Map())).toEqual([]);
+    svc.setProviderAccounts('codex', [input('first'), input('second')]);
+    expect(svc.list(new Map()).map((account) => [account.sessions, account.usage])).toEqual([[0, quota], [0, quota]]);
+    svc.setUsage('first', { source: 'codex', fetchedAt: NOW + 1000, fiveHour: { utilization: 99 } });
+    expect(svc.usageView('first').usage).toEqual(quota);
+    now += STALE_AFTER_MS + 1;
+    changes = 0;
+    svc.refresh();
+    expect(changes).toBe(1);
+    expect(svc.usageView('first').status).toBe('stale');
+    now = NOW + 3600000;
+    expect(svc.list(new Map())[0].usage?.fiveHour).toBeUndefined();
+    expect(svc.usageView('first').usage?.sevenDay?.utilization).toBe(50);
+    svc.setProviderAccounts('codex', [input('second')]);
+    expect(svc.usageView('first')).toEqual({ status: 'disabled' });
+    expect(svc.list(new Map()).map((account) => account.id)).toEqual(['second']);
+    svc.setProviderAccounts('codex', [input('late')]);
+    expect(svc.usageView('late').usage?.fetchedAt).toBe(NOW);
   });
 
   it('AccountsService lê o cache do /usage do .claude.json da conta', () => {

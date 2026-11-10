@@ -35,6 +35,27 @@ do meio (0.**3**.0).
 - **Zaplaud desktop:** configuração de pacotes `.deb`, `.rpm` e `.dmg` com ícone e runtime Java incluído; instalação
   no Arch pelo script `scripts/desktop-install-linux.sh`, sem `sudo`, e distribuição portátil `.tar.gz`.
   A JVM usa Serial GC e limite de heap de 256 MiB. O CI verifica os testes JVM e a distribuição Linux.
+- **Resumos:** suporte opcional a Anthropic Messages por HTTP, sem processos OMP nem Tiny, com token em arquivo
+  rotacionável e capacidade `summaryHttp` por conexão. Sem configuração, o RPC existente continua disponível;
+  ativação em produção depende do operador.
+- **Cota da instalação:** consulta HTTP autenticada pelo arquivo de token do tenant, sem processo OMP ou sessão aberta.
+  A mesma cota aparece nas contas reais; sem a nova configuração, o comportamento legado permanece intacto.
+- **ZeroClaw (opt-in):** fonte do gateway HTTP em loopback, intenções persistidas e espelho JSONL de mensagens,
+  deltas e ferramentas. Reconexão sem replay de prompts, lacunas explícitas e histórico local preservado offline.
+  `HABBLAUD_ZEROCLAW_URL` habilita a fonte sem token neste desenho isolado; operação pela UI depende das etapas seguintes.
+- **ZeroClaw:** entrega pelo mesmo socket da fonte, com followUp em fila e steering durante o turno; STOP por
+  abort HTTP e conversa nova com UUID novo, preservando o personagem. Aside e controles OMP incompatíveis são
+  recusados. `delivered` indica somente aceitação no buffer local, sem ack de aplicação nem replay automático.
+  Anexos continuam como caminhos absolutos compartilhados, sem upload de mídia ao gateway.
+- **Elenco ZeroClaw:** abertura, retomada e dispensa pelo gateway, sem auxiliar ou tmux, com catálogo configurado
+  em `GET /api/cast/models`. Instruções são contexto textual; a dispensa confirma o fim do turno antes de fechar,
+  preservando histórico e limite de personagens. O caminho OMP permanece disponível sem configuração ZeroClaw.
+- **Clientes ZeroClaw:** navegador e Zaplaud reconhecem a identidade das sessões, preservam o provider no
+  histórico e nos favoritos e retomam conversas pelo elenco, sem cruzar sessões OMP e ZeroClaw.
+  O catálogo apresenta nomes legíveis de modelos e envia seus aliases, inclusive sem personagens abertos.
+  Mensagens oferecem `steer` e `followUp`; STOP e conversa nova mantêm proteção da sessão.
+  Controles exclusivos do OMP ficam ocultos. O contexto ZeroClaw não é exibido por falta de leitura confiável,
+  não porque esteja vazio. No Zaplaud, resumo HTTP dispensa Tiny quando o servidor anuncia essa capacidade.
 - **Zaplaud:** o ▶ "Retomar conversa" aparece em toda sessão omp encerrada com pasta e oferece **Novo** (nome e
   visual sorteados) além dos contatos livres da pasta. `POST /api/cast/new` aceita `session` para retomar a conversa.
 - **Zaplaud:** toque longo no anel de contexto do campo de mensagem pergunta se quer fazer shake (liberar contexto) e,
@@ -95,7 +116,11 @@ do meio (0.**3**.0).
 - **Zaplaud:** o bate-papo paralelo não abre mais sem querer. A puxada para cima só conta se o gesto começar já no fim
   da conversa (a sobra de uma rolagem que volta do histórico não abre nada) e precisa ser mais longa (180 dp). No
   desktop a puxada saiu, porque a roda do mouse acumulava sem fim de gesto; lá o bate-papo abre pelo menu da conversa.
-
+- **ZeroClaw:** depois do /new, o terminal passa a mostrar a conversa nova; antes continuava na sessão anterior do
+  personagem e escondia as respostas novas.
+- **ZeroClaw:** cada resposta aparece como um item só no terminal, e não um item por pedaço recebido do streaming. O
+  texto entra quando o bloco termina; se o Habblaud reiniciar ou a conexão cair no meio do bloco, ele não aparece no
+  terminal (o histórico do gateway continua com a resposta).
 - **Zaplaud:** com agentes trabalhando, a lista não refaz a tela várias vezes por segundo: o spinner e o cronômetro
   mudam juntos uma vez por segundo. Na conversa, o avatar do contato fica parado na linha de estado, no lugar do avatar
   pulando com pontos "digitando" no pé, que redesenhava a tela a 60 qps. Com o app em segundo plano ou a

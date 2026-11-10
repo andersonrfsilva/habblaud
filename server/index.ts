@@ -7,6 +7,7 @@ import http from 'node:http';
 import { join } from 'node:path';
 import { codexDirsRefused, isDefaultDir } from './accounts/detect';
 import { AccountsService } from './accounts/service';
+import { QuotaCollector } from './accounts/quota';
 import { isTruthy, loadConfig, messagesOffReason, terminalOffReason, worldSocketUrl } from './config';
 import { createApiHandler, sendJson } from './http/app';
 import { createRequestGuard, isLoopbackHost } from './http/guard';
@@ -22,6 +23,7 @@ import { errMsg, log } from './log';
 import { NameStore } from './model/names';
 import { CastStore } from './model/cast';
 import { CastLauncher } from './cast/launcher';
+import { ZeroClawCast } from './cast/zeroclaw';
 import { Office } from './model/office';
 import { RoomAliases } from './model/room-aliases';
 import { OmpSettings } from './sources/omp/settings';
@@ -38,6 +40,7 @@ import { createAsideRoutes, handleAsideProgress } from './asides/http';
 import { AsideStore } from './asides/store';
 import { createMessageRoutes } from './messages/http';
 import { MessageRegistry } from './messages/registry';
+import { ZeroClawDelivery } from './messages/zeroclaw';
 import type { CodexLive } from './sources/codex/live';
 import { ClaudeWatcher } from './sources/watcher';
 import { discoverCodexDirs } from './sources/codex/accounts';
@@ -46,6 +49,10 @@ import { OmpHistory } from './sources/omp/history';
 import { CodexSource } from './sources/codex/source';
 import { OmpSource } from './sources/omp/source';
 import type { OmpLive } from './sources/omp/live';
+import { ZeroClawConnector } from './sources/zeroclaw/connector';
+import { ZeroClawMirror } from './sources/zeroclaw/mirror';
+import { ZeroClawSource } from './sources/zeroclaw/source';
+import { ZeroClawHistory } from './sources/zeroclaw/history';
 import { ompBinFrom } from './sources/omp/bin';
 import { Summarizer } from './summaries/summarizer';
 import { createBuildReader, readBuildInfo } from './build';
@@ -128,8 +135,10 @@ const accounts = new AccountsService({
   home: config.home,
   env: process.env,
   usageDir: config.usageDir,
+  tenantQuota: !!config.quota,
   onChange: () => late.office?.markDirty(),
 });
+const quota = config.quota ? new QuotaCollector({ ...config.quota, onResult: (usage) => accounts.setTenantQuota(usage) }) : undefined;
 const office = new Office({
   names,
   cast,
@@ -150,7 +159,7 @@ const office = new Office({
   world: () => world?.meta() ?? { enabled: false, configured: false, state: 'off' },
   ompRoomByProject: config.ompDirs.length ? () => ompSettings.roomByProject : undefined,
 });
-const castLauncher = config.terminal ? new CastLauncher({
+const castLauncher: CastLauncher | undefined = config.terminal ? new CastLauncher({
   dataDir: config.dataDir,
   member: (id) => cast.get(id),
   agents: () => office.list(),
@@ -160,11 +169,21 @@ const castLauncher = config.terminal ? new CastLauncher({
   },
   changed: () => office.markDirty(),
   idle: (agent) => office.castIdle(agent),
+  zeroclaw: config.zeroclawCatalog ? new ZeroClawCast({
+    catalog: config.zeroclawCatalog,
+    connector: () => zeroclawConnector,
+    delivery: () => zeroclawDelivery,
+    messages: () => late.messages,
+    account: () => zeroclaw?.accountId,
+    ready: () => !!zeroclaw?.sources().some((source) => source.ok),
+    afterOpen: async () => { await zeroclaw?.flush(); },
+  }) : undefined,
   ...(config.castMax ? { max: config.castMax } : {}),
 }) : undefined;
 late.castLauncher = castLauncher;
-// Resumo das respostas (Android): papel tiny da conta padrão do omp; manda texto ao modelo, então só com as mensagens.
+// Resumo das respostas (Android): HTTP configurado ou Tiny do omp; manda texto ao modelo, então só com as mensagens.
 const summaries = config.messages ? new Summarizer({
+  http: config.summaryHttp,
   bin: () => ompBinFrom(process.env, config.home),
   agentDir: () => accounts.entriesOf('omp')[0]?.detected.configDir,
 }) : undefined;
@@ -188,6 +207,18 @@ const omp = config.ompDirs.length
   : undefined;
 if (omp) agents.add(omp);
 const ompLive: OmpLive | undefined = omp;
+// Opt-in: no connector, timers or data directories exist without the loopback gateway URL.
+const zeroclawMirror = config.zeroclawUrl ? new ZeroClawMirror({ dataDir: config.dataDir, diagnostic: (message) => log.warn(message) }) : undefined;
+let zeroclaw: ZeroClawSource | undefined;
+const zeroclawConnector = config.zeroclawUrl && zeroclawMirror ? new ZeroClawConnector({
+  url: config.zeroclawUrl, dataDir: config.dataDir,
+  metadataOf: (id) => zeroclawMirror.metadataOf(id),
+  beforeOpen: (input) => zeroclaw!.prepare(input),
+}) : undefined;
+if (zeroclawConnector && zeroclawMirror) {
+  zeroclaw = new ZeroClawSource({ accounts, office, connector: zeroclawConnector, mirror: zeroclawMirror });
+  agents.add(zeroclaw);
+}
 late.office = office;
 late.agents = agents;
 // Página que pode responder pelo escritório: Host local na porta local; na remota, só com permissions liberado.
@@ -244,6 +275,11 @@ const history = config.terminal
   : undefined;
 if (history && codex) history.add(new CodexHistory({ accounts: () => accounts.entriesOf('codex'), openAgentOf: (acc, sid) => openMainAgent(office.list(), acc, sid) }));
 if (history && omp) history.add(new OmpHistory({ accounts: () => accounts.entriesOf('omp'), openAgentOf: (acc, sid) => openMainAgent(office.list(), acc, sid) }));
+if (history && zeroclaw && zeroclawConnector && zeroclawMirror) history.add(new ZeroClawHistory({
+  connector: zeroclawConnector, mirror: zeroclawMirror, account: () => zeroclaw!.accountId,
+  openAgentOf: (acc, sid) => openMainAgent(office.list(), acc, sid),
+  diagnostic: (message) => log.warn(message),
+}));
 // Último estado do agente de cada sessão: entregas de quem já saiu do escritório (sem agentId) mantêm nome e avatar.
 // shortcut: só em memória, some ao reiniciar o servidor; persistir se isso incomodar.
 const seenAgents = new Map<string, AgentInfo>();
@@ -323,6 +359,12 @@ const whisper = config.messages && !config.inDocker ? findWhisper() : undefined;
 const dictation = config.messages
   ? new DictationService(whisper && !('missing' in whisper) ? { transcriber: createWhisperTranscriber(whisper) } : {})
   : undefined;
+const zeroclawDelivery: ZeroClawDelivery | undefined = config.messages && zeroclawConnector ? new ZeroClawDelivery({
+  connector: zeroclawConnector,
+  isClosing: (sessionId) => castLauncher?.isClosing(sessionId) ?? false,
+  onCancelSession: (sessionId, reason) => late.messages?.cancelZeroClawSession(sessionId, reason),
+  onReplacementFailed: (agentId) => office.closeMain(agentId),
+}) : undefined;
 const messages = config.messages
   ? new MessageRegistry({
       office,
@@ -332,6 +374,7 @@ const messages = config.messages
         run: codexBin ? createCodexQueueRunner(codexBin) : undefined,
         homeOf: (account) => accounts.entriesOf('codex').find((e) => e.id === account)?.detected.configDir,
       },
+      zeroclaw: zeroclawDelivery,
       attachments,
       writeAttachments: (files) => deliveryFiles!.writeAttachments(files),
       onSettled: (id, status, error) => asides?.settled(id, status, error),
@@ -342,6 +385,8 @@ const asides = messages
   ? new AsideStore({ dir: join(config.dataDir, 'asides'), office, queue: (id, req) => messages.aside(id, req), discard: (id) => messages.discard(id) })
   : undefined;
 late.messages = messages;
+// Attach before sources start so restored intentions and intentional closes keep their cast reservation.
+castLauncher?.tick();
 
 // Terminal interativo (abrir/assumir sessões e encerrar agentes): opt-in com HABBLAUD_PTY=1, só com bind local, fora
 // do Docker, com node-pty e o executável do claude no PATH.
@@ -385,6 +430,8 @@ if (config.demo) office.setDemo(true);
 // As fontes síncronas (a do Claude Code) terminam o boot aqui, antes de o hub começar a transmitir.
 void agents.start();
 accounts.start();
+quota?.start();
+if (quota) log.info('Consulta de cota ligada.');
 hub.start();
 if (timeline) {
   timeline.start();
@@ -652,12 +699,14 @@ function shutdown(signal: string): void {
     () => clearInterval(ticker),
     () => stats.stop(),
     () => agents.stop(),
+    () => quota?.stop(),
     () => accounts.stop(),
     () => hub.stop(),
     () => terminals?.stop(),
     () => timeline?.stop(),
     () => permissions?.stop(),
     () => messages?.stop(),
+    () => zeroclawDelivery?.stop(),
     () => asides?.stop(),
     () => ptys?.stopAll(),
     () => updates.stop(),

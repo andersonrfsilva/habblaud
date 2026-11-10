@@ -5,7 +5,7 @@ import http from 'node:http';
 import { readFileSync } from 'node:fs';
 import { join, sep } from 'node:path';
 import type { AddressInfo } from 'node:net';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InboxMessage, OfficeSnapshot, OutboxMessage } from '../../shared/types';
 import { AccountsService } from '../accounts/service';
 import { loadConfig, messagesOffReason } from '../config';
@@ -21,21 +21,28 @@ import { createMessageRoutes } from './http';
 import { MessageRegistry, type MessageRegistryOptions } from './registry';
 import { AttachmentStore, ATTACHMENT_MAX_BYTES, writeAttachments } from '../spawn/attachments';
 import { attachmentStore } from '../test/attachment-fixture';
+import { ZeroClawConnector } from '../sources/zeroclaw/connector';
+import { ZeroClawMirror } from '../sources/zeroclaw/mirror';
+import { ZeroClawSource } from '../sources/zeroclaw/source';
+import { startTestGateway, type TestGateway } from '../sources/zeroclaw/test-gateway';
+import { ZeroClawDelivery } from './zeroclaw';
 
 setQuiet(true);
 
 const MAIN = 'acc:1';
 const SESSION = 'sess-1';
+const ZC_SESSION = '7f2c9ee1-2bdd-49ea-b431-3d56fc046370';
 
 interface MessageServer {
   base: string;
   office: Office;
   registry?: MessageRegistry;
+  zeroclaw?: { gateway: TestGateway; connector: ZeroClawConnector; source: ZeroClawSource; agentId: string };
   close(): Promise<void>;
 }
 
 /** Office + Hub + rotas de verdade numa porta livre do 127.0.0.1, com um agente principal na sessão "sess-1". */
-async function serveMessages(opts: { enabled?: boolean; demo?: boolean; registry?: Partial<MessageRegistryOptions> } = {}): Promise<MessageServer> {
+async function serveMessages(opts: { enabled?: boolean; demo?: boolean; zeroclaw?: boolean; registry?: Partial<MessageRegistryOptions> } = {}): Promise<MessageServer> {
   const tmp = tempDir();
   const enabled = opts.enabled ?? true;
   const late: { registry?: MessageRegistry } = {};
@@ -50,18 +57,41 @@ async function serveMessages(opts: { enabled?: boolean; demo?: boolean; registry
     messages: enabled ? () => late.registry?.reachable() ?? new Set() : undefined,
   });
   const hub = new Hub(office, { throttleMs: 10 });
+  const accounts = new AccountsService({ dirs: [], home: tmp.dir, env: {}, onChange: () => {} });
+  let zeroclaw: MessageServer['zeroclaw'];
+  let delivery: ZeroClawDelivery | undefined;
+  if (opts.zeroclaw) {
+    const gateway = await startTestGateway();
+    const mirror = new ZeroClawMirror({ dataDir: tmp.dir });
+    let source: ZeroClawSource;
+    const connector = new ZeroClawConnector({
+      url: gateway.url,
+      dataDir: tmp.dir,
+      metadataOf: (id) => mirror.metadataOf(id),
+      beforeOpen: (input) => source.prepare(input),
+      timeoutMs: 300,
+    });
+    source = new ZeroClawSource({ accounts, office, connector, mirror });
+    delivery = new ZeroClawDelivery({
+      connector,
+      onCancelSession: (id, reason) => late.registry?.cancelZeroClawSession(id, reason),
+      onReplacementFailed: (id) => office.closeMain(id),
+    });
+    zeroclaw = { gateway, connector, source, agentId: `zeroclaw:${source.accountId}:${ZC_SESSION}` };
+    await source.start();
+  }
   const registry = enabled
     ? new MessageRegistry({
         office,
         demoAgent: (id) => office.demoAgent(id),
         demoDeliver: (id, text) => office.deliverDemoMessage(id, text),
         tickMs: 20,
+        zeroclaw: delivery,
         ...opts.registry,
       })
     : undefined;
   late.registry = registry;
   registry?.start();
-  const accounts = new AccountsService({ dirs: [], home: tmp.dir, env: {}, onChange: () => {} });
   const api = createApiHandler({
     office,
     hub,
@@ -81,20 +111,27 @@ async function serveMessages(opts: { enabled?: boolean; demo?: boolean; registry
   const port = (server.address() as AddressInfo).port;
   office.addMain({ id: MAIN, account: 'acc', sessionId: SESSION, cwd: '/p/loja', role: 'Agente principal', startedAt: Date.now(), status: 'idle' });
   if (opts.demo) office.setDemo(true);
+  if (zeroclaw) {
+    await zeroclaw.connector.openSession({ sessionId: ZC_SESSION, agent: 'assistant', name: 'HTTP ZeroClaw', cwd: '/p/loja' });
+    await zeroclaw.source.flush();
+  }
   return {
     base: `http://127.0.0.1:${port}`,
     office,
     registry,
-    close: () =>
-      new Promise((ok) => {
-        registry?.stop();
-        hub.stop();
-        server.closeAllConnections();
-        server.close(() => {
-          tmp.cleanup();
-          ok();
-        });
-      }),
+    zeroclaw,
+    close: async () => {
+      registry?.stop();
+      delivery?.stop();
+      zeroclaw?.source.stop();
+      hub.stop();
+      server.closeAllConnections();
+      const closed = Promise.withResolvers<void>();
+      server.close(() => closed.resolve());
+      await closed.promise;
+      await zeroclaw?.gateway.close();
+      tmp.cleanup();
+    },
   };
 }
 
@@ -174,6 +211,7 @@ describe('trava das mensagens (config)', () => {
 describe('trava das rotas', () => {
   const ROUTES: Array<[string, string]> = [
     ['POST', '/api/messages'],
+    ['POST', '/api/messages/control'],
     ['POST', '/api/messages/attachments'],
     ['GET', '/api/messages/x'],
     ['POST', '/api/mod/inbox'],
@@ -354,6 +392,143 @@ describe('rotas', () => {
     expect((await snapshot(srv)).agents.filter((a) => a.canMessage)).toEqual([]);
   });
 });
+describe('mensagens ZeroClaw pelo HTTP', () => {
+  it('201 queued e GET delivered sem texto, anexos ou segredos; buffer aceito não exige done nem ack', async () => {
+    const secret = 'token-secreto-http-070';
+    const path = `/p/loja/anexo-${secret}.txt`;
+    srv = await serveMessages({ zeroclaw: true, registry: {
+      attachments: attachmentStore(),
+      writeAttachments: async () => ({ paths: [path] }),
+    } });
+    const { agentId, connector, gateway } = srv.zeroclaw!;
+    const upload = await binary(srv, Buffer.from(`conteúdo-${secret}`));
+    expect(upload.status).toBe(201);
+    const uploaded = upload.json;
+    if (!uploaded || typeof uploaded !== 'object' || !('id' in uploaded) || typeof uploaded.id !== 'string') {
+      throw new Error('upload não retornou ID de anexo');
+    }
+    const attachment = uploaded.id;
+    const text = `  pedido privado ${secret}\n`;
+    const accepted = await post(srv, '/api/messages', {
+      agentId, text, attachments: [attachment], expectedSessionId: ZC_SESSION,
+    });
+    expect(accepted.status).toBe(201);
+    expect(accepted.json).toMatchObject({ agentId, status: 'queued' });
+    const id = (accepted.json as OutboxMessage).id;
+    await vi.waitFor(async () => {
+      const status = await request(srv!.base, `/api/messages/${encodeURIComponent(id)}`);
+      expect(status.status).toBe(200);
+      expect(status.json).toMatchObject({ id, status: 'delivered' });
+      expect(status.json).not.toHaveProperty('text');
+      expect(status.json).not.toHaveProperty('attachments');
+      for (const privateValue of [secret, path, attachment, gateway.url]) {
+        expect(status.text).not.toContain(privateValue);
+        expect(accepted.text).not.toContain(privateValue);
+      }
+      expect(gateway.connections[0].messages).toHaveLength(1);
+    });
+    expect(gateway.connections[0].messages[0]).toEqual({
+      type: 'message',
+      content: expect.stringContaining(path),
+    });
+    expect(gateway.connections[0].messages[0].content).toContain(text.trimEnd());
+    expect(connector.session(ZC_SESSION)?.busy).toBe(true);
+    expect(gateway.connections).toHaveLength(1);
+    expect((await post(srv, '/api/mod/inbox', { session: ZC_SESSION })).json).toEqual({ messages: [] });
+    expect((await snapshot(srv)).agents.find((agent) => agent.id === agentId)?.canMessage).toBe(true);
+  });
+
+  it('400 aside/corpo inválido e 404 agente/mensagem ausentes, sem enviar ao gateway', async () => {
+    srv = await serveMessages({ zeroclaw: true });
+    const { agentId, gateway } = srv.zeroclaw!;
+    for (const body of [
+      {}, '{quebrado', { agentId }, { agentId, text: ' ' },
+      { agentId, text: 'x'.repeat(20_001) },
+      { agentId, text: 'oi', deliverAs: 'aside' },
+      { agentId, text: 'oi', deliverAs: 'inválido' },
+    ]) expect((await post(srv, '/api/messages', body)).status).toBe(400);
+    expect((await post(srv, '/api/messages/control', { agentId, thinking: 'inválido' })).status).toBe(400);
+    expect((await post(srv, '/api/messages', { agentId: 'ausente', text: 'oi' })).status).toBe(404);
+    expect((await post(srv, '/api/messages/control', { agentId: 'ausente', stop: true })).status).toBe(404);
+    expect((await request(srv.base, '/api/messages/ausente')).status).toBe(404);
+    expect(gateway.connections[0].messages).toEqual([]);
+    expect(gateway.requests.some((r) => r.path.endsWith('/abort'))).toBe(false);
+    expect(gateway.connections).toHaveLength(1);
+  });
+
+  it('409 para controles incompatíveis, sessão alterada e socket desconectado, sem plugin alternativo', async () => {
+    srv = await serveMessages({ zeroclaw: true });
+    const { agentId, gateway, connector } = srv.zeroclaw!;
+    for (const control of [
+      { model: 'outro' }, { thinking: 'low' }, { resume: ZC_SESSION },
+      { command: 'shake' }, { command: 'advisorOn' }, { command: 'advisorOff' },
+      { stop: true, command: 'new' }, { stop: true, thinking: 'low' },
+    ]) {
+      const response = await post(srv, '/api/messages/control', { agentId, ...control });
+      expect(response.status, JSON.stringify(control)).toBe(409);
+      expect(response.json).toMatchObject({ error: expect.any(String) });
+    }
+    for (const [route, body] of [
+      ['/api/messages', { text: 'não enviar' }],
+      ['/api/messages/control', { stop: true }],
+      ['/api/messages/control', { command: 'new' }],
+    ] as const) {
+      const response = await post(srv, route, { agentId, ...body, expectedSessionId: 'sessão-antiga' });
+      expect(response).toMatchObject({ status: 409, json: { code: 'session_changed' } });
+    }
+    expect(gateway.connections[0].messages).toEqual([]);
+    expect(gateway.requests.some((r) => r.path.endsWith('/abort'))).toBe(false);
+    expect(gateway.connections).toHaveLength(1);
+    gateway.options.autoStart = false;
+    gateway.connections[0].drop();
+    await vi.waitFor(() => expect(connector.session(ZC_SESSION)?.connected).toBe(false));
+    await post(srv, '/api/mod/inbox', { session: ZC_SESSION });
+    for (const [route, body] of [
+      ['/api/messages', { text: 'não enviar' }],
+      ['/api/messages/control', { stop: true }],
+      ['/api/messages/control', { command: 'new' }],
+    ] as const) {
+      const response = await post(srv, route, { agentId, ...body });
+      expect(response.status).toBe(409);
+      expect(response.json).toMatchObject({ error: expect.any(String) });
+      expect(response.text).not.toContain('habblaud-mensagens');
+    }
+    expect(gateway.connections.every((socket) => socket.messages.length === 0)).toBe(true);
+  });
+
+  it('429 depois de cinco followUps queued enquanto o turno está busy', async () => {
+    srv = await serveMessages({ zeroclaw: true });
+    const { agentId, gateway } = srv.zeroclaw!;
+    const initial = await post(srv, '/api/messages', { agentId, text: 'turno inicial' });
+    expect(initial.status).toBe(201);
+    await vi.waitFor(async () => {
+      expect((await request(srv!.base, `/api/messages/${(initial.json as OutboxMessage).id}`)).json).toMatchObject({ status: 'delivered' });
+      expect(gateway.connections[0].messages).toHaveLength(1);
+    });
+    for (let i = 0; i < 5; i++) {
+      const queued = await post(srv, '/api/messages', { agentId, text: `followUp ${i}`, deliverAs: 'followUp' });
+      expect(queued).toMatchObject({ status: 201, json: { status: 'queued' } });
+      expect((await request(srv.base, `/api/messages/${(queued.json as OutboxMessage).id}`)).json).toMatchObject({ status: 'queued' });
+    }
+    expect((await post(srv, '/api/messages', { agentId, text: 'sexto followUp' })).status).toBe(429);
+    expect(gateway.connections[0].messages).toEqual([{ type: 'message', content: 'turno inicial' }]);
+  });
+
+  it('mensagens desligadas mantêm 403 em texto, controles e consulta mesmo com socket disponível', async () => {
+    srv = await serveMessages({ zeroclaw: true, enabled: false });
+    const { agentId, connector, gateway } = srv.zeroclaw!;
+    expect(connector.session(ZC_SESSION)?.connected).toBe(true);
+    expect((await post(srv, '/api/messages', { agentId, text: 'não enviar' })).status).toBe(403);
+    expect((await post(srv, '/api/messages/control', { agentId, stop: true })).status).toBe(403);
+    expect((await post(srv, '/api/messages/control', { agentId, command: 'new' })).status).toBe(403);
+    expect((await request(srv.base, '/api/messages/qualquer')).status).toBe(403);
+    expect((await snapshot(srv)).meta.messages).toBe(false);
+    expect((await snapshot(srv)).agents.find((agent) => agent.id === agentId)?.canMessage).toBeUndefined();
+    expect(gateway.connections[0].messages).toEqual([]);
+    expect(gateway.requests.some((r) => r.path.endsWith('/abort'))).toBe(false);
+  });
+});
+
 
 describe('upload de anexos por HTTP real', () => {
   it('upload grande, somente anexo, polling/inbox e bytes gravados; destino não vem do cliente', async () => {

@@ -44,6 +44,7 @@ import br.com.xlinx.habblaud.data.splitRole
 import br.com.xlinx.habblaud.data.string
 import br.com.xlinx.habblaud.data.wireJson
 import br.com.xlinx.habblaud.data.serverLabel
+import br.com.xlinx.habblaud.data.messageDelivery
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.JsonObject
@@ -52,6 +53,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+internal fun catalogRuntime(body: String): String? =
+    wireJson.parseToJsonElement(body).jsonObject.string("provider")?.takeIf { it == "omp" || it == "zeroclaw" }
+internal fun summaryAvailable(summaryHttp: Boolean, roles: Map<String, String>?) = summaryHttp || roles?.get("tiny") != null
+internal fun httpSummaryAvailable(body: String): Boolean =
+    wireJson.parseToJsonElement(body).jsonObject["summaryHttp"]?.toString() == "true"
 /** Configurações do aparelho. Visualização e modo de envio aqui são o padrão; cada sessão lembra a própria escolha. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -78,13 +84,33 @@ fun SettingsScreen(apis: Map<String, HabblaudApi>, store: LocalStateStore, onClo
     var quotaError by remember(origin) { mutableStateOf(false) }
     // Modelos que os agentes omp abertos anunciam: são as opções do seletor dos papéis.
     var models by remember(origin) { mutableStateOf(emptyList<String>()) }
-    LaunchedEffect(origin, lifecycleOwner) {
+    var runtime by remember(api) { mutableStateOf<String?>(null) }
+    var summaryHttp by remember(api) { mutableStateOf(false) }
+    var authenticated by remember(api) { mutableStateOf(true) }
+    LaunchedEffect(api, lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            if (!authenticated) return@repeatOnLifecycle
+            while (true) {
+                try {
+                    runtime = catalogRuntime(api.request("/api/cast/models"))
+                    summaryHttp = httpSummaryAvailable(api.request("/api/health"))
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    runtime = null; summaryHttp = false
+                    if (e is ApiException && e.status == 401) { authenticated = false; quotas = null; models = emptyList(); return@repeatOnLifecycle }
+                }
+                delay(10_000)
+            }
+        }
+    }
+    LaunchedEffect(api, authenticated, lifecycleOwner) {
         var unauthorized = false
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
         if (unauthorized) return@repeatOnLifecycle
+        if (!authenticated) return@repeatOnLifecycle
         while (true) {
             try { val snapshot = api.request("/api/snapshot"); quotas = parseAccounts(snapshot); models = snapshotModels(snapshot); quotaError = false }
-            catch (e: Exception) { if (e is CancellationException) throw e; if (e is ApiException && e.status == 401) { unauthorized = true; return@repeatOnLifecycle }; quotaError = true }
+            catch (e: Exception) { if (e is CancellationException) throw e; if (e is ApiException && e.status == 401) { unauthorized = true; authenticated = false; runtime = null; summaryHttp = false; quotas = null; models = emptyList(); return@repeatOnLifecycle }; quotaError = true }
             delay(60_000)
         }
         }
@@ -94,7 +120,8 @@ fun SettingsScreen(apis: Map<String, HabblaudApi>, store: LocalStateStore, onClo
     var rolesStatus by remember(origin) { mutableStateOf("loading") }
     var rolesPending by remember(origin) { mutableStateOf(false) }
     var rolesRefresh by remember(origin) { mutableIntStateOf(0) }
-    LaunchedEffect(origin, rolesRefresh, lifecycleOwner) {
+    LaunchedEffect(api, authenticated, runtime, rolesRefresh, lifecycleOwner) {
+        if (!ompTools(runtime) || !authenticated) { roles = null; rolesPending = false; return@LaunchedEffect }
         var unauthorized = false
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
         if (unauthorized) return@repeatOnLifecycle
@@ -106,7 +133,7 @@ fun SettingsScreen(apis: Map<String, HabblaudApi>, store: LocalStateStore, onClo
                 rolesStatus = if (r["available"]?.toString() == "true") "available" else "unavailable"
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                if (e is ApiException && e.status == 401) { unauthorized = true; return@repeatOnLifecycle }
+                if (e is ApiException && e.status == 401) { unauthorized = true; authenticated = false; runtime = null; summaryHttp = false; roles = null; return@repeatOnLifecycle }
                 // Falha passageira com papéis já lidos: mantém a lista na tela e tenta de novo na próxima rodada.
                 if (e is ApiException && e.status == 403) rolesStatus = "forbidden" else if (roles == null) rolesStatus = "error"
             }
@@ -115,12 +142,14 @@ fun SettingsScreen(apis: Map<String, HabblaudApi>, store: LocalStateStore, onClo
         }
     }
     var editingRole by remember(origin) { mutableStateOf<String?>(null) }
+    LaunchedEffect(runtime, authenticated) { if (!ompTools(runtime) || !authenticated) editingRole = null }
     var rolesError by remember(origin) { mutableStateOf(false) }
     fun saveRole(role: String, value: String) {
+        if (!ompTools(runtime) || !authenticated) return
         rolesError = false; rolesPending = true
         scope.launch {
             try { api.request("/api/cast/roles", buildJsonObject { put("roles", buildJsonObject { put(role, value) }) }); rolesRefresh++ }
-            catch (e: Exception) { if (e is CancellationException) throw e; rolesPending = false; rolesError = true }
+            catch (e: Exception) { if (e is CancellationException) throw e; rolesPending = false; rolesError = true; if (e is ApiException && e.status == 401) { authenticated = false; runtime = null; summaryHttp = false; roles = null } }
         }
     }
     Scaffold(topBar = {
@@ -151,18 +180,19 @@ fun SettingsScreen(apis: Map<String, HabblaudApi>, store: LocalStateStore, onClo
 
             Section(Res.string.settings_deliver_default)
             deliver?.let { current ->
-                listOf("aside" to Res.string.deliver_aside, "followUp" to Res.string.deliver_follow_up, "steer" to Res.string.deliver_steer).forEach { (value, label) ->
-                    RadioRow(stringResource(label), current == value) { deliver = value; scope.launch { store.setDeliverAs(value) } }
+                listOf("aside" to Res.string.deliver_aside, "followUp" to Res.string.deliver_follow_up, "steer" to Res.string.deliver_steer).filter { it.first in deliveryModes(runtime) }.forEach { (value, label) ->
+                    RadioRow(stringResource(label), messageDelivery(runtime, current) == value) { deliver = value; scope.launch { store.setDeliverAs(value) } }
                 }
             }
             Hint(Res.string.settings_per_session)
 
             Section(Res.string.settings_summaries)
             // Sem modelo escolhido para o papel Tiny não há resumo (o servidor recusa): o interruptor fica desligado.
-            val hasTiny = roles?.get("tiny") != null
+            val hasTiny = authenticated && summaryAvailable(summaryHttp, roles.takeIf { ompTools(runtime) })
             summarize?.let { on -> SwitchRow(stringResource(Res.string.settings_summarize), on && hasTiny, enabled = hasTiny) { scope.launch { store.setSummarize(!on) } } }
-            Hint(if (hasTiny) Res.string.settings_summarize_hint else Res.string.settings_summarize_needs_tiny)
+            Hint(if (hasTiny) Res.string.settings_summarize_hint else if (ompTools(runtime)) Res.string.settings_summarize_needs_tiny else Res.string.settings_summarize_unavailable)
 
+            if (ompTools(runtime) && authenticated) {
             Section(Res.string.settings_roles)
             when (rolesStatus) {
                 "loading" -> Hint(Res.string.quota_loading)
@@ -187,6 +217,7 @@ fun SettingsScreen(apis: Map<String, HabblaudApi>, store: LocalStateStore, onClo
             }
             editingRole?.let { role ->
                 RoleDialog(role, roles?.get(role), models, onDismiss = { editingRole = null }) { value -> editingRole = null; saveRole(role, value) }
+            }
             }
 
             if (notificationsPlatform.available) {

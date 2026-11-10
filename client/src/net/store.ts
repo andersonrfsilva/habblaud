@@ -364,9 +364,9 @@ export class OfficeStore {
    * (agente que não recebe mensagens, fila cheia, acesso que não é local...). Sem conexão com o servidor: lança.
    * No ?mock=1 a entrega é fictícia (o simulador põe a atividade no agente).
    */
-  async sendMessage(agentId: string, text: string, attachments?: string[], deliverAs?: OmpDeliverAs): Promise<{ message: OutboxMessage } | { error: string; attachmentsExpired?: boolean }> {
+  async sendMessage(agentId: string, text: string, attachments?: string[], deliverAs?: OmpDeliverAs, expectedSessionId?: string): Promise<{ message: OutboxMessage } | { error: string; attachmentsExpired?: boolean }> {
     if (this.mock) return this.mockSend(agentId, text, deliverAs);
-    const res = await fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId, text, ...(attachments?.length ? { attachments } : {}), ...(deliverAs ? { deliverAs } : {}) }) });
+    const res = await fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId, text, ...(attachments?.length ? { attachments } : {}), ...(deliverAs ? { deliverAs } : {}), ...(expectedSessionId !== undefined ? { expectedSessionId } : {}) }) });
     let body: unknown;
     try {
       body = await res.json();

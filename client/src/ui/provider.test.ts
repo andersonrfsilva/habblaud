@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentInfo, OfficeSnapshot } from '../../../shared/types';
+import { setNeutralBrand } from '../../../shared/i18n';
 import {
   accountChipLabel,
   accountProvider,
@@ -12,10 +13,31 @@ import {
   looksLikeCodexId,
   looksLikeOmpId,
   providerOf,
+  PROVIDER_NAME,
   showsProviderTag,
+  runtimeAllowsMessages,
+  runtimeAllowsControl,
+  runtimeAllowsDeliveryModes,
+  runtimeAllowsOmpTools,
+  runtimeAllowsContext,
+  normalizeDeliverAs,
+  parseCastModelCatalog,
+  castModelOptions,
+  castDefaultModel,
+  validCastModel,
 } from './provider';
 
 describe('ferramenta (Claude Code ou Codex)', () => {
+  it('nome ZeroClaw e selo no modo sem marca', () => {
+    expect(PROVIDER_NAME.zeroclaw).toBe('ZeroClaw');
+    expect(providerOf({ provider: 'zeroclaw' })).toBe('zeroclaw');
+    setNeutralBrand(true);
+    try {
+      expect(showsProviderTag('zeroclaw')).toBe(false);
+    } finally {
+      setNeutralBrand(false);
+    }
+  });
   it('provider ausente = Claude Code', () => {
     expect(providerOf(undefined)).toBe('claude');
     expect(providerOf({})).toBe('claude');
@@ -132,5 +154,69 @@ describe('ferramenta omp', () => {
     const agent = (status: AgentInfo['status'] = 'waiting') => ({ status, permission: p }) as AgentInfo;
     expect(hasShortPermission({ agents: [agent()] })).toBe(true);
     expect(hasShortPermission({ agents: [agent('offline')] })).toBe(false);
+  });
+});
+
+describe('recursos por runtime e catálogo do elenco', () => {
+  it.each([
+    [undefined, true, false, false],
+    ['claude', true, false, false],
+    ['codex', true, false, false],
+    ['omp', true, true, true],
+    ['zeroclaw', true, true, false],
+    ['unknown', false, false, false],
+    [null, false, false, false],
+  ])('%s mantém permissões separadas', (provider, messages, controls, ompOnly) => {
+    expect(runtimeAllowsMessages(provider)).toBe(messages);
+    expect(runtimeAllowsControl(provider)).toBe(controls);
+    expect(runtimeAllowsDeliveryModes(provider)).toBe(controls);
+    expect(runtimeAllowsOmpTools(provider)).toBe(ompOnly);
+    expect(runtimeAllowsContext(provider)).toBe(ompOnly);
+  });
+
+  it('normaliza somente no envio, preservando aside do OMP', () => {
+    for (const value of ['aside', 'unknown', undefined]) expect(normalizeDeliverAs('zeroclaw', value)).toBe('followUp');
+    for (const value of ['steer', 'followUp'] as const) expect(normalizeDeliverAs('zeroclaw', value)).toBe(value);
+    expect(normalizeDeliverAs('omp', 'aside')).toBe('aside');
+    expect(normalizeDeliverAs('claude', 'aside')).toBeUndefined();
+    expect(normalizeDeliverAs(undefined, 'steer')).toBeUndefined();
+  });
+
+  it('catálogo funciona sem sessões: nome legível, valor alias exato e padrão validado', () => {
+    const catalog = parseCastModelCatalog({ provider: 'zeroclaw', models: [{ alias: 'm_123', model: 'openai/gpt-5' }], defaultModel: 'm_123' });
+    expect(castModelOptions(catalog)).toEqual([{ value: 'm_123', label: 'openai/gpt-5' }]);
+    expect(castDefaultModel(catalog)).toBe('m_123');
+    expect(validCastModel(catalog, 'm_123')).toBe(true);
+    expect(validCastModel(catalog, 'openai/gpt-5')).toBe(false);
+    expect(validCastModel(catalog, 'gpt-5')).toBe(false);
+    expect(castDefaultModel({ ...catalog!, defaultModel: 'unknown' })).toBeUndefined();
+  });
+
+  it('aceita catálogo OMP sem modelo padrão, sem relaxar o contrato ZeroClaw', () => {
+    expect(parseCastModelCatalog({ provider: 'omp', models: [] })).toEqual({ provider: 'omp', models: [], defaultModel: '' });
+    expect(parseCastModelCatalog({ provider: 'zeroclaw', models: [] })).toBeUndefined();
+    expect(parseCastModelCatalog({ provider: 'omp', models: [], defaultModel: 42 })).toBeUndefined();
+  });
+
+  it('catálogo ausente ou inválido nunca inventa runtime ou opções OMP', () => {
+    for (const raw of [null, {}, { provider: 'unknown', models: [], defaultModel: '' }, { provider: 'zeroclaw', models: [{ alias: 'm_1' }], defaultModel: 'm_1' }]) {
+      expect(parseCastModelCatalog(raw)).toBeUndefined();
+    }
+    expect(castModelOptions(undefined)).toEqual([]);
+    expect(castDefaultModel(undefined)).toBeUndefined();
+    expect(validCastModel(undefined, 'm_1')).toBe(false);
+  });
+
+  it('ZeroClaw tem selo próprio, não duplica a conta e desaparece sem marca', () => {
+    expect(showsProviderTag('zeroclaw', 'Pessoal')).toBe(true);
+    expect(showsProviderTag('zeroclaw', 'Minha ZeroClaw')).toBe(false);
+    expect(accountChipLabel({ name: 'Pessoal', provider: 'zeroclaw' }, 'zc', 'zeroclaw')).toBe('Pessoal · ZeroClaw');
+    setNeutralBrand(true);
+    try {
+      expect(showsProviderTag('zeroclaw')).toBe(false);
+      expect(accountChipLabel({ name: 'Pessoal', provider: 'zeroclaw' }, 'zc', 'zeroclaw')).not.toMatch(/ZeroClaw/);
+    } finally {
+      setNeutralBrand(false);
+    }
   });
 });

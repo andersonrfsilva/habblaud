@@ -49,6 +49,40 @@ describe('ações do elenco', () => {
   });
 });
 
+describe('mensagens (store)', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it.each(['steer', 'followUp'] as const)('envia %s ao ZeroClaw com o corpo exato e a guarda da sessão', async (deliverAs) => {
+    const message = { id: 'message-1', status: 'queued' };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(message), { status: 201 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const store = new OfficeStore();
+
+    expect(await store.sendMessage('zeroclaw:1', 'oi', ['attachment-1'], deliverAs, 'session-1')).toEqual({ message });
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith('/api/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agentId: 'zeroclaw:1', text: 'oi', attachments: ['attachment-1'], deliverAs, expectedSessionId: 'session-1' }),
+    });
+  });
+
+  it('preserva os corpos de Claude, Codex e OMP sem guarda explícita', async () => {
+    const fetchMock = vi.fn(async () => new Response('{"id":"message-1","status":"queued"}', { status: 201 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const store = new OfficeStore();
+
+    await store.sendMessage('claude:1', 'oi');
+    await store.sendMessage('codex:1', 'oi', []);
+    await store.sendMessage('omp:1', 'oi', ['attachment-1'], 'aside');
+
+    expect(fetchMock.mock.calls).toEqual([
+      ['/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"agentId":"claude:1","text":"oi"}' }],
+      ['/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"agentId":"codex:1","text":"oi"}' }],
+      ['/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"agentId":"omp:1","text":"oi","attachments":["attachment-1"],"deliverAs":"aside"}' }],
+    ]);
+  });
+});
+
 describe('mockOptionsFrom', () => {
   it('usa os padrões sem parâmetros', () => {
     expect(mockOptionsFrom('')).toEqual({ speed: 1, sessions: 4 });

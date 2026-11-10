@@ -116,7 +116,7 @@ export function isNeutralBrand(): boolean {
 
 // Nomes de ferramenta soltos no texto; não pega pedaços de caminho, comando ou id (".omp", "omp:install", "omp.json",
 // "claude-opus").
-const BRAND = /(?<![\w./-])(?:Claude Code|Claude|Codex|oh-my-pi|OpenAI|Anthropic|omp)(?![\w/-]|[:.]\w)/g;
+const BRAND = /(?<![\w./-])(?:Claude Code|Claude|Codex|ZeroClaw|oh-my-pi|OpenAI|Anthropic|omp)(?![\w/-]|[:.]\w)/g;
 
 /** Troca o nome da ferramenta por "agente" ("Agente principal (omp)" -> "Agente principal"). Só no modo sem marca. */
 export function unbrand(s: string): string {
@@ -124,7 +124,7 @@ export function unbrand(s: string): string {
   const en = current === 'en' || current === 'fr';
   const word = en ? 'agent' : 'agente';
   return s
-    .replace(/\s*\((?:Claude Code|Codex|oh-my-pi|OpenAI|Anthropic|omp|npm run [\w:]+)\)/g, '')
+    .replace(/\s*\((?:Claude Code|Codex|ZeroClaw|oh-my-pi|OpenAI|Anthropic|omp|npm run [\w:]+)\)/g, '')
     .replace(/omp usage/g, en ? 'usage meter' : 'medidor de uso')
     .replace(BRAND, (_m, at: number, all: string) => (at === 0 || /[.!?:(]\s*$/.test(all.slice(0, at)) ? word[0].toUpperCase() + word.slice(1) : word))
     // "Agente do agente" -> "Agente"; "agentes do agente" -> "agentes"; "agent agents" -> "agents".

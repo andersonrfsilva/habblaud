@@ -22,6 +22,7 @@ import {
   TIMEOUT_ERROR,
   type ComposerEnv,
 } from './composer-model';
+import { normalizeDeliverAs } from './provider';
 
 function agent(over: Partial<AgentInfo> = {}): AgentInfo {
   return {
@@ -265,4 +266,42 @@ it('interrompe o lote destruído durante upload sem enviar o próximo arquivo', 
   expect(calls).toEqual(['first.png']);
   expect(model.get('a')).toEqual([]);
   expect(revoked).toEqual(['blob:first.png', 'blob:second.png']);
+});
+
+describe('mensagens ZeroClaw', () => {
+  it('aceita principal ocioso ou ocupado sem liberar subagentes, replay ou acesso negado', () => {
+    for (const status of ['idle', 'working', 'waiting'] as const) {
+      expect(composerMode(agent({ provider: 'zeroclaw', status }), ON).kind).toBe('ready');
+    }
+    expect(composerMode(agent({ provider: 'zeroclaw', kind: 'sub' }), ON).kind).toBe('off');
+    expect(composerMode(agent({ provider: 'zeroclaw', status: 'offline' }), ON).kind).toBe('off');
+    expect(composerMode(agent({ provider: 'zeroclaw' }), { ...ON, local: false }).kind).toBe('off');
+    expect(composerMode(agent({ provider: 'zeroclaw' }), { ...ON, replaying: true }).kind).toBe('off');
+    for (const mode of [
+      composerMode(agent({ provider: 'zeroclaw', canMessage: false }), ON),
+      composerMode(agent({ provider: 'zeroclaw' }), { ...ON, enabled: false }),
+    ]) {
+      expect(mode.kind).not.toBe('ready');
+      if (mode.kind !== 'ready') expect(mode.text).not.toMatch(/plugin|bridge|omp:install|mod:install|Claude/);
+    }
+  });
+
+  it('steer/followUp e aside antigo normalizam por envio sem mudar a preferência OMP', () => {
+    const preference = 'aside';
+    expect(normalizeDeliverAs('zeroclaw', preference)).toBe('followUp');
+    expect(normalizeDeliverAs('omp', preference)).toBe('aside');
+    for (const deliverAs of ['steer', 'followUp'] as const) {
+      expect(normalizeDeliverAs('zeroclaw', deliverAs)).toBe(deliverAs);
+      const text = sendStatusText({ phase: 'delivered', at: 100, deliverAs }, 100, 'zeroclaw');
+      expect(text).toMatch(/não confirma leitura nem conclusão/);
+      expect(text).not.toMatch(/extensão|plugin|Claude/);
+    }
+  });
+
+  it('fila, dica e timeout não pedem plugin e não incentivam replay', () => {
+    expect(sendStatusText({ phase: 'queued', at: 0 }, 0, 'zeroclaw')).toMatch(/ZeroClaw/);
+    expect(composerTip('zeroclaw')).toMatch(/não confirma leitura nem conclusão/);
+    expect(timeoutError('zeroclaw')).toMatch(/não reenvie sem conferir/);
+    expect(timeoutError('zeroclaw')).not.toMatch(/plugin|bridge|omp|Claude/);
+  });
 });
