@@ -18,12 +18,13 @@ pub async fn run(
     input: mpsc::UnboundedReceiver<Event>,
     output: watch::Sender<State>,
     unauthorized: mpsc::UnboundedSender<()>,
+    visibility: watch::Receiver<bool>,
 ) {
     let dispatch: Dispatch = Arc::new(move |effect| {
         let api = api.clone();
         Box::pin(async move { execute(&api, effect).await })
     });
-    drive(input, output, unauthorized, dispatch).await;
+    drive(input, output, unauthorized, dispatch, visibility).await;
 }
 
 async fn execute(api: &HabblaudApi, effect: Effect) -> Event {
@@ -82,12 +83,20 @@ async fn drive(
     output: watch::Sender<State>,
     unauthorized: mpsc::UnboundedSender<()>,
     dispatch: Dispatch,
+    mut visibility: watch::Receiver<bool>,
 ) {
     let mut state = State::default();
     let mut calls = JoinSet::new();
     let mut delay = JoinSet::new();
     loop {
         let event = tokio::select! {
+            changed = visibility.changed() => {
+                if changed.is_err() { break; }
+                calls.abort_all(); delay.abort_all();
+                state.polling = false; state.dirty = false; state.aside.sending = false;
+                if !*visibility.borrow() { output.send_replace(state.clone()); continue; }
+                Event::Poll
+            }
             event = input.recv() => match event { Some(event) => event, None => break },
             Some(result) = calls.join_next(), if !calls.is_empty() => match result { Ok(event) => event, Err(_) => continue },
             Some(result) = delay.join_next(), if !delay.is_empty() => match result { Ok(event) => event, Err(_) => continue },
@@ -159,7 +168,8 @@ mod tests {
         let (send, receive) = mpsc::unbounded_channel();
         let (out, mut state) = watch::channel(State::default());
         let (unauth, _) = mpsc::unbounded_channel();
-        let runner = tokio::spawn(drive(receive, out, unauth, dispatch));
+        let (visible, visibility) = watch::channel(true);
+        let runner = tokio::spawn(drive(receive, out, unauth, dispatch, visibility));
         send.send(Event::Open("agent".into())).unwrap();
         while state.borrow().aside.loading || state.borrow().aside.agent_id.is_none() {
             state.changed().await.unwrap();
@@ -194,6 +204,15 @@ mod tests {
             tokio::task::yield_now().await;
         }
         assert!(seen.lock().unwrap().len() > before);
+        visible.send_replace(false);
+        for _ in 0..10 { tokio::task::yield_now().await; }
+        let before = seen.lock().unwrap().len();
+        tokio::time::advance(Duration::from_secs(10)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(seen.lock().unwrap().len(), before);
+        visible.send_replace(true);
+        for _ in 0..10 { tokio::task::yield_now().await; }
+        assert!(seen.lock().unwrap().len() > before);
         send.send(Event::Close).unwrap();
         for _ in 0..10 {
             tokio::task::yield_now().await;
@@ -219,7 +238,8 @@ mod tests {
         let (send, receive) = mpsc::unbounded_channel();
         let (out, _) = watch::channel(State::default());
         let (unauth, mut notice) = mpsc::unbounded_channel();
-        let runner = tokio::spawn(drive(receive, out, unauth, dispatch));
+        let (_visible, visibility) = watch::channel(true);
+        let runner = tokio::spawn(drive(receive, out, unauth, dispatch, visibility));
         send.send(Event::Open("a".into())).unwrap();
         assert_eq!(notice.recv().await, Some(()));
         runner.abort();

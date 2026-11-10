@@ -22,6 +22,7 @@ export global AsideState {
     in property <[AsideTurnRow]> turns;
     in property <[AsideTopicRow]> topics;
     callback open(); callback close(); callback ask(string); callback stop(); callback choose(string); callback new-topic(); callback link(string); callback copy(string);
+    callback app-visibility(bool);
 }
 component TopicPicker inherits TextButton {
     text: AsideState.topics-label;

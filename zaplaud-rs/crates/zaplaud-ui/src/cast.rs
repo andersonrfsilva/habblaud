@@ -6,7 +6,7 @@ use crate::{
 };
 use slint::{ComponentHandle, ModelRc, VecModel};
 use std::{sync::Arc, time::Duration};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use zaplaud_core::{Error, controller::cast::State, model::CastChoice};
 #[derive(Clone)]
 enum Command {
@@ -60,6 +60,8 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
     global.on_close(move || {
         let _ = send.send(Command::Close);
     });
+    let (visible, mut visibility) = watch::channel(true);
+    global.on_app_visibility(move |value| { visible.send_replace(value); });
     let mut snapshots = context.snapshots.subscribe();
     let weak = window.as_weak();
     let commands = context.commands.clone();
@@ -71,6 +73,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
         loop {
             let mut refresh = false;
             tokio::select! {
+                changed = visibility.changed() => { if changed.is_err() { break; } refresh = *visibility.borrow(); }
                 value = snapshots.recv() => {
                     let value = match value { Ok(value) => value, Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue, Err(_) => break };
                     let next_origin = value.selected.as_ref().map(|s| s.key.origin.as_str()).or(value.filter.as_deref()).or_else(|| (value.servers.len() == 1).then(|| value.servers[0].api.origin())).unwrap_or_default();
@@ -78,7 +81,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                     if snapshot.as_ref().and_then(|s| s.selected.as_ref()).map(|s| &s.key) != value.selected.as_ref().map(|s| &s.key) { state.result.clear(); dialog = Dialog::default(); }
                     snapshot = Some(value);
                 }
-                _ = tokio::time::sleep_until(next_poll), if !origin.is_empty() => { refresh = true; }
+                _ = tokio::time::sleep_until(next_poll), if !origin.is_empty() && *visibility.borrow() => { refresh = true; }
                 command = receive.recv() => {
                     let Some(command) = command else { break }; let Some(snap) = &snapshot else { continue };
                     let Some(server) = snap.servers.iter().find(|s| s.api.origin() == origin) else { continue };
@@ -116,10 +119,10 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
             }
             if let Some(snap) = &snapshot {
                 if let Some(server) = snap.servers.iter().find(|s| s.api.origin() == origin) {
-                    if !server.needs_login && server.reading.connection == "connected" && (server.reading.terminal_allowed || snap.selected.as_ref().is_some_and(|s| s.permission)) {
+                    if *visibility.borrow() && !server.needs_login && server.reading.connection == "connected" && (server.reading.terminal_allowed || snap.selected.as_ref().is_some_and(|s| s.permission)) {
                         if refresh { if let Err(error) = state.refresh(&server.api, !loaded).await { unauthorized(&commands, &origin, &error); } else { loaded = true; } next_poll = tokio::time::Instant::now() + Duration::from_secs(5); }
                     } else { state.availability = "offline".into(); next_poll = tokio::time::Instant::now() + Duration::from_secs(5); }
-                    if !dialog.mode.is_empty() {
+                    if *visibility.borrow() && !dialog.mode.is_empty() {
                         for character in &state.characters {
                             if let Some(avatar) = &character.avatar {
                                 let key = avatars::key(&origin, avatar);
@@ -130,7 +133,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                         }
                     }
                     publish(&weak, snap.clone(), state.clone(), &dialog, &origin);
-                } else { update_ui(&weak, |window| { window.global::<ListState>().set_cast_visible(false); window.global::<CastState>().set_resume_visible(false); window.global::<CastState>().set_dismiss_visible(false); }); }
+                } else { update_ui(&weak, |window| { window.global::<ListState>().set_cast_visible(false); let global = window.global::<CastState>(); global.set_resume_visible(false); global.set_dismiss_visible(false); global.set_visible(false); global.set_confirming(false); global.set_status("".into()); }); }
             }
         }
     });

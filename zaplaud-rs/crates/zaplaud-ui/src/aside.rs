@@ -71,6 +71,8 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                 .status();
         });
     });
+    let (visible, visibility) = watch::channel(true);
+    global.on_app_visibility(move |value| { visible.send_replace(value); });
     let mut snapshots = context.snapshots.subscribe();
     let weak = window.as_weak();
     let commands = context.commands.clone();
@@ -97,7 +99,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                         if let (Some(api), Some(agent)) = (api.clone(), selected.as_ref().and_then(|s| s.agent_id.clone())) {
                             if let Some(task) = runner.take() { task.abort(); }
                             let (send, receive) = mpsc::unbounded_channel(); let (out, changes) = watch::channel(State::default()); state = changes;
-                            runner = Some(tokio::spawn(aside::run(api, receive, out, unauth.clone())));
+                            runner = Some(tokio::spawn(aside::run(api, receive, out, unauth.clone(), visibility.clone())));
                             let _ = send.send(Event::Open(agent)); input = Some(send);
                         }
                     } else if let Some(send) = &input { let _ = send.send(event); }

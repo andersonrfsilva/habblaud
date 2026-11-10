@@ -17,6 +17,7 @@ export global CastState {
     in property <string> empty-label;
     in property <[CastRow]> rows;
     callback start(); callback resume(); callback dismiss(); callback choose(string); callback confirm(); callback close();
+    callback app-visibility(bool);
 }
 export component CastSheet inherits Rectangle {
     if CastState.visible: Dialog {

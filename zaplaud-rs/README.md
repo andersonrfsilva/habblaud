@@ -142,6 +142,12 @@ Os campos de `Theme` incluem os 48 papéis Material 3 em claro e escuro. O [base
 - O renderer software não recorta imagens pelo raio do pai. `avatars::decode` aplica máscara circular no RGBA antes de entrar no cache; preserve essa etapa.
 - `Sheet` e `Dialog` contêm os filhos no `FocusScope` de Esc. Formulários dinâmicos devem cercar sua ordem Tab com sentinelas de foco; o kit não inventa travessia entre descendentes.
 
+### Elenco e bate-papo paralelo
+
+`controller::cast::State` executa as rotas tipadas de elenco sem repetir POSTs. A origem das ações segue a seleção, depois o filtro, depois o servidor único. `CastState` publica retomar/dispensar e o texto de estado para o host da conversa; `ListState.cast` abre a escolha de contato e pasta.
+
+`controller::aside::run` recebe eventos por `mpsc`, publica o redutor por `watch` e sinaliza 401 por um canal separado. Descartar o runner cancela chamadas e esperas. Fechar ou trocar de sessão limpa a folha e encerra o polling. O runner limita a espera periódica de 700 ms do Kotlin a 1 s, conforme a meta desktop; não cria SSE adicional. Perguntas, cancelamentos e a consulta inicial continuam imediatos. `AsideState.open()` é a entrada do menu da conversa.
+
 ### Exercício visual e medição
 
 Com Xvfb disponível e dependências npm instaladas, execute:

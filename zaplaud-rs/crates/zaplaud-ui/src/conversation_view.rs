@@ -636,7 +636,6 @@ async fn stop_session(task: &mut Option<tokio::task::JoinHandle<()>>) {
         let _ = task.await;
     }
 }
-
 pub fn setup(window: &AppWindow, context: &FeatureContext) {
     let state = window.global::<ConversationViewState>();
     state.set_go_to_end(strings::GO_TO_END.into());
