@@ -18,9 +18,9 @@ export global LoginState {
 export component LoginPane inherits Rectangle {
     background: Theme.background;
     VerticalLayout { spacing: 0px;
-        HorizontalLayout { padding: 20px; height: 64px;
-            Text { text: Labels.app-name; color: Theme.on-surface; font-size: 22px; vertical-alignment: center; }
+        HorizontalLayout { padding-left: 16px; padding-right: 4px; height: 64px;
             if LoginState.can-cancel: TextButton { text: Labels.cancel; enabled: !LoginState.busy; clicked => { LoginState.cancel(); } }
+            Text { text: Labels.app-name; color: Theme.on-surface; font-size: 22px; vertical-alignment: center; }
         }
         ScrollContainer {
             VerticalLayout { padding: 20px; spacing: 12px;

@@ -62,7 +62,19 @@ pub fn decode(png: &[u8]) -> Option<Vec<u8>> {
     let image = image::DynamicImage::from_decoder(decoder)
         .ok()?
         .into_rgba8();
-    Some(image.into_raw())
+    let mut rgba = image.into_raw();
+    clip_circle(&mut rgba);
+    Some(rgba)
+}
+
+// O renderer software não recorta filhos no raio do Rectangle.
+fn clip_circle(rgba: &mut [u8]) {
+    for (index, pixel) in rgba.chunks_exact_mut(4).enumerate() {
+        let x = (index % 60) as f32 + 0.5 - 30.0;
+        let y = (index / 60) as f32 + 0.5 - 30.0;
+        let coverage = (30.0 - (x * x + y * y).sqrt()).clamp(0.0, 1.0);
+        pixel[3] = (f32::from(pixel[3]) * coverage).round() as u8;
+    }
 }
 pub fn insert(key: String, rgba: &[u8]) -> Vec<String> {
     if rgba.len() != 60 * 60 * 4 {
@@ -99,6 +111,15 @@ mod tests {
     #[test]
     fn rejects_invalid_and_wrong_dimensions() {
         assert!(decode(b"not png").is_none());
+    }
+    #[test]
+    fn circular_mask_keeps_center_and_removes_corners() {
+        let mut bytes = vec![255; 60 * 60 * 4];
+        clip_circle(&mut bytes);
+        assert_eq!(bytes[3], 0);
+        assert_eq!(bytes[(30 * 60 + 30) * 4 + 3], 255);
+        assert_eq!(bytes[(59 * 60 + 59) * 4 + 3], 0);
+        assert!(bytes.chunks_exact(4).any(|pixel| pixel[3] > 0 && pixel[3] < 255));
     }
     #[test]
     fn decoded_cache_evicts_within_four_mebibytes() {

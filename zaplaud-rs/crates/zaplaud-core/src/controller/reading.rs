@@ -49,6 +49,7 @@ impl ReadingController {
     pub fn failure(&mut self, status: Option<i32>) {
         if status == Some(401) {
             self.needs_login = true;
+            return;
         }
         self.state.stream_failure(status, false);
     }
@@ -180,6 +181,65 @@ mod tests {
     use super::*;
     fn snapshot(origin: &str, time: i64, reply: i64) -> Snapshot {
         Snapshot::parse_at(origin, &format!(r#"{{"serverTime":{time},"agents":[{{"kind":"main","id":"a","account":"test","sessionId":"s","title":"Title","replies":[{reply}]}}]}}"#),time).unwrap()
+    }
+    #[test]
+    fn unauthorized_refresh_and_stream_request_login_without_changing_reading_state() {
+        for stream in [false, true] {
+            for connection in ["connecting", "connected"] {
+                for error in [None, Some("changed"), Some("network")] {
+                    let mut controller =
+                        ReadingController::new("https://a".into(), HashMap::new(), None);
+                    controller.state.connection = connection.into();
+                    controller.state.error = error.map(str::to_owned);
+                    controller.state.reading_error = Some("forbidden".into());
+                    if stream {
+                        controller
+                            .apply_stream_event(
+                                crate::model::StreamEvent::Failure {
+                                    status: Some(401),
+                                    retry_after: None,
+                                },
+                                0,
+                            )
+                            .unwrap();
+                    } else {
+                        controller.failure(Some(401));
+                    }
+                    assert!(controller.needs_login);
+                    assert_eq!(controller.state.connection, connection);
+                    assert_eq!(controller.state.error.as_deref(), error);
+                    assert_eq!(controller.state.reading_error.as_deref(), Some("forbidden"));
+                }
+            }
+        }
+    }
+    #[test]
+    fn non_auth_failures_keep_error_classification_without_requesting_login() {
+        for (status, error) in [
+            (None, "network"),
+            (Some(500), "network"),
+            (Some(-1), "oversize"),
+            (Some(403), "forbidden"),
+            (Some(404), "missing"),
+        ] {
+            let mut controller =
+                ReadingController::new("https://a".into(), HashMap::new(), None);
+            controller.connected();
+            controller.state.reading_error = Some("changed".into());
+            controller
+                .apply_stream_event(
+                    crate::model::StreamEvent::Failure {
+                        status,
+                        retry_after: None,
+                    },
+                    0,
+                )
+                .unwrap();
+            assert!(!controller.needs_login);
+            assert_eq!(controller.state.connection, "offline");
+            assert_eq!(controller.state.error.as_deref(), Some(error));
+            assert_eq!(controller.state.reading_error.as_deref(), Some("changed"));
+        }
     }
     #[test]
     fn fake_snapshots_mark_open_session_and_preserve_other_origin() {

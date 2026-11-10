@@ -168,6 +168,30 @@ export component RadioButton inherits Rectangle {
     radio-label := Text { x: 40px; width: parent.width - 40px; text: root.text; color: Theme.on-surface; font-size: 16px; vertical-alignment: center; }
     radio-touch := TouchArea { enabled: root.enabled; clicked => { radio-keys.focus(); root.checked = true; root.toggled(); } }
 }
+export component CheckBox inherits Rectangle {
+    in-out property <bool> checked;
+    in property <string> text;
+    in property <bool> enabled: true;
+    callback toggled();
+    min-width: 40px + check-label.preferred-width; min-height: 40px;
+    accessible-role: checkbox; accessible-label: root.text; accessible-checked: root.checked; accessible-enabled: root.enabled;
+    opacity: root.enabled ? 1 : 0.38;
+    forward-focus: check-keys;
+    check-keys := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => { if event.text == " " || event.text == Key.Return { root.checked = !root.checked; root.toggled(); return accept; } return reject; }
+    }
+    Rectangle { x: 0px; y: (parent.height - 40px) / 2; width: 40px; height: 40px; border-radius: 20px;
+        background: check-touch.has-hover ? Theme.primary.with-alpha(0.08) : transparent;
+        border-width: check-keys.has-focus ? 2px : 0px; border-color: Theme.primary;
+        Rectangle { x: 11px; y: 11px; width: 18px; height: 18px; border-radius: 2px; border-width: 2px; border-color: root.checked ? Theme.primary : Theme.on-surface-variant;
+            background: root.checked ? Theme.primary : transparent;
+            if root.checked: Path { x: 3px; y: 4px; width: 12px; height: 10px; viewbox-width: 12; viewbox-height: 10; commands: "M 1 5 L 4.5 8 L 11 1"; stroke: Theme.on-primary; stroke-width: 2px; }
+        }
+    }
+    check-label := Text { x: 40px; width: parent.width - 40px; text: root.text; color: Theme.on-surface; font-size: 16px; vertical-alignment: center; }
+    check-touch := TouchArea { enabled: root.enabled; clicked => { check-keys.focus(); root.checked = !root.checked; root.toggled(); } }
+}
 export component SegmentedControl inherits Rectangle {
     in property <[string]> labels;
     in-out property <int> selected;
@@ -256,7 +280,8 @@ export component ProgressRing inherits Rectangle {
 }
 export component Tooltip inherits Rectangle {
     in property <string> text;
-    area := TouchArea {}
+    callback clicked();
+    area := TouchArea { clicked => { root.clicked(); } }
     @children
     if area.has-hover: Rectangle {
         y: -32px; height: 28px; width: label.preferred-width + 16px;

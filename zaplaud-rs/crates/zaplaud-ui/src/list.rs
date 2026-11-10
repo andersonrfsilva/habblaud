@@ -1,6 +1,6 @@
 use crate::{
-    AppEvents, AppWindow, AvatarColors, ConversationState, Icons, ListState, LoginState, ServerRow,
-    SessionRow, Theme, avatars, formatted,
+    AppEvents, AppWindow, AvatarColors, ConversationState, Icons, Labels, ListState, LoginState,
+    ServerRow, SessionRow, Theme, avatars, formatted,
     state::{AppState, Event, now_millis},
     strings, update_ui,
 };
@@ -12,6 +12,11 @@ use zaplaud_core::{
 };
 
 pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
+    let labels = window.global::<Labels>();
+    labels.set_reading_connected(strings::READING_CONNECTED.into());
+    labels.set_reading_connecting(strings::READING_CONNECTING.into());
+    labels.set_reading_offline(strings::READING_OFFLINE.into());
+    labels.set_cast_start(strings::CAST_START.into());
     let sender = &context.commands;
     let send = sender.clone();
     window.global::<ListState>().on_open(move |key| {

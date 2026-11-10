@@ -121,7 +121,7 @@ Importe componentes de `ui/widgets/kit.slint`; todas as cores vêm dos recursos 
 | `TextButton`, `FilledButton` | `text`, `enabled`, `foreground`, callback `clicked`; mouse, Tab, espaço e Enter. |
 | `IconButton`, `Fab` | `icon`, `label`, `enabled`, callback `clicked`; tamanho 40/56 px. |
 | `TextField` | `text` bidirecional; `placeholder`, `multiline`, `password`, `enabled`, `outlined`, `autofocus`; `max-lines` (0 mantém altura multilinha padrão), `sends-on-enter` (Enter aceita, Shift+Enter insere linha); callbacks `edited(string)`, `accepted`; aceita filhos. Usa `TextInput` nativo para IME e teclas mortas. |
-| `Switch`, `RadioButton` | `checked` bidirecional, `text`, `enabled`, callback `toggled()`. Desenho Material com cores de `Theme`, sem animação periódica. |
+| `Switch`, `RadioButton`, `CheckBox` | `checked` bidirecional, `text`, `enabled`, callback `toggled()`. Desenho Material com cores de `Theme`, sem animação periódica. |
 | `SegmentedControl` | `labels: [string]`, `selected: int` bidirecional, callback `chosen(int)`. |
 | `Chip` | API de `TextButton` mais `selected`. |
 | `Pill`, `Badge` | `text`, `foreground`; Badge aplica primary/onPrimary. |
@@ -130,7 +130,7 @@ Importe componentes de `ui/widgets/kit.slint`; todas as cores vêm dos recursos 
 | `Dialog` | Scrim modal; `title`, `text`, `confirm`, `cancel`; callbacks `confirmed`, `dismissed`; filhos antes dos botões; texto de botão vazio o oculta. Esc dos filhos e clique externo fecham. |
 | `Sheet` | Painel direito com scrim; filhos são conteúdo; callback `dismissed`; Esc e clique externo fecham. |
 | `Divider`, `ProgressRing` | Divisor e indicador indeterminado. Instancie indicador somente enquanto carregar. |
-| `Tooltip` | `text`; envolve filhos e mostra legenda no hover. |
+| `Tooltip` | `text`, callback `clicked()` para encaminhar clique ao controle envolvido; mostra legenda no hover. |
 | `ScrollList` | Alias do `ListView` padrão, não subclasse: preserva a virtualização reconhecida pelo compilador Slint. Filhos repetidos precisam ser diretos. |
 | `ScrollContainer` | API do ScrollView padrão; use `content-width` para rolagem horizontal. |
 
