@@ -36,7 +36,7 @@ Use usuário e senha fictícios `android-test`. HTTP exige confirmação na tela
 | `crates/zaplaud-core/src/model.rs` | Modelo compartilhado, tipos de eventos e conversão do contrato Kotlin/servidor. Não deve depender de Slint. |
 | `crates/zaplaud-core/src/api.rs` | HTTP, política de origem, autenticação e leitura de SSE. Não deve tocar widgets nem disco. |
 | `crates/zaplaud-core/src/error.rs` | Erro compartilhado do núcleo. |
-| `crates/zaplaud-core/src/rules.rs` | Regras puras portadas do Kotlin, incluindo ordenação por última mensagem. |
+| `crates/zaplaud-core/src/rules/` | Regras puras Kotlin e redutores do compositor, asides e permissões; `list.rs` pertence ao controlador da lista. |
 | `crates/zaplaud-core/tests/` | Contrato com servidor real e payloads capturados sem segredos. |
 | `crates/zaplaud-store/src/lib.rs` | Diretórios privados de dados/cache. Persistência será implementada pelo responsável pelo armazenamento. |
 | `crates/zaplaud-ui/src/` e `ui/` | Janela, apresentação e ponte assíncrona; dependem dos contratos de core, não dos detalhes do servidor. |
@@ -50,6 +50,14 @@ Coordenadores futuros devem dividir trabalho por esses limites. Mudanças na API
 Slint pertence à thread principal. A rede roda em um runtime Tokio mantido por uma thread de fundo. Callbacks da UI enviam comandos para esse runtime, sem bloquear o event loop. A tarefa de login abre o stream e consome snapshots reais.
 
 Para atualizar a UI, capture um `Weak` do componente e dados próprios (`String`, `Vec`, tipos do núcleo). Envie a atualização com `slint::invoke_from_event_loop`; somente dentro dessa closure faça `upgrade()` e altere propriedades/modelos Slint. Não envie componentes nem modelos Slint para tarefas Tokio. Se a janela já fechou, descarte a atualização. Encerre a tarefa anterior ao iniciar outra conexão; não deixe dois streams publicarem na mesma lista.
+
+Os redutores `rules::{composer,aside,permission}::reduce(State, Event) -> (State, Vec<Effect>)` não executam I/O. A ponte executa os efeitos tipados e devolve o evento de conclusão correspondente. `composer::Effect::Save` aplica `composer::update_message` dentro da transação serializada de `MessageStore`, sem cancelar a gravação ao sair do primeiro plano. Preserve a ordem dessas gravações; o POST só sai depois da confirmação da operação `unknown` persistida. `CheckRecipient` reavalia `composer::can_send` antes de cada upload e do POST; não reutilize o resultado inicial. `ReleaseUnused` exige consultar outros drafts e `State::active_attachment` antes de liberar uma URI.
+
+Datas recebem `now` explicitamente; os helpers `*_in` aceitam um fuso para testes determinísticos. Horários fora da faixa representável pelo Chrono retornam `None`, nunca consultam o relógio para substituir a entrada. `conversation::summary_text` retorna unidades UTF-16 para preservar exatamente o corte Kotlin de 32768 unidades, inclusive um surrogate final. A ponte deve codificar esse vetor como string JSON com escapes UTF-16, sem corte por bytes.
+
+`attachments::guess_mime` recebe a base MIME da plataforma: o JVM usa `Files.probeContentType`, cujo resultado depende do sistema operacional. Não existe uma allowlist MIME Kotlin para copiar. A regra usa a extensão sem diferenciar maiúsculas e retorna `application/octet-stream` quando desconhecida.
+
+Os goldens em `crates/zaplaud-core/tests/golden/` foram produzidos executando as funções Kotlin reais em um teste JVM temporário, com `./gradlew :shared:jvmTest --tests br.com.xlinx.habblaud.RustRulesGoldenTest --max-workers=4`. Entradas: os três JSON de `tests/fixtures`; saídas: filtros/agrupamento e transições de notificações. `platform-kotlin.json` também fixa o formato pt-BR e amostras MIME do JVM Linux. O teste temporário e `local.properties` não fazem parte do código entregue.
 
 ## Recursos gerados
 
