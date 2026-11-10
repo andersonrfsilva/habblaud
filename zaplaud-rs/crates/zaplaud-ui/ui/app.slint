@@ -1,10 +1,13 @@
+import "fonts/NotoSansMono-Regular.ttf";
+export { Clock } from "clock.slint";
+import { Clock } from "clock.slint";
 import { Theme, Icons } from "resources.slint";
 import { Labels } from "labels.slint";
 import { LoginPane, LoginState } from "login.slint";
 import { ListPane, ListState } from "list.slint";
 import { ConversationPane, ConversationState } from "conversation.slint";
 import { ConversationView, ConversationStatus, ConversationViewState, ConversationMenu, SessionInfoSheet } from "conversation_view.slint";
-export { ConversationViewState, ConversationRow, InfoRow, ModelChoice, MdBlock, MdCell, MdSpan } from "conversation_view.slint";
+export { ConversationViewState, ConversationRow, ToolDetail, InfoRow, ModelChoice, MdBlock, MdCell, MdSpan } from "conversation_view.slint";
 export { ComposerState, ComposerAttachment } from "composer.slint";
 import { Dialog } from "widgets/kit.slint";
 import { CastSheet, CastState } from "cast.slint";
@@ -41,6 +44,10 @@ export component AppWindow inherits Window {
     default-font-size: 16px;
     preferred-width: 1100px; preferred-height: 760px; min-width: 320px; min-height: 400px; background: Theme.background;
     out property <bool> wide: root.width >= 840px;
+    property <bool> clock-list-visible: !LoginState.visible && !SettingsState.visible && (root.wide || !ConversationState.selected);
+    property <bool> clock-conversation-visible: !LoginState.visible && !SettingsState.visible && ConversationState.selected;
+    changed clock-list-visible => { Clock.list-visible = self.clock-list-visible; }
+    changed clock-conversation-visible => { Clock.conversation-visible = self.clock-conversation-visible; }
     public function copy-conversation(text: string) { conversation-clipboard.text = text; conversation-clipboard.select-all(); conversation-clipboard.copy(); }
     conversation-clipboard := TextInput { width: 0px; height: 0px; opacity: 0; }
     forward-focus: keys;

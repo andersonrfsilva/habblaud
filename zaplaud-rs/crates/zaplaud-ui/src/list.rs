@@ -72,28 +72,6 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
         }
         let _ = send.send(Event::Avatar(key.into()));
     });
-    let weak = window.as_weak();
-    window.global::<ListState>().on_tick(move |key| {
-        if let Some(window) = weak.upgrade() {
-            let model = window.global::<ListState>().get_rows();
-            for i in 0..model.row_count() {
-                if let Some(mut row) = model.row_data(i)
-                    && row.key == key
-                {
-                    if let Ok(since) = row.since.parse::<i64>() {
-                        row.activity = activity_text(
-                            Some(row.activity_text.as_str()),
-                            Some(since),
-                            now_millis(),
-                        )
-                        .into();
-                        model.set_row_data(i, row);
-                    }
-                    break;
-                }
-            }
-        }
-    });
 }
 
 pub fn subtitle(item: &SessionItem, multiple: bool) -> String {
@@ -136,7 +114,7 @@ fn activity(item: &SessionItem, now: i64) -> String {
     }
     activity_text(item.activity.as_deref(), item.status_since, now)
 }
-fn activity_text(activity: Option<&str>, since: Option<i64>, now: i64) -> String {
+pub(crate) fn activity_text(activity: Option<&str>, since: Option<i64>, now: i64) -> String {
     let text = zaplaud_core::rules::time::status_line_text(activity)
         .unwrap_or_else(|| strings::STATUS_LINE_WORKING.into());
     match since {
@@ -263,6 +241,7 @@ pub fn publish(state: &AppState, weak: &slint::Weak<AppWindow>) {
             .map(|row| row_model(&window, row))
             .collect::<Vec<_>>();
         list.set_rows(ModelRc::new(VecModel::from(models)));
+        crate::clock::refresh_list(&window);
         list.set_servers(ModelRc::new(VecModel::from(
             servers
                 .into_iter()
@@ -368,6 +347,7 @@ fn row_model(window: &AppWindow, row: Row) -> SessionRow {
             ""
         }
         .into(),
+        codex: item.key.provider == "codex",
         working: item.agent_id.is_some()
             && item.status.as_deref() == Some("working")
             && item.status_since.is_some(),

@@ -12,6 +12,7 @@ use zaplaud_core::{
 
 pub fn setup(window: &AppWindow, context: &FeatureContext) {
     let global = window.global::<AsideState>();
+    global.on_valid_draft(|text| valid_draft(&text));
     global.set_title(strings::ASIDE_TITLE.into());
     global.set_hint(strings::ASIDE_HINT.into());
     global.set_empty(strings::ASIDE_EMPTY.into());
@@ -124,6 +125,15 @@ fn publish(weak: &slint::Weak<AppWindow>, state: State) {
         let global = window.global::<AsideState>();
         let aside = state.aside;
         global.set_visible(aside.agent_id.is_some());
+        if should_clear_draft(
+            global.get_sending(),
+            aside.sending,
+            aside.error.is_some(),
+            &global.get_draft(),
+            &global.get_submitted_draft(),
+        ) {
+            global.set_draft("".into());
+        }
         global.set_loading(aside.loading);
         global.set_sending(aside.sending);
         global.set_running(
@@ -154,6 +164,7 @@ fn publish(weak: &slint::Weak<AppWindow>, state: State) {
                 .iter()
                 .map(|topic| AsideTopicRow {
                     id: topic.id.clone().into(),
+                    selected: aside.topic().is_some_and(|current| current.id == topic.id),
                     title: format!(
                         "{} · {}",
                         topic
@@ -212,4 +223,54 @@ fn now() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis().min(i64::MAX as u128) as i64)
         .unwrap_or(0)
+}
+
+fn valid_draft(text: &str) -> bool {
+    text.encode_utf16().take(20_001).count() <= 20_000
+}
+
+fn should_clear_draft(
+    was_sending: bool,
+    sending: bool,
+    failed: bool,
+    draft: &str,
+    submitted: &str,
+) -> bool {
+    was_sending && !sending && !failed && draft == submitted
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{should_clear_draft, valid_draft};
+
+    #[test]
+    fn aside_input_counts_utf16_units() {
+        assert!(valid_draft(&"a".repeat(20_000)));
+        assert!(!valid_draft(&"a".repeat(20_001)));
+        assert!(valid_draft(&"🚀".repeat(10_000)));
+        assert!(!valid_draft(&"🚀".repeat(10_001)));
+    }
+
+    #[test]
+    fn aside_draft_survives_failure_and_concurrent_edit() {
+        assert!(should_clear_draft(
+            true, false, false, "pergunta", "pergunta"
+        ));
+        assert!(!should_clear_draft(
+            true, false, true, "pergunta", "pergunta"
+        ));
+        assert!(!should_clear_draft(
+            true,
+            false,
+            false,
+            "nova pergunta",
+            "pergunta"
+        ));
+        assert!(!should_clear_draft(
+            true, true, false, "pergunta", "pergunta"
+        ));
+        assert!(!should_clear_draft(
+            false, false, false, "pergunta", "pergunta"
+        ));
+    }
 }

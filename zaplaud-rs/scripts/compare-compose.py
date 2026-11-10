@@ -98,15 +98,15 @@ def capture(args, desktop, kind, theme):
                 print(path, flush=True)
 
             def login(port, warning=False):
-                desktop.fill(168 if kind == 'compose' else 162, f'http://127.0.0.1:{port}')
-                desktop.fill(244 if kind == 'compose' else 230, 'android-test')
-                desktop.fill(320 if kind == 'compose' else 298, 'android-test')
-                desktop.click(550, 384 if kind == 'compose' else 359)
+                desktop.fill(168 if kind == 'compose' else 167, f'http://127.0.0.1:{port}')
+                desktop.fill(244 if kind == 'compose' else 243, 'android-test')
+                desktop.fill(320 if kind == 'compose' else 319, 'android-test')
+                desktop.click(550, 384 if kind == 'compose' else 383)
                 time.sleep(.6)
                 if warning:
                     save('http-warning')
                 # Compose posiciona a confirmação à direita; Slint mantém a caixa própria.
-                desktop.click(758 if kind == 'compose' else 700, 437 if kind == 'compose' else 442)
+                desktop.click(758 if kind == 'compose' else 760, 437 if kind == 'compose' else 432)
                 colors = smoke.palette(theme)
                 divider = colors['outlineVariant']
                 try:

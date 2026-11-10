@@ -98,3 +98,83 @@ Dimensões diferentes ou pares ausentes interrompem a comparação; não há red
 - Após cinco aberturas/fechamentos: PSS 29.093 KiB, sete threads e 25 descritores; SSE permaneceu 1 e terminais 0. Não houve crescimento de conexões, mas a memória não retornou ao valor anterior nessa amostra.
 - `/tmp/zaplaud-rs-polish-system-font-emoji.png` mostra acentos pt-BR e uma face monocromática. O título de teste também tinha foguete e sequência de pessoa/pele/ZWJ, que não aparecem; suporte emoji completo permanece pendente.
 - Gates da revisão final: `cargo fmt --check`, `cargo clippy --workspace --all-targets -j 3 -- -D warnings` e `ZAPLAUD_KEYRING=memory cargo test --workspace -j 3` passaram; 121 testes passaram.
+
+## Fechamento visual — 10/11/2026
+
+Estado: **incompleto**. Esta rodada não certifica paridade por pixels.
+
+### Referências reais novas
+
+O aplicativo Compose da worktree foi executado com `./gradlew :desktop:run --max-workers=3`,
+SDK local temporário, Xvfb `:89` e fixture real na porta `14789`, permitindo
+`terminal,messages,permissions,spawn`. As capturas ficam em
+`/tmp/zaplaud-ref-compose-<tela>-<tema>.png`, com temas `light` e `dark`:
+
+- `conversation-idle`, `conversation-working`, `conversation-attachments`, `conversation-status-banner`;
+- `permission-bash`, `permission-question-single`, `permission-question-multi`, `permission-question-omp`;
+- `settings-appearance`, `settings-roles`, `settings-role-dialog`, `settings-quotas`;
+- `aside`, `session-info`, `conversation-menu`, `list-menu`;
+- `cast-picker`, `cast-folders`, `cast-dismiss`, `cast-resume-picker`, `cast-resume`.
+
+As capturas intermediárias foram feitas por XTest e incluem diálogos reais. Ainda falta
+auditar todos os arquivos, capturar novamente o Rust integrado e produzir todos os pares
+`/tmp/zaplaud-rs-fin-visual-compare-*.png`. Não confundir arquivo existente com tela certificada.
+
+### Correções implementadas
+
+- Login: campos com a margem vertical do OutlinedTextField e botão de 40 px, sem esticar.
+- Compositor: ações centralizadas verticalmente quando o campo cresce; container desabilitado usa alpha Material.
+- Banner: ícone Info de 18 px, padding 12 × 8 e altura mínima de 34 px.
+- Configurações: RadioRow de 44 px, indicador de 24 px com intervalo de 12 px; papéis de 60 px e switches de 52 px.
+- Elenco: seletor de 560 px, pastas de 44 px, contatos de 64 px e ícone Novo de 24 px dentro da caixa de 40 px.
+- Aside: RadioButton indica tópico selecionado; edição rejeita mais de 20.000 unidades UTF-16.
+  A falha de envio mantém o rascunho; edição concorrente não é apagada após sucesso.
+- Kit: ações AT-SPI padrão nos botões/toggles; descrição das opções de pergunta e nomes nas sheets.
+- Permissões: input completo com quebra por caractere e rolagem; marcador localizado de linhas adicionais.
+
+### Fontes e emoji: evidência e decisão
+
+`/proc/<pid-compose>/maps` mostrou Noto Sans Regular/Medium, Noto Sans Mono e DejaVu Sans Mono,
+além de fontes usadas pelo chooser nativo. `fc-match sans-serif` escolheu Noto Sans.
+O texto normal permanece do sistema. Noto Sans Mono foi embutida para tornar o nome explícito
+usado pelo Markdown disponível também no macOS. O macOS não foi executado nesta máquina.
+
+As amostras abaixo são execuções isoladas, não distribuições estatísticas. Foram obtidas
+na mesma fixture, com a conversa aberta. Revisões de UI diferem entre amostras; o último
+binário também inclui o recurso femtovg compilado. Não atribuir toda diferença às fontes.
+
+| Variante experimental | Binário (bytes) | Abertura (ms) | PSS (KiB) | RSS (KiB) |
+| --- | ---: | ---: | ---: | ---: |
+| Sistema + software | 34.023.944 | 202,84 | 31.371 | 38.240 |
+| Fonte mesclada externa + software | 34.023.944 | 155,73 | 31.901 | 38.536 |
+| Fonte mesclada embutida + software, femtovg compilado | 37.133.440 | 103,17 | 33.439 | 40.020 |
+
+O experimento mescla Noto Sans com Noto Emoji de contorno. O gerador reproduzível
+`compare-compose.fonts.py` requer FontTools e uharfbuzz. Seu self-check confirmou uma ligatura
+para cada amostra `🚀`, `👩🏽‍💻`, `✅`, `⚠️`, `🇧🇷`, `🇺🇸`.
+Entretanto, o renderer software ainda mostrou componentes separados para ZWJ/pele e letras
+separadas nas bandeiras. Por isso a fonte mesclada **não foi selecionada para produção**.
+
+Evidências: `/tmp/zaplaud-rs-fin-visual-system-emoji.png`,
+`/tmp/zaplaud-rs-fin-visual-merged-emoji.png`,
+`/tmp/zaplaud-rs-fin-visual-bundled-emoji.png`.
+Foi acrescentada uma mensagem com a mesma sequência ao transcript temporário da fixture,
+sem alterar o servidor ou as fontes Kotlin.
+
+Em Slint 1.18.1, `i-slint-renderer-software/fonts/vectorfont.rs:207` pede somente
+`Source::Outline` e `Format::Alpha`: esse caminho não pinta COLR, CBDT ou sbix coloridos.
+O teste inicialmente chamado femtovg ainda executou software porque `main.rs` fixava
+`.renderer_name(\"software\")`; seus números **não são uma medição válida de femtovg**.
+A seleção fixa foi removida para permitir o `SLINT_BACKEND` padrão nos builds experimentais.
+O Cargo padrão continua com somente software. Ainda faltam medição real de femtovg/Skia,
+emoji colorido/ZWJ correto e uma estratégia final de fallback portátil.
+
+### Diferenças e verificações pendentes
+
+- A comparação não está limitada à rasterização: menus, sheets, quotas e espaçamentos precisam de nova captura integrada.
+- Aside/permissão permanecem painéis direitos, adaptação desktop aceita; falta certificar integralmente seu conteúdo interno.
+- Não foi executado o novo percurso AT-SPI com lista, bolhas, compositor e sheets em sessão D-Bus privada.
+- `cargo fmt --check` passou. Clippy e testes não foram concluídos na última revisão visual; o último build release passou antes das últimas alterações de kit/aside.
+- O build experimental anterior encontrou dependências incompletas do grupo de correção; os commits dependentes foram integrados depois.
+- `ProgressRing` continua estático; emoji completo e suporte macOS não estão certificados.
+

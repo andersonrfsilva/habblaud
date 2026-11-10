@@ -428,3 +428,76 @@ fn real_server_payloads_decode() -> TestResult {
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn closed_omp_resume_subagents_and_usage_contract() -> TestResult {
+    let Some(mut fixture) = Fixture::start().await? else {
+        return Ok(());
+    };
+    let api = HabblaudApi::new(required(&fixture.ready, "url")?)?;
+    api.login("android-test", "android-test").await?;
+    let session = "00000000-0000-4000-8000-000000000099";
+    fixture
+        .command(&format!("seed-closed-omp {session}"))
+        .await?;
+    let recent = api.recent_sessions().await?;
+    let closed = recent
+        .iter()
+        .find(|s| s.key.session_id == session)
+        .ok_or("histórico OMP ausente")?;
+    assert_eq!(closed.key.provider, "omp");
+    assert_eq!(closed.key.account, ".omp");
+    assert!(closed.agent_id.is_none());
+    for contact in [Some("caio"), None] {
+        let resume = Some(ResumeSession {
+            session,
+            account: ".omp",
+        });
+        let job = match contact {
+            Some(id) => api.start_cast(id, "/fixture/projeto", resume).await?,
+            None => api.new_cast("/fixture/projeto", resume).await?,
+        };
+        let cast = job.cast.ok_or("cast ausente")?;
+        let consumed = fixture.command("cast-consume").await?;
+        assert_eq!(consumed["consumed"][0]["resume"], session);
+        assert!(required(&consumed["consumed"][0], "agentDir")?.ends_with("/.omp"));
+        let snapshot = api.snapshot().await?;
+        let opened = snapshot
+            .sessions
+            .iter()
+            .find(|s| s.cast.as_deref() == Some(&cast))
+            .ok_or("retomada ausente")?;
+        assert_eq!(opened.key, closed.key);
+        assert!(opened.can_message);
+        api.dismiss_agent(opened.agent_id.as_deref().ok_or("agente ausente")?)
+            .await?;
+        fixture.command("cast-consume").await?;
+    }
+    fixture.command("seed-subagents fixture:omp").await?;
+    let snapshot = api.snapshot().await?;
+    let parent = snapshot
+        .sessions
+        .iter()
+        .find(|s| s.agent_id.as_deref() == Some("fixture:omp"))
+        .ok_or("principal ausente")?;
+    assert_eq!(parent.subagents.len(), 2);
+    assert_eq!(parent.subagents.iter().filter(|s| s.advisor).count(), 1);
+    assert!(snapshot.sessions.iter().all(|s| !s.sub));
+    let seeded = fixture.command("seed-usage").await?;
+    let quotas = api.quotas().await?;
+    let omp = quotas
+        .iter()
+        .find(|q| q.id == ".omp")
+        .ok_or("cotas ausentes")?;
+    assert_eq!(omp.fetched_at, seeded["fetchedAt"].as_i64());
+    assert!(!omp.no_quota);
+    assert_eq!(omp.groups[0].limits[0].utilization, Some(60.0));
+    assert_eq!(omp.groups[0].limits[1].utilization, Some(100.0));
+    assert!(
+        omp.groups[0]
+            .limits
+            .iter()
+            .all(|limit| limit.resets_at.is_some())
+    );
+    fixture.finish().await
+}

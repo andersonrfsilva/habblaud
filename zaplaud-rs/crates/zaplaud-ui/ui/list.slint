@@ -1,3 +1,4 @@
+import { Clock } from "clock.slint";
 import { Theme, StatusColors } from "resources.slint";
 import { Labels } from "labels.slint";
 import { TextField, TextButton, SegmentedControl, Chip, Banner, Avatar, Badge, ScrollList, ScrollContainer, Menu, ProgressRing, Tooltip, Fab, IconButton } from "widgets/kit.slint";
@@ -6,7 +7,7 @@ export struct SessionRow {
     key: string, title: string, subtitle: string, activity: string, time: string, unread: string,
     initials: string, avatar: image, brand: image, brand-color: color, fallback-color: color,
     selected: bool, sub: bool, sub-last: bool, permission: string,
-    working: bool, since: string, activity-text: string,
+    working: bool, since: string, activity-text: string, codex: bool,
     avatar-key: string, unread-label: string,
 }
 export struct ServerRow { origin: string, label: string, connection: string, needs-login: bool, error: string }
@@ -28,7 +29,6 @@ export global ListState {
     in property <image> cast-icon;
     callback open(string);
     callback avatar(string);
-    callback tick(string);
     callback changed();
     callback settings();
     callback add-server();
@@ -40,6 +40,7 @@ export component ListPane inherits Rectangle {
     background: Theme.background;
     property <int> keyboard-index: -1;
     forward-focus: list-focus;
+    changed visible => { Clock.viewport(session-list.content-y, session-list.height, self.visible); }
     init => { list-focus.focus(); }
     list-focus := FocusScope {
         key-pressed(event) => {
@@ -92,30 +93,34 @@ export component ListPane inherits Rectangle {
             if ListState.query != "": TextButton { text: Labels.search-clear; clicked => { ListState.query = ""; ListState.changed(); } }
         }
         session-list := ScrollList {
+            changed content-y => { Clock.viewport(self.content-y, self.height, root.visible); }
+            changed height => { Clock.viewport(self.content-y, self.height, root.visible); }
             for row[index] in ListState.rows: row-box := Rectangle {
-                init => { ListState.avatar(row.key); }
-                Timer { interval: 1s; running: row.working && ListState.app-visible && root.visible && row-box.y + session-list.content-y + row-box.height > 0px && row-box.y + session-list.content-y < session-list.height; triggered => { ListState.tick(row.key); } }
+                init => { ListState.avatar(row.key); Clock.row-layout(index, self.y, self.height); }
+                changed y => { Clock.row-layout(index, self.y, self.height); }
+                changed height => { Clock.row-layout(index, self.y, self.height); }
                 height: row.sub ? 36px : max(68px, content.preferred-height + 12px);
                 border-radius: 12px; background: row.selected ? Theme.secondary-container : row-touch.pressed ? Theme.on-surface.with-alpha(0.12) : row-touch.has-hover ? Theme.on-surface.with-alpha(0.08) : transparent;
                 border-width: root.keyboard-index == index && list-focus.has-focus ? 2px : 0px; border-color: Theme.primary;
                 accessible-role: list-item; accessible-label: row.title + ", " + row.subtitle + (row.activity == "" ? "" : ", " + row.activity) + (row.permission == "" ? "" : ", " + row.permission) + (row.unread-label == "" ? "" : ", " + row.unread-label);
+                accessible-action-default => { ListState.open(row.key); }
                 row-touch := TouchArea { clicked => { root.keyboard-index = index; list-focus.focus(); ListState.open(row.key); } }
                 content := HorizontalLayout { padding-top: row.sub ? 0px : 6px; padding-bottom: row.sub ? 0px : 6px; spacing: row.sub ? 0px : 12px;
                     if row.sub: Rectangle { width: 40px;
                         Rectangle { x: 23.25px; width: 1.5px; height: row.sub-last ? parent.height / 2 : parent.height; background: Theme.outline-variant; }
                         Rectangle { x: 24px; y: parent.height / 2 - 0.75px; width: 16px; height: 1.5px; background: Theme.outline-variant; }
                     }
-                    Avatar { width: row.sub ? 24px : 48px; height: self.width; source: row.avatar; initials: row.initials; brand: row.brand; brand-color: row.brand-color; fallback-color: row.fallback-color; label: row.title; }
+                    VerticalLayout { alignment: center; Avatar { width: row.sub ? 24px : 48px; height: self.width; source: row.avatar; initials: row.initials; brand: row.brand; brand-color: row.brand-color; fallback-color: row.fallback-color; label: row.title; } }
                     VerticalLayout { padding-left: row.sub ? 8px : 0px; spacing: 0px; horizontal-stretch: 1;
                         Tooltip { text: row.title; height: min(title.preferred-height, row.sub ? 20px : 44px);
                             clicked => { root.keyboard-index = index; list-focus.focus(); ListState.open(row.key); }
                             title := Text { x: 0px; y: 0px; width: parent.width; height: parent.height; text: row.title; color: Theme.on-surface; font-size: row.sub ? 14px : 16px; font-weight: row.unread != "" ? 700 : 500; wrap: word-wrap; overflow: elide; }
                         }
                         Text { text: row.subtitle; color: Theme.on-surface-variant; font-size: row.sub ? 12px : 14px; overflow: elide; font-weight: row.unread != "" ? 700 : 400; }
-                        if row.activity != "": Text { text: "✻ " + row.activity; color: Theme.primary; font-size: 12px; overflow: elide; }
+                        if row.activity != "": Text { text: Clock.spinner(row.codex, Clock.tick, Clock.focused) + " " + (row.working && row.since != "" ? Clock.activity(row.activity-text, row.since, Clock.tick) : row.activity); color: Theme.primary; font-size: 12px; overflow: elide; }
                         if row.permission != "": TextButton { text: row.permission; foreground: Theme.error; clicked => { ListState.permission(row.key); } }
                     }
-                    if !row.sub: VerticalLayout { alignment: start; spacing: 6px; width: max(32px, time-label.preferred-width);
+                    if !row.sub: VerticalLayout { alignment: center; spacing: 6px; width: max(32px, time-label.preferred-width);
                         time-label := Text { text: row.time; color: row.unread != "" ? Theme.primary : Theme.on-surface-variant; font-size: 11px; horizontal-alignment: right; }
                         if row.unread != "": Badge { text: row.unread; }
                     }

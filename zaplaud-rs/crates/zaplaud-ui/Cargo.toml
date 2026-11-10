@@ -23,7 +23,8 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 httpdate = "1"
 rfd = "0.17"
 futures-util.workspace = true
-notify-rust = { version = "4", default-features = false, features = ["z-with-tokio"] }
+# Compartilha zbus 5 com Slint e ksni; 4.19 acrescenta uma terceira versão.
+notify-rust = { version = "~4.18", default-features = false, features = ["z"] }
 rustix = { version = "1", features = ["process"] }
 
 [target.'cfg(unix)'.dependencies]

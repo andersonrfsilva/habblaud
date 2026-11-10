@@ -127,8 +127,8 @@ def exercise(args,desktop,fixtures,theme):
         wait_for(desktop.mapped,'Janela não mapeada'); mapped_ms=(time.perf_counter()-start)*1000
         desktop.screenshot('login-'+theme); colors=palette(theme)
         def login(port):
-            desktop.fill(162,f'http://127.0.0.1:{port}'); desktop.fill(230,'android-test'); desktop.fill(298,'android-test'); desktop.click(550,359)
-            desktop.screenshot('http-warning-'+theme); desktop.click(700,442)
+            desktop.fill(167,f'http://127.0.0.1:{port}'); desktop.fill(243,'android-test'); desktop.fill(319,'android-test'); desktop.click(550,383)
+            desktop.screenshot('http-warning-'+theme); desktop.click(760,432)
             background=colors['surfaceContainerLowest' if theme=='dark' else 'surfaceContainerLow']
             wait_for(lambda:desktop.image().getpixel((1000,700))==background,'Login não abriu lista')
             wait_for(lambda:len(set(desktop.image().crop((12,140,65,600)).getdata()))>30,'Nenhum avatar/linha visível')

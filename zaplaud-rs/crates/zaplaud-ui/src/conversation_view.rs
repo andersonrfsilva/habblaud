@@ -1,6 +1,6 @@
 use crate::{
     AppWindow, ConversationRow, ConversationState, ConversationViewState, InfoRow, MdBlock, MdCell,
-    MdSpan,
+    MdSpan, ToolDetail,
     feature::FeatureContext,
     state::{Event, now_millis},
     strings, update_ui,
@@ -42,6 +42,7 @@ struct RenderRow {
     time: String,
     expanded: bool,
     summarized: bool,
+    tools: Vec<(String, String)>,
 }
 thread_local! { static ROWS: RefCell<Option<Rc<VecModel<RenderRow>>>> = const { RefCell::new(None) }; }
 
@@ -51,11 +52,14 @@ pub(crate) fn markdown(source: &str) -> ModelRc<MdBlock> {
         .map(|b| MdBlock {
             kind: b.kind,
             rich: b.rich,
+            links: b.links,
+            link_labels: b.link_labels,
             text: b.text,
             level: b.level,
             depth: b.depth,
             marker: b.marker,
             language: b.language,
+            code_lines: b.code_lines,
             columns: b.columns,
             spans: ModelRc::new(VecModel::from(
                 b.spans
@@ -92,20 +96,31 @@ fn set_rows(window: &AppWindow, rows: Vec<RenderRow>, reset: bool) {
             let model = Rc::new(VecModel::from(rows));
             window
                 .global::<ConversationViewState>()
-                .set_rows(ModelRc::new(model.clone().map(|row| ConversationRow {
-                    id: row.id.into(),
-                    kind: row.kind.into(),
-                    source: row.source.into(),
-                    blocks: if row.summarized && !row.expanded {
-                        ModelRc::default()
-                    } else {
-                        markdown(&row.display)
-                    },
-                    display: row.display.into(),
-                    label: row.label.into(),
-                    time: row.time.into(),
-                    expanded: row.expanded,
-                    summarized: row.summarized,
+                .set_rows(ModelRc::new(model.clone().map(|row| {
+                    ConversationRow {
+                        id: row.id.into(),
+                        kind: row.kind.into(),
+                        source: row.source.into(),
+                        blocks: if row.summarized && !row.expanded {
+                            ModelRc::default()
+                        } else {
+                            markdown(&row.display)
+                        },
+                        display: row.display.into(),
+                        label: row.label.into(),
+                        time: row.time.into(),
+                        expanded: row.expanded,
+                        summarized: row.summarized,
+                        tools: ModelRc::new(VecModel::from(
+                            row.tools
+                                .into_iter()
+                                .map(|(title, text)| ToolDetail {
+                                    title: title.into(),
+                                    text: text.into(),
+                                })
+                                .collect::<Vec<_>>(),
+                        )),
+                    }
                 })));
             *slot = Some(model);
         } else if let Some(model) = slot.as_ref() {
@@ -204,6 +219,7 @@ impl SessionRun {
                 };
                 let mut source = entry.text.clone();
                 let mut label = String::new();
+                let mut tools = Vec::new();
                 match entry.kind.as_str() {
                     "system" if recovered.contains(&entry.id) => {
                         source = strings::RESPONSE_INTERRUPTED.into()
@@ -211,15 +227,11 @@ impl SessionRun {
                     "thinking" => label = format!("{} ({})", strings::THINKING, row.count),
                     "tool" => {
                         label = format!("{} ({})", strings::TOOLS, row.count);
-                        source = row
+                        tools = row
                             .tools
                             .iter()
                             .map(|tool| {
-                                let mut text = format!(
-                                    "{}\n{}",
-                                    tool.title.as_deref().unwrap_or_default(),
-                                    tool.text
-                                );
+                                let mut text = tool.text.clone();
                                 for result in entries.iter().filter(|e| {
                                     e.kind == "result" && e.tool_use_id.as_ref() == Some(&tool.id)
                                 }) {
@@ -232,10 +244,9 @@ impl SessionRun {
                                         text.push_str(&format!("\n{}", strings::RESULT_TRUNCATED));
                                     }
                                 }
-                                text
+                                (tool.title.clone().unwrap_or_default(), text)
                             })
-                            .collect::<Vec<_>>()
-                            .join("\n\n");
+                            .collect();
                     }
                     _ => {}
                 }
@@ -268,6 +279,7 @@ impl SessionRun {
                         .unwrap_or_default(),
                     expanded,
                     summarized,
+                    tools,
                 }
             })
             .collect::<Vec<_>>();
@@ -283,6 +295,7 @@ impl SessionRun {
                     time: String::new(),
                     expanded: false,
                     summarized: false,
+                    tools: Vec::new(),
                 },
             );
         }
@@ -448,6 +461,7 @@ fn publish_info(
     state.set_model(item.model.clone().unwrap_or_default().into());
     state.set_thinking(item.thinking.clone().unwrap_or_default().into());
     state.set_working(item.agent_id.is_some() && item.status.as_deref() == Some("working"));
+    state.set_codex(item.key.provider == "codex");
     state.set_activity(
         time::status_line_text(item.activity.as_deref())
             .unwrap_or_else(|| strings::STATUS_LINE_WORKING.into())
@@ -456,12 +470,6 @@ fn publish_info(
     state.set_status_since(
         item.status_since
             .map(|at| at.to_string())
-            .unwrap_or_default()
-            .into(),
-    );
-    state.set_elapsed(
-        item.status_since
-            .map(|at| time::stopwatch(now_millis().saturating_sub(at)))
             .unwrap_or_default()
             .into(),
     );
@@ -703,15 +711,6 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                 state.set_end_request(state.get_end_request().wrapping_add(1));
             }
         });
-    let weak = window.as_weak();
-    state.on_tick(move || {
-        if let Some(window) = weak.upgrade() {
-            let state = window.global::<ConversationViewState>();
-            if let Ok(at) = state.get_status_since().parse::<i64>() {
-                state.set_elapsed(time::stopwatch(now_millis().saturating_sub(at)).into());
-            }
-        }
-    });
     let send = sender.clone();
     state.on_choose_view(move |index| {
         if let Ok(index) = usize::try_from(index) {
@@ -751,22 +750,20 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
             window.invoke_copy_conversation(text);
         }
     });
-    let runtime = context.runtime.clone();
     state.on_open_link(move |url| {
-        let valid = valid_link(&url);
-        if valid {
-            let url = url.to_string();
-            runtime.spawn_blocking(move || {
-                let program = if cfg!(target_os = "macos") {
-                    "open"
-                } else {
-                    "xdg-open"
-                };
-                let _ = std::process::Command::new(program)
-                    .arg(url)
-                    .spawn()
-                    .and_then(|mut child| child.wait());
-            });
+        if valid_link(&url) {
+            let program = if cfg!(target_os = "macos") {
+                "open"
+            } else {
+                "xdg-open"
+            };
+            // O navegador pode continuar aberto depois de fechar o cliente.
+            let _ = std::process::Command::new(program)
+                .arg(url.as_str())
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn();
         }
     });
     let mut snapshots = context.snapshots.subscribe();
@@ -806,6 +803,20 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
 mod tests {
     use super::*;
     use zaplaud_core::model::SessionKey;
+    #[test]
+    fn links_allow_only_web_origins() {
+        for url in ["https://example.org/a?q=1", "http://localhost:123/a"] {
+            assert!(valid_link(url));
+        }
+        for url in [
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "--help",
+            "https:",
+        ] {
+            assert!(!valid_link(url));
+        }
+    }
 
     #[test]
     fn closing_persists_cache_and_reopening_resumes_from_last_dated_entry() {

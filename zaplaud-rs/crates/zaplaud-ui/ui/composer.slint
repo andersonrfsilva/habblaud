@@ -96,7 +96,7 @@ export component ComposerPane inherits Rectangle {
                 preferred-height: field.preferred-height;
                 min-height: field.preferred-height;
                 HorizontalLayout { spacing: 0px;
-                    IconButton { icon: MaterialIcons.attach-file; label: ComposerState.attach-label; enabled: ComposerState.attach-enabled; clicked => { ComposerState.attach(); } }
+                    VerticalLayout { alignment: center; IconButton { icon: MaterialIcons.attach-file; label: ComposerState.attach-label; enabled: ComposerState.attach-enabled; clicked => { ComposerState.attach(); } } }
                     field := TextField {
                         min-width: 80px; horizontal-stretch: 1;
                         text <=> ComposerState.text; placeholder: ComposerState.placeholder;
@@ -104,9 +104,9 @@ export component ComposerPane inherits Rectangle {
                         enabled: !ComposerState.loading;
                         edited(value) => { ComposerState.input-revision += 1; ComposerState.edited(value); }
                         accepted => { if ComposerState.send-enabled { ComposerState.send(); } }
-                        accessible-role: text-input; accessible-label: "message-input";
                     }
-                    if ComposerState.context-visible: Rectangle {
+                    if ComposerState.context-visible: VerticalLayout { alignment: center;
+                    Rectangle {
                         width: 40px; height: 40px;
                         accessible-role: button; accessible-label: ComposerState.context-label;
                         Rectangle { x: 10px; y: 10px; width: 20px; height: 20px; border-radius: 10px; border-width: 2.5px; border-color: Theme.outline-variant; }
@@ -123,11 +123,12 @@ export component ComposerPane inherits Rectangle {
                             pointer-event(event) => { if event.kind == PointerEventKind.down && event.button == PointerEventButton.right { ComposerState.shake-confirm = true; } }
                         }
                     }
+                    }
                 }
             }
-            if ComposerState.stop-visible: IconButton { icon: MaterialIcons.stop; label: ComposerState.stop-label; background: ComposerState.stop-enabled ? Theme.error : Theme.surface-variant; foreground: ComposerState.stop-enabled ? Theme.on-error : Theme.on-surface-variant; enabled: ComposerState.stop-enabled; clicked => { ComposerState.stop(); } }
-            if ComposerState.sending: ProgressRing { width: 40px; height: 40px; }
-            if !ComposerState.sending: IconButton { icon: MaterialIcons.send; label: ComposerState.send-label; background: ComposerState.send-enabled ? Theme.primary : Theme.surface-variant; foreground: ComposerState.send-enabled ? Theme.on-primary : Theme.on-surface-variant; enabled: ComposerState.send-enabled; clicked => { ComposerState.send(); } }
+            if ComposerState.stop-visible: VerticalLayout { alignment: center; IconButton { icon: MaterialIcons.stop; label: ComposerState.stop-label; background: ComposerState.stop-enabled ? Theme.error : Theme.on-surface.with-alpha(0.12); foreground: ComposerState.stop-enabled ? Theme.on-error : Theme.on-surface.with-alpha(0.38); enabled: ComposerState.stop-enabled; clicked => { ComposerState.stop(); } } }
+            if ComposerState.sending: VerticalLayout { alignment: center; ProgressRing { width: 40px; height: 40px; } }
+            if !ComposerState.sending: VerticalLayout { alignment: center; IconButton { icon: MaterialIcons.send; label: ComposerState.send-label; background: ComposerState.send-enabled ? Theme.primary : Theme.on-surface.with-alpha(0.12); foreground: ComposerState.send-enabled ? Theme.on-primary : Theme.on-surface.with-alpha(0.38); enabled: ComposerState.send-enabled; clicked => { ComposerState.send(); } } }
         }
         if ComposerState.character-count != "": Text { text: ComposerState.character-count; color: Theme.on-surface-variant; font-size: 12px; }
     }

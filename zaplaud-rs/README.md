@@ -8,6 +8,8 @@ Referências para as próximas fases: [rotas e streams](docs/contrato/01-rotas-e
 
 Requisitos: Rust 1.96.1 (fixado em `rust-toolchain.toml`), ferramentas nativas de compilação e uma sessão gráfica X11 ou Wayland. No macOS, instale as ferramentas de linha de comando do Xcode. O renderer padrão é software; não é necessário OpenGL.
 
+O perfil release usa `opt-level = "s"`, LTO `fat`, uma unidade de geração de código e `panic = "abort"`. O transporte HTTPS preserva raízes nativas e webpki. `notify-rust ~4.18` compartilha zbus 5; a bandeja mantém `ksni` com `async-io`.
+
 Na raiz do repositório, `npm ci` instala o servidor de contrato usado pelos testes. Depois:
 
 ```sh
@@ -52,6 +54,8 @@ Coordenadores futuros devem dividir trabalho por esses limites. Mudanças na API
 
 Slint pertence à thread principal. A rede roda em um runtime Tokio mantido por uma thread de fundo. Callbacks da UI enviam comandos para esse runtime, sem bloquear o event loop. A tarefa de login abre o stream e consome snapshots reais.
 
+A janela é mostrada antes de abrir `LocalStateStore`, `AvatarDiskCache` e carregar o tema salvo na thread de fundo. `ZAPLAUD_THEME` define o tema inicial sem ler disco; depois a thread publica o tema persistido no event loop. O encerramento descarrega `window_state::flush`, envia `Event::Shutdown` e aguarda a thread; `app::run` mantém a descarga assíncrona dos marcadores e de `composer::flush`.
+
 Para atualizar a UI, capture um `Weak` do componente e dados próprios (`String`, `Vec`, tipos do núcleo). Envie a atualização com `slint::invoke_from_event_loop`; somente dentro dessa closure faça `upgrade()` e altere propriedades/modelos Slint. Não envie componentes nem modelos Slint para tarefas Tokio. Se a janela já fechou, descarte a atualização. Encerre a tarefa anterior ao iniciar outra conexão; não deixe dois streams publicarem na mesma lista.
 
 Os redutores `rules::{composer,aside,permission}::reduce(State, Event) -> (State, Vec<Effect>)` não executam I/O. A ponte executa os efeitos tipados e devolve o evento de conclusão correspondente. `composer::Effect::Save` aplica `composer::update_message` dentro da transação serializada de `MessageStore`, sem cancelar a gravação ao sair do primeiro plano. Rascunhos usam debounce de 300 ms e são descarregados ao encerrar; preserve a ordem dessas gravações. O POST só sai depois da confirmação da operação `unknown` persistida. `CheckRecipient` reavalia `composer::can_send` antes de cada upload e do POST; não reutilize o resultado inicial. `ReleaseUnused` não remove arquivos originais nem exige leituras do armazenamento.
@@ -67,6 +71,8 @@ Os goldens em `crates/zaplaud-core/tests/golden/` foram produzidos executando as
 `build.rs` lê `android/shared/src/commonMain/composeResources/values/strings.xml`, os blocos `lightColorScheme(...)`/`darkColorScheme(...)` de `ZaplaudApp.kt` e todos os XMLs de `composeResources/drawable/`. Gera textos Rust, o global Slint `Theme` com as duas paletas e SVGs de todos os vetores. As entradas têm `cargo:rerun-if-changed`; a lista de drawables também é observada para detectar novos arquivos.
 
 Não copie textos, cores ou paths vetoriais à mão para a UI. Preserve escapes XML e placeholders posicionais `%1$s`/`%1$d` na geração. A ausência de cores reconhecidas é erro de build, não motivo para uma paleta substituta silenciosa. Os testes comparam a quantidade de textos, as cores primárias conhecidas e a validade dos SVGs gerados.
+
+A fonte `ui/fonts/NotoSansMono-Regular.ttf` é importada pelo Slint para o Markdown monoespaçado; sua licença acompanha o arquivo. A geração conserva `ui/native-strings.xml`, os recursos do compositor e o ícone ARGB da bandeja; fontes e textos nativos permanecem sob a entrada `ui` observada pelo build.
 
 Os ícones `Icons.Default` não existem nos XML Kotlin. `scripts/DumpMaterialIcons.java` extrai os `ImageVector` da dependência Compose resolvida e gera `ui/widgets/material-icons.slint` (`MaterialIcons`) e seus SVGs. Não redesenhe paths: execute o extrator com o classpath `android/desktop/build/compose/binaries/main/app/Zaplaud/lib/app/*`, diretório de saída `zaplaud-rs/crates/zaplaud-ui/ui/widgets` e os nomes PascalCase dos ícones. Os vetores Material mantêm a licença Apache 2.0 em `material-icons/LICENSE.txt`.
 
@@ -171,7 +177,7 @@ Importe componentes de `ui/widgets/kit.slint`; todas as cores vêm dos recursos 
 
 Os campos de `Theme` incluem os 48 papéis Material 3 em claro e escuro. O [baseline real](scripts/dump-m3-baseline.md) é sobrescrito ao vivo pelo Kotlin. `AvatarColors` e `StatusColors` também são extraídos dos arquivos Kotlin, sem paletas substitutas.
 
-- `ListState.app-visible` começa `true`; o adaptador de janela deve atualizá-lo ao ocultar/restaurar. Cronômetros de trabalho só executam quando a linha intercepta o viewport e o aplicativo está visível.
+- `ListState.app-visible` começa `true`; o adaptador de janela deve atualizá-lo ao ocultar/restaurar. `clock.rs` possui o único timer de cronômetros, a 1 Hz, ativo somente com texto de tempo decorrido visível. A lista informa geometria das linhas virtuais, sem publicar outro modelo a cada segundo. Login, configurações, layout estreito e janela oculta suspendem consumidores fora da tela. O spinner usa o mesmo tick e fica estático sem foco; o anel de contexto e `ProgressRing` não animam continuamente. Foco e visibilidade chegam pelo mesmo hook winit de `window_state`, sem instalar outro hook.
 - O renderer software não recorta imagens pelo raio do pai. `avatars::decode` aplica máscara circular no RGBA antes de entrar no cache; preserve essa etapa.
 - `Sheet` e `Dialog` contêm os filhos no `FocusScope` de Esc. Formulários dinâmicos devem cercar sua ordem Tab com sentinelas de foco; o kit não inventa travessia entre descendentes.
 
@@ -192,3 +198,52 @@ python3 zaplaud-rs/scripts/shell-smoke.py \
 ```
 
 O script inicia duas fixtures reais, autentica por XTest, confirma HTTP, observa linhas, abre/fecha conversa, revela busca, adiciona servidor e alterna entre 1100 e 600 px. Reinicia uma fixture para invalidar o cookie e capturar relogin. Grava `/tmp/zaplaud-rs-shell-*.png` e JSON com tempo até mapeamento, PSS/RSS e CPU de 30 segundos. Não execute junto com outras janelas Zaplaud no mesmo display.
+
+Os smokes usam os centros dos campos e botões do login Material integrado. A folha de permissões mantém a extensão vertical explícita do comando quebrado em linhas, para que o scroll e o marcador de linhas adicionais concordem.
+
+Para medir recursos, use somente `scripts/measure.py`:
+
+```sh
+LD_LIBRARY_PATH=/caminho/das/bibliotecas/X11 \
+python3 zaplaud-rs/scripts/measure.py \
+  --binary /caminho/do/zaplaud --display localhost:88 --fixture-port 14788 \
+  --label candidate --output /tmp/zaplaud-rs-fin-perf-candidate.json
+```
+
+São cinco aberturas isoladas; a última mede lista, conversa com pelo menos 200 entradas reais recebidas por SSE, conversa trabalhando e retorno após vinte ciclos com informações/menu. Cada estado usa uma amostra de CPU de 30 s, sem foco. O primeiro lançamento é frio somente para o processo: o script não descarta o page cache do sistema. PSS/RSS estão em KiB, tamanho em bytes e CPU em percentual de um núcleo. A contagem de wakeups é um proxy explicitamente identificado: context switches voluntários de todas as threads.
+
+`--profile-render` salva a saída `refresh_lazy,console` do renderer software em `/tmp`, incluindo regiões sujas. `--strace /caminho/strace` salva um perfil de syscalls, separado das medições normais: tracing e o contador de FPS alteram os despertares e não devem contaminar a comparação de CPU. `--fixture-url` aceita uma fixture externa, mas não semeia nem certifica 200 entradas.
+
+`--damage` registra os retângulos realmente apresentados ao servidor X11 via XDamage. Use transporte Unix com MIT-SHM, por exemplo `--display :88`: o fallback TCP de `softbuffer` envia a imagem completa mesmo quando o renderer rasteriza somente regiões sujas. No Xvfb isolado por bwrap, habilitar `-listen unix -listen tcp` também permite o socket Unix abstrato do Linux, sem depender do `/tmp` interno.
+
+## Empacotamento e execução Linux
+
+O pacote de usuário contém `zaplaud`, `install-linux.sh`, `packaging/zaplaud.desktop`, `packaging/README.md` e `packaging/icons/hicolor/<tamanho>/apps/zaplaud.png` (16 a 1024 px). Extraia e execute `bash install-linux.sh`, sem sudo. O instalador usa `~/.local/bin` e respeita `XDG_DATA_HOME`. Consulte [distribuição desktop](packaging/README.md) para gerar ícones, DEB, RPM e bundle macOS.
+
+O release local da rodada `fin-cast` fica em `$HOME/dados/zaplaud-rs-dist/fin-cast/zaplaud-linux-x86_64.tar.gz`; a árvore extraída fica ao lado. Esse build usa a glibc da máquina de desenvolvimento, não constitui um binário universal Linux. O CI compila em Ubuntu 24.04; construa numa base tão antiga quanto a distribuição que pretende atender.
+
+Na rodada `fin-cast`, o `ldd` do release local confirmou vínculos diretos com `libfontconfig.so.1`, `libgcc_s.so.1`, `libm.so.6`, `libc.so.6` e o loader ELF. FreeType, Expat, zlib, bzip2, libpng e Brotli aparecem transitivamente. `readelf --version-info` exige símbolos até `GLIBC_2.43`; não distribua esse build local para sistemas mais antigos. `strings` confirmou `libwayland-client.so.0`, `xdg_wm_base`, `set_app_id`, `WAYLAND_DISPLAY` e `WAYLAND_SOCKET`. Essas observações pertencem àquele artefato, não substituem os gates do build integrado.
+
+Também foram gerados `zaplaud_0.1.0-1_amd64.deb` e `zaplaud-0.1.0-1.x86_64.rpm` nessa pasta, com cargo-deb 3.8.0 e cargo-generate-rpm 0.21.1, instalados sem pacotes do sistema. O RPM usa descoberta interna por `ldd`. Nesta máquina, cargo-deb avisa que `dpkg-shlibdeps` está ausente: o DEB local não contém dependências ELF automáticas e serve somente para inspeção, não distribuição. O CI Ubuntu dispõe dessa ferramenta. Os arquivos foram listados com `ar` e `bsdtar`, sem lintian.
+
+Bibliotecas carregadas dinamicamente por winit/softbuffer não aparecem necessariamente no `ldd`. Instale os runtimes da distribuição:
+
+| Distribuição | Pacotes de execução |
+| --- | --- |
+| Arch / CachyOS | `glibc gcc-libs fontconfig libx11 libxcursor libxrandr libxi libxcb libxkbcommon libxkbcommon-x11 wayland ttf-dejavu` |
+| Debian / Ubuntu | `libc6 libgcc-s1 libfontconfig1 libx11-6 libx11-xcb1 libxcursor1 libxrandr2 libxi6 libxcb1 libxcb-render0 libxcb-shm0 libxkbcommon0 libxkbcommon-x11-0 libwayland-client0 fonts-dejavu-core` |
+| Fedora | `glibc libgcc fontconfig libX11 libXcursor libXrandr libXi libxcb libxkbcommon libxkbcommon-x11 wayland-libs dejavu-sans-fonts` |
+
+Secret Service desbloqueado permite persistir cookies; D-Bus, notificações, bandeja e portal de arquivos dependem dos serviços da sessão. Não há dependência obrigatória de GTK, Qt, OpenSSL ou JVM.
+
+### Escolha de X11 ou Wayland
+
+O build habilita `backend-winit-x11` e `backend-winit-wayland`, com somente `renderer-software` e sem features padrão do Slint. O programa escolhe explicitamente winit, sem forçar `renderer_name`; `SLINT_BACKEND` não substitui a escolha de backend. Acessibilidade permanece habilitada. Dentro de winit 0.30, `WAYLAND_DISPLAY` ou `WAYLAND_SOCKET` não vazio tem precedência sobre `DISPLAY`. Sem Wayland, usa X11 quando `DISPLAY` existe. Para forçar X11 numa sessão mista, execute `env -u WAYLAND_DISPLAY -u WAYLAND_SOCKET zaplaud`. Para Wayland, mantenha `XDG_RUNTIME_DIR` apontando ao runtime da sessão e `WAYLAND_DISPLAY` ao socket do compositor.
+
+O `app_id` Wayland e `WM_CLASS` X11 são `zaplaud`. A rodada `fin-cast` não dispunha de compositor Wayland; compilação e símbolos daquele binário confirmaram suporte, não abertura de janela Wayland.
+
+### Interoperabilidade contínua com o desktop JVM
+
+O CI executa `bash packaging/jvm-interop.sh` com `ZAPLAUD_JVM_INTEROP_DIR` exclusivo. O runner instala temporariamente um teste JVM que grava pelo `LocalStateStore` real. Depois, `cargo test -p zaplaud-store --test jvm_interop -- --ignored` lê e altera os arquivos. Uma segunda execução JVM com `ZAPLAUD_JVM_INTEROP_VERIFY=1` relê o resultado Rust. O teste temporário é removido inclusive em falha; o runner não cria `local.properties`. Não execute ambos os clientes como escritores simultâneos.
+
+Os novos comandos opt-in da fixture são `seed-closed-omp <UUID>`, `seed-subagents <mainAgentId>` e `seed-usage`. Somente o primeiro habilita contas/histórico OMP no launcher de teste; sem comandos, o comportamento anterior permanece intacto.

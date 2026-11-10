@@ -12,6 +12,8 @@
 //! para títulos e zero para parágrafos. `depth` é a indentação de listas a partir
 //! de zero, e `marker` conserva a numeração ou o estado da tarefa. `spans` expõe
 //! texto, bold, italic, strike, code e link; `rich` mantém o fluxo inline nativo.
+//! `links` contém destinos únicos do bloco para o menu contextual. Ações de mensagem
+//! aparecem sobre o conteúdo no hover, sem reservar uma linha no layout.
 //! Tabelas usam `cells` em ordem de linhas e `columns` colunas. `MdCell.alignment`
 //! é 0 (esquerda/padrão), 1 (centro) ou 2 (direita); `header` distingue o cabeçalho.
 //! `MdMessage` contém `source` e `blocks`. `message_model` analisa linhas pedidas
@@ -126,10 +128,28 @@ impl Blocks {
             return;
         }
         let (text, rich, spans) = self.inline.take(self.level > 0, self.quote > 0);
+        let mut links = Vec::new();
+        for span in &spans {
+            if !span.link.is_empty() && !links.contains(&span.link) {
+                links.push(span.link.clone());
+            }
+        }
         self.blocks.push(MdBlock {
             kind: if self.quote > 0 { "quote" } else { "text" }.into(),
             text: text.into(),
             rich,
+            link_labels: model(
+                links
+                    .iter()
+                    .map(|link| {
+                        link.char_indices().nth(60).map_or_else(
+                            || link.clone(),
+                            |(end, _)| format!("{}…", &link[..end]).into(),
+                        )
+                    })
+                    .collect(),
+            ),
+            links: model(links),
             spans: model(spans),
             level: self.level,
             depth: self.lists.len().saturating_sub(1) as i32,
@@ -240,6 +260,7 @@ pub fn parse(markdown: &str) -> Vec<MdBlock> {
                 if let Some((language, text)) = state.code.take() {
                     state.blocks.push(MdBlock {
                         kind: "code".into(),
+                        code_lines: text.lines().count().max(1) as i32,
                         text: text.into(),
                         language: language.into(),
                         depth: state.lists.len().saturating_sub(1) as i32,
@@ -341,6 +362,28 @@ mod tests {
     }
 
     #[test]
+    fn context_links_keep_destinations_and_remove_style_duplicates() {
+        let blocks =
+            parse("[um **link**](https://example.com/a?q=1) e [outro](https://example.org)");
+        let links: Vec<_> = blocks[0]
+            .links
+            .iter()
+            .map(|link| link.to_string())
+            .collect();
+        assert_eq!(links, ["https://example.com/a?q=1", "https://example.org"]);
+    }
+
+    #[test]
+    fn context_link_labels_are_short_without_changing_the_copied_url() {
+        let url = format!("https://example.com/{}", "a".repeat(100));
+        let blocks = parse(&format!("[link]({url})"));
+        assert_eq!(blocks[0].links.row_data(0).unwrap(), url);
+        let label = blocks[0].link_labels.row_data(0).unwrap();
+        assert_eq!(label.chars().count(), 61);
+        assert!(label.ends_with('…'));
+    }
+
+    #[test]
     fn nested_lists_tasks_and_quotes() {
         let blocks = parse("3. Pai\n   - Filho\n     - [x] Feito\n4. Outro\n\n> Citação");
         assert_eq!(blocks[0].marker, "3.");
@@ -382,6 +425,19 @@ mod tests {
         assert_eq!(blocks[0].language, "rust");
         assert_eq!(blocks[0].text, text);
         assert!(parse("").is_empty());
+    }
+
+    #[test]
+    fn code_height_omits_only_the_terminal_newline_without_changing_clipboard_text() {
+        for (source, text, lines) in [
+            ("```sh\n  echo teste\n```", "  echo teste\n", 1),
+            ("```sh\n  echo teste\n\n```", "  echo teste\n\n", 2),
+            ("```sh\n```", "", 1),
+        ] {
+            let blocks = parse(source);
+            assert_eq!(blocks[0].text, text);
+            assert_eq!(blocks[0].code_lines, lines);
+        }
     }
 
     #[test]

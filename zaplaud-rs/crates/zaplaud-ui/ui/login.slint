@@ -25,9 +25,9 @@ export component LoginPane inherits Rectangle {
         ScrollContainer {
             VerticalLayout { padding: 20px; spacing: 12px;
                 Text { text: Labels.connection; color: Theme.on-surface; font-size: 28px; }
-                TextField { text <=> LoginState.server-url; placeholder: Labels.server-url; outlined: true; enabled: !LoginState.busy; accepted => { LoginState.submit(false); } }
-                TextField { text <=> LoginState.username; placeholder: Labels.user; outlined: true; accepted => { LoginState.submit(false); } }
-                TextField { text <=> LoginState.password; placeholder: Labels.password; outlined: true; password: true; accepted => { LoginState.submit(false); } }
+                Rectangle { height: 64px; TextField { y: 4px; width: parent.width; height: 56px; text <=> LoginState.server-url; placeholder: Labels.server-url; outlined: true; enabled: !LoginState.busy; accepted => { LoginState.submit(false); } } }
+                Rectangle { height: 64px; TextField { y: 4px; width: parent.width; height: 56px; text <=> LoginState.username; placeholder: Labels.user; outlined: true; accepted => { LoginState.submit(false); } } }
+                Rectangle { height: 64px; TextField { y: 4px; width: parent.width; height: 56px; text <=> LoginState.password; placeholder: Labels.password; outlined: true; password: true; accepted => { LoginState.submit(false); } } }
                 FilledButton { text: Labels.login; enabled: !LoginState.busy && LoginState.username != "" && LoginState.password != ""; clicked => { LoginState.submit(false); } }
                 if LoginState.busy: ProgressRing { height: 32px; }
                 Text { text: LoginState.message; wrap: word-wrap; color: Theme.error; }

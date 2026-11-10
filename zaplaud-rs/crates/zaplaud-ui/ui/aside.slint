@@ -1,10 +1,10 @@
 import { Theme } from "resources.slint";
 import { Labels } from "labels.slint";
-import { Sheet, TextButton, IconButton, TextField, ScrollList, ProgressRing, Menu } from "widgets/kit.slint";
+import { Sheet, TextButton, IconButton, TextField, ScrollList, ProgressRing, Menu, RadioButton } from "widgets/kit.slint";
 import { MarkdownView, MdBlock } from "markdown/markdown.slint";
 import { MaterialIcons } from "widgets/material-icons.slint";
 export struct AsideTurnRow { question: string, answer: string, blocks: [MdBlock], status: string, failed: bool }
-export struct AsideTopicRow { id: string, title: string }
+export struct AsideTopicRow { id: string, title: string, selected: bool }
 export global AsideState {
     in-out property <bool> visible;
     in property <bool> available;
@@ -13,6 +13,8 @@ export global AsideState {
     in property <bool> sending;
     in property <bool> running;
     in-out property <string> draft;
+    in-out property <string> submitted-draft;
+    callback valid-draft(string) -> bool;
     in property <string> title;
     in property <string> hint;
     in property <string> empty;
@@ -33,11 +35,15 @@ component TopicPicker inherits TextButton {
     clicked => { topics.show(); }
     topics := Menu {
         TextButton { text: AsideState.new-label; clicked => { AsideState.new-topic(); topics.close(); } }
-        for topic in AsideState.topics: TextButton { text: topic.title; clicked => { AsideState.choose(topic.id); topics.close(); } }
+        for topic in AsideState.topics: RadioButton { text: topic.title; checked: topic.selected; toggled => { AsideState.choose(topic.id); topics.close(); } }
     }
 }
 export component AsideSheet inherits Rectangle {
+    private property <string> accepted-draft;
+    private property <string> current-draft: AsideState.draft;
+    changed current-draft => { if self.current-draft == "" { self.accepted-draft = ""; } }
     if AsideState.visible: Sheet {
+        title: AsideState.title;
         dismissed => { AsideState.close(); }
         VerticalLayout { padding: 16px; spacing: 8px;
             HorizontalLayout {
@@ -66,9 +72,15 @@ export component AsideSheet inherits Rectangle {
             }
             if AsideState.error != "": Text { text: AsideState.error; color: Theme.error; wrap: word-wrap; }
             HorizontalLayout { spacing: 8px;
-                TextField { text <=> AsideState.draft; placeholder: AsideState.input-label; multiline: true; max-lines: 4; }
+                TextField {
+                    text <=> AsideState.draft; placeholder: AsideState.input-label; multiline: true; max-lines: 4;
+                    edited(value) => {
+                        if AsideState.valid-draft(value) { root.accepted-draft = value; }
+                        else { self.text = root.accepted-draft; }
+                    }
+                }
                 if AsideState.running: IconButton { icon: MaterialIcons.stop; label: AsideState.stop-label; background: Theme.error-container; foreground: Theme.on-error-container; clicked => { AsideState.stop(); } }
-                if !AsideState.running: IconButton { icon: MaterialIcons.send; label: AsideState.send-label; background: Theme.primary; foreground: Theme.on-primary; enabled: !AsideState.sending && AsideState.draft != ""; clicked => { AsideState.ask(AsideState.draft); AsideState.draft = ""; } }
+                if !AsideState.running: IconButton { icon: MaterialIcons.send; label: AsideState.send-label; background: Theme.primary; foreground: Theme.on-primary; enabled: !AsideState.sending && AsideState.draft != ""; clicked => { AsideState.submitted-draft = AsideState.draft; AsideState.ask(AsideState.draft); } }
             }
         }
     }

@@ -7,6 +7,7 @@ mod app;
 mod aside;
 mod avatars;
 mod cast;
+mod clock;
 mod composer;
 mod conversation;
 mod conversation_view;
@@ -107,15 +108,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     slint::BackendSelector::new()
         .backend_name("winit".into())
-        .renderer_name("software".into())
         .with_winit_window_attributes_hook(window_state::attributes)
         .select()?;
     let window = AppWindow::new()?;
     labels(&window);
-    let store = zaplaud_store::LocalStateStore::new()?;
-    let avatar_storage = zaplaud_store::AvatarDiskCache::new(store.directories())?;
-    let theme = std::env::var("ZAPLAUD_THEME").unwrap_or(store.theme()?);
-    window.global::<Theme>().set_dark(theme == "dark");
+    clock::setup(&window);
+    window
+        .global::<Theme>()
+        .set_dark(std::env::var("ZAPLAUD_THEME").is_ok_and(|theme| theme == "dark"));
+    window.show()?;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
@@ -152,6 +153,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     window_state::on_visibility(move |visible| {
         if let Some(window) = weak.upgrade() {
             window.global::<ListState>().set_app_visible(visible);
+            window.global::<Clock>().set_visible(visible);
+        }
+    });
+    let weak = window.as_weak();
+    window_state::on_focus(move |focused| {
+        if let Some(window) = weak.upgrade() {
+            window.global::<Clock>().set_focused(focused);
         }
     });
     let weak = window.as_weak();
@@ -194,21 +202,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let worker = std::thread::Builder::new()
         .name("zaplaud-network".into())
         .spawn(move || {
-            runtime.block_on(app::run(
-                state::AppState::new(Box::new(store)),
-                receiver,
-                network_sender,
-                weak,
-                std::sync::Arc::new(avatar_storage),
-                snapshots,
-            ));
+            let result = (move || -> Result<(), String> {
+                let store =
+                    zaplaud_store::LocalStateStore::new().map_err(|error| error.to_string())?;
+                let avatar_storage = zaplaud_store::AvatarDiskCache::new(store.directories())
+                    .map_err(|error| error.to_string())?;
+                let theme = std::env::var("ZAPLAUD_THEME")
+                    .or_else(|_| store.theme().map_err(|error| error.to_string()))?;
+                update_ui(&weak, move |window| {
+                    window.global::<Theme>().set_dark(theme == "dark")
+                });
+                runtime.block_on(app::run(
+                    state::AppState::new(Box::new(store)),
+                    receiver,
+                    network_sender,
+                    weak,
+                    std::sync::Arc::new(avatar_storage),
+                    snapshots,
+                ));
+                Ok(())
+            })();
+            if result.is_err() {
+                let _ = slint::invoke_from_event_loop(|| {
+                    let _ = slint::quit_event_loop();
+                });
+            }
+            result
         })?;
     let result = window.run();
     let window_flush = window_state::flush();
     let _ = sender.send(state::Event::Shutdown);
     worker
         .join()
-        .map_err(|_| std::io::Error::other(strings::NETWORK_ERROR))?;
+        .map_err(|_| std::io::Error::other(strings::NETWORK_ERROR))??;
     window_flush?;
     result?;
     Ok(())

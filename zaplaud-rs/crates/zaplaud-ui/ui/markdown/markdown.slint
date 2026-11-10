@@ -1,5 +1,7 @@
 import { ScrollView, ListView } from "std-widgets.slint";
 import { Theme } from "resources.slint";
+import { IconButton } from "../widgets/kit.slint";
+import { MaterialIcons } from "../widgets/material-icons.slint";
 export { Theme }
 
 export struct MdSpan {
@@ -11,6 +13,9 @@ export struct MdCell {
 export struct MdBlock {
     kind: string, rich: styled-text, text: string, spans: [MdSpan],
     level: int, depth: int, marker: string, language: string,
+    links: [string],
+    link-labels: [string],
+    code-lines: int,
     cells: [MdCell], columns: int,
 }
 
@@ -60,6 +65,9 @@ component MdButton inherits Rectangle {
 component SelectableBlock inherits VerticalLayout {
     in property <MdBlock> block;
     callback link-clicked(string);
+    callback copy(string);
+    callback select-text();
+    in property <string> source-markdown;
     in property <bool> selecting;
     in property <color> foreground: Theme.on-surface;
     spacing: 3px;
@@ -72,9 +80,20 @@ component SelectableBlock inherits VerticalLayout {
                 default-font-size: root.block.level == 1 ? 24px : root.block.level == 2 ? 22px : root.block.level == 3 ? 16px : root.block.level == 4 ? 14px : root.block.level == 5 ? 16px : root.block.level == 6 || root.block.kind == "quote" ? 14px : 16px;
                 link-color: Theme.primary;
                 link-clicked(url) => { root.link-clicked(url); }
+                ContextMenuArea {
+                    Menu {
+                        MenuItem { title: "Copiar mensagem"; activated => { root.copy(root.source-markdown); } }
+                        MenuItem { title: "Selecionar texto"; activated => { root.select-text(); } }
+                        for link[index] in root.block.links: MenuItem {
+                            title: "Copiar link: " + root.block.link-labels[index];
+                            activated => { root.copy(link); }
+                        }
+                    }
+                }
             }
             if root.selecting: TextInput {
                 text: root.block.text;
+                accessible-role: text; accessible-label: root.block.text;
                 read-only: true;
                 wrap: word-wrap;
                 color: root.foreground;
@@ -86,19 +105,33 @@ component SelectableBlock inherits VerticalLayout {
     }
 }
 
-export component MarkdownView inherits VerticalLayout {
+export component MarkdownView inherits Rectangle {
     in property <[MdBlock]> blocks;
     in property <string> source-markdown;
     callback link-clicked(string);
     callback copy(string);
     in-out property <bool> selecting: false;
     in property <color> foreground: Theme.on-surface;
+    preferred-height: content.preferred-height;
+    vertical-stretch: 0;
+    horizontal-stretch: 1;
+    forward-focus: message-focus;
+    message-menu := ContextMenuArea {
+        Menu {
+            MenuItem { title: "Copiar mensagem"; activated => { root.copy(root.source-markdown); } }
+            MenuItem { title: root.selecting ? "Texto formatado" : "Selecionar texto"; activated => { root.selecting = !root.selecting; } }
+        }
+        hover := TouchArea {
+            clicked => { message-focus.focus(); }
+            message-focus := FocusScope {
+                capture-key-pressed(event) => {
+                    if !root.selecting && event.modifiers.control && event.text.to-lowercase() == "c" {
+                        root.copy(root.source-markdown); return accept;
+                    }
+                    return reject;
+                }
+    content := VerticalLayout {
     spacing: 8px;
-    HorizontalLayout {
-        Rectangle { horizontal-stretch: 1; }
-        MdButton { text: root.selecting ? "Texto formatado" : "Selecionar texto"; clicked => { root.selecting = !root.selecting; } }
-        MdButton { text: "Copiar mensagem"; clicked => { root.copy(root.source-markdown); } }
-    }
     for block in root.blocks: VerticalLayout {
         padding-left: block.depth * 20px;
         if block.kind == "rule": Rectangle { height: 1px; background: Theme.outline-variant; }
@@ -106,39 +139,57 @@ export component MarkdownView inherits VerticalLayout {
             block: block;
             foreground: root.foreground;
             selecting: root.selecting;
+            source-markdown: root.source-markdown;
+            copy(text) => { root.copy(text); }
+            select-text => { root.selecting = true; }
             link-clicked(url) => { root.link-clicked(url); }
         }
         if block.kind == "quote": HorizontalLayout {
             spacing: 8px;
             Rectangle { width: 3px; background: Theme.outline-variant; }
-            SelectableBlock { block: block; foreground: root.foreground; selecting: root.selecting; link-clicked(url) => { root.link-clicked(url); } }
+            SelectableBlock { block: block; foreground: root.foreground; selecting: root.selecting; source-markdown: root.source-markdown; copy(text) => { root.copy(text); } select-text => { root.selecting = true; } link-clicked(url) => { root.link-clicked(url); } }
         }
-        if block.kind == "code": Rectangle {
+        if block.kind == "code": code-box := Rectangle {
             background: Theme.on-background.with-alpha(0.1);
             border-radius: 8px;
-            VerticalLayout {
+            preferred-height: code-content.preferred-height;
+            code-metrics := Text { visible: false; text: block.text; font-family: "Noto Sans Mono"; font-size: 14px; wrap: no-wrap; }
+            line-metrics := Text { visible: false; text: "M"; font-family: "Noto Sans Mono"; font-size: 14px; }
+            ContextMenuArea {
+                Menu {
+                    MenuItem { title: "Copiar mensagem"; activated => { root.copy(root.source-markdown); } }
+                    MenuItem { title: "Selecionar texto"; activated => { root.selecting = true; } }
+                    MenuItem { title: "Copiar código"; activated => { root.copy(block.text); } }
+                }
+            code-content := VerticalLayout {
                 padding: 10px;
-                spacing: 8px;
+                spacing: 4px;
                 HorizontalLayout {
-                    Text { text: block.language; color: Theme.on-surface-variant; font-size: 12px; }
-                    MdButton { text: "Copiar código"; clicked => { root.copy(block.text); } }
+                    height: 24px;
+                    Text { text: block.language; color: Theme.on-surface-variant; font-size: 12px; vertical-alignment: center; }
+                    IconButton { width: 24px; height: 24px; icon: MaterialIcons.content-copy; label: "Copiar código"; clicked => { root.copy(block.text); } }
                 }
                 ScrollView {
-                    height: code.preferred-height + 16px;
-                    content-width: max(self.width, code.preferred-width);
+                    min-height: 0px;
+                    preferred-height: line-metrics.preferred-height * block.code-lines + (code-metrics.preferred-width > self.width ? 12px : 0px);
+                    max-height: self.preferred-height;
+                    vertical-stretch: 0;
+                    content-width: max(self.width, code-metrics.preferred-width);
                     code := TextInput {
-                        width: max(parent.width, self.preferred-width);
-                        height: self.preferred-height;
+                        width: max(parent.width, code-metrics.preferred-width);
+                        height: line-metrics.preferred-height * block.code-lines;
                         text: block.text;
+                        accessible-role: text; accessible-label: block.text;
                         read-only: true;
                         wrap: no-wrap;
-                        font-family: "monospace";
+                        font-family: "Noto Sans Mono";
                         font-size: 14px;
                         color: root.foreground;
                         selection-background-color: Theme.primary;
                         selection-foreground-color: Theme.on-primary;
                     }
                 }
+            }
             }
         }
         if block.kind == "table": ScrollView {
@@ -174,6 +225,20 @@ export component MarkdownView inherits VerticalLayout {
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+    }
+            }
+            actions := TouchArea {
+                visible: hover.has-hover || self.has-hover;
+                x: parent.width - 60px; y: -8px;
+                width: 60px; height: 28px;
+                HorizontalLayout {
+                    spacing: 0px;
+                    IconButton { width: 28px; height: 28px; icon: MaterialIcons.more-vert; label: "Ações da mensagem"; clicked => { message-focus.focus(); message-menu.show({x: root.width - 60px, y: 20px}); } }
+                    IconButton { width: 28px; height: 28px; icon: MaterialIcons.content-copy; label: "Copiar mensagem"; clicked => { root.copy(root.source-markdown); message-focus.focus(); } }
                 }
             }
         }

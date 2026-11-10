@@ -45,6 +45,7 @@ export async function startAndroidFixture(root: string, args: string[]): Promise
   let port = 14748;
   let allow: string | undefined;
   let noSessionGuard = false;
+  let ompCastEnabled = false;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--port' && args[i + 1]) port = Number(args[++i]);
     else if (args[i] === '--allow' && args[i + 1]) allow = args[++i];
@@ -137,7 +138,7 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
       office.putCast({ id: 'bia', name: 'Bia Fictícia', kind: 'main', seed: 1002, look: 'f', rooms: ['/fixture/projeto'], last: { '/fixture/projeto': CLOSED } }) !== 'ok' ||
       office.putCast({ id: 'caio', name: 'Caio Fictício', kind: 'main', seed: 1003, look: 'm', rooms: [] }) !== 'ok' ||
       office.putCast({ id: 'davi', name: 'Davi Fictício', kind: 'main', seed: 1004, look: 'm', rooms: ['/fixture/caderno'] }, 'fixture:omp') !== 'ok') throw new Error('Could not create fictional cast');
-  const launcher = new CastLauncher({ dataDir: root, member: id => office.cast.get(id), agents: () => office.list(), account: id => !id || id === ACCOUNT ? accountDir : undefined, changed: () => office.markDirty() });
+  const launcher = new CastLauncher({ dataDir: root, member: id => office.cast.get(id), agents: () => office.list(), account: id => ompCastEnabled && id === OMP_ACCOUNT ? ompDir : !id || id === ACCOUNT ? accountDir : undefined, changed: () => office.markDirty() });
   late.launcher = launcher;
   launcher.poll({ open: ['ana', 'davi'] });
   const presence = setInterval(() => launcher.ack({ results: [] }), 10_000);
@@ -182,7 +183,7 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
   const openAgentOf = (account: string, session: string) => openMainAgent(office.list(), account, session);
   const history = new HistorySet([
     new SessionHistory({ accounts: () => accounts.entries().filter(account => account.provider === 'claude'), openAgentOf }),
-    new OmpHistory({ accounts: () => accounts.entries().filter(account => account.provider === 'omp'), openAgentOf }),
+    new OmpHistory({ accounts: () => ompCastEnabled ? accounts.entriesOf('omp') : accounts.entries().filter(account => account.provider === 'omp'), openAgentOf }),
   ]);
   const allowed = parseAllow(allow);
   const api = createApiHandler({ office, hub, accounts, sources: () => [], version: 'android-fixture', inDocker: false, terminal: true, terminals, sessions: history, messages: createMessageRoutes(messages), asides: { page: createAsideRoutes(asides), progress: (req, res) => handleAsideProgress(req, res, asides) }, permissions: createPermissionRoutes(permissions), castLauncher: launcher, spawnFolders: async () => projects.map(name => ({ name, path: `/fixture/${name}`, lastAt: Date.now(), sessions: 1 })), remote: { is: isRemoteRequest, allows: feature => allowed.has(feature) } });
@@ -325,6 +326,29 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
       const [command, agentId, kind] = line.trim().split(/\s+/);
       let result: unknown;
       if (command === 'stats') result = { sse: hub.size, terminal: terminals.size, posts, messageRequests, lastHeaders, permissionResults, localAcks, castJobs: launcher.jobs() };
+      else if (command === 'seed-usage') {
+        const now = Date.now();
+        accounts.setUsage(OMP_ACCOUNT, { source: 'omp', fetchedAt: now, fiveHour: { utilization: 60, resetsAt: now + 3_600_000 }, sevenDay: { utilization: 100, resetsAt: now + 86_400_000 } });
+        office.markDirty();
+        result = { ok: true, fetchedAt: now };
+      }
+      else if (command === 'seed-subagents') {
+        const parent = office.get(agentId);
+        if (!parent || parent.kind !== 'main') throw new Error('Expected seed-subagents <mainAgentId>');
+        for (const role of ['task', '__advisor']) {
+          const id = `${agentId}:${role}`;
+          office.addSub({ id, parentId: agentId, sessionId: parent.sessionId, role, background: false, startedAt: Date.now() });
+          const path = paths.get(agentId);
+          if (path) paths.set(id, path);
+        }
+        result = { ok: true };
+      }
+      else if (command === 'seed-closed-omp') {
+        if (!agentId || !OMP_SESSION_ID.test(agentId) || kind) throw new Error('Expected seed-closed-omp <sessionId>');
+        ompCastEnabled = true;
+        paths.set(agentId, seed(agentId, 'omp'));
+        result = { ok: true, sessionId: agentId, account: OMP_ACCOUNT, project: CWD };
+      }
       else if (command === 'roles-seed') {
         const roles: unknown = JSON.parse(line.trim().slice(command.length).trim());
         if (!roles || typeof roles !== 'object' || Array.isArray(roles)) throw new Error('Expected roles-seed <JSON object>');
@@ -338,6 +362,12 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
           if (job.op === 'start') {
             const id = `fixture:cast:${job.cast}`;
             const sessionId = job.resume ?? randomUUID();
+            if (ompCastEnabled && job.agentDir === ompDir) {
+              paths.set(id, (job.resume && paths.get(job.resume)) || seed(sessionId, 'omp', false, job.folder));
+              office.addMain({ id, cast: job.cast, provider: 'omp', account: OMP_ACCOUNT, sessionId, cwd: job.folder, role: 'Agente principal', startedAt: Date.now(), status: 'idle' });
+              messages.inbox({ session: sessionId, account: OMP_ACCOUNT });
+              continue;
+            }
             const existing = join(accountDir, 'projects', encodeCwd(job.folder), `${sessionId}.jsonl`);
             paths.set(id, job.resume && existsSync(existing) ? existing : seed(sessionId, 'claude', false, job.folder));
             office.addMain({ id, cast: job.cast, account: ACCOUNT, sessionId, cwd: job.folder, role: 'Agente principal', startedAt: Date.now(), status: 'idle' });

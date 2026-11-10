@@ -100,6 +100,7 @@ export component PermissionSheet inherits Sheet {
                     command-metrics := Text { visible: false; width: min(480px, root.width) - 64px; text: PermissionState.input; wrap: char-wrap; font-size: 16px; font-family: "monospace"; }
                     line-metrics := Text { visible: false; text: "Mg"; font-size: 16px; font-family: "monospace"; }
                     command-scroll := ScrollContainer { x: 12px; y: 12px; width: min(480px, root.width) - 64px; height: parent.height - 24px; content-width: self.width;
+                        content-height: command-metrics.preferred-height;
                         command := TextInput { width: min(480px, root.width) - 64px; height: command-metrics.preferred-height; text: PermissionState.input; read-only: true; wrap: char-wrap; font-size: 16px; font-family: "monospace"; color: Theme.on-surface; accessible-label: PermissionState.input-label; }
                     }
                 }
