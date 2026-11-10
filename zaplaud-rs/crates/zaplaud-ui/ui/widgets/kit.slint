@@ -283,6 +283,7 @@ export component Dialog inherits Rectangle {
     accessible-role: groupbox; accessible-label: root.title;
     init => { dialog-keys.focus(); }
     forward-focus: dialog-keys;
+    public function focus-dialog() { dialog-keys.focus(); }
     dialog-keys := FocusScope {
         key-released(event) => { if event.text == Key.Escape { root.dismissed(); return accept; } return reject; }
     TouchArea { clicked => { root.dismissed(); } }
@@ -304,7 +305,7 @@ export component Sheet inherits Rectangle {
     callback dismissed();
     in property <string> title;
     accessible-role: groupbox; accessible-label: root.title;
-    background: Theme.scrim.with-alpha(0.6);
+    background: Theme.scrim.with-alpha(0.32);
     init => { sheet-keys.focus(); }
     forward-focus: sheet-keys;
     sheet-keys := FocusScope {

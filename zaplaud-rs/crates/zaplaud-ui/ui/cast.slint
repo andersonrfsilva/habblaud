@@ -25,6 +25,8 @@ export component CastSheet inherits Rectangle {
     if CastState.visible: Dialog {
         title: CastState.title; cancel: Labels.cancel;
         dialog-width: 560px;
+        private property <bool> choosing-folder: CastState.choosing-folder;
+        changed choosing-folder => { self.focus-dialog(); }
         dismissed => { CastState.close(); }
         VerticalLayout {
             if CastState.rows.length == 0: Text { text: CastState.empty-label; color: Theme.on-surface; }

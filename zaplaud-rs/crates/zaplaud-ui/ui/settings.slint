@@ -107,6 +107,8 @@ export component SettingsPane inherits Rectangle {
     if SettingsState.editing-role != "": Dialog {
         title: SettingsState.role-title; cancel: SettingsState.cancel;
         dialog-width: 560px;
+        private property <bool> choosing-model: SettingsState.choosing-model;
+        changed choosing-model => { self.focus-dialog(); }
         dismissed => { SettingsState.cancel-edit(); }
         ScrollContainer { height: min(360px, role-content.preferred-height); content-width: self.width;
             role-content := VerticalLayout { width: parent.width; spacing: 2px;

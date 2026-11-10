@@ -226,6 +226,8 @@ export component ConversationMenu inherits Rectangle {
     function dismiss() { ConversationViewState.menu-open = false; ConversationViewState.menu-page = ""; }
     init => { menu-keys.focus(); }
     forward-focus: menu-keys;
+    private property <string> menu-page: ConversationViewState.menu-page;
+    changed menu-page => { menu-keys.focus(); }
     menu-keys := FocusScope {
         key-released(event) => { if event.text == Key.Escape { root.dismiss(); return accept; } return reject; }
         TouchArea { clicked => { root.dismiss(); } }
