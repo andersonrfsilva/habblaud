@@ -31,6 +31,17 @@ pub fn setup(software: bool) -> Result<(), Box<dyn std::error::Error>> {
     };
     emoji.push(outline);
     collection.set_generic_families(fontique::GenericFamily::Emoji, emoji.iter().copied());
+    #[cfg(target_os = "macos")]
+    {
+        // Fontique usa Helvetica para sans-serif; o cliente nativo usa a fonte de interface do macOS.
+        let system: Vec<_> = collection
+            .generic_families(fontique::GenericFamily::SystemUi)
+            .collect();
+        if !system.is_empty() {
+            collection.set_generic_families(fontique::GenericFamily::SansSerif, system.iter().copied());
+            collection.set_generic_families(fontique::GenericFamily::UiSansSerif, system.iter().copied());
+        }
+    }
     for generic in [
         fontique::GenericFamily::SansSerif,
         fontique::GenericFamily::SystemUi,

@@ -6,7 +6,7 @@ Referências para as próximas fases: [rotas e streams](docs/contrato/01-rotas-e
 
 ## Construir, testar e executar
 
-Requisitos: Rust 1.96.1 (fixado em `rust-toolchain.toml`), ferramentas nativas de compilação e uma sessão gráfica X11 ou Wayland. No macOS, instale as ferramentas de linha de comando do Xcode. O renderer padrão é Skia por CPU (`skia-software`); não é necessário OpenGL. Em Linux, instale também FreeType, Fontconfig, libstdc++ e uma fonte emoji colorida (`noto-fonts-emoji` no Arch; `fonts-noto-color-emoji` no Debian/Ubuntu).
+Requisitos: Rust 1.96.1 (fixado em `rust-toolchain.toml`), ferramentas nativas de compilação e uma sessão gráfica X11 ou Wayland. No macOS, instale as ferramentas de linha de comando do Xcode. O renderer padrão é `software` do Slint, com emoji monocromático embutido; não exige OpenGL nem fonte emoji instalada.
 
 O perfil release usa `opt-level = "s"`, LTO `fat`, uma unidade de geração de código e `panic = "abort"`. O transporte HTTPS preserva raízes nativas e webpki. `notify-rust ~4.18` compartilha zbus 5; a bandeja mantém `ksni` com `async-io`.
 
@@ -36,7 +36,7 @@ Respostas `429` bloqueiam novas tentativas por no máximo 24 h, tanto para segun
 
 O pacote de usuário `zaplaud-linux-x86_64.tar.gz` contém o executável release, o instalador, os ícones hicolor gerados do SVG canônico e as licenças de Noto Sans Mono, Noto Emoji e DejaVu. Extraia e execute `bash install-linux.sh`, sem `sudo`. Consulte [distribuição desktop](packaging/README.md) para instalação, remoção e bibliotecas de execução.
 
-O padrão é Skia por CPU (`skia-software`), com fallback automático para `software` do Slint. OpenGL é opcional; libstdc++, FreeType e Fontconfig são requisitos nativos. O tarball final local requer glibc 2.44 ou posterior; isso difere da base Ubuntu 24.04 do CI. A fonte emoji colorida do sistema habilita cor no Skia; o fallback `software` usa a fonte de contorno embutida.
+O pacote usa `software` do Slint e não inclui Skia. Para emoji colorido, compile com `--features skia` e execute com `ZAPLAUD_RENDERER=skia-software`; a cor exige fonte emoji do sistema. O tarball final local requer glibc 2.44 ou posterior; isso difere da base Ubuntu 24.04 do CI.
 
 
 ## Arquitetura e propriedade dos módulos
@@ -221,11 +221,14 @@ São cinco aberturas isoladas; a última mede lista, conversa com pelo menos 200
 
 ### Renderer e emoji
 
-O padrão é `skia-software`, não o renderer `software` do Slint. O Skia rasteriza por CPU,
-sem GPU/EGL, e pinta emoji colorido com ligaturas. `SLINT_BACKEND=winit-software` força
-o caminho leve monocromático; `SLINT_BACKEND=winit-skia-opengl` opta por OpenGL.
+O padrão em Linux e macOS é `software` do Slint: prioriza memória, mantendo sequências emoji
+com a fonte de contorno embutida. Skia é uma feature Cargo não padrão: compile com
+`cargo build --release --locked -p zaplaud-ui --features skia --bin zaplaud`.
+Nesse binário, `ZAPLAUD_RENDERER=skia-software` habilita emoji colorido por CPU;
+`ZAPLAUD_RENDERER=skia` seleciona o backend Skia disponível (Metal no macOS).
+`ZAPLAUD_RENDERER=software` volta ao caminho leve. `SLINT_BACKEND=winit-...` tem precedência.
 Não confunda `skia-software` com `software`: são rasterizadores diferentes.
-Se a seleção, criação da janela ou inicialização do event loop falhar, o processo
+Se a seleção de um renderer opcional, criação da janela ou inicialização do event loop falhar, o processo
 libera o socket de instância única e faz `exec` de si mesmo com `winit-software`.
 Só há uma tentativa de fallback. A ausência de um display continua sendo erro.
 Uma verificação única após 2 s também encerra a inicialização sem janela nativa:
@@ -264,7 +267,7 @@ Probe reproduzível, executado sob X11/Xvfb:
 
 ```sh
 SLINT_BACKEND=winit-skia-software ZAPLAUD_PROBE_APP_FONTS=1 \
-  cargo run --release -p zaplaud-ui --example emoji_probe
+  cargo run --release -p zaplaud-ui --features skia --example emoji_probe
 SLINT_BACKEND=winit-software ZAPLAUD_PROBE_APP_FONTS=1 \
   cargo run --release -p zaplaud-ui --example emoji_probe
 cargo test --locked -p zaplaud-ui --test emoji_fonts

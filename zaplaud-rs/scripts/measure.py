@@ -237,6 +237,28 @@ def scroll_probe(desktop):
 
 
 
+class ScaledDesktop:
+    """Mantém a automação em coordenadas lógicas, sem esconder o tamanho físico."""
+    def __init__(self, desktop, scale):
+        self.desktop, self.scale = desktop, scale
+
+    def __getattr__(self, name):
+        return getattr(self.desktop, name)
+
+    def click(self, x, y):
+        return self.desktop.click(round(x * self.scale), round(y * self.scale))
+
+    def image(self):
+        image = self.desktop.image()
+        if self.scale != 1:
+            image = image.resize((round(image.width / self.scale), round(image.height / self.scale)))
+        return image
+
+    def resize(self, width, height=760):
+        self.x.XResizeWindow(self.d, self.mapped()[0], round(width * self.scale), round(height * self.scale))
+        self.x.XSync(self.d, 0)
+        time.sleep(.4)
+
 def measure_run(args, helpers, desktop, index):
     if desktop.mapped():
         raise RuntimeError('O display já contém uma janela Zaplaud; use um display exclusivo')
@@ -246,6 +268,8 @@ def measure_run(args, helpers, desktop, index):
             (root / name).mkdir(mode=0o700)
         env = os.environ.copy()
         env.pop('SLINT_BACKEND', None)
+        env.pop('ZAPLAUD_RENDERER', None)
+        env['SLINT_SCALE_FACTOR'] = str(args.scale)
         env.update(
             DISPLAY=args.display, HOME=str(root / 'home'),
             XDG_DATA_HOME=str(root / 'data'), XDG_CACHE_HOME=str(root / 'cache'),
@@ -301,6 +325,7 @@ def measure_run(args, helpers, desktop, index):
                     'A fixture não publicou linhas/avatares',
                 )
                 time.sleep(args.settle)
+                desktop.resize(*args.size)
                 idle = sample(process, desktop, helpers, args.seconds, args.damage)
                 desktop.click(180, 160)
                 if args.fixture:
@@ -338,7 +363,7 @@ def measure_run(args, helpers, desktop, index):
                     if cycle == 0:
                         desktop.image().save(f'/tmp/zaplaud-rs-fin-perf-{args.label}-cycle-info.png')
                     desktop.key('Escape')
-                    desktop.click(1070, 30)
+                    desktop.click(args.size[0] - 30, 30)
                     if cycle == 0:
                         desktop.image().save(f'/tmp/zaplaud-rs-fin-perf-{args.label}-cycle-menu.png')
                     desktop.key('Escape')
@@ -373,6 +398,8 @@ def main():
     fixture_group.add_argument('--fixture-url', type=fixture_origin, help='Origem de fixture externa; não semeia 200 entradas')
     fixture_group.add_argument('--fixture-port', type=int, help='Inicia fixture real e acrescenta 210 entradas durante a conversa')
     parser.add_argument('--runs', type=int, default=5)
+    parser.add_argument('--size', default='1100x760', help='Tamanho lógico da janela, LARGURAxALTURA')
+    parser.add_argument('--scale', type=float, default=1, help='SLINT_SCALE_FACTOR')
     parser.add_argument('--seconds', type=float, default=30)
     parser.add_argument('--settle', type=float, default=10)
     parser.add_argument('--label', default='candidate')
@@ -381,6 +408,12 @@ def main():
     parser.add_argument('--damage', action='store_true', help='Captura regiões realmente apresentadas por XDamage')
     parser.add_argument('--strace', type=Path, help='Perfil separado; altera tempo de abertura e CPU')
     args = parser.parse_args()
+    try:
+        args.size = tuple(int(part) for part in args.size.split('x'))
+        if len(args.size) != 2 or min(args.size) < 600 or not 0 < args.scale <= 4:
+            raise ValueError()
+    except ValueError:
+        parser.error('--size exige LARGURAxALTURA >= 600; --scale deve estar entre 0 e 4')
     if args.runs < 1 or args.seconds <= 0 or args.settle < 0:
         parser.error('--runs e --seconds devem ser positivos; --settle não pode ser negativo')
     args.binary = args.binary.expanduser().resolve()
@@ -390,13 +423,15 @@ def main():
     args.fixture = helpers.Fixture(args.fixture_port) if args.fixture_port is not None else None
     if args.fixture:
         args.fixture_url = args.fixture.ready['url']
-    desktop = helpers.Desktop(args.display)
+    desktop = ScaledDesktop(helpers.Desktop(args.display), args.scale)
     try:
         runs = [measure_run(args, helpers, desktop, index) for index in range(1, args.runs + 1)]
         resource_runs = [run for run in runs if 'idle' in run]
         median = statistics.median
         result = {
             'renderer': args.renderer or 'app-default',
+            'logical_size': list(args.size),
+            'scale_factor': args.scale,
             'binary_size_bytes': args.binary.stat().st_size,
             'launch_to_mapped_median_ms': median(run['launch_to_mapped_ms'] for run in runs),
             'launch_coldish_ms': runs[0]['launch_to_mapped_ms'],

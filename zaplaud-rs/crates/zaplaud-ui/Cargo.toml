@@ -11,6 +11,10 @@ build = "build.rs"
 name = "zaplaud"
 path = "src/main.rs"
 
+[features]
+default = []
+skia = ["slint/renderer-skia-opengl"]
+
 [dependencies]
 pulldown-cmark = { version = "0.13", default-features = false }
 zaplaud-core = { path = "../zaplaud-core" }
@@ -46,6 +50,7 @@ roxmltree.workspace = true
 usvg = "0.45"
 parley = "0.11.1"
 swash = "0.2.10"
+resvg = { version = "0.45", default-features = false }
 
 [lints]
 workspace = true

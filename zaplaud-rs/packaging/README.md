@@ -14,9 +14,9 @@ O artefato `zaplaud-linux-x86_64.tar.gz` inclui o binário, os ícones, `install
 
 O pacote portátil não inclui glibc ou bibliotecas gráficas. O CI usa Ubuntu 24.04 x86_64: o artefato produzido nessa base requer **glibc 2.39 ou posterior**. O tarball final construído localmente em Arch Linux requer **glibc 2.44 ou posterior**, conforme os símbolos ELF, além de `GLIBCXX_3.4.26` e `CXXABI_1.3.9`. Não use esse tarball local em Ubuntu 24.04, Ubuntu 22.04 ou Debian 12; construa na própria distribuição ou em uma base compatível. Não é um executável musl.
 
-O padrão é Skia por CPU (`skia-software`), sem requisito de OpenGL, GTK, Qt, JVM ou OpenSSL. O fallback automático usa o renderer `software` do Slint; também pode ser selecionado com `SLINT_BACKEND=winit-software`. Esse fallback usa emoji de contorno embutido, não emoji colorido. O caminho opcional `SLINT_BACKEND=winit-skia-opengl` exige libEGL/libGL e um driver compatível. FreeType, Fontconfig e libstdc++ são ligações nativas diretas; as dependências de fontes e compressão vêm do gerenciador de pacotes. Winit/softbuffer carregam as bibliotecas X11/Wayland em execução: `ldd` sozinho não lista todos esses requisitos.
+O padrão é `software` do Slint, com emoji de contorno embutido e sem Skia, OpenGL, GTK, Qt, JVM ou OpenSSL. Skia é opt-in de compilação (`--features skia`) e execução (`ZAPLAUD_RENDERER=skia-software` para CPU, `ZAPLAUD_RENDERER=skia` para Metal no macOS). `SLINT_BACKEND=winit-software` continua funcionando e tem precedência. Winit/softbuffer carregam bibliotecas X11/Wayland em execução: `ldd` sozinho não lista todos esses requisitos.
 
-Na inspeção local do release final Linux com `ldd` e `readelf -d`, os vínculos diretos foram `libstdc++.so.6`, `libfreetype.so.6`, `libfontconfig.so.1`, `libgcc_s.so.1`, `libm.so.6` e `libc.so.6`, além do loader `ld-linux-x86-64.so.2`. Os vínculos transitivos observados foram `libexpat.so.1`, `libz.so.1`, `libbz2.so.1.0`, `libpng16.so.16`, `libbrotlidec.so.1` e `libbrotlicommon.so.1`. Em relação ao release anterior, a biblioteca adicionada é `libstdc++.so.6`; FreeType passou de transitiva a direta. Confira cada artefato com `ldd zaplaud` na distribuição de build.
+No build leve Linux, `readelf -d` lista diretamente `libfontconfig.so.1`, `libgcc_s.so.1`, `libm.so.6` e `libc.so.6`. `ldd` também observa FreeType, Expat, zlib, bzip2, libpng e Brotli transitivos de Fontconfig. `libstdc++.so.6` só era exigida pelo build Skia. Confira cada artefato com `ldd zaplaud` na distribuição de build.
 
 Instale os pacotes abaixo com o gerenciador da distribuição. São nomes de runtime, não os pacotes `-dev` usados na compilação:
 
@@ -48,7 +48,7 @@ Para reproduzir abertura, memória e CPU com fixture já iniciada: `python3 scri
 
 ## Gerar ícones e pacotes Linux
 
-Execute da raiz `zaplaud-rs/`, com Rust da toolchain fixada e dependências nativas de desenvolvimento instaladas. `librsvg2-bin` (Debian/Ubuntu), `librsvg2-tools` (Fedora) ou `librsvg` (Arch/Homebrew) fornece `rsvg-convert`.
+Execute da raiz `zaplaud-rs/`, com Rust da toolchain fixada e dependências nativas de desenvolvimento instaladas. O exemplo `export_icon` usa resvg já presente no projeto; não exige librsvg nem Homebrew.
 
 ```sh
 export PATH="$HOME/.cargo/bin:$PATH"
@@ -71,20 +71,16 @@ DEB e RPM usam os metadados em `crates/zaplaud-ui/Cargo.toml`. A detecção auto
 
 ## macOS: construir um `.app`
 
-Execute em um Mac; `cargo-bundle` não transforma um binário ELF Linux em aplicativo macOS. Instale Xcode Command Line Tools (`xcode-select --install`), Rust/rustup e `brew install librsvg`. Da raiz `zaplaud-rs/`:
+Execute em um Mac; um binário ELF Linux não vira aplicativo macOS. Instale Xcode Command Line Tools (`xcode-select --install`) e Rust/rustup. Não exige Homebrew. Da raiz `zaplaud-rs/`:
 
 ```sh
 export PATH="$HOME/.cargo/bin:$PATH"
 export MACOSX_DEPLOYMENT_TARGET=11.0
 cargo build --release --locked -p zaplaud-ui --bin zaplaud
-svg=$(find "${CARGO_TARGET_DIR:-target}/release/build" -path '*/zaplaud-ui-*/out/ic_zaplaud.svg' -print -quit)
-test -n "$svg"
-bash packaging/generate-icons.sh "$svg"
-cargo install cargo-bundle --version 0.12.0 --locked
-cargo bundle --release --package zaplaud-ui --bin zaplaud --format osx
+bash packaging/bundle-macos.sh
 mkdir -p "$HOME/Applications"
 cp -R "${CARGO_TARGET_DIR:-target}/release/bundle/osx/Zaplaud.app" "$HOME/Applications/"
 open "$HOME/Applications/Zaplaud.app"
 ```
 
-O bundle usa `br.com.xlinx.zaplaud`, os PNGs gerados e macOS mínimo 11.0. Construa nativamente para Apple Silicon ou Intel; para um pacote universal, construa ambos os targets e una os executáveis com `lipo` antes de distribuir. Esta receita gera `.app` local, sem assinatura Developer ID ou notarização. Distribuição a terceiros exige assinatura/notarização da Apple; não recomende desativar Gatekeeper. Não há validação macOS no job Linux.
+O bundle usa `br.com.xlinx.zaplaud`, ícone `.icns` renderizado do SVG canônico por resvg e macOS mínimo 11.0. Quick Look não rasteriza mais o SVG: produzia um quadrado branco. Construa nativamente para Apple Silicon ou Intel; um pacote universal requer ambos os targets e `lipo`. A receita faz assinatura ad hoc local, não Developer ID nem notarização. Distribuição a terceiros exige assinatura/notarização da Apple; não recomende desativar Gatekeeper.

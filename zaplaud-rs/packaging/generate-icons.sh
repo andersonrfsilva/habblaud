@@ -7,9 +7,11 @@ fi
 source_icon=$1
 output=${2:-"$(dirname "${BASH_SOURCE[0]}")/icons"}
 [[ -f $source_icon ]] || { echo "SVG gerado não encontrado: $source_icon" >&2; exit 1; }
-command -v rsvg-convert >/dev/null || { echo 'Instale librsvg (rsvg-convert) para gerar os ícones.' >&2; exit 1; }
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+cargo build --manifest-path "$root/Cargo.toml" --release --locked -p zaplaud-ui --example export_icon
+exporter=${CARGO_TARGET_DIR:-$root/target}/release/examples/export_icon
 for size in 16 24 32 48 64 128 256 512 1024; do
     destination="$output/hicolor/${size}x${size}/apps"
     mkdir -p "$destination"
-    rsvg-convert --width "$size" --height "$size" --output "$destination/zaplaud.png" "$source_icon"
+    "$exporter" "$source_icon" "$destination/zaplaud.png" "$size"
 done

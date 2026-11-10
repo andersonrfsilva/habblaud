@@ -15,6 +15,15 @@ struct Demand {
     list_visible: bool,
 }
 
+// CoreGraphics reapresenta o buffer Retina inteiro; em segundo plano não animamos.
+fn refresh_seconds(focused: bool) -> u64 {
+    if cfg!(target_os = "macos") && !focused {
+        15
+    } else {
+        1
+    }
+}
+
 fn needs_clock(visible: bool, list: bool, conversation: bool) -> bool {
     visible && (list || conversation)
 }
@@ -65,26 +74,23 @@ pub fn setup(window: &AppWindow) {
         );
         let tick = schedule.borrow_mut().advance(started.elapsed(), needed);
         if needed {
-            if !shared_timer.running() {
+            let interval = Duration::from_secs(refresh_seconds(clock.get_focused()));
+            if !shared_timer.running() || shared_timer.interval() != interval {
                 let weak = window.as_weak();
                 let schedule = schedule.clone();
-                shared_timer.start(
-                    slint::TimerMode::Repeated,
-                    Duration::from_secs(1),
-                    move || {
-                        if let Some(window) = weak.upgrade() {
-                            let clock = window.global::<Clock>();
-                            let needed = needs_clock(
-                                clock.get_visible(),
-                                clock.get_list_needed() && clock.get_list_visible(),
-                                clock.get_conversation_needed() && clock.get_conversation_visible(),
-                            );
-                            if schedule.borrow_mut().timer_fired(started.elapsed(), needed) {
-                                clock.set_tick(clock.get_tick().wrapping_add(1));
-                            }
+                shared_timer.start(slint::TimerMode::Repeated, interval, move || {
+                    if let Some(window) = weak.upgrade() {
+                        let clock = window.global::<Clock>();
+                        let needed = needs_clock(
+                            clock.get_visible(),
+                            clock.get_list_needed() && clock.get_list_visible(),
+                            clock.get_conversation_needed() && clock.get_conversation_visible(),
+                        );
+                        if schedule.borrow_mut().timer_fired(started.elapsed(), needed) {
+                            clock.set_tick(clock.get_tick().wrapping_add(1));
                         }
-                    },
-                );
+                    }
+                });
             }
         } else {
             shared_timer.stop();
@@ -170,6 +176,15 @@ fn update_demand(window: &AppWindow, demand: &Demand) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn focused_clock_keeps_seconds_and_background_macos_saves_presents() {
+        assert_eq!(refresh_seconds(true), 1);
+        assert_eq!(
+            refresh_seconds(false),
+            if cfg!(target_os = "macos") { 15 } else { 1 }
+        );
+    }
 
     #[test]
     fn clock_runs_only_for_visible_elapsed_text() {

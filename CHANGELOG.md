@@ -13,10 +13,11 @@ do meio (0.**3**.0).
 ### Adicionado
 
 - **Zaplaud:** novo cliente desktop nativo em Rust, com lista e conversa, Markdown, mensagens e anexos,
-  aprovações, configurações, elenco e bate-papo paralelo, seguindo o comportamento do celular. No teste local
-  Linux/X11, abriu em 108 ms (mediana de cinco aberturas) e usou 36,7 MiB de memória PSS parado na lista
-  e 39,4 MiB com uma conversa de 252 entradas. Exibe emojis coloridos com Skia por CPU e mantém um renderizador
-  software alternativo. macOS, Wayland e persistência de login no chaveiro real ainda não foram verificados.
+  aprovações, configurações, elenco e bate-papo paralelo, seguindo o comportamento do celular. O padrão Linux/macOS
+  usa o renderizador leve do Slint e emoji de contorno embutido; Skia colorido é opt-in de compilação e execução.
+  A medição inicial de 37 MiB era de uma janela Xvfb 1100×760: no Mac Retina real, Skia por CPU chegou a 237 MB,
+  contra 47–49 MB do renderer software. O pacote macOS gera o ícone com resvg, sem o quadrado branco do Quick Look.
+  Wayland e persistência de login no chaveiro Linux real ainda exigem validação.
 - **Zaplaud:** no desktop, ícone na bandeja (waybar, KDE, GNOME com extensão de indicadores): clique traz a janela, e
   o menu tem "Abrir o Zaplaud" e "Fechar o Zaplaud". A janela se identifica como `zaplaud` (`WM_CLASS`), e docks como
   o wf-dock passam a mostrar o ícone do app.

@@ -9,9 +9,12 @@ As 27 capacidades da tabela de paridade do [plano 074](074-zaplaud-cliente-rust-
 exercitadas contra o servidor de teste (`scripts/android-smoke.ts`), numa tela virtual (Xvfb), nos temas claro e
 escuro. O que **não** foi verificado está na seção "Não verificado": é o que falta para declarar a troca concluída.
 
-## Medição final (binário de release, mesmo método do plano 067)
+## Medição inicial e correção da premissa de memória
 
-| Medida | Rust, padrão (Skia por CPU) | Rust, modo leve (`SLINT_BACKEND=winit-software`) | Compose (067, servidor de teste) | Compose (miranote, uso real) |
+As medições abaixo foram feitas em Xvfb **1100×760, escala 1×**, não em um desktop Retina maximizado.
+Descrevem o build anterior, não o padrão atual. Não extrapole a diferença de 8 MiB para outras resoluções.
+
+| Medida | Rust anterior (Skia por CPU) | Rust anterior (`SLINT_BACKEND=winit-software`) | Compose (067, servidor de teste) | Compose (miranote, uso real) |
 |---|---:|---:|---:|---:|
 | Abrir a janela | 108 ms | 84 ms | 1.020 ms | não medido |
 | Memória parada (PSS), lista | 37 MiB | 29 MiB | 339 MiB | 418–490 MiB |
@@ -27,9 +30,14 @@ Metas do plano: memória parada abaixo de 100 MiB e abertura abaixo de 300 ms: *
 parada "~0%": **não atingida** (0,3–0,8% de um núcleo; a origem medida são os despertares do laço de eventos, não um
 temporizador do app). JSON completos em `/tmp/zaplaud-rs-release-measure-{skia,software}.json` (temporários).
 
-O modo padrão usa o Skia desenhando por CPU porque é o único que mostra emoji colorido e sequências (bandeiras,
-tons de pele) como o celular. Custa 8 MiB de memória e 10 MiB de binário a mais que o modo leve, que mostra os emoji
-em preto e branco. FemtoVG e Skia com OpenGL foram medidos e reprovados (146–156 MiB).
+O padrão agora é `software` do Slint nos dois sistemas; Skia é uma feature Cargo não padrão (`--features skia`).
+Com esse build opcional, `ZAPLAUD_RENDERER=skia-software` habilita cor; `ZAPLAUD_RENDERER=skia` usa Metal no macOS.
+`SLINT_BACKEND` continua tendo precedência. A fonte Noto Emoji embutida mantém sequências sem exigir cor.
+
+O primeiro uso real no MacBook Air Apple Silicon (macOS 15.7, 8 GB, janela Retina de cerca de 2880×1800 pixels)
+invalidou a escolha anterior: Skia por CPU consumiu **237 MB**, Metal **363 MB** e `software` **47–49 MB**
+com a sessão real restaurada. No login: **36 / 139 / 50 MB**, respectivamente.
+São medições `footprint` do dono, em MB, não PSS Linux em MiB. Emoji colorido não justifica esse custo.
 
 ## Como foi feito
 
@@ -92,8 +100,7 @@ dois modos de desenho (12 de 12).
 
 ## Decisões pendentes do dono
 
-1. **Modo de desenho padrão**: Skia por CPU (emoji colorido, 37 MiB) ou modo leve (emoji em preto e branco, 29 MiB).
-   Hoje o padrão é o Skia; trocar é uma variável de ambiente.
+1. **Modo de desenho padrão resolvido por memória**: `software`, com Skia somente opt-in; ver medições acima.
 2. **Remover o desktop Compose** (`android/desktop`, `android/shared/src/jvmMain`) depois de usar o Rust no dia a dia.
    Hipótese de trabalho: sim. O layout de duas colunas em tela larga continua no Kotlin (iPad e tablet).
 3. **Mesclar `feat/zaplaud-rs` em `producao`**: só acrescenta `zaplaud-rs/`, um workflow de CI e comandos opcionais na

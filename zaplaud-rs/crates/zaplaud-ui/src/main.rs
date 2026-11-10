@@ -127,7 +127,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let renderer = std::env::var("SLINT_BACKEND")
         .ok()
         .and_then(|backend| backend.strip_prefix("winit-").map(str::to_owned))
-        .unwrap_or_else(|| "skia-software".into());
+        .or_else(|| std::env::var("ZAPLAUD_RENDERER").ok())
+        .unwrap_or_else(|| "software".into());
     let create_window = || -> Result<AppWindow, Box<dyn std::error::Error>> {
         let selector = slint::BackendSelector::new()
             .backend_name("winit".into())

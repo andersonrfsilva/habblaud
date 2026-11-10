@@ -30,6 +30,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }]))
         .into(),
     );
+    if let Some(path) = std::env::var_os("ZAPLAUD_PROBE_SNAPSHOT") {
+        let weak = window.as_weak();
+        slint::Timer::single_shot(std::time::Duration::from_secs(2), move || {
+            if let Some(window) = weak.upgrade() {
+                let result = window.window().take_snapshot().map_err(|error| error.to_string())
+                    .and_then(|pixels| image::save_buffer(
+                        std::path::Path::new(&path), pixels.as_bytes(), pixels.width(), pixels.height(),
+                        image::ColorType::Rgba8,
+                    ).map_err(|error| error.to_string()));
+                if let Err(error) = result {
+                    eprintln!("snapshot: {error}");
+                }
+            }
+            let _ = slint::quit_event_loop();
+        });
+    }
     window.run()?;
     Ok(())
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Monta Zaplaud.app a partir do binário release, só com ferramentas do macOS (sips, iconutil, qlmanage).
+# Monta Zaplaud.app com o vetor canônico renderizado por resvg e ferramentas do macOS.
 # Uso (da raiz zaplaud-rs/, depois de `cargo build --release --locked -p zaplaud-ui --bin zaplaud`):
 #   bash packaging/bundle-macos.sh [diretório de saída]
 set -euo pipefail
@@ -19,12 +19,8 @@ trap 'rm -rf "$work"' EXIT
 # Ícone: sempre do SVG gerado pelo build.rs a partir do vetor Kotlin; nada de PNG copiado à mão.
 svg=$(find "$target/release/build" -path '*/zaplaud-ui-*/out/ic_zaplaud.svg' -print -quit)
 [[ -n $svg ]] || { echo 'SVG do ícone não encontrado; compile o release antes.' >&2; exit 1; }
-if command -v rsvg-convert >/dev/null; then
-    rsvg-convert --width 1024 --height 1024 --output "$work/1024.png" "$svg"
-else
-    qlmanage -t -s 1024 -o "$work" "$svg" >/dev/null 2>&1
-    mv "$work/$(basename "$svg").png" "$work/1024.png"
-fi
+cargo run --manifest-path "$root/Cargo.toml" --locked --release -p zaplaud-ui \
+    --example export_icon -- "$svg" "$work/1024.png" 1024 --macos
 iconset=$work/Zaplaud.iconset
 mkdir "$iconset"
 for size in 16 32 128 256 512; do

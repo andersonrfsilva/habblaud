@@ -86,6 +86,9 @@ jobs:
       - name: Testar workspace e contrato real
         working-directory: zaplaud-rs
         run: ZAPLAUD_KEYRING=memory xvfb-run -a cargo test --locked --workspace -j 4
+      - name: Construir renderer colorido opcional
+        working-directory: zaplaud-rs
+        run: cargo build --locked -p zaplaud-ui --features skia --bin zaplaud -j 4
       - name: Preparar smokes gráficos e AT-SPI
         working-directory: zaplaud-rs
         run: |
