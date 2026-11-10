@@ -182,7 +182,6 @@ export component MarkdownView inherits Rectangle {
             border-radius: 8px;
             preferred-height: code-content.preferred-height;
             code-metrics := Text { visible: false; text: block.text; font-family: "Noto Sans Mono"; font-size: 14px; wrap: no-wrap; }
-            line-metrics := Text { visible: false; text: "M"; font-family: "Noto Sans Mono"; font-size: 14px; }
             ContextMenuArea {
                 Menu {
                     MenuItem { title: "Copiar mensagem"; activated => { root.copy(root.source-markdown); } }
@@ -194,14 +193,15 @@ export component MarkdownView inherits Rectangle {
                 spacing: 4px;
                 ScrollView {
                     min-height: 0px;
-                    preferred-height: line-metrics.preferred-height * block.code-lines + (code-metrics.preferred-width > self.width ? 12px : 0px);
+                    preferred-height: code.preferred-height + (code-metrics.preferred-width > self.width ? 12px : 0px);
                     max-height: self.preferred-height;
                     vertical-stretch: 0;
                     content-width: max(self.width, code-metrics.preferred-width);
                     code := MeasuredInput {
                         row-id: root.row-id;
                         width: max(parent.width, code-metrics.preferred-width);
-                        height: line-metrics.preferred-height * block.code-lines;
+                        // A medida nativa inclui a última linha vazia e as métricas reais da fonte.
+                        height: self.preferred-height;
                         text: block.text;
                         accessible-role: text; accessible-label: block.text;
                         read-only: true;

@@ -156,6 +156,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 n if n == pages + 5 => window.window().set_size(slint::LogicalSize::new(width, height)),
                 _ => {
                     if action == pages + 3 || action == pages + 7 {
+                        window.global::<ConversationViewState>().set_following(false);
                         expanded = if expanded.is_empty() { entries.iter().map(|entry| entry.id.clone()).collect() } else { HashSet::new() };
                     }
                     if action == pages + 6 {
@@ -164,6 +165,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             text: "Atualização de streaming **sintética** ✅. ".repeat(80),
                             ..Default::default()
                         });
+                    }
+                    if action == pages + 7 && let Some(last) = entries.last_mut() {
+                        last.text.push_str(&"\n\nContinuação sintética com nova altura. ".repeat(100));
                     }
                     if action == pages + 8 { entries.pop(); }
                     let session_entries = if action == pages + 8 { &entries[..entries.len().div_ceil(2)] } else { &entries };
@@ -179,6 +183,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         for (index, row) in rows.into_iter().enumerate() {
                             if index < old { model.set_row_data(index, row); } else { model.push(row); }
                         }
+                        if action == pages + 6 { window.invoke_jump_to_end(); }
                     }
                 }
             }
