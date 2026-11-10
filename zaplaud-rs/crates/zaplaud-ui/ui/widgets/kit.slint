@@ -1,0 +1,189 @@
+import { Switch as NativeSwitch, ListView, ScrollView, ProgressIndicator } from "std-widgets.slint";
+import { Theme, AvatarColors } from "resources.slint";
+
+export component Divider inherits Rectangle { height: 1px; background: Theme.outline-variant; }
+export component Pill inherits Rectangle {
+    in property <string> text;
+    in property <color> foreground: Theme.on-surface;
+    background: Theme.surface-container-high;
+    border-radius: self.height / 2;
+    min-height: 32px;
+    min-width: label.preferred-width + 32px;
+    label := Text { text: root.text; color: root.foreground; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; }
+}
+export component Badge inherits Pill {
+    background: Theme.primary; foreground: Theme.on-primary; min-height: 22px; min-width: 22px;
+}
+export component Avatar inherits Rectangle {
+    in property <image> source;
+    in property <string> initials;
+    in property <color> fallback-color: AvatarColors.background-0;
+    in property <image> brand;
+    in property <color> brand-color: Theme.on-surface;
+    width: 48px; height: 48px; border-radius: self.width / 2; background: root.fallback-color;
+    Text { text: root.initials; color: AvatarColors.foreground; font-size: root.width / 3; horizontal-alignment: center; vertical-alignment: center; }
+    Rectangle { width: parent.width; height: parent.height; border-radius: self.width / 2; clip: true;
+        Image { source: root.source; image-fit: contain; image-rendering: pixelated; }
+    }
+    if root.brand.width > 0 && root.width >= 32px: Rectangle {
+        x: parent.width * 0.58; y: parent.height * 0.58; width: parent.width * 0.42; height: self.width;
+        border-radius: self.width / 2; background: Theme.surface;
+        Image { x: parent.width * 0.15; y: self.x; width: parent.width * 0.7; height: self.width; source: root.brand; colorize: root.brand-color; }
+    }
+    @children
+}
+export component TextButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled: true;
+    in property <color> foreground: Theme.primary;
+    callback clicked();
+    min-height: 40px; min-width: label.preferred-width + 24px; border-radius: 20px;
+    background: touch.has-hover ? Theme.surface-container-high : transparent;
+    label := Text { text: root.text; color: root.enabled ? root.foreground : Theme.on-surface-variant; font-size: 14px; font-weight: 500; horizontal-alignment: center; vertical-alignment: center; }
+    forward-focus: button-keys;
+    button-keys := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => { if event.text == " " || event.text == Key.Return { root.clicked(); return accept; } return reject; }
+    }
+    touch := TouchArea { enabled: root.enabled; clicked => { button-keys.focus(); root.clicked(); } }
+    accessible-role: button; accessible-label: root.text; accessible-enabled: root.enabled;
+}
+export component FilledButton inherits TextButton { background: root.enabled ? Theme.primary : Theme.surface-variant; foreground: Theme.on-primary; }
+export component IconButton inherits Rectangle {
+    in property <image> icon;
+    in property <string> label;
+    in property <bool> enabled: true;
+    callback clicked();
+    width: 40px; height: 40px; border-radius: 20px;
+    background: area.has-hover ? Theme.surface-container-high : transparent;
+    Image { x: 8px; y: 8px; width: 24px; height: 24px; source: root.icon; colorize: Theme.on-surface-variant; }
+    forward-focus: icon-keys;
+    icon-keys := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => { if event.text == " " || event.text == Key.Return { root.clicked(); return accept; } return reject; }
+    }
+    area := TouchArea { enabled: root.enabled; clicked => { icon-keys.focus(); root.clicked(); } }
+    accessible-role: button; accessible-label: root.label; accessible-enabled: root.enabled;
+}
+export component Fab inherits IconButton { width: 56px; height: 56px; border-radius: 16px; background: Theme.primary-container; }
+export component TextField inherits Rectangle {
+    in-out property <string> text;
+    in property <string> placeholder;
+    in property <bool> multiline: false;
+    in property <bool> password: false;
+    in property <bool> enabled: true;
+    in property <bool> outlined;
+    in property <bool> autofocus;
+    init => { if root.autofocus { input.focus(); } }
+    callback edited(string);
+    callback accepted();
+    min-height: root.multiline ? 100px : 56px;
+    preferred-height: root.multiline ? 100px : 56px; vertical-stretch: 0;
+    background: root.outlined ? transparent : Theme.surface-container-high;
+    border-radius: root.outlined ? 4px : 28px;
+    border-width: root.outlined ? (input.has-focus ? 2px : 1px) : 0px;
+    border-color: input.has-focus ? Theme.primary : Theme.outline;
+    forward-focus: input;
+    Text { x: 16px; y: 16px; width: parent.width - 32px; height: parent.height - 32px; text: root.text == "" && (!root.outlined || !input.has-focus) ? root.placeholder : ""; color: Theme.on-surface-variant; font-size: 16px; }
+    if root.outlined && (root.text != "" || input.has-focus): Rectangle {
+        x: 12px; y: -8px; height: 16px; width: floating-label.preferred-width + 8px; background: Theme.background;
+        floating-label := Text { text: root.placeholder; color: input.has-focus ? Theme.primary : Theme.on-surface-variant; font-size: 12px; horizontal-alignment: center; }
+    }
+    input := TextInput {
+        x: 16px; y: 16px; width: parent.width - 32px; height: parent.height - 32px;
+        text <=> root.text; enabled: root.enabled; single-line: !root.multiline;
+        color: Theme.on-surface; font-size: 16px;
+        selection-background-color: Theme.primary; selection-foreground-color: Theme.on-primary;
+        input-type: root.password ? InputType.password : InputType.text;
+        edited => { root.edited(self.text); } accepted => { root.accepted(); }
+        accessible-label: root.placeholder;
+    }
+}
+export component Switch inherits NativeSwitch {}
+export component SegmentedControl inherits Rectangle {
+    in property <[string]> labels;
+    in-out property <int> selected;
+    callback chosen(int);
+    height: 40px; border-radius: 20px; border-width: 1px; border-color: Theme.outline;
+    HorizontalLayout { spacing: 0px;
+        for label[index] in root.labels: TextButton {
+            text: label; background: root.selected == index ? Theme.secondary-container : transparent;
+            foreground: Theme.on-surface;
+            clicked => { root.selected = index; root.chosen(index); }
+        }
+    }
+}
+export component Chip inherits TextButton {
+    in property <bool> selected;
+    border-radius: 8px; min-height: 32px; border-width: 1px; border-color: Theme.outline-variant;
+    background: root.selected ? Theme.secondary-container : transparent; foreground: Theme.on-surface;
+}
+export component Banner inherits Rectangle {
+    in property <string> text;
+    in property <string> action;
+    in property <string> severity: "info";
+    callback activated();
+    min-height: max(48px, label.preferred-height + 16px); background: Theme.surface-container-high; border-radius: 8px;
+    HorizontalLayout { padding: 8px;
+        label := Text { text: root.text; wrap: word-wrap; color: root.severity == "error" ? Theme.error : Theme.on-surface; vertical-alignment: center; }
+        if root.action != "": TextButton { text: root.action; clicked => { root.activated(); } }
+    }
+}
+export component Menu inherits PopupWindow {
+    Rectangle { background: Theme.surface-container-high;
+        VerticalLayout { padding: 8px; @children }
+    }
+}
+export component Dialog inherits Rectangle {
+    in property <string> title;
+    in property <string> text;
+    in property <string> confirm;
+    in property <string> cancel;
+    callback confirmed(); callback dismissed();
+    background: Theme.scrim.with-alpha(0.4);
+    init => { dialog-keys.focus(); }
+    forward-focus: dialog-keys;
+    dialog-keys := FocusScope {
+        key-released(event) => { if event.text == Key.Escape { root.dismissed(); return accept; } return reject; }
+    }
+    TouchArea { clicked => { root.dismissed(); } }
+    Rectangle {
+        x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+        width: min(440px, parent.width - 40px); height: layout.preferred-height;
+        background: Theme.surface-container-high; border-radius: 28px;
+        TouchArea {}
+        layout := VerticalLayout { padding: 24px; spacing: 16px;
+            Text { text: root.title; font-size: 24px; color: Theme.on-surface; wrap: word-wrap; }
+            Text { text: root.text; font-size: 14px; color: Theme.on-surface-variant; wrap: word-wrap; }
+            HorizontalLayout { Rectangle {} if root.cancel != "": TextButton { text: root.cancel; clicked => { root.dismissed(); } } TextButton { text: root.confirm; clicked => { root.confirmed(); } } }
+        }
+    }
+}
+export component Sheet inherits Rectangle {
+    callback dismissed();
+    background: Theme.scrim.with-alpha(0.4);
+    init => { sheet-keys.focus(); }
+    forward-focus: sheet-keys;
+    sheet-keys := FocusScope {
+        key-released(event) => { if event.text == Key.Escape { root.dismissed(); return accept; } return reject; }
+    }
+    TouchArea { clicked => { root.dismissed(); } }
+    Rectangle { x: max(0px, parent.width - 480px); width: min(480px, parent.width); height: parent.height;
+        background: Theme.surface-container-low;
+        TouchArea {}
+        @children
+    }
+}
+export component ProgressRing inherits ProgressIndicator { indeterminate: true; }
+export component Tooltip inherits Rectangle {
+    in property <string> text;
+    area := TouchArea {}
+    @children
+    if area.has-hover: Rectangle {
+        y: -32px; height: 28px; width: label.preferred-width + 16px;
+        background: Theme.on-surface; border-radius: 4px;
+        label := Text { text: root.text; color: Theme.surface; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
+    }
+}
+export { ListView as ScrollList } from "std-widgets.slint";
+export component ScrollContainer inherits ScrollView {}

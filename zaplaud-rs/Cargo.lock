@@ -6449,6 +6449,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.21",
  "tokio",
  "url",
@@ -6474,6 +6475,8 @@ name = "zaplaud-ui"
 version = "0.1.0"
 dependencies = [
  "pulldown-cmark",
+ "httpdate",
+ "image",
  "roxmltree 0.21.2",
  "serde_json",
  "slint",

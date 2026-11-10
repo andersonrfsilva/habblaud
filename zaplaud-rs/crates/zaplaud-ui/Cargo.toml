@@ -15,6 +15,9 @@ pulldown-cmark = { version = "0.13", default-features = false }
 zaplaud-core = { path = "../zaplaud-core" }
 slint.workspace = true
 tokio.workspace = true
+serde_json.workspace = true
+image = { version = "0.25", default-features = false, features = ["png"] }
+httpdate = "1"
 
 [build-dependencies]
 slint-build.workspace = true

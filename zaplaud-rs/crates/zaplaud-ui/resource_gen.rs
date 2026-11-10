@@ -18,8 +18,20 @@ pub fn generate(source: &Path, output: &Path) -> Result<Vec<PathBuf>> {
         generate_strings(&fs::read_to_string(&strings)?)?,
     )?;
     let mut slint = generate_theme(&fs::read_to_string(&theme)?)?;
+    let avatar = source.join("kotlin/br/com/xlinx/habblaud/CharacterAvatar.kt");
+    let status = source.join("kotlin/br/com/xlinx/habblaud/StatusColors.kt");
+    slint.push_str(&generate_avatar_colors(&fs::read_to_string(&avatar)?)?);
+    let warnings = color_literals(&fs::read_to_string(&status)?)?;
+    if warnings.len() != 2 {
+        return Err("Cores de alerta Kotlin não reconhecidas".into());
+    }
+    writeln!(
+        slint,
+        "export global StatusColors {{ out property <color> warning: Theme.dark ? {} : {}; }}",
+        warnings[0], warnings[1]
+    )?;
     slint.push_str("\nexport global Icons {\n");
-    let mut inputs = vec![strings, theme, drawables.clone()];
+    let mut inputs = vec![strings, theme, avatar, status, drawables.clone()];
     let mut icons = fs::read_dir(drawables)?
         .map(|entry| entry.map(|entry| entry.path()))
         .collect::<std::io::Result<Vec<_>>>()?;
@@ -255,6 +267,50 @@ pub fn generate_theme(source: &str) -> Result<String> {
     Ok(slint)
 }
 
+fn color_literals(source: &str) -> Result<Vec<String>> {
+    source
+        .split("Color(0x")
+        .skip(1)
+        .map(|part| {
+            let hex = part.split(')').next().ok_or("Cor Kotlin incompleta")?;
+            if hex.len() != 8 || !hex.bytes().all(|c| c.is_ascii_hexdigit()) {
+                return Err("Cor Kotlin inválida".into());
+            }
+            Ok(format!("#{}{}", &hex[2..], &hex[..2]))
+        })
+        .collect()
+}
+
+pub fn generate_avatar_colors(source: &str) -> Result<String> {
+    let line = |needle: &str| {
+        source
+            .lines()
+            .find(|line| line.contains(needle))
+            .ok_or("Paleta de avatar Kotlin ausente")
+    };
+    let palette = color_literals(line("val colors =")?)?;
+    if palette.len() != 5 {
+        return Err("Paleta de avatar Kotlin mudou".into());
+    }
+    let mut output = String::from("export global AvatarColors {\n");
+    for (index, color) in palette.iter().enumerate() {
+        writeln!(output, "out property <color> background-{index}: {color};")?;
+    }
+    for (name, needle) in [
+        ("claude", "\"claude\" ->"),
+        ("gemini", "\"gemini\" ->"),
+        ("foreground", "name.take(1)"),
+    ] {
+        let colors = color_literals(line(needle)?)?;
+        if colors.len() != 1 {
+            return Err("Cor de avatar Kotlin ambígua".into());
+        }
+        writeln!(output, "out property <color> {name}: {};", colors[0])?;
+    }
+    output.push_str("}\n");
+    Ok(output)
+}
+
 fn xml_escape(value: &str) -> String {
     value
         .replace('&', "&amp;")
@@ -327,4 +383,21 @@ pub fn vector_to_svg(xml: &str) -> Result<String> {
     }
     svg.push_str("</svg>\n");
     Ok(svg)
+}
+#[cfg(test)]
+mod theme_tests {
+    use super::*;
+    #[test]
+    fn every_explicit_override_wins_over_baseline() -> Result<()> {
+        let source = include_str!(
+            "../../../android/shared/src/commonMain/kotlin/br/com/xlinx/habblaud/ZaplaudApp.kt"
+        );
+        let generated = generate_theme(source)?;
+        for name in ["light", "dark"] {
+            for (role, color) in scheme(source, name)? {
+                assert!(generated.contains(&format!("{name}-{role}: {color};")));
+            }
+        }
+        Ok(())
+    }
 }

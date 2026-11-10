@@ -1,0 +1,39 @@
+import { Theme } from "resources.slint";
+import { Labels } from "labels.slint";
+import { Avatar, TextButton, Pill } from "widgets/kit.slint";
+export global ConversationState {
+    in property <bool> selected;
+    in property <string> key;
+    in property <string> title;
+    in property <string> subtitle;
+    in property <string> initials;
+    in property <image> avatar;
+    callback close();
+    callback info();
+    callback menu();
+}
+export component ConversationPane inherits Rectangle {
+    in property <bool> narrow;
+    background: Theme.dark ? Theme.surface-container-lowest : Theme.surface-container-low;
+    forward-focus: conversation-focus;
+    init => { conversation-focus.focus(); }
+    conversation-focus := FocusScope {}
+    if !ConversationState.selected: Pill { text: Labels.select-conversation; x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; width: self.preferred-width; height: 36px; }
+    Rectangle {
+        visible: ConversationState.selected;
+        x: (parent.width - self.width) / 2; width: min(840px, parent.width); height: parent.height;
+        VerticalLayout { spacing: 0px;
+            HorizontalLayout { height: 64px; padding: 12px; spacing: 8px;
+                if root.narrow: TextButton { text: "‹"; min-width: 32px; accessible-label: Labels.back-sessions; clicked => { ConversationState.close(); } }
+                Avatar { width: 36px; height: 36px; source: ConversationState.avatar; initials: ConversationState.initials; }
+                Rectangle { horizontal-stretch: 1;
+                    VerticalLayout { Text { text: ConversationState.title; color: Theme.on-surface; font-size: 18px; overflow: elide; } Text { text: ConversationState.subtitle; color: Theme.on-surface-variant; font-size: 12px; overflow: elide; } }
+                    TouchArea { clicked => { ConversationState.info(); } }
+                }
+                TextButton { text: "⋮"; min-width: 40px; accessible-label: Labels.menu; clicked => { ConversationState.menu(); } }
+            }
+            // Próxima etapa monta transcript, avisos e compositor neste host nomeado.
+            conversation-content := Rectangle { vertical-stretch: 1; @children }
+        }
+    }
+}

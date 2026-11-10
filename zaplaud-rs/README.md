@@ -77,3 +77,53 @@ O lint compartilhado usa `unsafe_code = "deny"`, não `forbid`: o Rust gerado pe
 ## Decisão de migração
 
 Premissa de trabalho, pendente de confirmação do proprietário: **quando o cliente Rust atingir paridade (fase 6), o desktop Compose (`android/desktop`, `android/shared/src/jvmMain`) será removido**. Esta fase não remove nem altera o cliente Kotlin. Os recursos ainda são gerados da árvore Kotlin; a remoção precisará preservar uma fonte canônica equivalente.
+
+## Extensão paralela de recursos Slint
+
+- Cada recurso mantém `ui/<recurso>.slint`, um global `<Recurso>State` e `src/<recurso>.rs`. Não acrescente propriedades de recursos a `AppWindow`.
+- A função de entrada é `setup(&AppWindow, &feature::FeatureContext)`. Somente o integrador acrescenta essa função à lista `FEATURES` em `main.rs` e monta o componente no host correspondente.
+- O host `conversation-content` de `ConversationPane` aceita filhos. Transcript, avisos, compositor e folhas devem ficar em arquivos próprios. `ConversationState` fornece seleção, cabeçalho, fechar, informações e menu; `ListState` fornece o ponto de montagem do FAB (`cast-visible`, `cast-icon`, callback `cast`).
+- Assine `context.snapshots.subscribe()` uma vez por recurso. O canal broadcast guarda no máximo 16 snapshots `Arc<AppSnapshot>`; trate `Lagged` continuando pelo estado mais novo. Não registre vários consumidores no mesmo callback Slint: o último substituiria os anteriores.
+- `AppSnapshot` contém APIs isoladas por origem, `ReadingState`, necessidade de relogin e sessão selecionada. Use `context.runtime.spawn` para rede; mantenha o `JoinHandle` do recurso e cancele pedidos ao mudar a seleção.
+- `context.commands` aceita seleção, fechamento, filtro e logout. Ações exclusivas de outro recurso usam um canal privado dentro do seu `setup`; não acrescente variantes genéricas ao evento central.
+- Publique modelos Slint somente no event loop por `update_ui`. Não atravesse threads com `Image`, `VecModel` ou componentes fortes.
+- A integração de armazenamento substitui `Box<dyn AppPersistence>` em `AppState::new`. Métodos são síncronos e executam na thread de fundo. Não grave arquivos em callbacks da UI. `seen_id` é SHA-256 lowercase do JSON de `SessionKey`, igual ao JVM.
+- Avatares são solicitados ao instanciar linhas virtuais, com até quatro downloads simultâneos. O cache de imagens decodificadas limita-se a 4 MiB. A integração de disco implementa `avatars::AvatarStorage::{read, save}`; `MemoryOnly` mantém a execução sem disco.
+- `AppEvents.settings` é evento para a próxima etapa, não uma tela de configurações. `AppEvents.logout(origin)` abre a confirmação e remove somente aquela origem; `AppEvents.theme(dark)` altera o tema sem recriar a janela.
+
+### Kit compartilhado
+
+Importe componentes de `ui/widgets/kit.slint`; todas as cores vêm dos recursos gerados.
+
+| Componente | Propriedades e callbacks próprios |
+| --- | --- |
+| `Avatar` | `source`, `initials`, `fallback-color`, `brand`, `brand-color`; aceita filhos para badges adicionais. Tamanho padrão 48 px. |
+| `TextButton`, `FilledButton` | `text`, `enabled`, `foreground`, callback `clicked`; mouse, Tab, espaço e Enter. |
+| `IconButton`, `Fab` | `icon`, `label`, `enabled`, callback `clicked`; tamanho 40/56 px. |
+| `TextField` | `text` bidirecional; `placeholder`, `multiline`, `password`, `enabled`, `outlined`, `autofocus`; callbacks `edited(string)`, `accepted`. Usa `TextInput` nativo para IME e teclas mortas. |
+| `Switch` | API do Switch padrão Slint (`checked`, `text`, `toggled`). |
+| `SegmentedControl` | `labels: [string]`, `selected: int` bidirecional, callback `chosen(int)`. |
+| `Chip` | API de `TextButton` mais `selected`. |
+| `Pill`, `Badge` | `text`, `foreground`; Badge aplica primary/onPrimary. |
+| `Banner` | `text`, `action`, `severity` (`info`, `warn`, `error`), callback `activated`. |
+| `Menu` | Popup: filhos em coluna; métodos `show()`, `close()`. |
+| `Dialog` | Scrim modal; `title`, `text`, `confirm`, `cancel`; callbacks `confirmed`, `dismissed`; Esc e clique externo fecham. |
+| `Sheet` | Painel direito com scrim; filhos são conteúdo; callback `dismissed`; Esc e clique externo fecham. |
+| `Divider`, `ProgressRing` | Divisor e indicador indeterminado. Instancie indicador somente enquanto carregar. |
+| `Tooltip` | `text`; envolve filhos e mostra legenda no hover. |
+| `ScrollList` | Alias do `ListView` padrão, não subclasse: preserva a virtualização reconhecida pelo compilador Slint. Filhos repetidos precisam ser diretos. |
+| `ScrollContainer` | API do ScrollView padrão; use `content-width` para rolagem horizontal. |
+
+Os campos de `Theme` incluem os 48 papéis Material 3 em claro e escuro. O [baseline real](scripts/dump-m3-baseline.md) é sobrescrito ao vivo pelo Kotlin. `AvatarColors` e `StatusColors` também são extraídos dos arquivos Kotlin, sem paletas substitutas.
+
+### Exercício visual e medição
+
+Com Xvfb disponível e dependências npm instaladas, execute:
+
+```sh
+LD_LIBRARY_PATH=/caminho/das/bibliotecas/X11 \
+python3 zaplaud-rs/scripts/shell-smoke.py \
+  --binary /caminho/do/zaplaud --display localhost:85 --port 14785 --measure
+```
+
+O script inicia duas fixtures reais, autentica por XTest, confirma HTTP, observa linhas, abre/fecha conversa, revela busca, adiciona servidor e alterna entre 1100 e 600 px. Reinicia uma fixture para invalidar o cookie e capturar relogin. Grava `/tmp/zaplaud-rs-shell-*.png` e JSON com tempo até mapeamento, PSS/RSS e CPU de 30 segundos. Não execute junto com outras janelas Zaplaud no mesmo display.

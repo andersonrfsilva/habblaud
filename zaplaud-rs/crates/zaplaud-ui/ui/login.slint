@@ -1,0 +1,42 @@
+import { Theme } from "resources.slint";
+import { Labels } from "labels.slint";
+import { TextField, FilledButton, TextButton, Dialog, ProgressRing, ScrollContainer } from "widgets/kit.slint";
+export global LoginState {
+    in-out property <string> server-url;
+    in-out property <string> username;
+    in-out property <string> password;
+    in-out property <bool> visible: true;
+    in property <bool> can-cancel;
+    in property <bool> busy;
+    in-out property <bool> confirm-http;
+    in property <string> http-warning;
+    in property <string> message;
+    callback submit(bool);
+    callback cancel-http();
+    callback cancel();
+}
+export component LoginPane inherits Rectangle {
+    background: Theme.background;
+    VerticalLayout { spacing: 0px;
+        HorizontalLayout { padding: 20px; height: 64px;
+            Text { text: Labels.app-name; color: Theme.on-surface; font-size: 22px; vertical-alignment: center; }
+            if LoginState.can-cancel: TextButton { text: Labels.cancel; enabled: !LoginState.busy; clicked => { LoginState.cancel(); } }
+        }
+        ScrollContainer {
+            VerticalLayout { padding: 20px; spacing: 12px;
+                Text { text: Labels.connection; color: Theme.on-surface; font-size: 28px; }
+                TextField { text <=> LoginState.server-url; placeholder: Labels.server-url; outlined: true; enabled: !LoginState.busy; accepted => { LoginState.submit(false); } }
+                TextField { text <=> LoginState.username; placeholder: Labels.user; outlined: true; accepted => { LoginState.submit(false); } }
+                TextField { text <=> LoginState.password; placeholder: Labels.password; outlined: true; password: true; accepted => { LoginState.submit(false); } }
+                FilledButton { text: Labels.login; enabled: !LoginState.busy && LoginState.username != "" && LoginState.password != ""; clicked => { LoginState.submit(false); } }
+                if LoginState.busy: ProgressRing { height: 32px; }
+                Text { text: LoginState.message; wrap: word-wrap; color: Theme.error; }
+                Rectangle { vertical-stretch: 1; }
+            }
+        }
+    }
+    if LoginState.confirm-http: Dialog {
+        title: Labels.http-login-title; text: LoginState.http-warning; confirm: Labels.confirm; cancel: Labels.cancel;
+        confirmed => { LoginState.submit(true); } dismissed => { LoginState.cancel-http(); }
+    }
+}
