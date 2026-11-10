@@ -72,12 +72,13 @@ component SelectableBlock inherits VerticalLayout {
     in property <color> foreground: Theme.on-surface;
     spacing: 3px;
     HorizontalLayout {
-        Text { text: root.block.marker; color: root.foreground; width: root.block.marker == "" ? 0px : 28px; }
+        Text { text: root.block.marker; color: root.foreground; width: root.block.marker == "" ? 0px : self.preferred-width + 6px; }
         VerticalLayout {
             if !root.selecting: StyledText {
                 text: root.block.rich;
                 default-color: root.foreground;
                 default-font-size: root.block.level == 1 ? 24px : root.block.level == 2 ? 22px : root.block.level == 3 ? 16px : root.block.level == 4 ? 14px : root.block.level == 5 ? 16px : root.block.level == 6 || root.block.kind == "quote" ? 14px : 16px;
+                min-height: self.default-font-size * 1.5;
                 link-color: Theme.primary;
                 link-clicked(url) => { root.link-clicked(url); }
                 ContextMenuArea {
@@ -164,11 +165,6 @@ export component MarkdownView inherits Rectangle {
             code-content := VerticalLayout {
                 padding: 10px;
                 spacing: 4px;
-                HorizontalLayout {
-                    height: 24px;
-                    Text { text: block.language; color: Theme.on-surface-variant; font-size: 12px; vertical-alignment: center; }
-                    IconButton { width: 24px; height: 24px; icon: MaterialIcons.content-copy; label: "Copiar código"; clicked => { root.copy(block.text); } }
-                }
                 ScrollView {
                     min-height: 0px;
                     preferred-height: line-metrics.preferred-height * block.code-lines + (code-metrics.preferred-width > self.width ? 12px : 0px);
@@ -190,6 +186,11 @@ export component MarkdownView inherits Rectangle {
                     }
                 }
             }
+            }
+            if hover.has-hover: IconButton {
+                x: parent.width - 32px; y: 8px;
+                width: 24px; height: 24px; icon: MaterialIcons.content-copy; label: "Copiar código";
+                clicked => { root.copy(block.text); }
             }
         }
         if block.kind == "table": ScrollView {

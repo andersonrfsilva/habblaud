@@ -119,7 +119,7 @@ Premissa de trabalho, pendente de confirmação do proprietário: **quando o cli
 `ConversationView` contém a lista virtualizada e ocupa o espaço restante, sem incluir o compositor.
 O integrador monta um `VerticalLayout` em `ConversationPane.conversation-content`, nesta ordem:
 
-1. Linha de banners externos: `PermissionBanner` (`RsPermission`) e avisos de envio.
+1. Avisos de envio; a atenção de permissão fica na barra da conversa, como no Compose.
 2. `ConversationView { vertical-stretch: 1; }`: avisos de leitura e transcript.
 3. Linha de estado/cast (`RsCastAside`).
 4. `ComposerPane` (`RsComposer`), com altura preferida e sem esticar verticalmente.
@@ -136,12 +136,11 @@ O cache é salvo com `ConversationWrite` e epoch da origem; fechar/trocar a sele
 `PermissionState.open-session(key)` recebe a serialização JSON de `SessionKey`, seleciona a conversa e abre
 somente a permissão ainda presente no snapshot daquela origem. Esse é também o evento de ativação de
 notificação «abrir sessão + permissão». `PermissionState.open-selected()` abre a permissão da conversa atual.
-O integrador monta `PermissionBanner` nos avisos e mantém `PermissionSheet { visible: PermissionState.visible; }`
+O integrador mantém `PermissionSheet { visible: PermissionState.visible; }`
 sobre a janela. A montagem persistente permite transferir o foco na abertura; a folha contém o ciclo Tab/Shift+Tab.
-O Esc da janela prioriza a permissão antes de fechar a conversa. Ativações anteriores ao primeiro snapshot
-aguardam a sessão correspondente sem polling.
-O shell integrado liga a notificação de permissão a `PermissionState.open-session`, monta o banner antes do transcript
-e mantém a folha na raiz. O compositor ocupa a base do mesmo host com 12 px de margem horizontal, aplicada uma vez.
+Enquanto uma folha ou diálogo externo está aberto, `keys.enabled` desabilita o shell. Ao fechar, `changed enabled`
+restaura seu foco e solicita foco da lista. Fechar configurações ou busca também restaura os atalhos.
+Ativações anteriores ao primeiro snapshot aguardam a sessão correspondente sem polling.
 Um único hook winit distribui foco para leitura/alertas e visibilidade para lista, elenco e aside.
 As preferências de conversa são recarregadas pelo callback das configurações; alertas consultam as preferências
 salvas a cada snapshot real, sem listener vazio nem stream adicional.

@@ -20,6 +20,7 @@ export global ListState {
     in-out property <bool> search-open;
     in-out property <int> tab;
     in-out property <bool> menu-open;
+    in-out property <int> focus-request;
     in property <bool> loading;
     in property <bool> app-visible: true;
     in property <bool> server-notices;
@@ -37,9 +38,15 @@ export global ListState {
     callback cast();
 }
 export component ListPane inherits Rectangle {
+    body-metrics := Text { visible: false; text: "M"; font-size: 16px; }
+    subtitle-metrics := Text { visible: false; text: "M"; font-size: 14px; }
     background: Theme.background;
     property <int> keyboard-index: -1;
     forward-focus: list-focus;
+    private property <int> focus-request: ListState.focus-request;
+    changed focus-request => { list-focus.focus(); }
+    private property <bool> search-open: ListState.search-open;
+    changed search-open => { if !self.search-open { list-focus.focus(); } }
     changed visible => { Clock.viewport(session-list.content-y, session-list.height, self.visible); }
     init => { list-focus.focus(); }
     list-focus := FocusScope {
@@ -52,14 +59,15 @@ export component ListPane inherits Rectangle {
             return reject;
         }
     }
-    VerticalLayout { padding: 12px; spacing: 8px;
-        HorizontalLayout { height: 48px; spacing: 8px;
+    Rectangle { height: 64px; background: Theme.surface; }
+    VerticalLayout { padding-left: 12px; padding-right: 12px; padding-top: 4px; padding-bottom: 12px; spacing: 8px;
+        HorizontalLayout { height: 56px; spacing: 8px; padding-left: 4px;
             Text { text: Labels.app-name; color: Theme.on-surface; font-size: 22px; vertical-alignment: center; horizontal-stretch: 0; }
             Rectangle { width: 10px;
                 Rectangle { y: (parent.height - self.height) / 2; width: 10px; height: 10px; border-radius: 5px; background: ListState.connection == "connected" ? Theme.primary : ListState.connection == "connecting" ? StatusColors.warning : Theme.error; accessible-role: text; accessible-label: ListState.connection == "connected" ? Labels.reading-connected : ListState.connection == "connecting" ? Labels.reading-connecting : Labels.reading-offline; }
             }
             Rectangle { horizontal-stretch: 1; }
-            IconButton { icon: MaterialIcons.more-vert; label: Labels.menu; clicked => { ListState.menu-open = true; menu.show(); } }
+            VerticalLayout { width: 32px; alignment: center; IconButton { width: 32px; icon: MaterialIcons.more-vert; label: Labels.menu; clicked => { ListState.menu-open = true; menu.show(); } } }
         }
         if ListState.server-notices: VerticalLayout {
             for server in ListState.servers: VerticalLayout {
@@ -102,6 +110,7 @@ export component ListPane inherits Rectangle {
                 height: row.sub ? 36px : max(68px, content.preferred-height + 12px);
                 border-radius: 12px; background: row.selected ? Theme.secondary-container : row-touch.pressed ? Theme.on-surface.with-alpha(0.12) : row-touch.has-hover ? Theme.on-surface.with-alpha(0.08) : transparent;
                 border-width: root.keyboard-index == index && list-focus.has-focus ? 2px : 0px; border-color: Theme.primary;
+                if row.selected: Rectangle { border-radius: 12px; background: row-touch.pressed ? Theme.on-surface.with-alpha(0.12) : row-touch.has-hover ? Theme.on-surface.with-alpha(0.08) : transparent; }
                 accessible-role: list-item; accessible-label: row.title + ", " + row.subtitle + (row.activity == "" ? "" : ", " + row.activity) + (row.permission == "" ? "" : ", " + row.permission) + (row.unread-label == "" ? "" : ", " + row.unread-label);
                 accessible-action-default => { ListState.open(row.key); }
                 row-touch := TouchArea { clicked => { root.keyboard-index = index; list-focus.focus(); ListState.open(row.key); } }
@@ -112,16 +121,16 @@ export component ListPane inherits Rectangle {
                     }
                     VerticalLayout { alignment: center; Avatar { width: row.sub ? 24px : 48px; height: self.width; source: row.avatar; initials: row.initials; brand: row.brand; brand-color: row.brand-color; fallback-color: row.fallback-color; label: row.title; } }
                     VerticalLayout { padding-left: row.sub ? 8px : 0px; spacing: 0px; horizontal-stretch: 1;
-                        Tooltip { text: row.title; height: min(title.preferred-height, row.sub ? 20px : 44px);
+                        Tooltip { text: row.title; height: min(title.preferred-height, row.sub ? 20px : 48px);
                             clicked => { root.keyboard-index = index; list-focus.focus(); ListState.open(row.key); }
-                            title := Text { x: 0px; y: 0px; width: parent.width; height: parent.height; text: row.title; color: Theme.on-surface; font-size: row.sub ? 14px : 16px; font-weight: row.unread != "" ? 700 : 500; wrap: word-wrap; overflow: elide; }
+                            title := Text { x: 0px; y: 0px; width: parent.width; height: parent.height; text: row.title; color: Theme.on-surface; font-size: row.sub ? 14px : 16px; letter-spacing: 0.5px; line-height-factor: row.sub ? 20px / subtitle-metrics.preferred-height : 24px / body-metrics.preferred-height; font-weight: row.unread != "" ? 700 : 400; wrap: word-wrap; overflow: elide; }
                         }
-                        Text { text: row.subtitle; color: Theme.on-surface-variant; font-size: row.sub ? 12px : 14px; overflow: elide; font-weight: row.unread != "" ? 700 : 400; }
+                        Text { text: row.subtitle; color: Theme.on-surface-variant; font-size: row.sub ? 12px : 14px; letter-spacing: 0.25px; line-height-factor: 20px / subtitle-metrics.preferred-height; overflow: elide; font-weight: row.unread != "" ? 700 : 400; }
                         if row.activity != "": Text { text: Clock.spinner(row.codex, Clock.tick, Clock.focused) + " " + (row.working && row.since != "" ? Clock.activity(row.activity-text, row.since, Clock.tick) : row.activity); color: Theme.primary; font-size: 12px; overflow: elide; }
                         if row.permission != "": TextButton { text: row.permission; foreground: Theme.error; clicked => { ListState.permission(row.key); } }
                     }
                     if !row.sub: VerticalLayout { alignment: center; spacing: 6px; width: max(32px, time-label.preferred-width);
-                        time-label := Text { text: row.time; color: row.unread != "" ? Theme.primary : Theme.on-surface-variant; font-size: 11px; horizontal-alignment: right; }
+                        time-label := Text { height: 16px; text: row.time; color: row.unread != "" ? Theme.primary : Theme.on-surface-variant; font-size: 11px; letter-spacing: 0.5px; horizontal-alignment: right; }
                         if row.unread != "": Badge { text: row.unread; }
                     }
                 }
@@ -132,8 +141,8 @@ export component ListPane inherits Rectangle {
     if ListState.cast-visible: Fab { x: parent.width - 72px; y: parent.height - 72px; icon: ListState.cast-icon; label: Labels.cast-start;
         clicked => { ListState.cast(); }
     }
-    menu := Menu { x: root.width - 180px; y: 56px; width: 168px;
-        TextButton { text: Labels.settings; clicked => { menu.close(); ListState.menu-open = false; ListState.settings(); } }
-        TextButton { text: Labels.add-server; clicked => { menu.close(); ListState.menu-open = false; ListState.add-server(); } }
+    menu := Menu { x: root.width - 52px; y: 56px; width: 150px;
+        TextButton { min-height: 48px; preferred-height: 48px; text: Labels.settings; text-weight: 400; foreground: Theme.on-surface; horizontal-alignment: left; border-radius: 0px; clicked => { menu.close(); ListState.menu-open = false; ListState.settings(); } }
+        TextButton { min-height: 48px; preferred-height: 48px; text: Labels.add-server; text-weight: 400; foreground: Theme.on-surface; horizontal-alignment: left; border-radius: 0px; clicked => { menu.close(); ListState.menu-open = false; ListState.add-server(); } }
     }
 }

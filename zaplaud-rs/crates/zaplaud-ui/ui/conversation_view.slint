@@ -143,12 +143,13 @@ component EntryBubble inherits Rectangle {
                     text: root.entry.display; read-only: true; wrap: word-wrap; color: Theme.on-surface; font-size: 16px;
                 }
                 if !root.entry.summarized || root.entry.expanded: MarkdownView {
+                    accessible-role: text; accessible-label: root.entry.source;
                     foreground: root.entry.kind == "user" ? Theme.on-primary-container : Theme.on-surface;
                     blocks: root.entry.blocks; source-markdown: root.entry.source;
                     copy(text) => { ConversationViewState.copy(text); }
                     link-clicked(url) => { ConversationViewState.open-link(url); }
                 }
-                Text { text: root.entry.time; horizontal-alignment: right; color: (root.entry.kind == "user" ? Theme.on-primary-container : Theme.on-surface-variant).with-alpha(0.7); font-size: 11px; }
+                Text { height: 16px; text: root.entry.time; horizontal-alignment: right; color: (root.entry.kind == "user" ? Theme.on-primary-container : Theme.on-surface-variant).with-alpha(0.7); font-size: 11px; letter-spacing: 0.5px; }
             }
         }
     }
@@ -203,57 +204,87 @@ export component ConversationView inherits Rectangle {
     }
 }
 
-export component ConversationMenu inherits Sheet {
-    dismissed => { ConversationViewState.menu-open = false; ConversationViewState.menu-page = ""; }
-    ScrollContainer { VerticalLayout {
-        padding: 20px; spacing: 8px;
-        Text { text: ConversationState.title; color: Theme.on-surface; font-size: 20px; }
+component MenuAction inherits TextButton {
+    in property <string> label;
+    in property <string> detail;
+    in property <bool> group;
+    text: "";
+    accessible-label: root.label + (root.detail == "" ? "" : ", " + root.detail);
+    foreground: Theme.on-surface;
+    min-height: 48px;
+    preferred-height: self.min-height;
+    border-radius: 0px;
+    VerticalLayout {
+        padding-left: 12px; padding-right: root.group ? 36px : 12px;
+        padding-top: 4px; padding-bottom: 4px; spacing: 0px; alignment: center;
+        Text { text: root.label; font-size: 14px; color: root.enabled ? Theme.on-surface : Theme.on-surface.with-alpha(0.38); }
+        if root.detail != "": Text { text: root.detail; font-size: 12px; color: Theme.on-surface-variant; overflow: elide; }
+    }
+    if root.group: Image { x: parent.width - 36px; y: (parent.height - 24px) / 2; width: 24px; height: 24px; source: MaterialIcons.keyboard-arrow-up; transform-rotation: 90deg; colorize: Theme.on-surface-variant; }
+}
+export component ConversationMenu inherits Rectangle {
+    function dismiss() { ConversationViewState.menu-open = false; ConversationViewState.menu-page = ""; }
+    init => { menu-keys.focus(); }
+    forward-focus: menu-keys;
+    menu-keys := FocusScope {
+        key-released(event) => { if event.text == Key.Escape { root.dismiss(); return accept; } return reject; }
+        TouchArea { clicked => { root.dismiss(); } }
+        Rectangle {
+            x: parent.width - self.width - 4px; y: 56px;
+            width: ConversationViewState.menu-page == "" ? 186px : min(320px, parent.width - 8px);
+            height: min(parent.height - 64px, menu-content.preferred-height);
+            background: Theme.surface-container; border-radius: 4px;
+            drop-shadow-blur: 4px; drop-shadow-offset-y: 2px; drop-shadow-color: Theme.scrim.with-alpha(0.2);
+            TouchArea {}
+            ScrollContainer { menu-content := VerticalLayout {
+        padding-top: 8px; padding-bottom: 8px; spacing: 0px;
         if ConversationViewState.menu-page == "": VerticalLayout {
-            vertical-stretch: 0;
-            TextButton {
-                text: ConversationViewState.view-label + "   ›";
+            vertical-stretch: 0; spacing: 0px;
+            MenuAction {
+                label: ConversationViewState.view-label; group: true;
+                detail: ConversationViewState.view-labels[ConversationViewState.view == "all" ? 0 : ConversationViewState.view == "prompts" ? 1 : 2];
                 clicked => { ConversationViewState.menu-page = "view"; }
             }
-            if ComposerState.modes-visible: TextButton {
-                text: ConversationViewState.deliver-label + "   ›";
+            if ComposerState.modes-visible: MenuAction {
+                label: ConversationViewState.deliver-label; group: true; detail: ComposerState.mode-labels[ComposerState.mode-index];
                 clicked => { ConversationViewState.menu-page = "deliver"; }
             }
-            if ComposerState.modes-visible && ConversationViewState.models.length > 0: TextButton {
-                text: ConversationViewState.model-label + "   ›"; enabled: ComposerState.can-shake;
+            if ComposerState.modes-visible && ConversationViewState.models.length > 0: MenuAction {
+                label: ConversationViewState.model-label; detail: ConversationViewState.model; group: true; enabled: ComposerState.can-shake;
                 clicked => { ConversationViewState.menu-page = "model"; }
             }
-            if ComposerState.modes-visible: TextButton {
-                text: ConversationViewState.thinking-label + "   ›"; enabled: ComposerState.can-shake;
+            if ComposerState.modes-visible: MenuAction {
+                label: ConversationViewState.thinking-label; group: true; enabled: ComposerState.can-shake;
                 clicked => { ConversationViewState.menu-page = "thinking"; }
             }
-            if ComposerState.modes-visible: TextButton {
-                text: ConversationViewState.shake-label; enabled: ComposerState.can-shake;
+            if ComposerState.modes-visible: MenuAction {
+                label: ConversationViewState.shake-label; enabled: ComposerState.can-shake;
                 clicked => { ComposerState.command("shake", ""); ConversationViewState.menu-open = false; }
             }
-            if AsideState.available: TextButton {
-                text: ConversationViewState.aside-label; enabled: AsideState.enabled;
+            if AsideState.available: MenuAction {
+                label: ConversationViewState.aside-label; enabled: AsideState.enabled;
                 clicked => { ConversationViewState.menu-open = false; AsideState.open(); }
             }
-            if CastState.dismiss-visible: TextButton {
-                text: CastState.dismiss-label; enabled: CastState.enabled;
+            if CastState.dismiss-visible: MenuAction {
+                label: CastState.dismiss-label; enabled: CastState.enabled;
                 clicked => { ConversationViewState.menu-open = false; CastState.dismiss(); }
             }
         }
-        if ConversationViewState.menu-page != "": TextButton {
+        if ConversationViewState.menu-page != "": MenuAction {
             vertical-stretch: 0;
-            text: "‹ " + ConversationViewState.back; clicked => { ConversationViewState.menu-page = ""; }
+            label: "‹ " + ConversationViewState.back; clicked => { ConversationViewState.menu-page = ""; }
         }
         if ConversationViewState.menu-page == "view": VerticalLayout {
             vertical-stretch: 0;
-            for label[index] in ConversationViewState.view-labels: TextButton {
-                text: (ConversationViewState.view == (index == 0 ? "all" : index == 1 ? "prompts" : "no_tools") ? "◉  " : "○  ") + label;
+            for label[index] in ConversationViewState.view-labels: MenuAction {
+                label: (ConversationViewState.view == (index == 0 ? "all" : index == 1 ? "prompts" : "no_tools") ? "◉  " : "○  ") + label;
                 clicked => { ConversationViewState.choose-view(index); ConversationViewState.menu-open = false; ConversationViewState.menu-page = ""; }
             }
         }
         if ConversationViewState.menu-page == "deliver": VerticalLayout {
             vertical-stretch: 0;
-            for label[index] in ComposerState.mode-labels: TextButton {
-                text: (index == ComposerState.mode-index ? "◉  " : "○  ") + label;
+            for label[index] in ComposerState.mode-labels: MenuAction {
+                label: (index == ComposerState.mode-index ? "◉  " : "○  ") + label;
                 clicked => { ComposerState.mode(index); ConversationViewState.menu-open = false; ConversationViewState.menu-page = ""; }
             }
         }
@@ -261,26 +292,28 @@ export component ConversationMenu inherits Sheet {
             vertical-stretch: 0;
             for choice in ConversationViewState.models: VerticalLayout {
                 if choice.header: Text { text: choice.label; color: Theme.primary; font-size: 14px; }
-                if !choice.header: TextButton {
-                    text: (choice.value == ConversationViewState.model ? "◉  " : "○  ") + choice.label;
+                if !choice.header: MenuAction {
+                    label: (choice.value == ConversationViewState.model ? "◉  " : "○  ") + choice.label;
                     clicked => { ComposerState.command("model", choice.value); ConversationViewState.menu-open = false; ConversationViewState.menu-page = ""; }
                 }
             }
         }
         if ConversationViewState.menu-page == "thinking": VerticalLayout {
             vertical-stretch: 0;
-            for label[index] in ConversationViewState.thinking-labels: TextButton {
+            for label[index] in ConversationViewState.thinking-labels: MenuAction {
                 property <string> value: index == 0 ? "off" : index == 1 ? "minimal" : index == 2 ? "low" : index == 3 ? "medium" : index == 4 ? "high" : index == 5 ? "xhigh" : "max";
-                text: (self.value == ConversationViewState.thinking ? "◉  " : "○  ") + label;
+                label: (self.value == ConversationViewState.thinking ? "◉  " : "○  ") + label;
                 clicked => { ComposerState.command("thinking", self.value); ConversationViewState.menu-open = false; ConversationViewState.menu-page = ""; }
             }
         }
         @children
-        Rectangle { vertical-stretch: 1; }
-    } }
+            } }
+        }
+    }
 }
 
 export component SessionInfoSheet inherits Sheet {
+    title: ConversationState.title;
     dismissed => { ConversationViewState.info-open = false; }
     ScrollContainer { VerticalLayout {
         padding: 20px; spacing: 16px;

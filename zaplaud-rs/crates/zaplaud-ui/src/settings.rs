@@ -448,7 +448,7 @@ impl State {
                 }
             }
             if self.models.is_empty() {
-                choices.push(row("section", "", strings::ROLE_NO_MODELS));
+                choices.push(row("hint", "", strings::ROLE_NO_MODELS));
             }
         } else {
             for level in std::iter::once("").chain(THINKING_LEVELS) {

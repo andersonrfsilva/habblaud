@@ -117,7 +117,7 @@ def capture(args, desktop, kind, theme):
                 smoke.wait_for(lambda: len(set(desktop.image().crop((12, 140, 65, 600)).getdata())) > 30, f'{kind}: lista sem avatares', seconds=args.timeout)
 
             try:
-                fixtures = [smoke.Fixture(args.port), smoke.Fixture(args.port + 1)]
+                fixtures = [smoke.Fixture(args.port, allow='terminal,messages,permissions,spawn'), smoke.Fixture(args.port + 1, allow='terminal,messages,permissions,spawn')]
                 launch()
                 save('login')
                 login(args.port, warning=True)
@@ -127,7 +127,7 @@ def capture(args, desktop, kind, theme):
                 desktop.key('Escape')
                 time.sleep(.5)
                 desktop.click(328, 36)
-                desktop.click(380 if kind == 'compose' else 260, 136 if kind == 'compose' else 124)
+                desktop.click(380, 136)
                 smoke.wait_for(lambda: desktop.image().getpixel((360, 700)) != smoke.palette(theme)['outlineVariant'], 'Adicionar servidor não abriu formulário', seconds=args.timeout)
                 login(args.port + 1)
                 save('two-servers')

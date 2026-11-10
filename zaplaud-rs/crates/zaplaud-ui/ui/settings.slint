@@ -48,21 +48,20 @@ component Section inherits Rectangle {
 export component SettingsPane inherits Rectangle {
     background: Theme.background;
     forward-focus: settings-keys;
-    private property <string> editing: SettingsState.editing-role;
-    changed editing => { if self.editing == "" { settings-keys.focus(); } }
     init => { settings-keys.focus(); }
     settings-keys := FocusScope {
+        enabled: SettingsState.editing-role == "";
+        changed enabled => { if self.enabled { self.focus(); } }
         key-released(event) => {
             if event.text == Key.Escape {
-                if SettingsState.editing-role != "" { SettingsState.cancel-edit(); }
-                else { SettingsState.close(); }
+                SettingsState.close();
                 return accept;
             }
             return reject;
         }
     VerticalLayout { spacing: 0px;
         HorizontalLayout { height: 64px; padding-left: 8px; spacing: 8px;
-            IconButton { icon: MaterialIcons.arrow-back; label: SettingsState.back; clicked => { SettingsState.close(); } }
+            VerticalLayout { width: 40px; alignment: center; IconButton { icon: MaterialIcons.arrow-back; label: SettingsState.back; clicked => { SettingsState.close(); } } }
             Text { horizontal-stretch: 1; text: SettingsState.title; font-size: 22px; color: Theme.on-surface; vertical-alignment: center; }
         }
         ScrollContainer {
@@ -79,7 +78,7 @@ export component SettingsPane inherits Rectangle {
                     hint := Text { visible: row.kind == "hint"; x: row.card ? 32px : 16px; y: 4px; width: parent.width - (row.card ? 64px : 32px); text: row.kind == "quota" ? row.detail : row.text; wrap: word-wrap; font-size: 12px; color: row.severity == 2 ? Theme.error : Theme.on-surface-variant; }
                     if row.kind == "radio": RadioButton { x: 16px; width: parent.width - 32px; height: parent.height; indicator-width: 24px; label-spacing: 12px; text: row.text; checked: row.checked; enabled: row.enabled; toggled => { SettingsState.activate(row.key, row.value, true); } }
                     if row.kind == "switch": Switch { x: 16px; width: parent.width - 32px; height: parent.height; text: row.text; checked: row.checked; enabled: row.enabled; toggled => { SettingsState.activate(row.key, "", self.checked); } }
-                    if row.kind == "role": TextButton { x: 8px; width: parent.width - 16px; height: parent.height; text: ""; enabled: row.enabled; clicked => { SettingsState.edit-role(row.key); }
+                    if row.kind == "role": TextButton { x: 8px; width: parent.width - 16px; height: parent.height; text: ""; accessible-label: row.text + ", " + row.detail; enabled: row.enabled; clicked => { SettingsState.edit-role(row.key); }
                         VerticalLayout { padding-left: 8px; padding-right: 8px; padding-top: 10px; padding-bottom: 10px; spacing: 2px;
                             Text { text: row.text; font-size: 16px; color: Theme.on-surface; }
                             Text { text: row.detail; font-size: 12px; color: Theme.on-surface-variant; overflow: elide; }
@@ -104,22 +103,27 @@ export component SettingsPane inherits Rectangle {
             }
         }
     }
+    }
     if SettingsState.editing-role != "": Dialog {
-        title: SettingsState.role-title; text: SettingsState.role-prompt; cancel: SettingsState.cancel;
+        title: SettingsState.role-title; cancel: SettingsState.cancel;
         dialog-width: 560px;
         dismissed => { SettingsState.cancel-edit(); }
-        ScrollContainer { height: 360px;
-            VerticalLayout { spacing: 2px;
-                for row in SettingsState.choices: Rectangle { height: row.kind == "section" ? 32px : 44px;
+        ScrollContainer { height: min(360px, role-content.preferred-height); content-width: self.width;
+            role-content := VerticalLayout { width: parent.width; spacing: 2px;
+                Text { text: SettingsState.role-prompt; font-size: 14px; color: Theme.on-surface-variant; }
+                for row in SettingsState.choices: Rectangle { height: row.kind == "hint" ? max(20px, role-hint.preferred-height) : row.kind == "section" ? 32px : 44px;
+                    role-hint := Text { visible: row.kind == "hint"; width: parent.width; text: row.text; color: Theme.on-surface-variant; font-size: 12px; wrap: word-wrap; }
                     if row.kind == "section": Text { text: row.text; color: Theme.primary; font-size: 14px; vertical-alignment: center; }
-                    if row.kind != "section": RadioButton { text: row.text; checked: row.checked; toggled => { if SettingsState.choosing-model { SettingsState.model(row.value); } else { SettingsState.thinking(row.value); } } }
+                    if row.kind == "radio": RadioButton { text: row.text; checked: row.checked; toggled => { if SettingsState.choosing-model { SettingsState.model(row.value); } else { SettingsState.thinking(row.value); } } }
                 }
-                if SettingsState.choosing-model: HorizontalLayout { height: 56px; vertical-stretch: 0;
-                    TextField { height: 56px; placeholder: SettingsState.model-placeholder; text <=> SettingsState.typed; outlined: true; edited(value) => { SettingsState.typed-changed(value); } }
-                    TextButton { text: SettingsState.use-label; enabled: SettingsState.typed-valid; clicked => { SettingsState.model(SettingsState.typed); } }
+                if SettingsState.choosing-model: Rectangle { height: 64px;
+                    TextField {
+                        y: 8px; width: parent.width; height: 56px; placeholder: SettingsState.model-placeholder; text <=> SettingsState.typed; outlined: true; trailing-space: 68px;
+                        edited(value) => { SettingsState.typed-changed(value); }
+                        TextButton { x: parent.width - 76px; y: 8px; width: 68px; text: SettingsState.use-label; enabled: SettingsState.typed-valid; clicked => { SettingsState.model(SettingsState.typed); } }
+                    }
                 }
             }
         }
-    }
     }
 }
