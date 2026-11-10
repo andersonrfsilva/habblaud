@@ -78,7 +78,6 @@ component SelectableBlock inherits VerticalLayout {
                 text: root.block.rich;
                 default-color: root.foreground;
                 default-font-size: root.block.level == 1 ? 24px : root.block.level == 2 ? 22px : root.block.level == 3 ? 16px : root.block.level == 4 ? 14px : root.block.level == 5 ? 16px : root.block.level == 6 || root.block.kind == "quote" ? 14px : 16px;
-                min-height: self.default-font-size * 1.5;
                 link-color: Theme.primary;
                 link-clicked(url) => { root.link-clicked(url); }
                 ContextMenuArea {
