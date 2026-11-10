@@ -17,7 +17,8 @@ export interface SessionMetadata {
 }
 
 type RecordLine = Record<string, unknown>;
-type Turn = { chunks: boolean; startedAt?: number; unknown: boolean; title?: string; seen: Set<string> };
+// shortcut: deltas ficam em memória até o fim do bloco (o terminal só acrescenta entradas); reinício no meio do bloco perde o parcial, e o `done` regrava a resposta inteira.
+type Turn = { chunks: boolean; startedAt?: number; unknown: boolean; title?: string; seen: Set<string>; pending?: { kind: 'text' | 'thinking'; text: string } };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const object = (value: unknown): value is RecordLine => !!value && typeof value === 'object' && !Array.isArray(value);
 const missing = (error: unknown): boolean => object(error) && error.code === 'ENOENT';
@@ -143,6 +144,8 @@ export class ZeroClawMirror {
     return this.serial(event.sessionId, async () => {
       await this.read(event.sessionId);
       const turn = this.turns.get(event.sessionId)!;
+      const streaming = event.type === 'frame' && (event.frame.type === 'chunk' || event.frame.type === 'thinking');
+      if (!streaming) await this.flushPending(event.sessionId, turn);
       if (event.type === 'session-open') {
         const { sessionId, agent, name, cwd, cast, officeAgentId } = event.descriptor;
         await this.setMetadata({ sessionId, agent, name, cwd, ...(cast !== undefined ? { cast } : {}), ...(officeAgentId !== undefined ? { officeAgentId } : {}) });
@@ -180,7 +183,12 @@ export class ZeroClawMirror {
         case 'thinking':
           if (typeof frame.content !== 'string') return this.protocol(frame.type);
           if (!frame.content) return;
-          await this.append(event.sessionId, [assistant([frame.type === 'chunk' ? { type: 'text', text: frame.content } : { type: 'thinking', thinking: frame.content }], { stop_reason: null })]);
+          {
+            const kind = frame.type === 'chunk' ? 'text' : 'thinking';
+            if (turn.pending && turn.pending.kind !== kind) await this.flushPending(event.sessionId, turn);
+            turn.pending ??= { kind, text: '' };
+            turn.pending.text += frame.content;
+          }
           if (frame.type === 'chunk') turn.chunks = true;
           turn.startedAt ??= Date.now();
           return;
@@ -220,6 +228,15 @@ export class ZeroClawMirror {
           this.report(`Frame ZeroClaw desconhecido: ${/^[a-z_]{1,64}$/.test(frame.type) ? frame.type : '(tipo inválido)'}`);
       }
     });
+  }
+
+  /** Grava o texto ou raciocínio acumulado do bloco como uma única mensagem (um item no terminal). */
+  private async flushPending(sessionId: string, turn: Turn): Promise<void> {
+    const pending = turn.pending;
+    if (!pending) return;
+    turn.pending = undefined;
+    const block = pending.kind === 'text' ? { type: 'text', text: pending.text } : { type: 'thinking', thinking: pending.text };
+    await this.append(sessionId, [this.record(sessionId, { type: 'assistant', message: { id: randomUUID(), role: 'assistant', content: [block], stop_reason: null } })]);
   }
 
   private serial<T>(sessionId: string, operation: () => Promise<T>): Promise<T> {

@@ -72,11 +72,11 @@ describe('fonte ZeroClaw', () => {
     const path = s.source.transcriptPathOf(id)!;
     const records = readFileSync(path, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
     expect(records.filter((r) => r.message?.content === 'Faça o teste')).toHaveLength(1);
-    expect(records.filter((r) => r.message?.content?.[0]?.text === 'igual ')).toHaveLength(2);
+    expect(records.filter((r) => r.message?.content?.[0]?.text === 'igual igual ')).toHaveLength(1);
     expect(records.some((r) => r.message?.usage || r.type === 'cost-state')).toBe(false);
     const parser = createTerminalParser();
     const parsed = readFileSync(path, 'utf8').trim().split('\n').flatMap((line) => parser.push(line));
-    expect(parsed.filter((entry) => entry.kind === 'assistant' && entry.text === 'igual')).toHaveLength(2);
+    expect(parsed.filter((entry) => entry.kind === 'assistant').map((entry) => entry.text)).toEqual(['igual igual']);
     expect(s.office.get(id)?.model).toBe('test-model');
     await s.connector.closeSession(SID);
     await s.source.flush();

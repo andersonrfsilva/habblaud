@@ -45,7 +45,7 @@ describe('ZeroClawMirror — contrato de frames e parsers reais', () => {
     expect(mirror.metadataOf(sessionId)).toEqual(input);
   });
 
-  it('deduplica somente ID da operação local; textos iguais e deltas iguais sobrevivem', async () => {
+  it('deduplica somente ID da operação local; deltas do mesmo bloco viram uma resposta só', async () => {
     await mirror.consume(sent('operation-1'));
     await mirror.consume(sent('operation-1'));
     await mirror.consume(sent('operation-2'));
@@ -54,11 +54,12 @@ describe('ZeroClawMirror — contrato de frames e parsers reais', () => {
     await mirror.consume(frame({ type: 'done', full_response: 'igual\n"☃"igual\n"☃"', model: 'modelo-real', input_tokens: 123, output_tokens: 45, cost: 12 }));
     const { records, entries, state } = await parsed();
     expect(records.filter((record) => record.type === 'user')).toHaveLength(2);
-    expect(entries.filter((entry) => entry.kind === 'assistant')).toHaveLength(2);
+    // Cada delta virava um item no terminal (resposta picotada no piloto 043): o bloco inteiro é uma mensagem só.
+    expect(entries.filter((entry) => entry.kind === 'assistant').map((entry) => entry.text)).toEqual(['igual\n"☃"igual\n"☃"']);
     expect(new Set(records.map((record) => record.uuid)).size).toBe(records.length);
     const assistants = records.filter((record) => record.type === 'assistant');
-    expect(new Set(assistants.map((record) => record.message.id)).size).toBe(3);
-    expect(assistants[2].message).toEqual({ id: expect.any(String), role: 'assistant', content: [], stop_reason: 'end_turn', model: 'modelo-real' });
+    expect(new Set(assistants.map((record) => record.message.id)).size).toBe(2);
+    expect(assistants[1].message).toEqual({ id: expect.any(String), role: 'assistant', content: [], stop_reason: 'end_turn', model: 'modelo-real' });
     expect(records.at(-1)).toMatchObject({ type: 'system', subtype: 'turn_duration', durationMs: expect.any(Number) });
     expect(state.ended).toBe(true);
     expect(state.model).toBe('modelo-real');
@@ -69,9 +70,11 @@ describe('ZeroClawMirror — contrato de frames e parsers reais', () => {
     expect(await mirror.load(sessionId)).toHaveLength(records.length);
   });
 
-  it('thinking vazio não inventa pensamento; conteúdo é preservado', async () => {
+  it('thinking vazio não inventa pensamento; deltas de raciocínio viram um bloco quando a resposta começa', async () => {
     await mirror.consume(frame({ type: 'thinking', content: '' }));
-    await mirror.consume(frame({ type: 'thinking', content: 'Pensar\n"日本語"' }));
+    await mirror.consume(frame({ type: 'thinking', content: 'Pensar\n' }));
+    await mirror.consume(frame({ type: 'thinking', content: '"日本語"' }));
+    await mirror.consume(frame({ type: 'chunk', content: 'resposta' }));
     const { entries, records } = await parsed();
     expect(records).toHaveLength(1);
     expect(records[0].message).toMatchObject({ stop_reason: null, content: [{ type: 'thinking', thinking: 'Pensar\n"日本語"' }] });
