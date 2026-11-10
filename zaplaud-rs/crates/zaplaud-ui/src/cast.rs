@@ -96,7 +96,8 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                     let selected = snap.selected.as_ref();
                     if !matches!(command, Command::Close) && (server.needs_login || server.reading.connection != "connected" || state.availability != "available") { continue; }
                     match command {
-                        Command::Start if selected.is_none() => { dialog = Dialog { mode: "start".into(), ..Dialog::default() }; if let Err(error) = state.load(&server.api).await { unauthorized(&commands, &origin, &error); } }
+                        // No desktop a lista fica ao lado da conversa: chamar um personagem não depende de seleção.
+                        Command::Start => { dialog = Dialog { mode: "start".into(), ..Dialog::default() }; if let Err(error) = state.load(&server.api).await { unauthorized(&commands, &origin, &error); } }
                         Command::Resume if selected.is_some_and(State::can_resume) => { dialog = Dialog { mode: "resume".into(), ..Dialog::default() }; if let Err(error) = state.load(&server.api).await { unauthorized(&commands, &origin, &error); } }
                         Command::Dismiss if selected.is_some_and(|s| state.can_dismiss(s)) => { dialog = Dialog { mode: "dismiss".into(), confirming: true, ..Dialog::default() }; }
                         Command::Close => { dialog = Dialog::default(); }
@@ -104,7 +105,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                             if dialog.choice.is_none() {
                                 dialog.choice = if id.is_empty() { Some(CastChoice { id, name: strings::CAST_NEW.into(), rooms: Vec::new(), avatar: None }) } else { state.free(&server.reading.sessions, if dialog.mode == "resume" { selected } else { None }).into_iter().find(|c| c.id == id) };
                                 dialog.confirming = dialog.mode == "resume" && dialog.choice.is_some();
-                            } else if dialog.mode == "start" && let Some(choice) = &dialog.choice && folders(&state, choice).contains(&id) {
+                            } else if dialog.mode == "start" && let Some(choice) = &dialog.choice && folders(&state, choice, None).contains(&id) {
                                 if let Err(error) = state.submit(&server.api, &choice.id, &id, None, None).await { unauthorized(&commands, &origin, &error); }
                                 dialog = Dialog::default(); refresh = true; loaded = false;
                             }
@@ -148,12 +149,17 @@ fn unauthorized(commands: &mpsc::UnboundedSender<Event>, origin: &str, error: &E
         let _ = commands.send(Event::Unauthorized(origin.into()));
     }
 }
-fn folders(state: &State, choice: &CastChoice) -> Vec<String> {
+/// Pastas para chamar o personagem; a da conversa aberta vem primeiro.
+fn folders(state: &State, choice: &CastChoice, current: Option<&str>) -> Vec<String> {
     let mut result = Vec::new();
     for folder in state.folders.iter().chain(&choice.rooms) {
         if !result.contains(folder) && (choice.rooms.is_empty() || choice.rooms.contains(folder)) {
             result.push(folder.clone());
         }
+    }
+    if let Some(index) = current.and_then(|c| result.iter().position(|f| f == c)) {
+        let folder = result.remove(index);
+        result.insert(0, folder);
     }
     result
 }
@@ -182,7 +188,7 @@ fn publish(
     let rows: Vec<_> = if dialog.mode == "start"
         && let Some(choice) = &dialog.choice
     {
-        folders(&state, choice)
+        folders(&state, choice, selected.and_then(|s| s.project.as_deref()))
             .into_iter()
             .map(|folder| (folder.clone(), folder, None))
             .collect()
@@ -253,9 +259,7 @@ fn publish(
     update_ui(weak, move |window| {
         let global = window.global::<CastState>();
         let available = state.availability == "available";
-        window
-            .global::<ListState>()
-            .set_cast_visible(available && snapshot.selected.is_none());
+        window.global::<ListState>().set_cast_visible(available);
         global.set_resume_visible(
             available && snapshot.selected.as_ref().is_some_and(State::can_resume),
         );
