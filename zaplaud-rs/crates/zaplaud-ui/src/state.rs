@@ -125,6 +125,7 @@ pub enum Event {
         revoked: bool,
     },
     Logout(String),
+    Unauthorized(String),
     Theme(bool),
     Shutdown,
 }
