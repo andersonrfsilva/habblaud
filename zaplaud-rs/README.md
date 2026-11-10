@@ -93,6 +93,24 @@ Premissa de trabalho, pendente de confirmação do proprietário: **quando o cli
 - Avatares são solicitados ao instanciar linhas virtuais, com até quatro downloads simultâneos. O cache de imagens decodificadas limita-se a 4 MiB. `AvatarDiskCache` implementa `avatars::AvatarStorage::{read, save}` e preserva os PNG entre execuções.
 - `AppEvents.settings` é evento para a próxima etapa, não uma tela de configurações. `AppEvents.logout(origin)` abre a confirmação e remove somente aquela origem; `AppEvents.theme(dark)` persiste e altera o tema sem recriar a janela.
 
+### Montagem da conversa
+
+`conversation_view::setup` acompanha uma única seleção pelo broadcast e cancela/aguarda o stream anterior antes de abrir outro.
+`ConversationView` contém a lista virtualizada e ocupa o espaço restante, sem incluir o compositor.
+O integrador monta um `VerticalLayout` em `ConversationPane.conversation-content`, nesta ordem:
+
+1. Linha de banners externos: `PermissionBanner` (`RsPermission`) e avisos de envio.
+2. `ConversationView { vertical-stretch: 1; }`: avisos de leitura e transcript.
+3. Linha de estado/cast (`RsCastAside`).
+4. `ComposerPane` (`RsComposer`), com altura preferida e sem esticar verticalmente.
+
+`ConversationMenu` e `SessionInfoSheet` ficam como overlays da janela, condicionados a
+`ConversationViewState.menu-open` e `info-open`. O menu aceita filhos para as ações de compositor,
+aside e cast. A ação de envio pode incrementar `ConversationViewState.end-request` para acompanhar o fim.
+`ConversationViewState.copy(string)` preserva o Markdown original; links aceitam somente HTTP/HTTPS.
+O cache é salvo com `ConversationWrite` e epoch da origem; fechar/trocar a seleção também salva, sem esperar o debounce.
+
+
 ### Kit compartilhado
 
 Importe componentes de `ui/widgets/kit.slint`; todas as cores vêm dos recursos gerados.

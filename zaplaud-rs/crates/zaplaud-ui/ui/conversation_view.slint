@@ -1,0 +1,186 @@
+import { Theme } from "resources.slint";
+import { ConversationState } from "conversation.slint";
+import { MarkdownView, MdBlock } from "markdown/markdown.slint";
+import { ScrollList, ScrollContainer, TextButton, Banner, Sheet, Avatar, Pill, Divider } from "widgets/kit.slint";
+export { MdBlock, MdCell, MdSpan } from "markdown/markdown.slint";
+
+export struct ConversationRow {
+    id: string, kind: string, source: string, blocks: [MdBlock],
+    label: string, time: string, expanded: bool, summarized: bool,
+}
+export struct InfoRow { label: string, value: string }
+export global ConversationViewState {
+    in property <[ConversationRow]> rows;
+    in property <string> notice;
+    in property <string> truncated;
+    in property <string> reduced;
+    in property <string> go-to-end;
+    in property <string> view-label;
+    in property <[string]> view-labels;
+    in property <string> view;
+    in property <string> back;
+    in property <string> info-label;
+    in property <string> details-label;
+    in property <string> hide-details-label;
+    in property <string> info-status;
+    in property <[InfoRow]> info;
+    in property <[InfoRow]> details;
+    in property <float> context-fraction: -1;
+    in-out property <bool> info-open;
+    in-out property <bool> menu-open;
+    in-out property <bool> details-open;
+    in-out property <bool> view-menu;
+    in-out property <bool> following: true;
+    in property <int> new-count;
+    in property <int> end-request;
+    callback toggle(string);
+    callback choose-view(int);
+    callback position(bool);
+    callback open-link(string);
+    callback copy(string);
+}
+
+component EntryBubble inherits Rectangle {
+    in property <ConversationRow> row;
+    property <bool> group: row.kind == "thinking" || row.kind == "tool";
+    width: parent.width;
+    height: content.preferred-height + 8px;
+    Rectangle {
+        x: root.row.kind == "user" ? parent.width * 0.15 : 0px;
+        width: root.row.kind == "system" ? parent.width : parent.width * 0.85;
+        height: content.preferred-height;
+        border-radius: root.group ? 12px : 16px;
+        border-width: root.group ? 1px : 0px;
+        border-color: Theme.outline-variant;
+        background: root.row.kind == "system" || root.group ? transparent : root.row.kind == "user" ? Theme.primary-container : Theme.surface;
+        content := VerticalLayout {
+            padding: root.group ? 8px : 12px;
+            spacing: 4px;
+            if root.group: TextButton {
+                text: root.row.label + "   " + root.row.time + (root.row.expanded ? "  ⌃" : "  ⌄");
+                foreground: Theme.on-surface-variant;
+                clicked => { ConversationViewState.toggle(root.row.id); }
+            }
+            if root.row.kind == "system": TextInput {
+                text: root.row.source + (root.row.time == "" ? "" : " · " + root.row.time);
+                read-only: true; wrap: word-wrap; color: Theme.on-surface-variant;
+                font-size: 12px; horizontal-alignment: center;
+            }
+            if root.row.kind == "thinking" && root.row.expanded: TextInput {
+                text: root.row.source; read-only: true; wrap: word-wrap; color: Theme.on-surface-variant;
+                font-italic: true; font-size: 14px;
+            }
+            if root.row.kind == "tool" && root.row.expanded: ScrollContainer {
+                height: tool-text.preferred-height + 16px;
+                content-width: max(self.width, tool-text.preferred-width);
+                tool-text := TextInput {
+                    width: max(parent.width, self.preferred-width); height: self.preferred-height;
+                    text: root.row.source; read-only: true; wrap: no-wrap;
+                    font-family: "monospace"; font-size: 14px; color: Theme.on-surface;
+                }
+            }
+            if !root.group && root.row.kind != "system": VerticalLayout {
+                if root.row.summarized: TextButton { text: root.row.label; clicked => { ConversationViewState.toggle(root.row.id); } }
+                MarkdownView {
+                    blocks: root.row.blocks; source-markdown: root.row.source;
+                    copy(text) => { ConversationViewState.copy(text); }
+                    link-clicked(url) => { ConversationViewState.open-link(url); }
+                }
+                Text { text: root.row.time; horizontal-alignment: right; color: (root.row.kind == "user" ? Theme.on-primary-container : Theme.on-surface-variant).with-alpha(0.7); font-size: 11px; }
+            }
+        }
+    }
+}
+
+export component ConversationView inherits Rectangle {
+    vertical-stretch: 1;
+    forward-focus: scroll-keys;
+    public function jump-to-end() {
+        ConversationViewState.following = true;
+        messages.viewport-y = min(0px, messages.height - messages.viewport-height);
+        ConversationViewState.position(true);
+    }
+    changed ConversationViewState.end-request => { root.jump-to-end(); }
+    VerticalLayout {
+        padding-left: 12px; padding-right: 12px; spacing: 0px;
+        if ConversationViewState.notice != "": Banner { text: ConversationViewState.notice; severity: "warn"; }
+        if ConversationViewState.reduced != "": Banner { text: ConversationViewState.reduced; }
+        scroll-keys := FocusScope {
+            vertical-stretch: 1;
+            key-pressed(event) => {
+                if event.text == Key.End { root.jump-to-end(); return accept; }
+                if event.text == Key.Home { ConversationViewState.following = false; messages.viewport-y = 0px; ConversationViewState.position(false); return accept; }
+                if event.text == Key.PageUp || event.text == Key.PageDown {
+                    ConversationViewState.following = false;
+                    messages.viewport-y = min(0px, max(messages.height - messages.viewport-height, messages.viewport-y + (event.text == Key.PageUp ? 1 : -1) * messages.height * 0.9));
+                    ConversationViewState.position(false); return accept;
+                }
+                return reject;
+            }
+            messages := ScrollList {
+                width: parent.width; height: parent.height;
+                changed viewport-height => { if ConversationViewState.following { self.viewport-y = min(0px, self.height - self.viewport-height); } }
+                changed viewport-y => {
+                    ConversationViewState.following = self.viewport-height <= self.height || self.viewport-y <= self.height - self.viewport-height + 2px;
+                    ConversationViewState.position(ConversationViewState.following);
+                }
+                for row in ConversationViewState.rows: EntryBubble { row: row; }
+            }
+        }
+    }
+    if !ConversationViewState.following && ConversationViewState.rows.length > 0: TextButton {
+        x: parent.width - self.width - 12px; y: parent.height - self.height - 8px;
+        text: "↓" + (ConversationViewState.new-count > 0 ? "  " + ConversationViewState.new-count : "");
+        accessible-label: ConversationViewState.go-to-end;
+        clicked => { scroll-keys.focus(); root.jump-to-end(); }
+    }
+    clipboard := TextInput { width: 0px; height: 0px; opacity: 0; }
+    public function copy-text(text: string) { clipboard.text = text; clipboard.select-all(); clipboard.copy(); }
+}
+
+export component ConversationMenu inherits Sheet {
+    dismissed => { ConversationViewState.menu-open = false; ConversationViewState.view-menu = false; }
+    VerticalLayout {
+        padding: 20px; spacing: 8px;
+        Text { text: ConversationState.title; color: Theme.on-surface; font-size: 20px; }
+        if !ConversationViewState.view-menu: TextButton {
+            text: ConversationViewState.view-label + "   ›";
+            clicked => { ConversationViewState.view-menu = true; }
+        }
+        if ConversationViewState.view-menu: VerticalLayout {
+            TextButton { text: "‹ " + ConversationViewState.back; clicked => { ConversationViewState.view-menu = false; } }
+            for label[index] in ConversationViewState.view-labels: TextButton {
+                text: (ConversationViewState.view == (index == 0 ? "all" : index == 1 ? "prompts" : "no_tools") ? "◉  " : "○  ") + label;
+                clicked => { ConversationViewState.choose-view(index); ConversationViewState.menu-open = false; ConversationViewState.view-menu = false; }
+            }
+        }
+        @children
+    }
+}
+
+export component SessionInfoSheet inherits Sheet {
+    dismissed => { ConversationViewState.info-open = false; }
+    ScrollContainer { VerticalLayout {
+        padding: 20px; spacing: 16px;
+        HorizontalLayout { Rectangle {} Avatar { width: 72px; height: 72px; source: ConversationState.avatar; initials: ConversationState.initials; } Rectangle {} }
+        Text { text: ConversationState.title; color: Theme.on-surface; font-size: 22px; horizontal-alignment: center; wrap: word-wrap; }
+        Text { text: ConversationState.subtitle; color: Theme.on-surface-variant; font-size: 14px; horizontal-alignment: center; }
+        Pill { text: ConversationViewState.info-status; }
+        Rectangle { background: Theme.surface-container-high; border-radius: 16px;
+            VerticalLayout { padding: 16px; spacing: 12px;
+                for row in ConversationViewState.info: HorizontalLayout { spacing: 12px;
+                    Text { text: row.label; color: Theme.on-surface-variant; font-size: 14px; }
+                    TextInput { text: row.value; read-only: true; wrap: word-wrap; color: Theme.on-surface; horizontal-alignment: right; font-size: 14px; }
+                }
+                if ConversationViewState.context-fraction >= 0: Rectangle { height: 4px; background: Theme.outline-variant; Rectangle { width: parent.width * ConversationViewState.context-fraction; background: Theme.primary; } }
+            }
+        }
+        TextButton { text: ConversationViewState.details-open ? ConversationViewState.hide-details-label : ConversationViewState.details-label; clicked => { ConversationViewState.details-open = !ConversationViewState.details-open; } }
+        if ConversationViewState.details-open: VerticalLayout { spacing: 8px;
+            for row in ConversationViewState.details: VerticalLayout {
+                Text { text: row.label; color: Theme.on-surface-variant; font-size: 14px; }
+                TextInput { text: row.value; read-only: true; wrap: word-wrap; color: Theme.on-surface; font-size: 14px; }
+            }
+        }
+    } }
+}

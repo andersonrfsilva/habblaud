@@ -343,6 +343,26 @@ impl HabblaudApi {
         .await
         .map(|_| ())
     }
+    /// Preserva o corte UTF-16 Kotlin, inclusive um surrogate final isolado.
+    pub async fn summary_utf16(&self, text: &[u16]) -> Result<String, Error> {
+        use std::fmt::Write;
+        let mut body = String::with_capacity(text.len() * 6 + 11);
+        body.push_str("{\"text\":\"");
+        for unit in text {
+            let _ = write!(body, "\\u{unit:04x}");
+        }
+        body.push_str("\"}");
+        let url = self.url("/api/summaries")?;
+        let request = self.client.post(url.clone())
+            .header(CONTENT_TYPE, "application/json; charset=utf-8").body(body);
+        let response = self.checked(self.send(request, &url, false).await?).await?;
+        let value: Value = serde_json::from_slice(&self.bytes(response, MAX_EVENT_BYTES).await?)?;
+        match value.get("summary") {
+            Some(Value::String(text)) => Ok(text.clone()),
+            Some(value @ (Value::Number(_) | Value::Bool(_) | Value::Null)) => Ok(value.to_string()),
+            _ => Err(Error::InvalidResponse("summary")),
+        }
+    }
     pub async fn summary(&self, text: &str) -> Result<String, Error> {
         let value = self
             .json("/api/summaries", Some(json!({"text":text})))

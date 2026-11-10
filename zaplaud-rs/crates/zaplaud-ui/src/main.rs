@@ -5,6 +5,7 @@ use zaplaud_core::error::Error;
 mod app;
 mod avatars;
 mod conversation;
+mod conversation_view;
 pub mod feature;
 mod list;
 mod login;
@@ -16,7 +17,7 @@ pub mod strings {
 }
 
 type Feature = fn(&AppWindow, &feature::FeatureContext);
-const FEATURES: &[Feature] = &[login::setup, list::setup, conversation::setup];
+const FEATURES: &[Feature] = &[login::setup, list::setup, conversation::setup, conversation_view::setup];
 
 fn formatted(key: &str, args: &[&str]) -> String {
     strings::format(key, args).unwrap_or_else(|| strings::NETWORK_ERROR.into())
