@@ -215,8 +215,28 @@ fn scheme(source: &str, name: &str) -> Result<BTreeMap<String, String>> {
 }
 
 pub fn generate_theme(source: &str) -> Result<String> {
-    let light = scheme(source, "light")?;
-    let dark = scheme(source, "dark")?;
+    let baseline: serde_json::Value = serde_json::from_str(include_str!("theme/m3-baseline.json"))?;
+    let palette = |name: &str| -> Result<BTreeMap<String, String>> {
+        let entries = baseline[name]
+            .as_object()
+            .ok_or("Baseline M3 sem esquema")?;
+        let mut colors = BTreeMap::new();
+        for (role, value) in entries {
+            let argb = value.as_str().ok_or("Cor M3 inválida")?;
+            let hex = argb.strip_prefix('#').ok_or("Cor M3 sem #")?;
+            if hex.len() != 8 || !hex.bytes().all(|c| c.is_ascii_hexdigit()) {
+                return Err("Cor M3 não é ARGB".into());
+            }
+            colors.insert(kebab_case(role), format!("#{}{}", &hex[2..], &hex[..2]));
+        }
+        colors.extend(scheme(source, name)?);
+        Ok(colors)
+    };
+    let light = palette("light")?;
+    let dark = palette("dark")?;
+    if light.keys().ne(dark.keys()) {
+        return Err("Papéis M3 diferentes entre claro e escuro".into());
+    }
     let mut slint = String::from(
         "// Gerado de ZaplaudApp.kt; não editar.\nexport global Theme {\n    in-out property <bool> dark: false;\n",
     );

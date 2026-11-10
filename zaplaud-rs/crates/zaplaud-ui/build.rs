@@ -8,7 +8,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").ok_or("CARGO_MANIFEST_DIR ausente")?);
     let source = manifest.join("../../../android/shared/src/commonMain");
     let output = PathBuf::from(std::env::var_os("OUT_DIR").ok_or("OUT_DIR ausente")?);
-    for input in ["build.rs", "resource_gen.rs", "resource_runtime.rs", "ui"] {
+    for input in [
+        "build.rs",
+        "resource_gen.rs",
+        "resource_runtime.rs",
+        "theme/m3-baseline.json",
+        "ui",
+    ] {
         println!("cargo:rerun-if-changed={input}");
     }
     for input in resource_gen::generate(&source, &output)? {
