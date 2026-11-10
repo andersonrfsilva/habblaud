@@ -3,20 +3,39 @@ use tokio::sync::mpsc;
 use zaplaud_core::error::Error;
 
 mod app;
+mod aside;
 mod avatars;
+mod cast;
+mod composer;
 mod conversation;
+mod conversation_view;
 pub mod feature;
 mod list;
 mod login;
+mod settings;
 pub mod state;
+pub mod window_state;
 
 slint::include_modules!();
 pub mod strings {
     include!(concat!(env!("OUT_DIR"), "/strings.rs"));
 }
+pub mod native_strings {
+    include!(concat!(env!("OUT_DIR"), "/native_strings.rs"));
+}
 
 type Feature = fn(&AppWindow, &feature::FeatureContext);
-const FEATURES: &[Feature] = &[login::setup, list::setup, conversation::setup];
+const FEATURES: &[Feature] = &[
+    login::setup,
+    list::setup,
+    conversation::setup,
+    conversation_view::setup,
+    cast::setup,
+    aside::setup,
+    composer::setup,
+    window_state::setup,
+    settings::setup,
+];
 
 fn formatted(key: &str, args: &[&str]) -> String {
     strings::format(key, args).unwrap_or_else(|| strings::NETWORK_ERROR.into())
@@ -79,6 +98,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     slint::BackendSelector::new()
         .backend_name("winit".into())
         .renderer_name("software".into())
+        .with_winit_window_attributes_hook(window_state::attributes)
         .select()?;
     slint::set_xdg_app_id("zaplaud")?;
     let window = AppWindow::new()?;

@@ -3,7 +3,17 @@ import { Labels } from "labels.slint";
 import { LoginPane, LoginState } from "login.slint";
 import { ListPane, ListState } from "list.slint";
 import { ConversationPane, ConversationState } from "conversation.slint";
+import { ConversationView, ConversationStatus, ConversationViewState, ConversationMenu, SessionInfoSheet } from "conversation_view.slint";
+export { ConversationViewState, ConversationRow, InfoRow, ModelChoice, MdBlock, MdCell, MdSpan } from "conversation_view.slint";
+export { ComposerState, ComposerAttachment } from "composer.slint";
 import { Dialog } from "widgets/kit.slint";
+import { CastSheet, CastState } from "cast.slint";
+import { AsideSheet, AsideState } from "aside.slint";
+export { CastState, CastRow } from "cast.slint";
+export { AsideState, AsideTurnRow, AsideTopicRow } from "aside.slint";
+import { ComposerPane, ComposerDialogs, ComposerState } from "composer.slint";
+import { SettingsPane, SettingsState } from "settings.slint";
+export { SettingsState, SettingsRow } from "settings.slint";
 export { Theme, Icons, AvatarColors } from "resources.slint";
 export { Labels } from "labels.slint";
 export { LoginState } from "login.slint";
@@ -27,10 +37,16 @@ export component AppWindow inherits Window {
     title: Labels.app-name; icon: Icons.ic-zaplaud;
     preferred-width: 1100px; preferred-height: 760px; min-width: 320px; min-height: 400px; background: Theme.background;
     out property <bool> wide: root.width >= 840px;
+    public function copy-conversation(text: string) { conversation-clipboard.text = text; conversation-clipboard.select-all(); conversation-clipboard.copy(); }
+    conversation-clipboard := TextInput { width: 0px; height: 0px; opacity: 0; }
     forward-focus: keys;
+    private property <bool> logout-open: ShellState.logout-origin != "";
+    private property <bool> message-open: ShellState.message != "";
+    changed logout-open => { if !self.logout-open { keys.focus(); } }
+    changed message-open => { if !self.message-open { keys.focus(); } }
     keys := FocusScope {
         key-pressed(event) => {
-            if root.wide && (event.modifiers.control || event.modifiers.meta) && (event.text == "f" || event.text == "F") && !LoginState.visible {
+            if root.wide && (event.modifiers.control || event.modifiers.meta) && (event.text == "f" || event.text == "F") && !LoginState.visible && !SettingsState.visible {
                 ListState.search-open = true; return accept;
             }
             return reject;
@@ -39,6 +55,7 @@ export component AppWindow inherits Window {
             if event.text == Key.Escape {
                 if LoginState.confirm-http { LoginState.cancel-http(); }
                 else if LoginState.visible && LoginState.can-cancel { LoginState.cancel(); }
+                else if SettingsState.visible { SettingsState.close(); }
                 else if ConversationState.selected { ConversationState.close(); }
                 else if ListState.search-open { ListState.query = ""; ListState.search-open = false; ListState.changed(); }
                 return accept;
@@ -46,13 +63,19 @@ export component AppWindow inherits Window {
             return reject;
         }
         if LoginState.visible: LoginPane {}
-        if !LoginState.visible: HorizontalLayout {
+        if !LoginState.visible && !SettingsState.visible: HorizontalLayout {
             spacing: 0px;
             if root.wide || !ConversationState.selected: ListPane { width: root.wide ? 360px : parent.width; }
             if root.wide: Rectangle { width: 1px; background: Theme.outline-variant; }
-            if root.wide || ConversationState.selected: ConversationPane { narrow: !root.wide; }
+            if root.wide || ConversationState.selected: ConversationPane { narrow: !root.wide; VerticalLayout { spacing: 0px; ConversationView {} ConversationStatus {} ComposerPane {} } }
         }
+        if !LoginState.visible && SettingsState.visible: SettingsPane {}
     }
+    if ConversationViewState.menu-open: ConversationMenu {}
+    if ConversationViewState.info-open: SessionInfoSheet {}
+    CastSheet {}
+    AsideSheet {}
+    ComposerDialogs {}
     if ShellState.logout-origin != "": Dialog {
         title: ShellState.logout-title; text: ShellState.logout-warning; confirm: Labels.confirm; cancel: Labels.cancel;
         confirmed => { if !ShellState.logout-busy { ShellState.logout-busy = true; ShellState.confirm-logout(); } }

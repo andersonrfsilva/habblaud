@@ -11,6 +11,7 @@ pub struct ReadingController {
     pub seen: HashMap<String, i64>,
     pub needs_login: bool,
     restore: Option<SessionKey>,
+    reading_visible: bool,
 }
 impl ReadingController {
     pub fn new(origin: String, seen: HashMap<String, i64>, restore: Option<SessionKey>) -> Self {
@@ -21,6 +22,7 @@ impl ReadingController {
             seen,
             needs_login: false,
             restore,
+            reading_visible: true,
         }
     }
     pub fn apply_stream_event(
@@ -49,6 +51,7 @@ impl ReadingController {
     pub fn failure(&mut self, status: Option<i32>) {
         if status == Some(401) {
             self.needs_login = true;
+            return;
         }
         self.state.stream_failure(status, false);
     }
@@ -127,12 +130,17 @@ impl ReadingController {
         self.state.reading_error = None;
         self.refresh_unread();
     }
+    pub fn set_reading_visible(&mut self, visible: bool) {
+        self.reading_visible = visible;
+        self.refresh_unread();
+    }
+
     pub fn refresh_unread(&mut self) {
         let open = self
             .state
             .selected
             .as_ref()
-            .filter(|s| !s.sub)
+            .filter(|s| !s.sub && self.reading_visible)
             .map(|s| &s.key);
         let open_id = open.and_then(|key| seen_id(key).ok());
         if self.repository.server_time > 0 {
@@ -180,6 +188,64 @@ mod tests {
     use super::*;
     fn snapshot(origin: &str, time: i64, reply: i64) -> Snapshot {
         Snapshot::parse_at(origin, &format!(r#"{{"serverTime":{time},"agents":[{{"kind":"main","id":"a","account":"test","sessionId":"s","title":"Title","replies":[{reply}]}}]}}"#),time).unwrap()
+    }
+    #[test]
+    fn unauthorized_refresh_and_stream_request_login_without_changing_reading_state() {
+        for stream in [false, true] {
+            for connection in ["connecting", "connected"] {
+                for error in [None, Some("changed"), Some("network")] {
+                    let mut controller =
+                        ReadingController::new("https://a".into(), HashMap::new(), None);
+                    controller.state.connection = connection.into();
+                    controller.state.error = error.map(str::to_owned);
+                    controller.state.reading_error = Some("forbidden".into());
+                    if stream {
+                        controller
+                            .apply_stream_event(
+                                crate::model::StreamEvent::Failure {
+                                    status: Some(401),
+                                    retry_after: None,
+                                },
+                                0,
+                            )
+                            .unwrap();
+                    } else {
+                        controller.failure(Some(401));
+                    }
+                    assert!(controller.needs_login);
+                    assert_eq!(controller.state.connection, connection);
+                    assert_eq!(controller.state.error.as_deref(), error);
+                    assert_eq!(controller.state.reading_error.as_deref(), Some("forbidden"));
+                }
+            }
+        }
+    }
+    #[test]
+    fn non_auth_failures_keep_error_classification_without_requesting_login() {
+        for (status, error) in [
+            (None, "network"),
+            (Some(500), "network"),
+            (Some(-1), "oversize"),
+            (Some(403), "forbidden"),
+            (Some(404), "missing"),
+        ] {
+            let mut controller = ReadingController::new("https://a".into(), HashMap::new(), None);
+            controller.connected();
+            controller.state.reading_error = Some("changed".into());
+            controller
+                .apply_stream_event(
+                    crate::model::StreamEvent::Failure {
+                        status,
+                        retry_after: None,
+                    },
+                    0,
+                )
+                .unwrap();
+            assert!(!controller.needs_login);
+            assert_eq!(controller.state.connection, "offline");
+            assert_eq!(controller.state.error.as_deref(), Some(error));
+            assert_eq!(controller.state.reading_error.as_deref(), Some("changed"));
+        }
     }
     #[test]
     fn fake_snapshots_mark_open_session_and_preserve_other_origin() {
@@ -288,5 +354,33 @@ mod fake_stream_tests {
                 .and_then(|s| s.status.as_deref()),
             Some("done")
         );
+    }
+}
+
+#[cfg(test)]
+mod visibility_tests {
+    use super::*;
+
+    #[test]
+    fn scrolled_or_unfocused_conversation_does_not_advance_seen_marker() {
+        let mut controller = ReadingController::new("http://a".into(), HashMap::new(), None);
+        let snapshot = |time, reply| {
+            Snapshot::parse_at("http://a", &format!(r#"{{"serverTime":{time},"agents":[{{"kind":"main","id":"a","account":"test","sessionId":"s","replies":[{reply}]}}]}}"#),time).unwrap()
+        };
+        controller.snapshot(snapshot(100, 90));
+        controller.open(controller.state.sessions[0].clone());
+        controller.set_reading_visible(false);
+        controller.snapshot(snapshot(120, 110));
+        assert_eq!(
+            controller.seen.values().copied().collect::<Vec<_>>(),
+            vec![100]
+        );
+        assert_eq!(controller.state.unread.values().sum::<usize>(), 1);
+        controller.set_reading_visible(true);
+        assert_eq!(
+            controller.seen.values().copied().collect::<Vec<_>>(),
+            vec![120]
+        );
+        assert!(controller.state.unread.is_empty());
     }
 }

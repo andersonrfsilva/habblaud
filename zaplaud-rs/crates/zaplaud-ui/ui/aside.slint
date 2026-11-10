@@ -1,0 +1,70 @@
+import { Theme } from "resources.slint";
+import { Labels } from "labels.slint";
+import { Sheet, TextButton, FilledButton, TextField, ScrollList, ProgressRing, Menu } from "widgets/kit.slint";
+import { MarkdownView, MdBlock } from "markdown/markdown.slint";
+export struct AsideTurnRow { question: string, answer: string, blocks: [MdBlock], status: string, failed: bool }
+export struct AsideTopicRow { id: string, title: string }
+export global AsideState {
+    in-out property <bool> visible;
+    in property <bool> available;
+    in property <bool> enabled;
+    in property <bool> loading;
+    in property <bool> sending;
+    in property <bool> running;
+    in-out property <string> draft;
+    in property <string> title;
+    in property <string> hint;
+    in property <string> empty;
+    in property <string> input-label;
+    in property <string> send-label;
+    in property <string> stop-label;
+    in property <string> topics-label;
+    in property <string> new-label;
+    in property <string> error;
+    in property <[AsideTurnRow]> turns;
+    in property <[AsideTopicRow]> topics;
+    callback open(); callback close(); callback ask(string); callback stop(); callback choose(string); callback new-topic(); callback link(string); callback copy(string);
+    callback app-visibility(bool);
+}
+component TopicPicker inherits TextButton {
+    text: AsideState.topics-label;
+    clicked => { topics.show(); }
+    topics := Menu {
+        TextButton { text: AsideState.new-label; clicked => { AsideState.new-topic(); topics.close(); } }
+        for topic in AsideState.topics: TextButton { text: topic.title; clicked => { AsideState.choose(topic.id); topics.close(); } }
+    }
+}
+export component AsideSheet inherits Rectangle {
+    if AsideState.visible: Sheet {
+        dismissed => { AsideState.close(); }
+        VerticalLayout { padding: 16px; spacing: 8px;
+            HorizontalLayout {
+                VerticalLayout {
+                    Text { text: AsideState.title; font-size: 22px; color: Theme.on-surface; }
+                    Text { text: AsideState.hint; font-size: 12px; color: Theme.on-surface-variant; wrap: word-wrap; }
+                }
+                TopicPicker {}
+                TextButton { text: Labels.cancel; clicked => { AsideState.close(); } }
+            }
+            if AsideState.loading: ProgressRing {}
+            if !AsideState.loading && AsideState.turns.length == 0: Text { text: AsideState.empty; color: Theme.on-surface-variant; vertical-alignment: center; horizontal-alignment: center; }
+            ScrollList {
+                for turn in AsideState.turns: VerticalLayout { spacing: 6px; padding-bottom: 12px;
+                    HorizontalLayout { Rectangle { horizontal-stretch: 15; } Rectangle {
+                        horizontal-stretch: 85; border-radius: 16px; background: Theme.primary-container;
+                        min-height: question.preferred-height + 24px;
+                        question := TextInput { x: 12px; y: 12px; width: parent.width - 24px; text: turn.question; read-only: true; wrap: word-wrap; color: Theme.on-primary-container; }
+                    } }
+                    if turn.answer != "": MarkdownView { blocks: turn.blocks; source-markdown: turn.answer; link-clicked(url) => { AsideState.link(url); } copy(text) => { AsideState.copy(text); } }
+                    if turn.status != "": Text { text: turn.status; font-size: 12px; color: turn.failed ? Theme.error : Theme.on-surface-variant; wrap: word-wrap; }
+                }
+            }
+            if AsideState.error != "": Text { text: AsideState.error; color: Theme.error; wrap: word-wrap; }
+            HorizontalLayout { spacing: 8px;
+                TextField { text <=> AsideState.draft; placeholder: AsideState.input-label; multiline: true; max-lines: 4; }
+                if AsideState.running: FilledButton { text: AsideState.stop-label; clicked => { AsideState.stop(); } }
+                if !AsideState.running: FilledButton { text: AsideState.send-label; enabled: !AsideState.sending && AsideState.draft != ""; clicked => { AsideState.ask(AsideState.draft); AsideState.draft = ""; } }
+            }
+        }
+    }
+}

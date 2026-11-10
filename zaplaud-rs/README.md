@@ -72,6 +72,12 @@ Não copie textos, cores ou paths vetoriais à mão para a UI. Preserve escapes 
 
 O shell usa `LocalStateStore` pelo adaptador `AppPersistence`: servidores, última sessão, marcadores de leitura, bloqueio de tentativas, tema e preferências de visualização compartilham o formato desktop. Clientes HTTP restauram e atualizam cookies com `SecureSessionStorage`. O cache `AvatarDiskCache` alimenta o LRU de imagens decodificadas do shell (4 MiB); imagens permanecem fora dos snapshots. O tema salvo é aplicado na abertura; `ZAPLAUD_THEME` pode sobrescrevê-lo nesta execução.
 
+Configurações substituem a lista pelo evento `AppEvents.settings`. O recurso `SettingsState` mantém tema, visualização e envio padrão, resumos, notificações, papéis e cotas por servidor. O tema `system` acompanha `Palette.color-scheme` do Slint; quando o backend não informa o esquema, a paleta padrão é clara. As gravações usam `LocalStateStore` fora do event loop. Papéis consultam a API a cada 10 s (1,5 s enquanto pendentes), cotas e modelos a cada 60 s, somente com a tela aberta e `ListState.app-visible`. Fechar cancela a tarefa HTTP; logout e adicionar/reautenticar servidor reutilizam o shell.
+
+Após salvar preferências, `SettingsState.preferences-changed()` avisa o recurso de conversa. Alterações de notificações também emitem `SettingsState.notification-preferences-changed()`, reservado ao recurso de sistema. Cada callback tem um único consumidor; nenhum exige polling do arquivo de preferências.
+
+Para exercitar papéis na fixture real, envie `roles-seed {"tiny":"anthropic/claude-haiku-4-5","task":"openai-codex/gpt-5"}` ao stdin. O comando só semeia o snapshot do auxiliar; `cast-consume` confirma os trabalhos reais criados por `POST /api/cast/roles`. Sem esses comandos, o comportamento anterior da fixture permanece intacto.
+
 Identificadores permanecem em inglês; portas de regras preservam o nome Kotlin convertido para snake_case. Comentários e documentação ficam em português. Não use `unwrap()`/`expect()` em caminhos de rede, disco ou entrada do usuário. Testes devem cobrir comportamento e erros, não detalhes textuais da implementação. Novos recursos devem reutilizar o modelo e as regras existentes, sem introduzir um segundo contrato.
 
 O lint compartilhado usa `unsafe_code = "deny"`, não `forbid`: o Rust gerado pelo Slint contém `unsafe` autorizado internamente. Lints adicionais contra macros de código incompleto também precisam distinguir código próprio do gerado pelo Slint; não altere os arquivos em `OUT_DIR`.
@@ -92,6 +98,28 @@ Premissa de trabalho, pendente de confirmação do proprietário: **quando o cli
 - `AppState::new` recebe `LocalStateStore` como `Box<dyn AppPersistence>`. Métodos são síncronos e executam na thread de fundo. Não grave arquivos em callbacks da UI. `seen_id` é SHA-256 lowercase do JSON de `SessionKey`, igual ao JVM.
 - Avatares são solicitados ao instanciar linhas virtuais, com até quatro downloads simultâneos. O cache de imagens decodificadas limita-se a 4 MiB. `AvatarDiskCache` implementa `avatars::AvatarStorage::{read, save}` e preserva os PNG entre execuções.
 - `AppEvents.settings` é evento para a próxima etapa, não uma tela de configurações. `AppEvents.logout(origin)` abre a confirmação e remove somente aquela origem; `AppEvents.theme(dark)` persiste e altera o tema sem recriar a janela.
+- O compositor usa o mesmo `local_state.json` dos clientes Kotlin; não execute os dois clientes como escritores simultâneos. Uploads leem os arquivos originais em blocos e nunca os removem ao liberar anexos.
+- Os callbacks `ComposerState.command(kind,value)` são exclusivos de `composer::setup`: menus de conversa devem invocá-los, não registrar um segundo handler. A confirmação do anel usa `ComposerDialogs` na raiz da janela, fora do slot inferior.
+- No Linux, o seletor tenta o portal XDG (`rfd`, recomendado em Wayland), depois `zenity`/`kdialog` em subprocesso, por fim o diálogo de caminhos completos, um por linha. Não há GTK ligado ao binário; portal e utilitários são opcionais. No macOS, `rfd` usa o seletor nativo.
+- `ui/native-strings.xml` contém somente textos exclusivos do desktop, sem equivalente Kotlin; o mesmo gerador produz `native_strings.rs`, sem alterar o inventário de strings Kotlin.
+
+### Montagem da conversa
+
+`conversation_view::setup` acompanha uma única seleção pelo broadcast e cancela/aguarda o stream anterior antes de abrir outro.
+`ConversationView` contém a lista virtualizada e ocupa o espaço restante, sem incluir o compositor.
+O integrador monta um `VerticalLayout` em `ConversationPane.conversation-content`, nesta ordem:
+
+1. Linha de banners externos: `PermissionBanner` (`RsPermission`) e avisos de envio.
+2. `ConversationView { vertical-stretch: 1; }`: avisos de leitura e transcript.
+3. Linha de estado/cast (`RsCastAside`).
+4. `ComposerPane` (`RsComposer`), com altura preferida e sem esticar verticalmente.
+
+`ConversationMenu` e `SessionInfoSheet` ficam como overlays da janela, condicionados a
+`ConversationViewState.menu-open` e `info-open`. O menu aceita filhos para as ações de compositor,
+aside e cast. A ação de envio pode incrementar `ConversationViewState.end-request` para acompanhar o fim.
+`ConversationViewState.copy(string)` preserva o Markdown original; links aceitam somente HTTP/HTTPS.
+O cache é salvo com `ConversationWrite` e epoch da origem; fechar/trocar a seleção também salva, sem esperar o debounce.
+
 
 ### Kit compartilhado
 
@@ -99,24 +127,34 @@ Importe componentes de `ui/widgets/kit.slint`; todas as cores vêm dos recursos 
 
 | Componente | Propriedades e callbacks próprios |
 | --- | --- |
-| `Avatar` | `source`, `initials`, `fallback-color`, `brand`, `brand-color`; aceita filhos para badges adicionais. Tamanho padrão 48 px. |
-| `TextButton`, `FilledButton` | `text`, `enabled`, `foreground`, callback `clicked`; mouse, Tab, espaço e Enter. |
-| `IconButton`, `Fab` | `icon`, `label`, `enabled`, callback `clicked`; tamanho 40/56 px. |
-| `TextField` | `text` bidirecional; `placeholder`, `multiline`, `password`, `enabled`, `outlined`, `autofocus`; callbacks `edited(string)`, `accepted`. Usa `TextInput` nativo para IME e teclas mortas. |
-| `Switch` | API do Switch padrão Slint (`checked`, `text`, `toggled`). |
+| `Avatar` | `source`, `initials`, `fallback-color`, `brand`, `brand-color`, `label`; aceita filhos para badges adicionais. Tamanho padrão 48 px. |
+| `TextButton`, `FilledButton` | `text`, `text-size` (14 px), `enabled`, `foreground`, callback `clicked`; mouse, Tab, espaço e Enter. |
+| `IconButton`, `Fab` | `icon`, `label`, `foreground`, `enabled`, callback `clicked`; tamanho 40/56 px. |
+| `TextField` | `text` bidirecional; `placeholder`, `multiline`, `password`, `enabled`, `outlined`, `autofocus`; `max-lines` (0 mantém altura multilinha padrão), `sends-on-enter` (Enter aceita, Shift+Enter insere linha); callbacks `edited(string)`, `accepted`; aceita filhos. Usa `TextInput` nativo para IME e teclas mortas. |
+| `Switch`, `RadioButton`, `CheckBox` | `checked` bidirecional, `text`, `enabled`, callback `toggled()`. Desenho Material com cores de `Theme`, sem animação periódica. |
 | `SegmentedControl` | `labels: [string]`, `selected: int` bidirecional, callback `chosen(int)`. |
 | `Chip` | API de `TextButton` mais `selected`. |
-| `Pill`, `Badge` | `text`, `foreground`; Badge aplica primary/onPrimary. |
+| `Pill`, `Badge` | `text`, `text-size` (16/12 px), `foreground`; Badge aplica primary/onPrimary. |
 | `Banner` | `text`, `action`, `severity` (`info`, `warn`, `error`), callback `activated`. |
 | `Menu` | Popup: filhos em coluna; métodos `show()`, `close()`. |
-| `Dialog` | Scrim modal; `title`, `text`, `confirm`, `cancel`; callbacks `confirmed`, `dismissed`; Esc e clique externo fecham. |
-| `Sheet` | Painel direito com scrim; filhos são conteúdo; callback `dismissed`; Esc e clique externo fecham. |
+| `Dialog` | Scrim modal; `title`, `text`, `confirm`, `cancel`; callbacks `confirmed`, `dismissed`; filhos antes dos botões; texto de botão vazio o oculta. Esc dos filhos e clique externo fecham. |
+| `Sheet` | Painel direito com scrim; `title` nomeia o grupo acessível; filhos são conteúdo; callback `dismissed`; Esc e clique externo fecham. |
 | `Divider`, `ProgressRing` | Divisor e indicador indeterminado. Instancie indicador somente enquanto carregar. |
-| `Tooltip` | `text`; envolve filhos e mostra legenda no hover. |
+| `Tooltip` | `text`, callback `clicked()` para encaminhar clique ao controle envolvido; mostra legenda no hover. |
 | `ScrollList` | Alias do `ListView` padrão, não subclasse: preserva a virtualização reconhecida pelo compilador Slint. Filhos repetidos precisam ser diretos. |
 | `ScrollContainer` | API do ScrollView padrão; use `content-width` para rolagem horizontal. |
 
 Os campos de `Theme` incluem os 48 papéis Material 3 em claro e escuro. O [baseline real](scripts/dump-m3-baseline.md) é sobrescrito ao vivo pelo Kotlin. `AvatarColors` e `StatusColors` também são extraídos dos arquivos Kotlin, sem paletas substitutas.
+
+- `ListState.app-visible` começa `true`; o adaptador de janela deve atualizá-lo ao ocultar/restaurar. Cronômetros de trabalho só executam quando a linha intercepta o viewport e o aplicativo está visível.
+- O renderer software não recorta imagens pelo raio do pai. `avatars::decode` aplica máscara circular no RGBA antes de entrar no cache; preserve essa etapa.
+- `Sheet` e `Dialog` contêm os filhos no `FocusScope` de Esc. Formulários dinâmicos devem cercar sua ordem Tab com sentinelas de foco; o kit não inventa travessia entre descendentes.
+
+### Elenco e bate-papo paralelo
+
+`controller::cast::State` executa as rotas tipadas de elenco sem repetir POSTs. A origem das ações segue a seleção, depois o filtro, depois o servidor único. `CastState` publica retomar/dispensar e o texto de estado para o host da conversa; `ListState.cast` abre a escolha de contato e pasta.
+
+`controller::aside::run` recebe eventos por `mpsc`, publica o redutor por `watch` e sinaliza 401 por um canal separado. Descartar o runner cancela chamadas e esperas. Fechar ou trocar de sessão limpa a folha e encerra o polling. O runner limita a espera periódica de 700 ms do Kotlin a 1 s, conforme a meta desktop; não cria SSE adicional. Perguntas, cancelamentos e a consulta inicial continuam imediatos. `AsideState.open()` é a entrada do menu da conversa.
 
 ### Exercício visual e medição
 

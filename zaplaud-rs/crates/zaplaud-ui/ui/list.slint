@@ -1,6 +1,6 @@
 import { Theme, StatusColors } from "resources.slint";
 import { Labels } from "labels.slint";
-import { TextField, TextButton, SegmentedControl, Chip, Banner, Avatar, Badge, ScrollList, ScrollContainer, Menu, ProgressRing } from "widgets/kit.slint";
+import { TextField, TextButton, SegmentedControl, Chip, Banner, Avatar, Badge, ScrollList, ScrollContainer, Menu, ProgressRing, Tooltip, Fab } from "widgets/kit.slint";
 export struct SessionRow {
     key: string, title: string, subtitle: string, activity: string, time: string, unread: string,
     initials: string, avatar: image, brand: image, brand-color: color, fallback-color: color,
@@ -19,6 +19,7 @@ export global ListState {
     in-out property <int> tab;
     in-out property <bool> menu-open;
     in property <bool> loading;
+    in property <bool> app-visible: true;
     in property <bool> terminal-allowed;
     in property <string> terminal-blocked-label;
     in property <bool> cast-visible;
@@ -35,17 +36,28 @@ export global ListState {
 }
 export component ListPane inherits Rectangle {
     background: Theme.background;
+    property <int> keyboard-index: -1;
     forward-focus: list-focus;
     init => { list-focus.focus(); }
-    list-focus := FocusScope {}
+    list-focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.DownArrow { root.keyboard-index = min(root.keyboard-index + 1, ListState.rows.length - 1); return accept; }
+            if event.text == Key.UpArrow { root.keyboard-index = max(0, root.keyboard-index - 1); return accept; }
+            if event.text == Key.Return && root.keyboard-index >= 0 && root.keyboard-index < ListState.rows.length {
+                ListState.open(ListState.rows[root.keyboard-index].key); return accept;
+            }
+            return reject;
+        }
+    }
     VerticalLayout { padding: 12px; spacing: 8px;
         HorizontalLayout { height: 48px; spacing: 8px;
-            Text { text: Labels.app-name; color: Theme.on-surface; font-size: 22px; vertical-alignment: center; horizontal-stretch: 1; }
-            Rectangle { width: 10px; height: 10px; border-radius: 5px; background: ListState.connection == "connected" ? Theme.primary : ListState.connection == "connecting" ? StatusColors.warning : Theme.error; }
+            Text { text: Labels.app-name; color: Theme.on-surface; font-size: 22px; vertical-alignment: center; horizontal-stretch: 0; }
+            Rectangle { width: 10px; height: 10px; border-radius: 5px; background: ListState.connection == "connected" ? Theme.primary : ListState.connection == "connecting" ? StatusColors.warning : Theme.error; accessible-role: text; accessible-label: ListState.connection == "connected" ? Labels.reading-connected : ListState.connection == "connecting" ? Labels.reading-connecting : Labels.reading-offline; }
+            Rectangle { horizontal-stretch: 1; }
             TextButton { text: "⋮"; min-width: 40px; clicked => { ListState.menu-open = true; menu.show(); } accessible-label: Labels.menu; }
         }
         for server in ListState.servers: VerticalLayout {
-            if server.needs-login: Banner { text: server.label; action: Labels.relogin; severity: "error"; activated => { ListState.relogin(server.origin); } }
+            if server.needs-login: HorizontalLayout { Text { text: server.label; color: Theme.on-surface; vertical-alignment: center; } TextButton { text: Labels.relogin; clicked => { ListState.relogin(server.origin); } } }
             if server.error != "": Text { text: server.error; color: Theme.error; wrap: word-wrap; }
         }
         if ListState.servers.length > 1: ScrollContainer {
@@ -67,24 +79,29 @@ export component ListPane inherits Rectangle {
         }
         if ListState.loading: ProgressRing { height: 24px; }
         if !ListState.loading && !ListState.terminal-allowed: Text { text: ListState.terminal-blocked-label; color: Theme.on-surface-variant; wrap: word-wrap; }
-        if ListState.rows.length == 0: VerticalLayout { padding: 32px;
+        if !ListState.loading && ListState.rows.length == 0: VerticalLayout { padding: 32px;
             Text { text: ListState.query != "" ? Labels.search-no-match : Labels.sessions-empty; color: Theme.on-surface-variant; wrap: word-wrap; horizontal-alignment: center; }
             if ListState.query != "": TextButton { text: Labels.search-clear; clicked => { ListState.query = ""; ListState.changed(); } }
         }
-        ScrollList {
-            for row in ListState.rows: Rectangle {
+        session-list := ScrollList {
+            for row[index] in ListState.rows: row-box := Rectangle {
                 init => { ListState.avatar(row.key); }
-                Timer { interval: 1s; running: row.working; triggered => { ListState.tick(row.key); } }
-                height: row.sub ? 36px : max(76px, content.preferred-height + 12px);
-                border-radius: 12px; background: row.selected ? Theme.secondary-container : transparent;
-                TouchArea { clicked => { list-focus.focus(); ListState.open(row.key); } }
+                Timer { interval: 1s; running: row.working && ListState.app-visible && root.visible && row-box.y + session-list.content-y + row-box.height > 0px && row-box.y + session-list.content-y < session-list.height; triggered => { ListState.tick(row.key); } }
+                height: row.sub ? 36px : max(68px, content.preferred-height + 12px);
+                border-radius: 12px; background: row.selected ? Theme.secondary-container : row-touch.pressed ? Theme.on-surface.with-alpha(0.12) : row-touch.has-hover ? Theme.on-surface.with-alpha(0.08) : transparent;
+                border-width: root.keyboard-index == index && list-focus.has-focus ? 2px : 0px; border-color: Theme.primary;
+                accessible-role: button; accessible-label: row.title + ", " + row.subtitle + (row.activity == "" ? "" : ", " + row.activity) + (row.permission == "" ? "" : ", " + row.permission);
+                row-touch := TouchArea { clicked => { root.keyboard-index = index; list-focus.focus(); ListState.open(row.key); } }
                 content := HorizontalLayout { padding-top: 6px; padding-bottom: 6px; spacing: 12px;
                     if row.sub: Text { text: "└"; color: Theme.outline-variant; width: 36px; horizontal-alignment: right; }
                     Avatar { width: row.sub ? 24px : 48px; height: self.width; source: row.avatar; initials: row.initials; brand: row.brand; brand-color: row.brand-color; fallback-color: row.fallback-color; }
                     VerticalLayout { spacing: 2px;
-                        Text { text: row.title; color: Theme.on-surface; font-size: row.sub ? 14px : 16px; font-weight: row.unread != "" ? 700 : 500; wrap: word-wrap; overflow: elide; max-height: row.sub ? 20px : 44px; }
+                        Tooltip { text: row.title; height: min(title.preferred-height, row.sub ? 20px : 44px);
+                            clicked => { root.keyboard-index = index; list-focus.focus(); ListState.open(row.key); }
+                            title := Text { text: row.title; color: Theme.on-surface; font-size: row.sub ? 14px : 16px; font-weight: row.unread != "" ? 700 : 500; wrap: word-wrap; overflow: elide; }
+                        }
                         Text { text: row.subtitle; color: Theme.on-surface-variant; font-size: row.sub ? 12px : 14px; overflow: elide; font-weight: row.unread != "" ? 700 : 400; }
-                        if row.activity != "": Text { text: row.activity; color: Theme.on-surface-variant; font-size: 12px; overflow: elide; }
+                        if row.activity != "": Text { text: "✻ " + row.activity; color: Theme.primary; font-size: 12px; overflow: elide; }
                         if row.permission != "": TextButton { text: row.permission; foreground: Theme.error; clicked => { ListState.permission(row.key); } }
                     }
                     if !row.sub: VerticalLayout { alignment: start; spacing: 6px; width: max(32px, time-label.preferred-width);
@@ -96,9 +113,8 @@ export component ListPane inherits Rectangle {
         }
     }
     // Ponto de montagem do FAB: o recurso de elenco fornece ícone e callback.
-    if ListState.cast-visible: Rectangle { x: parent.width - 72px; y: parent.height - 72px; width: 56px; height: 56px; border-radius: 16px; background: Theme.primary-container;
-        Image { x: 16px; y: 16px; width: 24px; height: 24px; source: ListState.cast-icon; }
-        TouchArea { clicked => { ListState.cast(); } }
+    if ListState.cast-visible: Fab { x: parent.width - 72px; y: parent.height - 72px; icon: ListState.cast-icon; label: Labels.cast-start;
+        clicked => { ListState.cast(); }
     }
     menu := Menu { x: root.width - 180px; y: 56px; width: 168px;
         TextButton { text: Labels.settings; clicked => { menu.close(); ListState.menu-open = false; ListState.settings(); } }

@@ -1,0 +1,276 @@
+import { Theme } from "resources.slint";
+import { ConversationState } from "conversation.slint";
+import { MarkdownView, MdBlock } from "markdown/markdown.slint";
+import { ScrollList, ScrollContainer, TextButton, Banner, Sheet, Avatar, Pill, Divider } from "widgets/kit.slint";
+import { ComposerState } from "composer.slint";
+import { CastState } from "cast.slint";
+import { AsideState } from "aside.slint";
+export { MdBlock, MdCell, MdSpan } from "markdown/markdown.slint";
+
+export struct ConversationRow {
+    id: string, kind: string, source: string, display: string, blocks: [MdBlock],
+    label: string, time: string, expanded: bool, summarized: bool,
+}
+export struct InfoRow { label: string, value: string }
+export struct ModelChoice { value: string, label: string, header: bool }
+export global ConversationViewState {
+    in property <[ConversationRow]> rows;
+    in property <string> notice;
+    in property <string> truncated;
+    in property <string> reduced;
+    in property <string> go-to-end;
+    in property <string> view-label;
+    in property <[string]> view-labels;
+    in property <string> view;
+    in property <string> deliver-label;
+    in property <string> model-label;
+    in property <string> thinking-label;
+    in property <string> shake-label;
+    in property <bool> working;
+    in property <string> activity;
+    in property <string> status-since;
+    in-out property <string> elapsed;
+    callback tick();
+    in property <string> aside-label;
+    in property <[ModelChoice]> models;
+    in property <string> model;
+    in property <string> thinking;
+    in property <[string]> thinking-labels;
+    in-out property <string> menu-page;
+    in property <string> back;
+    in property <string> info-label;
+    in property <string> details-label;
+    in property <string> hide-details-label;
+    in property <string> info-status;
+    in property <[InfoRow]> info;
+    in property <[InfoRow]> details;
+    in property <float> context-fraction: -1;
+    in-out property <bool> info-open;
+    in-out property <bool> menu-open;
+    in-out property <bool> window-focused;
+    in-out property <bool> details-open;
+    in-out property <bool> view-menu;
+    in-out property <bool> following: true;
+    in property <int> new-count;
+    in property <int> end-request;
+    callback observe(string);
+    callback toggle(string);
+    callback choose-view(int);
+    callback position(bool);
+    callback open-link(string);
+    callback copy(string);
+}
+
+component EntryBubble inherits Rectangle {
+    in property <ConversationRow> entry;
+    init => { ConversationViewState.observe(root.entry.id); }
+    changed entry => { ConversationViewState.observe(root.entry.id); }
+    property <bool> group: entry.kind == "thinking" || entry.kind == "tool";
+    height: content.preferred-height + 8px;
+    Rectangle {
+        x: root.entry.kind == "user" ? parent.width * 0.15 : 0px;
+        width: root.entry.kind == "system" ? parent.width : parent.width * 0.85;
+        height: content.preferred-height;
+        border-radius: root.group ? 12px : 16px;
+        border-width: root.group ? 1px : 0px;
+        border-color: Theme.outline-variant;
+        background: root.entry.kind == "system" || root.group ? transparent : root.entry.kind == "user" ? Theme.primary-container : Theme.surface;
+        content := VerticalLayout {
+            padding: root.group ? 8px : 12px;
+            spacing: 4px;
+            if root.group: TextButton {
+                text: root.entry.label + "   " + root.entry.time + (root.entry.expanded ? "  ⌃" : "  ⌄");
+                foreground: Theme.on-surface-variant;
+                clicked => { ConversationViewState.toggle(root.entry.id); }
+            }
+            if root.entry.kind == "system": TextInput {
+                text: root.entry.source + (root.entry.time == "" ? "" : " · " + root.entry.time);
+                read-only: true; wrap: word-wrap; color: Theme.on-surface-variant;
+                font-size: 12px; horizontal-alignment: center;
+            }
+            if root.entry.kind == "thinking" && root.entry.expanded: TextInput {
+                text: root.entry.source; read-only: true; wrap: word-wrap; color: Theme.on-surface-variant;
+                font-italic: true; font-size: 14px;
+            }
+            if root.entry.kind == "tool" && root.entry.expanded: ScrollContainer {
+                height: tool-text.preferred-height + 16px;
+                content-width: max(self.width, tool-text.preferred-width);
+                tool-text := TextInput {
+                    width: max(parent.width, self.preferred-width); height: self.preferred-height;
+                    text: root.entry.source; read-only: true; wrap: no-wrap;
+                    font-family: "monospace"; font-size: 14px; color: Theme.on-surface;
+                }
+            }
+            if !root.group && root.entry.kind != "system": VerticalLayout {
+                if root.entry.summarized: TextButton { text: root.entry.label; clicked => { ConversationViewState.toggle(root.entry.id); } }
+                if root.entry.summarized && !root.entry.expanded: TextInput {
+                    text: root.entry.display; read-only: true; wrap: word-wrap; color: Theme.on-surface; font-size: 16px;
+                }
+                if !root.entry.summarized || root.entry.expanded: MarkdownView {
+                    foreground: root.entry.kind == "user" ? Theme.on-primary-container : Theme.on-surface;
+                    blocks: root.entry.blocks; source-markdown: root.entry.source;
+                    copy(text) => { ConversationViewState.copy(text); }
+                    link-clicked(url) => { ConversationViewState.open-link(url); }
+                }
+                Text { text: root.entry.time; horizontal-alignment: right; color: (root.entry.kind == "user" ? Theme.on-primary-container : Theme.on-surface-variant).with-alpha(0.7); font-size: 11px; }
+            }
+        }
+    }
+}
+
+export component ConversationView inherits Rectangle {
+    vertical-stretch: 1;
+    forward-focus: scroll-keys;
+    public function jump-to-end() {
+        scroll-keys.focus();
+        ConversationViewState.following = true;
+        messages.content-y = min(0px, messages.height - messages.content-height);
+        ConversationViewState.position(true);
+    }
+    property <int> end-request: ConversationViewState.end-request;
+    changed end-request => { root.jump-to-end(); }
+    VerticalLayout {
+        padding-left: 12px; padding-right: 12px; spacing: 0px;
+        if ConversationViewState.notice != "": Banner { text: ConversationViewState.notice; severity: "warn"; }
+        if ConversationViewState.reduced != "": Banner { text: ConversationViewState.reduced; }
+        scroll-keys := FocusScope {
+            vertical-stretch: 1;
+            key-pressed(event) => {
+                if event.text == Key.End { root.jump-to-end(); return accept; }
+                if event.text == Key.Home { ConversationViewState.following = false; messages.content-y = 0px; ConversationViewState.position(false); return accept; }
+                if event.text == Key.PageUp || event.text == Key.PageDown {
+                    ConversationViewState.following = false;
+                    messages.content-y = min(0px, max(messages.height - messages.content-height, messages.content-y + (event.text == Key.PageUp ? 1 : -1) * messages.height * 0.9));
+                    ConversationViewState.position(false); return accept;
+                }
+                return reject;
+            }
+            messages := ScrollList {
+                width: parent.width; height: parent.height;
+                changed content-height => { if ConversationViewState.following { self.content-y = min(0px, self.height - self.content-height); } }
+                changed content-y => {
+                    ConversationViewState.following = self.content-height <= self.height || self.content-y <= self.height - self.content-height + 2px;
+                    ConversationViewState.position(ConversationViewState.following);
+                }
+                for row in ConversationViewState.rows: EntryBubble { width: messages.width; entry: row; }
+            }
+        }
+    }
+    if !ConversationViewState.following && ConversationViewState.rows.length > 0: TextButton {
+        x: parent.width - self.width - 12px; y: parent.height - self.height - 8px;
+        width: 56px; height: 48px; background: Theme.secondary-container; border-radius: 24px;
+        text: "↓" + (ConversationViewState.new-count > 0 ? "  " + ConversationViewState.new-count : "");
+        accessible-label: ConversationViewState.go-to-end;
+        clicked => { scroll-keys.focus(); root.jump-to-end(); }
+    }
+}
+
+export component ConversationMenu inherits Sheet {
+    dismissed => { ConversationViewState.menu-open = false; ConversationViewState.menu-page = ""; }
+    ScrollContainer { VerticalLayout {
+        padding: 20px; spacing: 8px;
+        Text { text: ConversationState.title; color: Theme.on-surface; font-size: 20px; }
+        if ConversationViewState.menu-page == "": VerticalLayout {
+            TextButton {
+                text: ConversationViewState.view-label + "   ›";
+                clicked => { ConversationViewState.menu-page = "view"; }
+            }
+            if ComposerState.modes-visible: TextButton {
+                text: ConversationViewState.deliver-label + "   ›";
+                clicked => { ConversationViewState.menu-page = "deliver"; }
+            }
+            if ComposerState.modes-visible && ConversationViewState.models.length > 0: TextButton {
+                text: ConversationViewState.model-label + "   ›"; enabled: ComposerState.can-shake;
+                clicked => { ConversationViewState.menu-page = "model"; }
+            }
+            if ComposerState.modes-visible: TextButton {
+                text: ConversationViewState.thinking-label + "   ›"; enabled: ComposerState.can-shake;
+                clicked => { ConversationViewState.menu-page = "thinking"; }
+            }
+            if ComposerState.modes-visible: TextButton {
+                text: ConversationViewState.shake-label; enabled: ComposerState.can-shake;
+                clicked => { ComposerState.command("shake", ""); ConversationViewState.menu-open = false; }
+            }
+            if AsideState.available: TextButton {
+                text: ConversationViewState.aside-label; enabled: AsideState.enabled;
+                clicked => { ConversationViewState.menu-open = false; AsideState.open(); }
+            }
+            if CastState.dismiss-visible: TextButton {
+                text: CastState.dismiss-label; enabled: CastState.enabled;
+                clicked => { ConversationViewState.menu-open = false; CastState.dismiss(); }
+            }
+        }
+        if ConversationViewState.menu-page != "": TextButton {
+            text: "‹ " + ConversationViewState.back; clicked => { ConversationViewState.menu-page = ""; }
+        }
+        if ConversationViewState.menu-page == "view": VerticalLayout {
+            for label[index] in ConversationViewState.view-labels: TextButton {
+                text: (ConversationViewState.view == (index == 0 ? "all" : index == 1 ? "prompts" : "no_tools") ? "◉  " : "○  ") + label;
+                clicked => { ConversationViewState.choose-view(index); ConversationViewState.menu-open = false; ConversationViewState.menu-page = ""; }
+            }
+        }
+        if ConversationViewState.menu-page == "deliver": VerticalLayout {
+            for label[index] in ComposerState.mode-labels: TextButton {
+                text: (index == ComposerState.mode-index ? "◉  " : "○  ") + label;
+                clicked => { ComposerState.mode(index); ConversationViewState.menu-open = false; ConversationViewState.menu-page = ""; }
+            }
+        }
+        if ConversationViewState.menu-page == "model": VerticalLayout {
+            for choice in ConversationViewState.models: VerticalLayout {
+                if choice.header: Text { text: choice.label; color: Theme.primary; font-size: 14px; }
+                if !choice.header: TextButton {
+                    text: (choice.value == ConversationViewState.model ? "◉  " : "○  ") + choice.label;
+                    clicked => { ComposerState.command("model", choice.value); ConversationViewState.menu-open = false; ConversationViewState.menu-page = ""; }
+                }
+            }
+        }
+        if ConversationViewState.menu-page == "thinking": VerticalLayout {
+            for label[index] in ConversationViewState.thinking-labels: TextButton {
+                property <string> value: index == 0 ? "off" : index == 1 ? "minimal" : index == 2 ? "low" : index == 3 ? "medium" : index == 4 ? "high" : index == 5 ? "xhigh" : "max";
+                text: (self.value == ConversationViewState.thinking ? "◉  " : "○  ") + label;
+                clicked => { ComposerState.command("thinking", self.value); ConversationViewState.menu-open = false; ConversationViewState.menu-page = ""; }
+            }
+        }
+        @children
+    } }
+}
+
+export component SessionInfoSheet inherits Sheet {
+    dismissed => { ConversationViewState.info-open = false; }
+    ScrollContainer { VerticalLayout {
+        padding: 20px; spacing: 16px;
+        HorizontalLayout { Rectangle {} Avatar { width: 72px; height: 72px; source: ConversationState.avatar; initials: ConversationState.initials; } Rectangle {} }
+        Text { text: ConversationState.title; color: Theme.on-surface; font-size: 22px; horizontal-alignment: center; wrap: word-wrap; }
+        Text { text: ConversationState.subtitle; color: Theme.on-surface-variant; font-size: 14px; horizontal-alignment: center; }
+        Pill { text: ConversationViewState.info-status; }
+        Rectangle { background: Theme.surface-container-high; border-radius: 16px;
+            VerticalLayout { padding: 16px; spacing: 12px;
+                for row in ConversationViewState.info: HorizontalLayout { spacing: 12px;
+                    Text { text: row.label; color: Theme.on-surface-variant; font-size: 14px; }
+                    TextInput { text: row.value; read-only: true; wrap: word-wrap; color: Theme.on-surface; horizontal-alignment: right; font-size: 14px; }
+                }
+                if ConversationViewState.context-fraction >= 0: Rectangle { height: 4px; background: Theme.outline-variant; Rectangle { width: parent.width * ConversationViewState.context-fraction; background: Theme.primary; } }
+            }
+        }
+        TextButton { text: ConversationViewState.details-open ? ConversationViewState.hide-details-label : ConversationViewState.details-label; clicked => { ConversationViewState.details-open = !ConversationViewState.details-open; } }
+        if ConversationViewState.details-open: VerticalLayout { spacing: 8px;
+            for row in ConversationViewState.details: VerticalLayout {
+                Text { text: row.label; color: Theme.on-surface-variant; font-size: 14px; }
+                TextInput { text: row.value; read-only: true; wrap: word-wrap; color: Theme.on-surface; font-size: 14px; }
+            }
+        }
+    } }
+}
+
+export component ConversationStatus inherits Rectangle {
+    visible: ConversationViewState.working || CastState.status != "";
+    preferred-height: ConversationViewState.working || CastState.status != "" ? 32px : 0px;
+    vertical-stretch: 0;
+    Timer { interval: 1s; running: root.visible && ConversationState.selected && ConversationViewState.working; triggered => { ConversationViewState.tick(); } }
+    HorizontalLayout { padding-left: 16px; padding-right: 16px; spacing: 6px;
+        if ConversationViewState.working: Avatar { width: 20px; height: 20px; source: ConversationState.avatar; initials: ConversationState.initials; }
+        if ConversationViewState.working: Text { text: "✻"; color: Theme.primary; font-family: "monospace"; font-size: 14px; }
+        Text { text: CastState.status != "" ? CastState.status : ConversationViewState.activity; color: Theme.primary; font-size: 12px; overflow: elide; vertical-alignment: center; }
+        if ConversationViewState.working: Text { text: ConversationViewState.elapsed; color: Theme.on-surface-variant; font-size: 12px; vertical-alignment: center; }
+    }
+}

@@ -1,0 +1,148 @@
+import { Theme, StatusColors } from "resources.slint";
+import { TextField, TextButton, FilledButton, Chip, Banner, SegmentedControl, Dialog, ScrollContainer } from "widgets/kit.slint";
+import { ListState } from "list.slint";
+export struct ComposerAttachment { uri: string, name: string, error: bool, label: string }
+export global ComposerState {
+    in-out property <bool> visible;
+    in-out property <string> text;
+    in-out property <string> placeholder;
+    in-out property <bool> loading;
+    in-out property <bool> sending;
+    in-out property <bool> send-enabled;
+    in-out property <bool> attach-enabled;
+    in-out property <string> attach-label;
+    in-out property <string> send-label;
+    in-out property <string> stop-label;
+    in-out property <string> retry-label;
+    in-out property <bool> stop-visible;
+    in-out property <bool> stop-enabled;
+    in-out property <bool> modes-visible;
+    in-out property <[string]> mode-labels;
+    in-out property <int> mode-index;
+    in-out property <[ComposerAttachment]> attachments;
+    in-out property <string> status;
+    in-out property <string> status-id;
+    in-out property <string> control-status;
+    in-out property <string> command-status;
+    in-out property <string> error;
+    in-out property <string> progress;
+    in-out property <string> character-count;
+    in-out property <bool> context-visible;
+    in-out property <float> context-fraction;
+    in-out property <string> context-label;
+    in-out property <string> context-path;
+    in-out property <string> blocked;
+    in-out property <bool> can-shake;
+    in-out property <bool> confirm-visible;
+    in-out property <string> confirm-title;
+    in-out property <string> confirm-text;
+    in-out property <string> confirm-label;
+    in-out property <string> cancel-label;
+    in-out property <string> shake-title;
+    in-out property <string> shake-text;
+    in-out property <bool> shake-confirm;
+    in-out property <bool> picker-visible;
+    in-out property <string> picker-label;
+    in-out property <string> picker-hint;
+    in-out property <string> picker-text;
+    callback picker-submit(string);
+    callback picker-dismiss();
+    in-out property <bool> app-visible: ListState.app-visible;
+    changed app-visible => { visibility-changed(self.app-visible); }
+    callback visibility-changed(bool);
+    callback edited(string);
+    callback send();
+    callback scroll-to-end();
+    callback stop();
+    callback attach();
+    callback remove(string);
+    callback mode(int);
+    callback command(string, string);
+    callback confirm();
+    callback dismiss();
+}
+export component ComposerPane inherits Rectangle {
+    visible: ComposerState.visible;
+    vertical-stretch: 0;
+    preferred-height: ComposerState.visible ? content.preferred-height : 0px;
+    content := VerticalLayout {
+        padding-top: 4px; padding-bottom: 8px; spacing: 4px;
+        if ComposerState.progress != "": Text { text: ComposerState.progress; color: Theme.on-surface-variant; font-size: 12px; }
+        if ComposerState.blocked != "": Banner { text: ComposerState.blocked; }
+        if ComposerState.control-status != "": Banner { text: ComposerState.control-status; }
+        if ComposerState.status != "": Banner { accessible-role: text; accessible-label: ComposerState.status-id; text: ComposerState.status; }
+        if ComposerState.command-status != "": Banner { text: ComposerState.command-status; }
+        if ComposerState.error != "": Banner { text: ComposerState.error; severity: "error"; action: ComposerState.retry-label; activated => { ComposerState.send(); } }
+        if ComposerState.modes-visible: SegmentedControl { labels: ComposerState.mode-labels; selected: ComposerState.mode-index; chosen(index) => { ComposerState.mode(index); } }
+        if ComposerState.attachments.length > 0: ScrollContainer {
+            height: 36px;
+            HorizontalLayout { spacing: 6px;
+                for item in ComposerState.attachments: Chip {
+                    text: item.name; foreground: item.error ? Theme.error : Theme.on-surface;
+                    accessible-label: item.label + " " + item.name;
+                    clicked => { ComposerState.remove(item.uri); }
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 4px;
+            Rectangle {
+                background: Theme.surface-container-high; border-radius: 24px;
+                horizontal-stretch: 1;
+                preferred-height: field.preferred-height;
+                HorizontalLayout { spacing: 0px;
+                    TextButton { text: ComposerState.attach-label; enabled: ComposerState.attach-enabled; clicked => { ComposerState.attach(); } }
+                    field := TextField {
+                        min-width: 80px; horizontal-stretch: 1;
+                        text <=> ComposerState.text; placeholder: ComposerState.placeholder;
+                        multiline: true; max-lines: 6; sends-on-enter: true;
+                        enabled: !ComposerState.loading;
+                        edited(value) => { ComposerState.edited(value); }
+                        accepted => { if ComposerState.send-enabled { ComposerState.send(); } }
+                        accessible-role: text-input; accessible-label: "message-input";
+                    }
+                    if ComposerState.context-visible: Rectangle {
+                        width: 40px; height: 40px;
+                        accessible-role: button; accessible-label: ComposerState.context-label;
+                        Rectangle { x: 10px; y: 10px; width: 20px; height: 20px; border-radius: 10px; border-width: 2.5px; border-color: Theme.outline-variant; }
+                        Path {
+                            x: 10px; y: 10px; width: 20px; height: 20px;
+                            stroke: ComposerState.context-fraction >= 0.8 ? Theme.error : ComposerState.context-fraction >= 0.5 ? StatusColors.warning : Theme.primary;
+                            stroke-width: 2.5px;
+                            commands: ComposerState.context-path;
+                            fill: transparent;
+                        }
+                        hold := Timer { interval: 1s; running: ring-touch.pressed; triggered => { ComposerState.shake-confirm = true; } }
+                        ring-touch := TouchArea {
+                            enabled: ComposerState.can-shake;
+                            pointer-event(event) => { if event.kind == PointerEventKind.down && event.button == PointerEventButton.right { ComposerState.shake-confirm = true; } }
+                        }
+                    }
+                }
+            }
+            if ComposerState.stop-visible: FilledButton { text: ComposerState.stop-label; background: Theme.error; foreground: Theme.on-error; enabled: ComposerState.stop-enabled; clicked => { ComposerState.stop(); } }
+            FilledButton { text: ComposerState.send-label; enabled: ComposerState.send-enabled; accessible-label: "message-send"; clicked => { ComposerState.send(); } }
+        }
+        if ComposerState.character-count != "": Text { text: ComposerState.character-count; color: Theme.on-surface-variant; font-size: 12px; }
+    }
+}
+export component ComposerDialogs inherits Rectangle {
+    visible: ComposerState.confirm-visible || ComposerState.shake-confirm || ComposerState.picker-visible;
+    if ComposerState.confirm-visible: Dialog {
+        title: ComposerState.confirm-title; text: ComposerState.confirm-text; confirm: ComposerState.confirm-label; cancel: ComposerState.cancel-label;
+        confirmed => { ComposerState.confirm(); } dismissed => { ComposerState.dismiss(); }
+    }
+    if ComposerState.shake-confirm: Dialog {
+        title: ComposerState.shake-title; text: ComposerState.shake-text; confirm: ComposerState.confirm-label; cancel: ComposerState.cancel-label;
+        confirmed => { ComposerState.shake-confirm = false; ComposerState.command("shake", ""); }
+        dismissed => { ComposerState.shake-confirm = false; }
+    }
+    if ComposerState.picker-visible: Dialog {
+        title: ComposerState.attach-label; text: ComposerState.picker-hint;
+        confirm: ComposerState.confirm-label; cancel: ComposerState.cancel-label;
+        TextField { text <=> ComposerState.picker-text; placeholder: ComposerState.picker-label; multiline: true; max-lines: 6; autofocus: true; min-width: 340px; }
+        if ComposerState.error != "": Text { text: ComposerState.error; wrap: word-wrap; color: Theme.error; font-size: 12px; }
+        confirmed => { ComposerState.picker-submit(ComposerState.picker-text); }
+        dismissed => { ComposerState.picker-dismiss(); }
+    }
+}
