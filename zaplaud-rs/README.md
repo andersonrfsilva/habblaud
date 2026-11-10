@@ -100,6 +100,8 @@ Premissa de trabalho, pendente de confirmação do proprietário: **quando o cli
 - `AppEvents.settings` é evento para a próxima etapa, não uma tela de configurações. `AppEvents.logout(origin)` abre a confirmação e remove somente aquela origem; `AppEvents.theme(dark)` persiste e altera o tema sem recriar a janela.
 - O compositor usa o mesmo `local_state.json` dos clientes Kotlin; não execute os dois clientes como escritores simultâneos. Uploads leem os arquivos originais em blocos e nunca os removem ao liberar anexos.
 - Os callbacks `ComposerState.command(kind,value)` são exclusivos de `composer::setup`: menus de conversa devem invocá-los, não registrar um segundo handler. A confirmação do anel usa `ComposerDialogs` na raiz da janela, fora do slot inferior.
+- No Linux, o seletor tenta o portal XDG (`rfd`, recomendado em Wayland), depois `zenity`/`kdialog` em subprocesso, por fim o diálogo de caminhos completos, um por linha. Não há GTK ligado ao binário; portal e utilitários são opcionais. No macOS, `rfd` usa o seletor nativo.
+- `ui/native-strings.xml` contém somente textos exclusivos do desktop, sem equivalente Kotlin; o mesmo gerador produz `native_strings.rs`, sem alterar o inventário de strings Kotlin.
 
 ### Montagem da conversa
 

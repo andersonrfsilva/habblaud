@@ -17,17 +17,19 @@ pub trait Backend: Send + Sync + 'static {
     fn eligible(&self, key: &SessionKey, agent_id: &str) -> bool;
     fn request(
         &self,
+        origin: &str,
         path: String,
         body: Option<serde_json::Value>,
     ) -> BoxFuture<'static, Result<serde_json::Value, Failure>>;
     fn upload(
         &self,
+        origin: &str,
         attachment: Attachment,
         progress: mpsc::UnboundedSender<i64>,
     ) -> BoxFuture<'static, Result<String, Failure>>;
     fn release_unused(&self, attachments: &[Attachment], active: &State);
-    fn unauthorized(&self);
-    fn session_changed(&self);
+    fn unauthorized(&self, origin: &str);
+    fn session_changed(&self, key: &SessionKey);
 }
 
 pub struct MessageController {
@@ -124,9 +126,24 @@ impl MessageController {
                         Effect::ReleaseUnused(attachments) => {
                             backend.release_unused(&attachments, &state)
                         }
-                        Effect::Unauthorized => backend.unauthorized(),
-                        Effect::SessionChanged => backend.session_changed(),
+                        Effect::Unauthorized => {
+                            if let Some(key) = &state.composer.key {
+                                backend.unauthorized(&key.origin);
+                            }
+                        }
+                        Effect::SessionChanged => {
+                            if let Some(key) = &state.composer.key {
+                                backend.session_changed(key);
+                            }
+                        }
                         effect => {
+                            let origin = match &effect {
+                                Effect::PollMessage { key, .. } => Some(key.origin.clone()),
+                                _ => state.composer.key.as_ref().map(|key| key.origin.clone()),
+                            };
+                            let Some(origin) = origin else {
+                                continue;
+                            };
                             let backend = backend.clone();
                             let sender = sender.clone();
                             let is_poll = matches!(
@@ -134,7 +151,7 @@ impl MessageController {
                                 Effect::PollMessage { .. } | Effect::PollCommand { .. }
                             );
                             let job = tokio::spawn(async move {
-                                let event = execute(backend, effect, &sender).await;
+                                let event = execute(backend, origin, effect, &sender).await;
                                 if let Some(event) = event {
                                     let _ = sender.send(event);
                                 }
@@ -170,6 +187,7 @@ fn field(value: &serde_json::Value, name: &str) -> Option<String> {
 }
 async fn execute(
     backend: Arc<dyn Backend>,
+    origin: String,
     effect: Effect,
     sender: &mpsc::UnboundedSender<Event>,
 ) -> Option<Event> {
@@ -178,7 +196,7 @@ async fn execute(
             token, attachment, ..
         } => {
             let (progress, mut receiver) = mpsc::unbounded_channel();
-            let upload = backend.upload(attachment, progress);
+            let upload = backend.upload(&origin, attachment, progress);
             tokio::pin!(upload);
             loop {
                 tokio::select! {
@@ -203,7 +221,7 @@ async fn execute(
                 "/api/messages"
             };
             let response = backend
-                .request(path.into(), Some(body))
+                .request(&origin, path.into(), Some(body))
                 .await
                 .and_then(|value| {
                     if field(&value, "id").is_none()
@@ -259,6 +277,7 @@ async fn execute(
             tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
             match backend
                 .request(
+                    &origin,
                     format!("/api/messages/{}", crate::api::encode_segment(&id)),
                     None,
                 )
@@ -290,6 +309,7 @@ async fn execute(
             tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
             match backend
                 .request(
+                    &origin,
                     format!("/api/messages/{}", crate::api::encode_segment(&id)),
                     None,
                 )
@@ -356,6 +376,7 @@ mod tests {
         }
         fn request(
             &self,
+            _: &str,
             path: String,
             body: Option<serde_json::Value>,
         ) -> BoxFuture<'static, Result<serde_json::Value, Failure>> {
@@ -375,6 +396,7 @@ mod tests {
         }
         fn upload(
             &self,
+            _: &str,
             _: Attachment,
             progress: mpsc::UnboundedSender<i64>,
         ) -> BoxFuture<'static, Result<String, Failure>> {
@@ -394,10 +416,10 @@ mod tests {
         fn release_unused(&self, _: &[Attachment], _: &State) {
             self.cancelled.fetch_add(1, Ordering::SeqCst);
         }
-        fn unauthorized(&self) {
+        fn unauthorized(&self, _: &str) {
             self.unauthorized.fetch_add(1, Ordering::SeqCst);
         }
-        fn session_changed(&self) {}
+        fn session_changed(&self, _: &SessionKey) {}
     }
     fn key(id: &str) -> SessionKey {
         SessionKey {
@@ -578,5 +600,46 @@ mod tests {
             fake.calls.lock().unwrap()[0].1.as_ref().unwrap()["attachments"],
             json!(["attachment-id"])
         );
+    }
+    #[tokio::test(start_paused = true)]
+    async fn ambiguous_post_requires_confirmation_and_never_replays() {
+        let fake = Arc::new(Fake::default());
+        let controller = ready(fake.clone()).await;
+        *fake.fail.lock().unwrap() = Some(Failure::default());
+        send(&controller);
+        settle().await;
+        assert_eq!(
+            controller
+                .states
+                .borrow()
+                .composer
+                .operation
+                .as_ref()
+                .unwrap()
+                .status,
+            "unknown"
+        );
+        send(&controller);
+        settle().await;
+        assert_eq!(
+            controller.states.borrow().composer.error.as_deref(),
+            Some("confirm")
+        );
+        assert_eq!(fake.calls.lock().unwrap().len(), 1);
+        controller
+            .events
+            .send(Event::Send {
+                agent_id: "agent".into(),
+                confirmed: true,
+                eligible: true,
+            })
+            .unwrap();
+        settle().await;
+        assert_eq!(fake.calls.lock().unwrap().len(), 2);
+        controller.events.send(Event::Close).unwrap();
+        settle().await;
+        tokio::time::advance(std::time::Duration::from_secs(60)).await;
+        settle().await;
+        assert_eq!(fake.calls.lock().unwrap().len(), 2);
     }
 }

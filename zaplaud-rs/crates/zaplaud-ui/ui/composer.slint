@@ -134,7 +134,7 @@ export component ComposerDialogs inherits Rectangle {
     }
     if ComposerState.shake-confirm: Dialog {
         title: ComposerState.shake-title; text: ComposerState.shake-text; confirm: ComposerState.confirm-label; cancel: ComposerState.cancel-label;
-        confirmed => { ComposerState.shake-confirm = false; ComposerState.command("command", "shake"); }
+        confirmed => { ComposerState.shake-confirm = false; ComposerState.command("shake", ""); }
         dismissed => { ComposerState.shake-confirm = false; }
     }
     if ComposerState.picker-visible: Dialog {

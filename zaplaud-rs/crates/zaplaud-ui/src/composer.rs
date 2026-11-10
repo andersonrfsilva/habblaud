@@ -47,17 +47,17 @@ fn attachment_path(attachment: &Attachment) -> Option<std::path::PathBuf> {
     url::Url::parse(&attachment.uri).ok()?.to_file_path().ok()
 }
 fn available(attachment: &Attachment) -> bool {
-    attachment_path(attachment)
-        .and_then(|path| std::fs::metadata(path).ok())
-        .is_some_and(|metadata| {
-            metadata.is_file() && attachment.size == i64::try_from(metadata.len()).ok()
-        })
+    attachment_path(attachment).is_some_and(|path| {
+        std::fs::File::open(&path).is_ok()
+            && std::fs::metadata(path).is_ok_and(|metadata| {
+                metadata.is_file() && attachment.size == i64::try_from(metadata.len()).ok()
+            })
+    })
 }
 impl NativeBackend {
-    fn api(&self) -> Option<HabblaudApi> {
+    fn api(&self, origin: &str) -> Option<HabblaudApi> {
         let snapshot = self.snapshot.read().ok()?;
         let snapshot = snapshot.as_ref()?;
-        let origin = &snapshot.selected.as_ref()?.key.origin;
         snapshot
             .servers
             .iter()
@@ -89,10 +89,11 @@ impl Backend for NativeBackend {
     }
     fn request(
         &self,
+        origin: &str,
         path: String,
         body: Option<serde_json::Value>,
     ) -> BoxFuture<'static, Result<serde_json::Value, Failure>> {
-        let api = self.api();
+        let api = self.api(origin);
         Box::pin(async move {
             let text = api
                 .ok_or_else(Failure::default)?
@@ -104,10 +105,11 @@ impl Backend for NativeBackend {
     }
     fn upload(
         &self,
+        origin: &str,
         attachment: Attachment,
         progress: mpsc::UnboundedSender<i64>,
     ) -> BoxFuture<'static, Result<String, Failure>> {
-        let api = self.api();
+        let api = self.api(origin);
         Box::pin(async move {
             let path = attachment_path(&attachment).ok_or_else(Failure::default)?;
             let file = tokio::fs::File::open(path)
@@ -137,15 +139,26 @@ impl Backend for NativeBackend {
             // No desktop a URI aponta para o arquivo do usuário: nunca apague nem altere esse arquivo.
         }
     }
-    fn unauthorized(&self) {
-        if let Some(api) = self.api() {
-            let _ = self
-                .commands
-                .send(state::Event::Unauthorized(api.origin().into()));
-        }
+    fn unauthorized(&self, origin: &str) {
+        let _ = self
+            .commands
+            .send(state::Event::Unauthorized(origin.into()));
     }
-    fn session_changed(&self) {
-        let _ = self.commands.send(state::Event::Close);
+    fn session_changed(&self, key: &SessionKey) {
+        let same = self
+            .snapshot
+            .read()
+            .ok()
+            .and_then(|snapshot| snapshot.clone())
+            .is_some_and(|snapshot| {
+                snapshot
+                    .selected
+                    .as_ref()
+                    .is_some_and(|item| &item.key == key)
+            });
+        if same {
+            let _ = self.commands.send(state::Event::Close);
+        }
     }
 }
 #[derive(Clone)]
@@ -256,6 +269,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
         });
     }
     let weak = window.as_weak();
+    let mut app_visible = global.get_app_visible();
     let mut snapshots = context.snapshots.subscribe();
     let context = context.clone();
     context.runtime.clone().spawn(async move {
@@ -267,7 +281,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
         let mut command_dismiss = None::<tokio::task::JoinHandle<()>>;
         let mut last_command = None;
         let mut picker = None::<tokio::task::JoinHandle<()>>;
-        let _ = controller.events.send(Event::Start);
+        if app_visible { let _ = controller.events.send(Event::Start); }
         loop {
             tokio::select! {
                 result = snapshots.recv() => match result {
@@ -277,8 +291,13 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                             let _ = controller.events.send(Event::Stop);
                             let _ = controller.events.send(Event::Close);
                             if let Some(job) = picker.take() { job.abort(); }
+                            update_ui(&weak, |window| {
+                                let global = window.global::<ComposerState>();
+                                global.set_picker_visible(false);
+                                global.set_shake_confirm(false);
+                            });
                             if let Some(item) = &next {
-                                let _ = controller.events.send(Event::Start);
+                                if app_visible { let _ = controller.events.send(Event::Start); }
                                 let _ = controller.events.send(Event::Open(item.key.clone()));
                                 match store.session_deliver_as(&item.key) {
                                     Ok(mode) => { let _ = controller.events.send(Event::SetDeliverAs(mode)); }
@@ -308,6 +327,12 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                 }
                 action = receiver.recv() => {
                     let Some(action) = action else { break; };
+                    if let Action::Visibility(visible) = &action {
+                        app_visible = *visible;
+                        if selected.is_none() {
+                            let _ = controller.events.send(if *visible { Event::Start } else { Event::Stop });
+                        }
+                    }
                     let Some(item) = &selected else { continue; };
                     let state = controller.states.borrow().clone();
                     let agent_id = item.agent_id.clone().unwrap_or_default();
@@ -320,7 +345,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                         Action::Remove(uri) => state.composer.draft.attachments.iter().find(|a| a.uri == uri).cloned().map(Event::Remove),
                         Action::Mode(index) => {
                             let mode = ["aside", "followUp", "steer"].get(index as usize).copied();
-                            mode.and_then(|mode| match store.set_session_deliver_as(&item.key,mode) { Ok(()) => Some(Event::SetDeliverAs(mode.into())), Err(_) => Some(Event::SaveFailed { token: 0, key: item.key.clone(), purpose: composer::SavePurpose::Edit }) })
+                            mode.map(|mode| match store.set_session_deliver_as(&item.key,mode) { Ok(()) => Event::SetDeliverAs(mode.into()), Err(_) => Event::SaveFailed { token: 0, key: item.key.clone(), purpose: composer::SavePurpose::Edit } })
                         }
                         Action::Dismiss => {
                             let _ = controller.events.send(Event::DismissControlConfirmation);
