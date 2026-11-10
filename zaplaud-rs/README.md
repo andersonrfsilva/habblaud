@@ -27,7 +27,9 @@ O servidor local de desenvolvimento pode ser iniciado da raiz:
 node --import tsx scripts/android-smoke.ts --port 14780 --allow terminal,messages,permissions
 ```
 
-Use usuário e senha fictícios `android-test`. HTTP exige confirmação na tela; HTTPS não. O cliente não segue redirecionamentos. A API aceita persistência de cookies pelo contrato `SessionPersistence`; `SecureSessionStorage` usa o chaveiro do sistema, com fallback em memória quando indisponível. `ZAPLAUD_KEYRING=memory` força o modo sem persistência entre processos.
+Use usuário e senha fictícios `android-test`. HTTP exige confirmação na tela; HTTPS não. O cliente não segue redirecionamentos. HTTPS confia nas CAs do sistema e nas raízes webpki, inclusive CAs privadas instaladas localmente. A API aceita persistência de cookies pelo contrato `SessionPersistence`; `SecureSessionStorage` usa o chaveiro do sistema, com fallback em memória quando indisponível. `ZAPLAUD_KEYRING=memory` força o modo sem persistência entre processos. Entradas existentes malformadas ou de versão desconhecida no chaveiro impedem gravações, sem apagar cookies de outras origens.
+Respostas `429` bloqueiam novas tentativas por no máximo 24 h, tanto para segundos quanto para datas HTTP. Essa proteção difere do Kotlin atual, que ainda aceita prazos sem esse limite; o cliente Kotlin não foi alterado.
+
 
 ## Arquitetura e propriedade dos módulos
 
@@ -52,7 +54,7 @@ Slint pertence à thread principal. A rede roda em um runtime Tokio mantido por 
 
 Para atualizar a UI, capture um `Weak` do componente e dados próprios (`String`, `Vec`, tipos do núcleo). Envie a atualização com `slint::invoke_from_event_loop`; somente dentro dessa closure faça `upgrade()` e altere propriedades/modelos Slint. Não envie componentes nem modelos Slint para tarefas Tokio. Se a janela já fechou, descarte a atualização. Encerre a tarefa anterior ao iniciar outra conexão; não deixe dois streams publicarem na mesma lista.
 
-Os redutores `rules::{composer,aside,permission}::reduce(State, Event) -> (State, Vec<Effect>)` não executam I/O. A ponte executa os efeitos tipados e devolve o evento de conclusão correspondente. `composer::Effect::Save` aplica `composer::update_message` dentro da transação serializada de `MessageStore`, sem cancelar a gravação ao sair do primeiro plano. Preserve a ordem dessas gravações; o POST só sai depois da confirmação da operação `unknown` persistida. `CheckRecipient` reavalia `composer::can_send` antes de cada upload e do POST; não reutilize o resultado inicial. `ReleaseUnused` exige consultar outros drafts e `State::active_attachment` antes de liberar uma URI.
+Os redutores `rules::{composer,aside,permission}::reduce(State, Event) -> (State, Vec<Effect>)` não executam I/O. A ponte executa os efeitos tipados e devolve o evento de conclusão correspondente. `composer::Effect::Save` aplica `composer::update_message` dentro da transação serializada de `MessageStore`, sem cancelar a gravação ao sair do primeiro plano. Rascunhos usam debounce de 300 ms e são descarregados ao encerrar; preserve a ordem dessas gravações. O POST só sai depois da confirmação da operação `unknown` persistida. `CheckRecipient` reavalia `composer::can_send` antes de cada upload e do POST; não reutilize o resultado inicial. `ReleaseUnused` não remove arquivos originais nem exige leituras do armazenamento.
 
 Datas recebem `now` explicitamente; os helpers `*_in` aceitam um fuso para testes determinísticos. Horários fora da faixa representável pelo Chrono retornam `None`, nunca consultam o relógio para substituir a entrada. `conversation::summary_text` retorna unidades UTF-16 para preservar exatamente o corte Kotlin de 32768 unidades, inclusive um surrogate final. A ponte deve codificar esse vetor como string JSON com escapes UTF-16, sem corte por bytes.
 
@@ -74,7 +76,7 @@ Os ícones `Icons.Default` não existem nos XML Kotlin. `scripts/DumpMaterialIco
 
 O shell usa `LocalStateStore` pelo adaptador `AppPersistence`: servidores, última sessão, marcadores de leitura, bloqueio de tentativas, tema e preferências de visualização compartilham o formato desktop. Clientes HTTP restauram e atualizam cookies com `SecureSessionStorage`. O cache `AvatarDiskCache` alimenta o LRU de imagens decodificadas do shell (4 MiB); imagens permanecem fora dos snapshots. O tema salvo é aplicado na abertura; `ZAPLAUD_THEME` pode sobrescrevê-lo nesta execução.
 
-Configurações substituem a lista pelo evento `AppEvents.settings`. O recurso `SettingsState` mantém tema, visualização e envio padrão, resumos, notificações, papéis e cotas por servidor. O tema `system` acompanha `Palette.color-scheme` do Slint; quando o backend não informa o esquema, a paleta padrão é clara. As gravações usam `LocalStateStore` fora do event loop. Papéis consultam a API a cada 10 s (1,5 s enquanto pendentes), cotas e modelos a cada 60 s, somente com a tela aberta e `ListState.app-visible`. Fechar cancela a tarefa HTTP; logout e adicionar/reautenticar servidor reutilizam o shell.
+Configurações substituem a lista pelo evento `AppEvents.settings`. O recurso `SettingsState` mantém tema, visualização e envio padrão, resumos, notificações, papéis e cotas por servidor. O tema `system` acompanha `Palette.color-scheme` do Slint; quando o backend não informa o esquema, a paleta padrão é clara. As gravações usam `LocalStateStore` fora do event loop. Papéis consultam a API a cada 10 s (1,5 s enquanto pendentes), cotas e modelos a cada 60 s, somente com a tela aberta e `ListState.app-visible`. Fechar cancela consultas, mas não cancela o salvamento de papéis; logout e adicionar/reautenticar servidor reutilizam o shell.
 
 Após salvar preferências, `SettingsState.preferences-changed()` avisa o recurso de conversa. Alterações de notificações também emitem `SettingsState.notification-preferences-changed()`, reservado ao recurso de sistema. Cada callback tem um único consumidor; nenhum exige polling do arquivo de preferências.
 
@@ -97,12 +99,12 @@ Premissa de trabalho, pendente de confirmação do proprietário: **quando o cli
 - `AppSnapshot` contém APIs isoladas por origem, `ReadingState`, necessidade de relogin e sessão selecionada. Use `context.runtime.spawn` para rede; mantenha o `JoinHandle` do recurso e cancele pedidos ao mudar a seleção.
 - `context.commands` aceita seleção, fechamento, filtro e logout. Ações exclusivas de outro recurso usam um canal privado dentro do seu `setup`; não acrescente variantes genéricas ao evento central.
 - Publique modelos Slint somente no event loop por `update_ui`. Não atravesse threads com `Image`, `VecModel` ou componentes fortes.
-- `AppState::new` recebe `LocalStateStore` como `Box<dyn AppPersistence>`. Métodos são síncronos e executam na thread de fundo. Não grave arquivos em callbacks da UI. `seen_id` é SHA-256 lowercase do JSON de `SessionKey`, igual ao JVM.
-- Avatares são solicitados ao instanciar linhas virtuais, com até quatro downloads simultâneos. O cache de imagens decodificadas limita-se a 4 MiB. `AvatarDiskCache` implementa `avatars::AvatarStorage::{read, save}` e preserva os PNG entre execuções.
+- `AppState::new` recebe `LocalStateStore` como `Box<dyn AppPersistence>`. `Persistence::call` executa os métodos síncronos em `spawn_blocking`, sem bloquear streams no runtime de rede. Não grave arquivos em callbacks da UI. `seen_id` é SHA-256 lowercase do JSON de `SessionKey`, igual ao JVM. Marcadores só são gravados quando mudam, após debounce de 2 s, com descarga ao encerrar.
+- Snapshots aguardam em uma caixa que mantém somente o mais recente por origem. Avatares são solicitados ao instanciar linhas virtuais, com até quatro downloads simultâneos. Falhas ficam em cache negativo por origem e avatar durante a execução; PNGs só entram no disco após decodificação válida. O cache de imagens decodificadas limita-se a 4 MiB. `AvatarDiskCache` implementa `avatars::AvatarStorage::{read, save}` e preserva os PNG entre execuções.
 - `AppEvents.settings` abre a tela de configurações. `AppEvents.logout(origin)` abre a confirmação e remove somente aquela origem; `AppEvents.theme(dark)` persiste e altera o tema sem recriar a janela.
-- O compositor usa o mesmo `local_state.json` dos clientes Kotlin; não execute os dois clientes como escritores simultâneos. Uploads leem os arquivos originais em blocos e nunca os removem ao liberar anexos.
+- O compositor usa o mesmo `local_state.json` dos clientes Kotlin; não execute os dois clientes como escritores simultâneos. Uploads verificam tamanho e identidade registrados na seleção e leem o mesmo descritor aberto, sem seguir um link simbólico substituído. Anexos antigos sem identidade precisam ser selecionados novamente. Arquivos originais nunca são removidos ao liberar anexos.
 - Os callbacks `ComposerState.command(kind,value)` são exclusivos de `composer::setup`: menus de conversa devem invocá-los, não registrar um segundo handler. A confirmação do anel usa `ComposerDialogs` na raiz da janela, fora do slot inferior.
-- No Linux, o seletor tenta o portal XDG (`rfd`, recomendado em Wayland), depois `zenity`/`kdialog` em subprocesso, por fim o diálogo de caminhos completos, um por linha. Não há GTK ligado ao binário; portal e utilitários são opcionais. No macOS, `rfd` usa o seletor nativo.
+- No Linux, o seletor tenta o portal XDG (`rfd`, recomendado em Wayland), depois `zenity` em subprocesso, por fim o diálogo de caminhos completos, um por linha. O fallback `kdialog` foi removido porque sua saída não distingue nomes com quebras de linha. Não há GTK ligado ao binário; portal e utilitários são opcionais. No macOS, `rfd` usa o seletor nativo.
 - `ui/native-strings.xml` contém somente textos exclusivos do desktop, sem equivalente Kotlin; o mesmo gerador produz `native_strings.rs`, sem alterar o inventário de strings Kotlin.
 
 ### Montagem da conversa
@@ -139,6 +141,8 @@ As preferências de conversa são recarregadas pelo callback das configurações
 salvas a cada snapshot real, sem listener vazio nem stream adicional.
 O executor `controller::permission::run(api, commands, updates)` possui os pedidos e o timer de prazo;
 fechar a folha, trocar de pedido ou abandonar o consumidor cancela essas tarefas, sem repetir decisões POST.
+As decisões levam o ID exibido na folha e rejeitam IDs divergentes; uma oscilação da conexão não invalida a conclusão de um POST em andamento. Comandos e entradas completos quebram por caractere e permanecem acessíveis pela rolagem da folha; o indicador localizado de linhas adicionais sinaliza conteúdo fora do visor. Entradas JSON não textuais usam serialização compacta. Notificações não são fechadas à força e permanecem disponíveis conforme a política do centro de notificações.
+
 
 
 ### Kit compartilhado
