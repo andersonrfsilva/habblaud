@@ -21,7 +21,7 @@ pub mod state;
 mod tray;
 pub mod window_state;
 
-slint::include_modules!();
+pub use zaplaud_ui::conversation_rows::*;
 pub mod strings {
     include!(concat!(env!("OUT_DIR"), "/strings.rs"));
 }

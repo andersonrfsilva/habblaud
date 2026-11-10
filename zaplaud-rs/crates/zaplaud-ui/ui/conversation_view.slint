@@ -7,7 +7,7 @@ import { ComposerState } from "composer.slint";
 import { CastState } from "cast.slint";
 import { AsideState } from "aside.slint";
 import { MaterialIcons } from "widgets/material-icons.slint";
-export { MdBlock, MdCell, MdSpan } from "markdown/markdown.slint";
+export { MdBlock, MdCell, MdSpan, MarkdownGeometry } from "markdown/markdown.slint";
 
 export struct ToolDetail { title: string, text: string }
 export struct ConversationRow {
@@ -56,6 +56,8 @@ export global ConversationViewState {
     in-out property <bool> following: true;
     in property <int> new-count;
     in property <int> end-request;
+    in property <int> geometry-request;
+    callback geometry(string, float, float, float);
     callback observe(string);
     callback toggle(string);
     callback choose-view(int);
@@ -68,6 +70,10 @@ component EntryBubble inherits Rectangle {
     in property <ConversationRow> entry;
     init => { ConversationViewState.observe(root.entry.id); }
     changed entry => { ConversationViewState.observe(root.entry.id); }
+    property <int> geometry-request: ConversationViewState.geometry-request;
+    changed geometry-request => {
+        ConversationViewState.geometry(root.entry.id, root.absolute-position.y / 1px, root.height / 1px, max(content.height, content.preferred-height) / 1px + 8);
+    }
     property <bool> group: entry.kind == "thinking" || entry.kind == "tool";
     function toggle-expanded() {
         ConversationViewState.following = false;
@@ -143,6 +149,7 @@ component EntryBubble inherits Rectangle {
                     text: root.entry.display; read-only: true; wrap: word-wrap; color: Theme.on-surface; font-size: 16px;
                 }
                 if !root.entry.summarized || root.entry.expanded: MarkdownView {
+                    row-id: root.entry.id;
                     accessible-role: text; accessible-label: root.entry.source;
                     foreground: root.entry.kind == "user" ? Theme.on-primary-container : Theme.on-surface;
                     blocks: root.entry.blocks; source-markdown: root.entry.source;
@@ -158,6 +165,14 @@ component EntryBubble inherits Rectangle {
 export component ConversationView inherits Rectangle {
     vertical-stretch: 1;
     forward-focus: scroll-keys;
+    public function scroll-to(fraction: float) {
+        ConversationViewState.following = fraction >= 1;
+        messages.content-y = min(0px, messages.height - messages.content-height) * clamp(fraction, 0, 1);
+    }
+    public function page-up() {
+        ConversationViewState.following = false;
+        messages.content-y = min(0px, messages.content-y + messages.height * 0.9);
+    }
     public function jump-to-end() {
         scroll-keys.focus();
         ConversationViewState.following = true;
@@ -202,6 +217,17 @@ export component ConversationView inherits Rectangle {
         accessible-label: ConversationViewState.go-to-end;
         clicked => { scroll-keys.focus(); root.jump-to-end(); }
     }
+}
+
+export component TranscriptProbe inherits Window {
+    title: "Zaplaud transcript probe";
+    width: 1440px;
+    height: 900px;
+    background: Theme.background;
+    public function scroll-to(fraction: float) { transcript.scroll-to(fraction); }
+    public function page-up() { transcript.page-up(); }
+    public function jump-to-end() { transcript.jump-to-end(); }
+    transcript := ConversationView { }
 }
 
 component MenuAction inherits TextButton {

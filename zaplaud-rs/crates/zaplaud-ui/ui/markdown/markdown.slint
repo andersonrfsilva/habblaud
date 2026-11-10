@@ -19,6 +19,19 @@ export struct MdBlock {
     cells: [MdCell], columns: int,
 }
 
+export global MarkdownGeometry {
+    in property <int> request;
+    callback measured(string, float, float, float, float);
+}
+
+component MeasuredText inherits StyledText {
+    in property <string> row-id;
+    property <int> request: MarkdownGeometry.request;
+    changed request => {
+        MarkdownGeometry.measured(root.row-id, self.absolute-position.y / 1px, self.height / 1px, self.preferred-height / 1px, self.width / 1px);
+    }
+}
+
 component MdButton inherits Rectangle {
     in property <string> text;
     callback clicked;
@@ -64,6 +77,7 @@ component MdButton inherits Rectangle {
 
 component SelectableBlock inherits VerticalLayout {
     in property <MdBlock> block;
+    in property <string> row-id;
     callback link-clicked(string);
     callback copy(string);
     callback select-text();
@@ -74,7 +88,8 @@ component SelectableBlock inherits VerticalLayout {
     HorizontalLayout {
         Text { text: root.block.marker; color: root.foreground; width: root.block.marker == "" ? 0px : self.preferred-width + 6px; }
         VerticalLayout {
-            if !root.selecting: StyledText {
+            if !root.selecting: MeasuredText {
+                row-id: root.row-id;
                 text: root.block.rich;
                 default-color: root.foreground;
                 default-font-size: root.block.level == 1 ? 24px : root.block.level == 2 ? 22px : root.block.level == 3 ? 16px : root.block.level == 4 ? 14px : root.block.level == 5 ? 16px : root.block.level == 6 || root.block.kind == "quote" ? 14px : 16px;
@@ -108,6 +123,7 @@ component SelectableBlock inherits VerticalLayout {
 export component MarkdownView inherits Rectangle {
     in property <[MdBlock]> blocks;
     in property <string> source-markdown;
+    in property <string> row-id;
     callback link-clicked(string);
     callback copy(string);
     in-out property <bool> selecting: false;
@@ -137,6 +153,7 @@ export component MarkdownView inherits Rectangle {
         if block.kind == "rule": Rectangle { height: 1px; background: Theme.outline-variant; }
         if block.kind == "text": SelectableBlock {
             block: block;
+            row-id: root.row-id;
             foreground: root.foreground;
             selecting: root.selecting;
             source-markdown: root.source-markdown;
@@ -147,7 +164,7 @@ export component MarkdownView inherits Rectangle {
         if block.kind == "quote": HorizontalLayout {
             spacing: 8px;
             Rectangle { width: 3px; background: Theme.outline-variant; }
-            SelectableBlock { block: block; foreground: root.foreground; selecting: root.selecting; source-markdown: root.source-markdown; copy(text) => { root.copy(text); } select-text => { root.selecting = true; } link-clicked(url) => { root.link-clicked(url); } }
+            SelectableBlock { row-id: root.row-id; block: block; foreground: root.foreground; selecting: root.selecting; source-markdown: root.source-markdown; copy(text) => { root.copy(text); } select-text => { root.selecting = true; } link-clicked(url) => { root.link-clicked(url); } }
         }
         if block.kind == "code": code-box := Rectangle {
             background: Theme.on-background.with-alpha(0.1);
@@ -206,7 +223,8 @@ export component MarkdownView inherits Rectangle {
                         background: Theme.on-background.with-alpha(self.cell.header ? 0.06 : 0.02);
                         VerticalLayout {
                             padding: 8px;
-                            if !root.selecting: StyledText {
+                            if !root.selecting: MeasuredText {
+                                row-id: root.row-id;
                                 text: cell-box.cell.rich;
                                 default-color: root.foreground;
                                 default-font-size: 16px;
