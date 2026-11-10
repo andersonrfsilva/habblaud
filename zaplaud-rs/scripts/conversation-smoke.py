@@ -83,7 +83,7 @@ def main():
         with tempfile.TemporaryDirectory(prefix='zaplaud-conversation-regression-') as directory:
             data = Path(directory)
             (data / 'runtime').mkdir(mode=0o700)
-            env = dict(os.environ, DISPLAY=args.display, SLINT_BACKEND='winit-software', WINIT_UNIX_BACKEND='x11', ZAPLAUD_THEME=args.theme, ZAPLAUD_KEYRING='memory', ZAPLAUD_DATA_DIR=str(data / 'state'), XDG_RUNTIME_DIR=str(data / 'runtime'))
+            env = dict(os.environ, DISPLAY=args.display, WINIT_UNIX_BACKEND='x11', ZAPLAUD_THEME=args.theme, ZAPLAUD_KEYRING='memory', ZAPLAUD_DATA_DIR=str(data / 'state'), XDG_RUNTIME_DIR=str(data / 'runtime'))
             with open(f'/tmp/zaplaud-rs-fin-conversation-regression-{args.theme}.log', 'w') as log:
                 app = subprocess.Popen([args.binary], env=env, stdout=log, stderr=log)
                 try:
