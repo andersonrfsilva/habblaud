@@ -335,6 +335,11 @@ pub async fn run(
                     }
                 }
             }
+            Event::Unauthorized(origin) => {
+                if let Some(server) = state.servers.iter_mut().find(|s| s.api.origin() == origin) {
+                    server.reading.needs_login = true;
+                }
+            }
             Event::Filter {
                 origin,
                 query,
