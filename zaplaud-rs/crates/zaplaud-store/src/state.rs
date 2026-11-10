@@ -150,7 +150,10 @@ fn message_decode(value: Option<&Value>) -> MessageLocalState {
                 mime: text(o, "mime")?,
                 size: o.get("size").and_then(number),
                 persistent: o.get("persistent").and_then(boolean) == Some(true),
-                identity: o.get("identity").cloned().and_then(|v| serde_json::from_value(v).ok()),
+                identity: o
+                    .get("identity")
+                    .cloned()
+                    .and_then(|v| serde_json::from_value(v).ok()),
             })
         })
         .collect();
@@ -770,8 +773,15 @@ fn import_preferences(xml: &str) -> Map<String, Value> {
         .filter(|n| {
             matches!(
                 n.attribute("key"),
-                Some("theme" | "summarize_replies" | "notifications" | "deliver_as" | "view"
-                    | "notify_permission" | "notify_done")
+                Some(
+                    "theme"
+                        | "summarize_replies"
+                        | "notifications"
+                        | "deliver_as"
+                        | "view"
+                        | "notify_permission"
+                        | "notify_done"
+                )
             )
         })
         .filter_map(|n| Some((n.attribute("key")?.to_owned(), json!(n.attribute("value")?))))

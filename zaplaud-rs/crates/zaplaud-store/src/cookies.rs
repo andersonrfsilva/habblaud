@@ -136,9 +136,8 @@ mod tests {
 
     #[test]
     fn valid_keyring_entries_preserve_every_origin() {
-        let mut cookies = decode_cookies(
-            r#"{"v":2,"cookies":{"one":"first","other":"preserve"}}"#,
-        ).unwrap();
+        let mut cookies =
+            decode_cookies(r#"{"v":2,"cookies":{"one":"first","other":"preserve"}}"#).unwrap();
         cookies.insert("one".into(), "updated".into());
         assert_eq!(cookies["other"], "preserve");
         let roundtrip = decode_cookies(&json!({"v":2,"cookies":cookies}).to_string()).unwrap();

@@ -624,7 +624,11 @@ mod tests {
         );
         let caller = api.clone();
         let save = tokio::spawn(async move { caller.login("android-test", "android-test").await });
-        tokio::time::timeout(std::time::Duration::from_secs(5), storage.started.notified()).await?;
+        tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            storage.started.notified(),
+        )
+        .await?;
         assert!(api.session.try_lock().is_ok());
         save.abort();
         let _ = save.await;
@@ -634,7 +638,10 @@ mod tests {
         assert!(!clear.is_finished());
         release.send(())?;
         tokio::time::timeout(std::time::Duration::from_secs(5), clear).await??;
-        assert_eq!(*storage.operations.lock().unwrap(), ["load", "save", "clear"]);
+        assert_eq!(
+            *storage.operations.lock().unwrap(),
+            ["load", "save", "clear"]
+        );
         assert!(storage.cookie.lock().unwrap().is_none());
         assert!(api.session().cookies.cookies(&url).is_none());
         server.await??;
