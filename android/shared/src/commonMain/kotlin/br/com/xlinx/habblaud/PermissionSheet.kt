@@ -26,6 +26,11 @@ import kotlinx.serialization.json.*
 import io.ktor.http.encodeURLPathPart
 internal fun permissionExpired(deadline: Long, now: Long) = deadline <= now
 internal fun permissionClosed(status: Int) = status == 404 || status == 409
+internal fun permissionInput(request: JsonObject): String = when (val input = request["input"]) {
+    null, JsonNull -> ""
+    is JsonPrimitive -> input.content
+    else -> input.toString()
+}
 
 
 internal fun permissionDecision(provider: String, behavior: String, questions: List<JsonObject>, selections: Map<Int, Set<Int>>, others: Map<Int, String>, suggestion: Int? = null, interrupt: Boolean = false, message: String = ""): JsonObject {
@@ -132,9 +137,12 @@ internal fun PermissionSheet(api: HabblaudApi, session: SessionItem, allowed: Bo
                 if (questions.isEmpty()) {
                     Text(stringResource(Res.string.permission_tool), style = MaterialTheme.typography.labelMedium)
                     Text(request.string("tool").orEmpty(), style = MaterialTheme.typography.titleMedium)
+                }
+                request.string("text")?.takeIf { it.isNotBlank() }?.let { Text(it) }
+                if (questions.isEmpty()) {
                     Text(stringResource(if (request.string("tool")?.equals("bash", true) == true) Res.string.permission_command else Res.string.permission_input), style = MaterialTheme.typography.labelMedium)
                     SelectionContainer {
-                        Text(request.string("input").orEmpty(), Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHighest, RoundedCornerShape(8.dp)).horizontalScroll(rememberScrollState()).padding(12.dp), fontFamily = FontFamily.Monospace)
+                        Text(permissionInput(request), Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHighest, RoundedCornerShape(8.dp)).horizontalScroll(rememberScrollState()).padding(12.dp), fontFamily = FontFamily.Monospace)
                     }
                 }
                 request["expiresAt"]?.jsonPrimitive?.longOrNull?.let { Text(stringResource(Res.string.permission_deadline, platformDeadline(it)), style = MaterialTheme.typography.bodySmall) }

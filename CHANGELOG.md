@@ -115,6 +115,9 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Zaplaud:** em telas largas, chamar um contato continua disponível com uma conversa aberta, a pasta atual vem
+  primeiro e a conversa ocupa toda a coluna direita. Aprovações mostram o resumo e entradas JSON; o bate-papo
+  paralelo preserva a leitura do histórico. O bloqueio de login por excesso de tentativas dura no máximo 24 horas.
 - **Zaplaud:** o bate-papo paralelo não abre mais sem querer. A puxada para cima só conta se o gesto começar já no fim
   da conversa (a sobra de uma rolagem que volta do histórico não abre nada) e precisa ser mais longa (180 dp). No
   desktop a puxada saiu, porque a roda do mouse acumulava sem fim de gesto; lá o bate-papo abre pelo menu da conversa.

@@ -689,7 +689,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
             } else {
                 Scaffold(Modifier.weight(1f).fillMaxHeight(), topBar = { conversationTopBar(selected, false) }) { padding ->
                     Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
-                        Column(Modifier.widthIn(max = 840.dp).fillMaxSize().imePadding().background(if (MaterialTheme.colorScheme.background.luminance() < 0.5f) MaterialTheme.colorScheme.surfaceContainerLowest else MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(Modifier.fillMaxSize().imePadding().background(if (MaterialTheme.colorScheme.background.luminance() < 0.5f) MaterialTheme.colorScheme.surfaceContainerLowest else MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             conversationContent(selected, conversationState!!)
                         }
                     }
@@ -697,7 +697,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
             }
         }
     } else {
-    Scaffold(floatingActionButton = { if (selected != null || filter != null || apis.size == 1) castFab() }, topBar = {
+    Scaffold(floatingActionButton = { if (selected == null && (filter != null || apis.size == 1)) castFab() }, topBar = {
         if (selected == null) listTopBar(state) else conversationTopBar(selected, true)
     }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).imePadding().background(if (selected == null) MaterialTheme.colorScheme.background else if (MaterialTheme.colorScheme.background.luminance() < 0.5f) MaterialTheme.colorScheme.surfaceContainerLowest else MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -93,11 +93,12 @@ actual fun platformDeadline(at: Long): String {
     return formatter.stringFromDate(date(at))
 }
 actual fun retryAfterDeadline(value: String?, now: Long): Long {
-    val seconds = value?.toLongOrNull()?.coerceIn(0, Long.MAX_VALUE / 1000)
-    if (seconds != null) return now + (seconds * 1000).coerceAtMost(Long.MAX_VALUE - now)
+    val maximum = now + 86_400_000L
+    val seconds = value?.toLongOrNull()?.coerceIn(0, 86_400)
+    if (seconds != null) return now + seconds * 1000
     val formatter = NSDateFormatter()
     formatter.locale = NSLocale.localeWithLocaleIdentifier("en_US_POSIX")
     formatter.timeZone = NSTimeZone.timeZoneForSecondsFromGMT(0)
     formatter.dateFormat = "EEE',' dd MMM yyyy HH':'mm':'ss z"
-    return value?.let { formatter.dateFromString(it) }?.let { (it.timeIntervalSince1970 * 1000).toLong().coerceAtLeast(now) } ?: (now + 60_000)
+    return value?.let { formatter.dateFromString(it) }?.let { (it.timeIntervalSince1970 * 1000).toLong().coerceIn(now, maximum) } ?: (now + 60_000)
 }

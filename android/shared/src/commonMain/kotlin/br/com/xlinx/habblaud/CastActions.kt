@@ -40,6 +40,9 @@ internal fun canResumeCast(selected: SessionItem?, runtime: String?): Boolean =
     selected != null && selected.agentId == null && supportsSessionControl(selected.key.provider) &&
         selected.key.provider == runtime && selected.key.sessionId.matches(sessionIdPattern) && selected.project?.startsWith('/') == true
 
+internal fun castFolders(folders: List<String>, rooms: List<String>, current: String?): List<String> =
+    (folders + rooms).distinct().filter { rooms.isEmpty() || it in rooms }.sortedByDescending { it == current }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Boolean, openCast: Set<String>, onUnauthorized: () -> Unit, onPermission: () -> Unit, menu: @Composable (close: () -> Unit, dismissItem: @Composable () -> Unit) -> Unit, content: @Composable (@Composable () -> Unit, @Composable () -> Unit, @Composable () -> Unit) -> Unit) {
@@ -159,7 +162,7 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
         }
     }
     val fab: @Composable () -> Unit = {
-        if (availability == "available" && selected == null) {
+        if (availability == "available") {
             val label = stringResource(Res.string.cast_start)
             TooltipBox(positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(), tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
                 FloatingActionButton(onClick = { if (!sending) { choice = null; dialog = "start" } }) { Icon(painterResource(Res.drawable.ic_person_add), contentDescription = label) }
@@ -188,7 +191,7 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
                     }
                 }
             } else {
-                val availableFolders = (folders + choice!!.rooms).distinct().filter { choice!!.rooms.isEmpty() || it in choice!!.rooms }
+                val availableFolders = castFolders(folders, choice!!.rooms, selected?.project)
                 if (availableFolders.isEmpty()) Text(stringResource(Res.string.cast_no_folders))
                 availableFolders.forEach { folder -> Text(folder, Modifier.fillMaxWidth().clickable {
                     if (choice!!.id.isEmpty()) submit("/api/cast/new", buildJsonObject { put("room", folder) })
