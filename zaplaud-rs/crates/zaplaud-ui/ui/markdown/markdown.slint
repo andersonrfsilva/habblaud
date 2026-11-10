@@ -25,6 +25,16 @@ export global MarkdownGeometry {
 }
 
 component MeasuredText inherits StyledText {
+    // A altura explícita preserva a medida na largura renderizada ao agregar os layouts ancestrais.
+    height: self.preferred-height;
+    in property <string> row-id;
+    property <int> request: MarkdownGeometry.request;
+    changed request => {
+        MarkdownGeometry.measured(root.row-id, self.absolute-position.y / 1px, self.height / 1px, self.preferred-height / 1px, self.width / 1px);
+    }
+}
+
+export component MeasuredInput inherits TextInput {
     in property <string> row-id;
     property <int> request: MarkdownGeometry.request;
     changed request => {
@@ -106,7 +116,8 @@ component SelectableBlock inherits VerticalLayout {
                     }
                 }
             }
-            if root.selecting: TextInput {
+            if root.selecting: MeasuredInput {
+                row-id: root.row-id;
                 text: root.block.text;
                 accessible-role: text; accessible-label: root.block.text;
                 read-only: true;
@@ -187,7 +198,8 @@ export component MarkdownView inherits Rectangle {
                     max-height: self.preferred-height;
                     vertical-stretch: 0;
                     content-width: max(self.width, code-metrics.preferred-width);
-                    code := TextInput {
+                    code := MeasuredInput {
+                        row-id: root.row-id;
                         width: max(parent.width, code-metrics.preferred-width);
                         height: line-metrics.preferred-height * block.code-lines;
                         text: block.text;
@@ -232,7 +244,8 @@ export component MarkdownView inherits Rectangle {
                                 horizontal-alignment: cell-box.cell.alignment == 1 ? center : cell-box.cell.alignment == 2 ? right : left;
                                 link-clicked(url) => { root.link-clicked(url); }
                             }
-                            if root.selecting: TextInput {
+                            if root.selecting: MeasuredInput {
+                                row-id: root.row-id;
                                 text: cell-box.cell.text;
                                 read-only: true;
                                 wrap: word-wrap;

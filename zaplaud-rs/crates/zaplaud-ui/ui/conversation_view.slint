@@ -1,7 +1,7 @@
 import { Clock } from "clock.slint";
 import { Theme } from "resources.slint";
 import { ConversationState } from "conversation.slint";
-import { MarkdownView, MdBlock } from "markdown/markdown.slint";
+import { MarkdownView, MdBlock, MeasuredInput } from "markdown/markdown.slint";
 import { ScrollList, ScrollContainer, TextButton, Banner, Sheet, Avatar, Pill, Divider } from "widgets/kit.slint";
 import { ComposerState } from "composer.slint";
 import { CastState } from "cast.slint";
@@ -119,13 +119,15 @@ component EntryBubble inherits Rectangle {
                 }
                 TouchArea { clicked => { group-keys.focus(); root.toggle-expanded(); } }
             }
-            if root.entry.kind == "system": TextInput {
+            if root.entry.kind == "system": MeasuredInput {
+                row-id: root.entry.id;
                 text: root.entry.source + (root.entry.time == "" ? "" : " · " + root.entry.time);
                 accessible-role: text; accessible-label: self.text;
                 read-only: true; wrap: word-wrap; color: Theme.on-surface;
                 font-size: 12px; horizontal-alignment: center;
             }
-            if root.entry.kind == "thinking" && root.entry.expanded: TextInput {
+            if root.entry.kind == "thinking" && root.entry.expanded: MeasuredInput {
+                row-id: root.entry.id;
                 text: root.entry.source; read-only: true; wrap: word-wrap; color: Theme.on-surface-variant;
                 accessible-role: text; accessible-label: root.entry.source;
                 font-italic: true; font-size: 16px;
@@ -139,13 +141,14 @@ component EntryBubble inherits Rectangle {
                     for tool in root.entry.tools: VerticalLayout {
                         spacing: 0px;
                         if tool.title != "": Text { text: tool.title; color: Theme.primary; font-size: 14px; font-weight: 500; }
-                        TextInput { text: tool.text; read-only: true; wrap: no-wrap; font-family: "Noto Sans Mono"; font-size: 16px; color: Theme.on-surface; accessible-role: text; accessible-label: tool.title + "\n" + tool.text; }
+                        MeasuredInput { row-id: root.entry.id; text: tool.text; read-only: true; wrap: no-wrap; font-family: "Noto Sans Mono"; font-size: 16px; color: Theme.on-surface; accessible-role: text; accessible-label: tool.title + "\n" + tool.text; }
                     }
                 }
             }
             if !root.group && root.entry.kind != "system": VerticalLayout {
                 if root.entry.summarized: TextButton { text: root.entry.label; clicked => { root.toggle-expanded(); } }
-                if root.entry.summarized && !root.entry.expanded: TextInput {
+                if root.entry.summarized && !root.entry.expanded: MeasuredInput {
+                    row-id: root.entry.id;
                     text: root.entry.display; read-only: true; wrap: word-wrap; color: Theme.on-surface; font-size: 16px;
                 }
                 if !root.entry.summarized || root.entry.expanded: MarkdownView {
@@ -219,16 +222,6 @@ export component ConversationView inherits Rectangle {
     }
 }
 
-export component TranscriptProbe inherits Window {
-    title: "Zaplaud transcript probe";
-    width: 1440px;
-    height: 900px;
-    background: Theme.background;
-    public function scroll-to(fraction: float) { transcript.scroll-to(fraction); }
-    public function page-up() { transcript.page-up(); }
-    public function jump-to-end() { transcript.jump-to-end(); }
-    transcript := ConversationView { }
-}
 
 component MenuAction inherits TextButton {
     in property <string> label;
@@ -381,5 +374,18 @@ export component ConversationStatus inherits Rectangle {
         if ConversationViewState.working: Text { text: Clock.spinner(ConversationViewState.codex, Clock.tick, Clock.focused); color: Theme.primary; font-family: "DejaVu Sans"; font-size: 14px; }
         Text { text: CastState.status != "" ? CastState.status : ConversationViewState.activity; color: Theme.primary; font-size: 12px; overflow: elide; vertical-alignment: center; }
         if ConversationViewState.working: Text { text: Clock.elapsed(ConversationViewState.status-since, Clock.tick); color: Theme.on-surface-variant; font-size: 12px; vertical-alignment: center; }
+    }
+}
+export component TranscriptProbe inherits Window {
+    title: "Zaplaud transcript probe";
+    width: 1440px;
+    height: 900px;
+    background: Theme.background;
+    public function scroll-to(fraction: float) { transcript.scroll-to(fraction); }
+    public function page-up() { transcript.page-up(); }
+    public function jump-to-end() { transcript.jump-to-end(); }
+    VerticalLayout {
+        transcript := ConversationView { }
+        if ConversationViewState.working: ConversationStatus { }
     }
 }
