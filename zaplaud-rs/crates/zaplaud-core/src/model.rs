@@ -579,6 +579,12 @@ pub enum StreamEvent {
         retry_after: Option<String>,
     },
     Connected,
+    Reconnecting {
+        delay: std::time::Duration,
+    },
+    Warn {
+        status: Option<i32>,
+    },
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
