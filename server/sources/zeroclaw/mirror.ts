@@ -17,7 +17,7 @@ export interface SessionMetadata {
 }
 
 type RecordLine = Record<string, unknown>;
-// shortcut: deltas ficam em memória até o fim do bloco (o terminal só acrescenta entradas); reinício no meio do bloco perde o parcial, e o `done` regrava a resposta inteira.
+// shortcut: deltas ficam em memória até o fim do bloco (o terminal só acrescenta entradas); queda do socket ou reinício no meio do turno perde o bloco no terminal (sem replay; o histórico do gateway guarda a resposta), recuperar via /api/sessions/{id}/messages se isso incomodar.
 type Turn = { chunks: boolean; startedAt?: number; unknown: boolean; title?: string; seen: Set<string>; pending?: { kind: 'text' | 'thinking'; text: string } };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const object = (value: unknown): value is RecordLine => !!value && typeof value === 'object' && !Array.isArray(value);
