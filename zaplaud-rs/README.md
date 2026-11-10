@@ -301,6 +301,67 @@ Parley 0.11.1/Swash do renderer. Rejeita `.notdef`, glifo sem bitmap/contorno e
 decomposição das sequências do probe. Roda em `cargo test --workspace`, inclusive CI;
 não precisa de display nem de FontTools. Não substitui a inspeção dos PNGs coloridos.
 
+#### Decisão após medições em resoluções reais
+
+Linux/Xvfb por socket Unix e MIT-SHM; mesma versão anterior do binário com ambos os
+renderizadores compilados (31.045.632 bytes), alternados por `--renderer`. Uma execução
+por caso, 30 s de CPU por estado, sem foco; lista / 252 entradas SSE / trabalhando.
+PSS é medido no cliente, não inclui a memória do servidor X. Páginas compartilhadas
+e liberação de buffers fazem o PSS variar entre estados; não extrapole somente o login.
+
+| Janela lógica / escala | Renderer | PSS MiB: lista / 252 / trabalhando | CPU %: lista / 252 / trabalhando |
+| --- | --- | --- | --- |
+| 1100×760 / 1× | skia-software | 34,52 / 37,29 / 38,07 | 0,17 / 0,23 / 0,50 |
+| 1100×760 / 1× | software | 24,44 / 28,23 / 28,33 | 0,33 / 0,37 / 0,43 |
+| 1920×1080 / 1× | skia-software | 34,85 / 39,94 / 41,96 | 0,20 / 0,40 / 0,70 |
+| 1920×1080 / 1× | software | 28,55 / 28,59 / 30,24 | 0,33 / 0,40 / 0,60 |
+| 2880×1800 / 1× | skia-software | 39,99 / 45,76 / 47,78 | 0,17 / 0,77 / 0,93 |
+| 2880×1800 / 1× | software | 34,82 / 25,68 / 29,24 | 0,20 / 0,37 / 0,83 |
+| 1440×900 / 2× (2880×1800 físicos) | skia-software | 41,25 / 44,19 / 45,48 | 0,23 / 0,40 / 0,50 |
+| 1440×900 / 2× (2880×1800 físicos) | software | 33,32 / 35,40 / 36,37 | 0,60 / 0,30 / 0,73 |
+
+Com **500 entradas reais**, o probe compartilhado com a UI, a 1440×900 / 2×,
+mediu **36,24 MiB PSS / 53,24 MiB RSS / 0,10% CPU** em `software`,
+contra **91,63 MiB PSS / 109,35 MiB RSS / 0,20% CPU** em `skia-software`.
+São dois processos sequenciais de probe, duas threads, 30 s trabalhando em foco,
+não o aplicativo completo. Ambos passaram adjacência exata e dimensões 2880×1800
+em todas as capturas, inclusive após redimensionar e durante a amostra final.
+O custo adicional de 55,39 MiB supera o limite de aproximadamente 15 MiB aceito para cor.
+Caches privados não fazem parte do repositório nem dos relatórios.
+
+No MacBook Air Apple Silicon do dono (macOS 15.7, 8 GB, janela maximizada Retina),
+as medições iniciais fornecidas pelo dono foram:
+
+| Renderer | Login, footprint MB | Sessão real restaurada, footprint MB | CPU trabalhando |
+| --- | ---: | ---: | ---: |
+| skia-software | 36 | 237 | 7–8% |
+| Skia Metal | 139 | 363 | 1,5% |
+| software | 50 | 47–49 | 7,7% |
+
+Esses MB de `footprint` não são MiB PSS Linux. A diferença inicial de 8 MiB
+em Xvfb 1100×760 **não** descreve Retina com conversas reais.
+O critério é menor memória sem perder funcionalidade, não prioridade para emoji colorido.
+JSONs locais: `/tmp/zaplaud-matrix-shm-*.json` e `/tmp/zaplaud-real500-linux-measure.json`.
+
+O pacote leve foi medido novamente após a correção de layout, sem override e **sem
+Skia compilado**. Binário de 23.945.888 bytes (22,84 MiB); o build opcional com Skia
+tem 31.156.736 bytes (29,71 MiB), diferença de 6,88 MiB.
+
+| Janela lógica / escala | PSS MiB: lista / 252 / trabalhando | CPU %: lista / 252 / trabalhando | Mapeamento (ms, uma abertura) |
+| --- | --- | --- | ---: |
+| 1100×760 / 1× | 23,62 / 24,55 / 26,56 | 0,33 / 0,40 / 0,40 | 37,52 |
+| 1920×1080 / 1× | 25,41 / 28,04 / 30,13 | 0,20 / 0,30 / 0,47 | 37,16 |
+| 2880×1800 / 1× | 34,30 / 36,91 / 35,87 | 0,63 / 0,33 / 1,17 | 37,51 |
+| 1440×900 / 2× | 31,83 / 31,30 / 33,28 | 0,27 / 0,40 / 0,83 | 48,79 |
+
+No mesmo caminho `software` em 1440×900 / 2×, manter Skia compilado mediu
+31,14 / 33,27 / 35,18 MiB PSS. Removê-lo reduziu cerca de 2 MiB nas conversas,
+não no login desta amostra; PSS varia com compartilhamento. A redução garantida
+é de arquivo e dependências nativas, não de 6,88 MiB residentes em todos os estados.
+Não se promete CPU zero: houve 1,17% trabalhando em 2880×1800 / 1×.
+JSONs: `/tmp/zaplaud-matrix-lean-*.json`, `/tmp/zaplaud-skia-linked-software.json`.
+
+
 #### Histórico: ensaios anteriores em janela 1×
 
 Os números desta subseção são do build anterior, não do pacote leve atual.

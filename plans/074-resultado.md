@@ -39,6 +39,71 @@ invalidou a escolha anterior: Skia por CPU consumiu **237 MB**, Metal **363 MB**
 com a sessão real restaurada. No login: **36 / 139 / 50 MB**, respectivamente.
 São medições `footprint` do dono, em MB, não PSS Linux em MiB. Emoji colorido não justifica esse custo.
 
+### Nova matriz Linux
+
+Uma execução por caso, CPU por 30 s sem foco, Xvfb por socket Unix/MIT-SHM.
+Mesmo binário anterior com ambos os renderizadores compilados; valores PSS em MiB,
+na ordem lista / conversa com 252 entradas SSE / conversa trabalhando.
+
+| Janela lógica / escala | Renderer | PSS MiB: lista / 252 / trabalhando | CPU %: lista / 252 / trabalhando |
+| --- | --- | --- | --- |
+| 1100×760 / 1× | skia-software | 34,52 / 37,29 / 38,07 | 0,17 / 0,23 / 0,50 |
+| 1100×760 / 1× | software | 24,44 / 28,23 / 28,33 | 0,33 / 0,37 / 0,43 |
+| 1920×1080 / 1× | skia-software | 34,85 / 39,94 / 41,96 | 0,20 / 0,40 / 0,70 |
+| 1920×1080 / 1× | software | 28,55 / 28,59 / 30,24 | 0,33 / 0,40 / 0,60 |
+| 2880×1800 / 1× | skia-software | 39,99 / 45,76 / 47,78 | 0,17 / 0,77 / 0,93 |
+| 2880×1800 / 1× | software | 34,82 / 25,68 / 29,24 | 0,20 / 0,37 / 0,83 |
+| 1440×900 / 2× | skia-software | 41,25 / 44,19 / 45,48 | 0,23 / 0,40 / 0,50 |
+| 1440×900 / 2× | software | 33,32 / 35,40 / 36,37 | 0,60 / 0,30 / 0,73 |
+
+O probe de **500 entradas reais**, com 2880×1800 pixels físicos e indicador a 1 Hz,
+mediu software **36,24 MiB PSS / 0,10% CPU**, Skia CPU **91,63 MiB / 0,20% CPU**.
+Ambos passaram a geometria e usaram duas threads. O probe não inclui rede, bandeja e
+persistência do aplicativo completo. O adicional de **55,39 MiB** não se justifica por cor.
+Os dados privados continuam fora do Git; relatórios não reproduzem mensagens.
+Todas as capturas, inclusive a última usada para medir, confirmaram 2880×1800.
+Uma rodada anterior foi descartada: resize lógico perdia o override 2×; o probe agora pede pixels físicos.
+
+O transporte X11 TCP sem SHM falhou em 2880×1800 nos dois renderizadores:
+`Maximum request length exceeded`. A medição válida usa socket local/MIT-SHM.
+JSONs: `/tmp/zaplaud-matrix-shm-*.json`, `/tmp/zaplaud-real500-linux-measure.json`.
+
+### Limite da rodada macOS
+
+O Mac suspendeu durante os ensaios; SSH passou a expirar e o coordenador confirmou Tailscale offline.
+Antes disso, release leve e exemplos compilaram, o catálogo confirmou Helvetica/System Font,
+e o bundle corrigido foi assinado; iconutil/sips confirmaram representação de 1024×1024.
+Não foi possível buscar e inspecionar os PNGs nativos, medir foco/segundo plano, executar a suíte Mac
+ou instalar/reiniciar o aplicativo final com o layout corrigido. Nenhum dado ou cookie do dono foi alterado.
+Os números Mac desta seção continuam sendo os fornecidos pelo dono, não uma nova certificação.
+
+### Pacote leve sem Skia compilado
+
+Release após a correção do layout: **23.945.888 bytes**, contra **31.156.736 bytes**
+com a feature Skia: **6,88 MiB a menos no arquivo**. Na conversa em 1440×900 / 2×,
+retirar Skia mantendo o mesmo renderer `software` reduziu PSS de 33,27/35,18 MiB
+para 31,30/33,28 MiB (252 entradas/trabalhando). No login, houve 31,14/31,83 MiB:
+não atribua todo o tamanho do arquivo à memória residente.
+
+| Janela lógica / escala | PSS MiB: lista / 252 / trabalhando | CPU %: lista / 252 / trabalhando | Uma abertura, ms |
+| --- | --- | --- | ---: |
+| 1100×760 / 1× | 23,62 / 24,55 / 26,56 | 0,33 / 0,40 / 0,40 | 37,52 |
+| 1920×1080 / 1× | 25,41 / 28,04 / 30,13 | 0,20 / 0,30 / 0,47 | 37,16 |
+| 2880×1800 / 1× | 34,30 / 36,91 / 35,87 | 0,63 / 0,33 / 1,17 | 37,51 |
+| 1440×900 / 2× | 31,83 / 31,30 / 33,28 | 0,27 / 0,40 / 0,83 | 48,79 |
+
+O perfil leve não liga libstdc++; exige glibc 2.43 no artefato local.
+Ícones Linux e macOS usam resvg do próprio projeto; o Dock recebe margem transparente
+e máscara arredondada, sem Quick Look para SVG. O teste do exportador verifica alfa,
+corpo e presença da arte canônica. Fontique/macOS resolveu Helvetica para sans-serif;
+o cliente passa a usar System Font e peso regular explícito 400.
+
+O backend macOS de softbuffer já usa DeviceRGB, mas retorna buffer novo/idade zero
+e ignora danos parciais: Slint rasteriza tudo e CoreGraphics reapresenta tudo.
+Ambos os renderizadores CPU usam esse caminho; Metal evita-o com custo de memória
+inaceitável. Sem fork, o relógio permanece a 1 Hz em foco e passa a 15 s sem foco,
+com spinner estático; oculto/minimizado suspende o timer.
+
 ## Como foi feito
 
 Subagentes em paralelo, cada um numa worktree própria e dono de arquivos distintos, com um integrador por onda:

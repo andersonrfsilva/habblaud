@@ -1,5 +1,8 @@
 //! Mostra as famílias genéricas resolvidas pelo mesmo catálogo usado pelo Slint.
-use slint::fontique_011::{fontique::GenericFamily, shared_collection};
+use slint::fontique_011::{
+    fontique::{FontStyle, FontWeight, FontWidth, GenericFamily},
+    shared_collection,
+};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     for phase in ["before", "after"] {
@@ -13,7 +16,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(family) = collection.family(id) {
                     println!("{phase} {generic:?}: {}", family.name());
                     for font in family.fonts() {
-                        println!("  weight={:?} style={:?}", font.weight(), font.style());
+                        println!(
+                            "  weight={:?} style={:?} variable_weight={}",
+                            font.weight(),
+                            font.style(),
+                            font.has_weight_axis()
+                        );
+                    }
+                    for weight in [400., 500., 700.] {
+                        let requested = FontWeight::new(weight);
+                        if let Some(font) = family.match_font(
+                            FontWidth::NORMAL,
+                            FontStyle::Normal,
+                            requested,
+                            false,
+                        ) {
+                            let synthesis =
+                                font.synthesis(FontWidth::NORMAL, FontStyle::Normal, requested);
+                            println!(
+                                "  requested={weight} selected={:?} embolden={} variable_weight={}",
+                                font.weight(),
+                                synthesis.embolden(),
+                                font.has_weight_axis()
+                            );
+                        }
                     }
                 }
             }

@@ -17,6 +17,9 @@ do meio (0.**3**.0).
   usa o renderizador leve do Slint e emoji de contorno embutido; Skia colorido é opt-in de compilação e execução.
   A medição inicial de 37 MiB era de uma janela Xvfb 1100×760: no Mac Retina real, Skia por CPU chegou a 237 MB,
   contra 47–49 MB do renderer software. O pacote macOS gera o ícone com resvg, sem o quadrado branco do Quick Look.
+  A fonte macOS usa a família de interface nativa com peso regular 400. Em foco mantém indicadores a 1 Hz;
+  sem foco, o cronômetro macOS atualiza a cada 15 s e não anima; oculto, suspende o timer.
+  Corrige a altura de texto rico e código que sobrepunha mensagens em conversas longas e escala Retina.
   Wayland e persistência de login no chaveiro Linux real ainda exigem validação.
 - **Zaplaud:** no desktop, ícone na bandeja (waybar, KDE, GNOME com extensão de indicadores): clique traz a janela, e
   o menu tem "Abrir o Zaplaud" e "Fechar o Zaplaud". A janela se identifica como `zaplaud` (`WM_CLASS`), e docks como
