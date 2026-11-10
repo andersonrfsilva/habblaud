@@ -112,6 +112,8 @@ describe('fonte ZeroClaw', () => {
     await s.source.flush();
     expect(s.office.get('stable-handle')?.sessionId).toBe(NEXT);
     expect(s.office.list()).toHaveLength(1);
+    // O terminal segue a conversa nova, não o espelho da sessão anterior (bug do /new no piloto 043).
+    expect(s.source.transcriptPathOf('stable-handle')).toMatch(new RegExp(`${NEXT}\\.jsonl$`));
   });
 
   it('queda HTTP remove presença mas preserva histórico e intenção', async () => {

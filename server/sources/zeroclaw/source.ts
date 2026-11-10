@@ -88,8 +88,12 @@ export class ZeroClawSource implements AgentSource {
   }
 
   transcriptPathOf(agentId: string): string | undefined {
-    for (const [id, tracker] of this.trackers) if (tracker.id === agentId && existsSync(this.opts.mirror.pathOf(id))) return this.opts.mirror.pathOf(id);
-    return undefined;
+    // Depois de /new o personagem mantém o id e ganha outro tracker: vale o da sessão atual, não o primeiro do Map.
+    const current = this.opts.office.get(agentId)?.sessionId;
+    if (current && this.trackers.get(current)?.id === agentId && existsSync(this.opts.mirror.pathOf(current))) return this.opts.mirror.pathOf(current);
+    let found: string | undefined;
+    for (const [id, tracker] of this.trackers) if (tracker.id === agentId && existsSync(this.opts.mirror.pathOf(id))) found = this.opts.mirror.pathOf(id);
+    return found;
   }
 
   async flush(): Promise<void> { await this.pending; }
