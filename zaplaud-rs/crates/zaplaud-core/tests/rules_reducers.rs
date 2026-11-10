@@ -903,8 +903,12 @@ fn permission_input_preserves_strings_and_compact_json_without_truncation() {
         json!(false),
         Value::Null,
     ] {
-        let detail = Permission::parse(&json!({"input": input, "description": "Detalhes completos"}));
-        let expected = input.as_str().map(str::to_owned).unwrap_or_else(|| input.to_string());
+        let detail =
+            Permission::parse(&json!({"input": input, "description": "Detalhes completos"}));
+        let expected = input
+            .as_str()
+            .map(str::to_owned)
+            .unwrap_or_else(|| input.to_string());
         assert_eq!(detail.input.as_deref(), Some(expected.as_str()));
         assert_eq!(detail.raw["input"], input);
         assert_eq!(detail.description.as_deref(), Some("Detalhes completos"));
@@ -979,7 +983,13 @@ fn permission_decision_failure_survives_stream_flap_and_releases_busy() {
         (None, false, Some("unknown"), true, None),
         (Some(401), false, None, false, Some(p::Effect::Unauthorized)),
         (Some(409), false, None, false, Some(p::Effect::Close)),
-        (None, true, None, true, Some(p::Effect::PropagateCancellation)),
+        (
+            None,
+            true,
+            None,
+            true,
+            Some(p::Effect::PropagateCancellation),
+        ),
     ] {
         let (mut state, token) = deciding_permission();
         for connected in [false, true] {
@@ -994,7 +1004,11 @@ fn permission_decision_failure_survives_stream_flap_and_releases_busy() {
         }
         let (state, effects) = p::reduce(
             state,
-            p::Event::DecisionFailed { token, status, cancelled },
+            p::Event::DecisionFailed {
+                token,
+                status,
+                cancelled,
+            },
         );
         assert!(!state.busy);
         assert_eq!(state.error.as_deref(), error);
@@ -1031,9 +1045,20 @@ fn permission_replacement_drops_old_decision_completions_and_displayed_id_action
     );
     for event in [
         p::Event::Decided { token },
-        p::Event::DecisionFailed { token, status: Some(503), cancelled: false },
-        p::Event::Decide { id: "p".into(), behavior: "allow".into(), now: 1 },
-        p::Event::Deny { id: "p".into(), now: 1 },
+        p::Event::DecisionFailed {
+            token,
+            status: Some(503),
+            cancelled: false,
+        },
+        p::Event::Decide {
+            id: "p".into(),
+            behavior: "allow".into(),
+            now: 1,
+        },
+        p::Event::Deny {
+            id: "p".into(),
+            now: 1,
+        },
     ] {
         let (next, effects) = p::reduce(state.clone(), event);
         assert_eq!(next, state);
