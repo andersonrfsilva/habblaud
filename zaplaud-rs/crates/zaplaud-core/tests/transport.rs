@@ -427,14 +427,33 @@ async fn unauthorized_cancels_other_bodies_without_resurrecting_session() -> Tes
     let (headers_sent, headers_received) = tokio::sync::oneshot::channel();
     let server = tokio::spawn(async move {
         let (mut first, _) = listener.accept().await?;
+        {
+            let mut reader = BufReader::new(&mut first);
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).await? == 0 || line == "\r\n" {
+                    break;
+                }
+            }
+        }
         first
             .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\n")
             .await?;
         let _ = headers_sent.send(());
         let (mut second, _) = listener.accept().await?;
+        {
+            let mut reader = BufReader::new(&mut second);
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).await? == 0 || line == "\r\n" {
+                    break;
+                }
+            }
+        }
         second
             .write_all(b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n")
             .await?;
+        second.shutdown().await?;
         let mut bytes = [0; 1024];
         while first.read(&mut bytes).await? != 0 {}
         Ok::<_, std::io::Error>(())
@@ -442,8 +461,40 @@ async fn unauthorized_cancels_other_bodies_without_resurrecting_session() -> Tes
     let caller = api.clone();
     let body = tokio::spawn(async move { caller.request("/api/snapshot", None).await });
     headers_received.await?;
-    assert!(matches!(api.access().await, Err(Error::Unauthorized)));
+    let unauthorized = api.access().await;
+    assert!(
+        matches!(unauthorized, Err(Error::Unauthorized)),
+        "{unauthorized:?}"
+    );
     assert!(matches!(body.await?, Err(Error::SessionEnded)));
     server.await??;
+    Ok(())
+}
+
+#[tokio::test]
+async fn summaries_accept_all_kotlin_primitives_without_http_fallback() -> TestResult {
+    let responses = [
+        r#"{"summary":"texto"}"#,
+        r#"{"summary":12}"#,
+        r#"{"summary":true}"#,
+        r#"{"summary":null}"#,
+        "{}",
+        r#"{"summary":[]}"#,
+    ]
+    .into_iter()
+    .map(|body| response(200, "", body))
+    .collect();
+    let (origin, server) = server(responses).await?;
+    let api = HabblaudApi::new(&origin)?;
+    for expected in ["texto", "12", "true", "null"] {
+        assert_eq!(api.summary("texto fictício").await?, expected);
+    }
+    for _ in 0..2 {
+        assert!(matches!(
+            api.summary("texto fictício").await,
+            Err(Error::InvalidResponse("summary"))
+        ));
+    }
+    server.await?;
     Ok(())
 }

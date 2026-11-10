@@ -344,13 +344,16 @@ impl HabblaudApi {
         .map(|_| ())
     }
     pub async fn summary(&self, text: &str) -> Result<String, Error> {
-        model::string(
-            &self
-                .json("/api/summaries", Some(json!({"text":text})))
-                .await?,
-            "summary",
-        )
-        .ok_or(Error::InvalidResponse("summary"))
+        let value = self
+            .json("/api/summaries", Some(json!({"text":text})))
+            .await?;
+        match value.get("summary") {
+            Some(Value::String(text)) => Ok(text.clone()),
+            Some(value @ (Value::Number(_) | Value::Bool(_) | Value::Null)) => {
+                Ok(value.to_string())
+            }
+            _ => Err(Error::InvalidResponse("summary")),
+        }
     }
     /// Quotas e contexto são campos de snapshot, não rotas adicionais.
     pub async fn quotas(&self) -> Result<Vec<AccountQuota>, Error> {
