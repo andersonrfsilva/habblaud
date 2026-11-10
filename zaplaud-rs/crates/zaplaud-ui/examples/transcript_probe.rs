@@ -151,7 +151,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 n if n <= pages => window.invoke_page_up(),
                 n if n == pages + 1 => window.invoke_scroll_to(0.5),
                 n if n == pages + 2 || n == pages + 10 => window.invoke_jump_to_end(),
-                n if n == pages + 4 => window.set_requested_width((width * 0.6).max(320.)),
+                n if n == pages + 4 => window.set_requested_width((width * 0.6).round().max(320.)),
                 n if n == pages + 5 => window.set_requested_width(width),
                 _ => {
                     if action == pages + 3 || action == pages + 7 {
