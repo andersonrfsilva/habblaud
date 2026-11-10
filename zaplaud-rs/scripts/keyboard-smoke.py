@@ -122,8 +122,8 @@ def main():
         for name, opener in [
             ('session-info', lambda: d.click(650, 32)),
             ('conversation-menu', lambda: d.click(1072, 32)),
-            ('aside', lambda: (d.click(1072, 32), d.click(990, 280))),
-            ('cast-dismiss', lambda: (d.click(1072, 32), d.click(1010, 328))),
+            ('aside', lambda: (d.click(1072, 32), d.click(990, 328))),
+            ('cast-dismiss', lambda: (d.click(1072, 32), d.click(1010, 424))),
             ('shake-confirm', lambda: context_confirmation(d)),
             ('settings', lambda: (d.click(328, 36), d.click(375, 88))),
             ('settings-role-dialog', lambda: (d.click(328, 36), d.click(375, 88), scroll_roles(d), d.click(170, 248))),
