@@ -10,7 +10,7 @@ enum Command { View(usize), Toggle(String), Position(bool), Metadata(Box<Session
 struct RenderRow { id:String, kind:String, source:String, display:String, label:String, time:String, expanded:bool, summarized:bool }
 thread_local! { static ROWS: RefCell<Option<Rc<VecModel<RenderRow>>>> = const { RefCell::new(None) }; }
 
-fn markdown(source:&str) -> ModelRc<MdBlock> {
+pub(crate) fn markdown(source:&str) -> ModelRc<MdBlock> {
     let blocks = zaplaud_ui::markdown::parse(source).into_iter().map(|b| MdBlock {
         kind:b.kind, rich:b.rich, text:b.text, level:b.level, depth:b.depth, marker:b.marker,
         language:b.language, columns:b.columns,
@@ -144,6 +144,14 @@ fn publish_info(window:&AppWindow,item:&SessionItem,entries:&[zaplaud_core::mode
     state.set_info(ModelRc::new(VecModel::from(rows)));
     state.set_details(ModelRc::new(VecModel::from(vec![info_row(strings::INFO_PROJECT,item.project.clone().unwrap_or_default()),info_row(strings::INFO_PROVIDER,format!("{} · {}",item.key.provider,item.key.account)),info_row(strings::INFO_SESSION,item.key.session_id.clone()),info_row(strings::INFO_SERVER,item.key.origin.clone())])));
     state.set_info_status(if item.agent_id.is_none() { strings::INFO_CLOSED } else { match item.status.as_deref() { Some("working"|"busy"|"running") => strings::STATUS_WORKING,Some("idle") => strings::STATUS_IDLE,Some("waiting") => strings::STATUS_WAITING,_ => strings::INFO_OPEN } }.into());
+    let choices = zaplaud_core::rules::composer::role_model_groups(&item.models,item.model.as_deref()).into_iter().flat_map(|(provider,models)| {
+        let mut choices = vec![crate::ModelChoice { value:String::new().into(),label:provider.into(),header:true }];
+        choices.extend(models.into_iter().map(|value| crate::ModelChoice { label:value.split_once('/').map_or(value.as_str(),|(_,name)|name).into(),value:value.into(),header:false }));
+        choices
+    }).collect::<Vec<_>>();
+    state.set_models(ModelRc::new(VecModel::from(choices)));
+    state.set_model(item.model.clone().unwrap_or_default().into());
+    state.set_thinking(item.thinking.clone().unwrap_or_default().into());
 }
 
 async fn confirm(api:&HabblaudApi,item:&SessionItem) -> Result<bool,zaplaud_core::Error> {
@@ -235,6 +243,8 @@ pub fn setup(window:&AppWindow,context:&FeatureContext) {
     state.set_go_to_end(strings::GO_TO_END.into()); state.set_view_label(strings::VIEW_MENU.into()); state.set_back(strings::BACK.into());
     state.set_view_labels(ModelRc::new(VecModel::from(vec![strings::VIEW_ALL.into(),strings::VIEW_PROMPTS.into(),strings::VIEW_NO_TOOLS.into()])));
     state.set_info_label(strings::SESSION_INFO.into()); state.set_details_label(strings::INFO_SHOW_DETAILS.into()); state.set_hide_details_label(strings::INFO_HIDE_DETAILS.into());
+    state.set_deliver_label(strings::DELIVER_MODE.into()); state.set_model_label(strings::MODEL_MENU.into()); state.set_thinking_label(strings::THINKING_MENU.into()); state.set_shake_label(strings::SHAKE.into()); state.set_aside_label(strings::ASIDE_MENU.into());
+    state.set_thinking_labels(ModelRc::new(VecModel::from(zaplaud_core::model::THINKING_LEVELS.iter().map(|level| crate::formatted(&format!("thinking_{level}"),&[]).into()).collect::<Vec<_>>())));
     let weak = window.as_weak(); window.global::<ConversationState>().on_info(move || { if let Some(w) = weak.upgrade() { w.global::<ConversationViewState>().set_info_open(true); } });
     let weak = window.as_weak(); window.global::<ConversationState>().on_menu(move || { if let Some(w) = weak.upgrade() { w.global::<ConversationViewState>().set_menu_open(true); } });
     let (sender,mut receiver) = mpsc::unbounded_channel();

@@ -2,6 +2,9 @@ import { Theme } from "resources.slint";
 import { ConversationState } from "conversation.slint";
 import { MarkdownView, MdBlock } from "markdown/markdown.slint";
 import { ScrollList, ScrollContainer, TextButton, Banner, Sheet, Avatar, Pill, Divider } from "widgets/kit.slint";
+import { ComposerState } from "composer.slint";
+import { CastState } from "cast.slint";
+import { AsideState } from "aside.slint";
 export { MdBlock, MdCell, MdSpan } from "markdown/markdown.slint";
 
 export struct ConversationRow {
@@ -9,6 +12,7 @@ export struct ConversationRow {
     label: string, time: string, expanded: bool, summarized: bool,
 }
 export struct InfoRow { label: string, value: string }
+export struct ModelChoice { value: string, label: string, header: bool }
 export global ConversationViewState {
     in property <[ConversationRow]> rows;
     in property <string> notice;
@@ -18,6 +22,16 @@ export global ConversationViewState {
     in property <string> view-label;
     in property <[string]> view-labels;
     in property <string> view;
+    in property <string> deliver-label;
+    in property <string> model-label;
+    in property <string> thinking-label;
+    in property <string> shake-label;
+    in property <string> aside-label;
+    in property <[ModelChoice]> models;
+    in property <string> model;
+    in property <string> thinking;
+    in property <[string]> thinking-labels;
+    in-out property <string> menu-page;
     in property <string> back;
     in property <string> info-label;
     in property <string> details-label;
@@ -100,7 +114,8 @@ export component ConversationView inherits Rectangle {
         messages.viewport-y = min(0px, messages.height - messages.viewport-height);
         ConversationViewState.position(true);
     }
-    changed ConversationViewState.end-request => { root.jump-to-end(); }
+    property <int> end-request: ConversationViewState.end-request;
+    changed end-request => { root.jump-to-end(); }
     VerticalLayout {
         padding-left: 12px; padding-right: 12px; spacing: 0px;
         if ConversationViewState.notice != "": Banner { text: ConversationViewState.notice; severity: "warn"; }
@@ -139,23 +154,73 @@ export component ConversationView inherits Rectangle {
 }
 
 export component ConversationMenu inherits Sheet {
-    dismissed => { ConversationViewState.menu-open = false; ConversationViewState.view-menu = false; }
-    VerticalLayout {
+    dismissed => { ConversationViewState.menu-open = false; ConversationViewState.menu-page = ""; }
+    ScrollContainer { VerticalLayout {
         padding: 20px; spacing: 8px;
         Text { text: ConversationState.title; color: Theme.on-surface; font-size: 20px; }
-        if !ConversationViewState.view-menu: TextButton {
-            text: ConversationViewState.view-label + "   ›";
-            clicked => { ConversationViewState.view-menu = true; }
+        if ConversationViewState.menu-page == "": VerticalLayout {
+            TextButton {
+                text: ConversationViewState.view-label + "   ›";
+                clicked => { ConversationViewState.menu-page = "view"; }
+            }
+            if ComposerState.modes-visible: TextButton {
+                text: ConversationViewState.deliver-label + "   ›";
+                clicked => { ConversationViewState.menu-page = "deliver"; }
+            }
+            if ComposerState.modes-visible && ConversationViewState.models.length > 0: TextButton {
+                text: ConversationViewState.model-label + "   ›"; enabled: ComposerState.can-shake;
+                clicked => { ConversationViewState.menu-page = "model"; }
+            }
+            if ComposerState.modes-visible: TextButton {
+                text: ConversationViewState.thinking-label + "   ›"; enabled: ComposerState.can-shake;
+                clicked => { ConversationViewState.menu-page = "thinking"; }
+            }
+            if ComposerState.modes-visible: TextButton {
+                text: ConversationViewState.shake-label; enabled: ComposerState.can-shake;
+                clicked => { ComposerState.command("command", "shake"); ConversationViewState.menu-open = false; }
+            }
+            if ComposerState.modes-visible: TextButton {
+                text: ConversationViewState.aside-label; enabled: ComposerState.can-shake;
+                clicked => { ConversationViewState.menu-open = false; AsideState.open(); }
+            }
+            if CastState.dismiss-visible: TextButton {
+                text: CastState.dismiss-label; enabled: CastState.enabled;
+                clicked => { ConversationViewState.menu-open = false; CastState.dismiss(); }
+            }
         }
-        if ConversationViewState.view-menu: VerticalLayout {
-            TextButton { text: "‹ " + ConversationViewState.back; clicked => { ConversationViewState.view-menu = false; } }
+        if ConversationViewState.menu-page != "": TextButton {
+            text: "‹ " + ConversationViewState.back; clicked => { ConversationViewState.menu-page = ""; }
+        }
+        if ConversationViewState.menu-page == "view": VerticalLayout {
             for label[index] in ConversationViewState.view-labels: TextButton {
                 text: (ConversationViewState.view == (index == 0 ? "all" : index == 1 ? "prompts" : "no_tools") ? "◉  " : "○  ") + label;
-                clicked => { ConversationViewState.choose-view(index); ConversationViewState.menu-open = false; ConversationViewState.view-menu = false; }
+                clicked => { ConversationViewState.choose-view(index); ConversationViewState.menu-open = false; ConversationViewState.menu-page = ""; }
+            }
+        }
+        if ConversationViewState.menu-page == "deliver": VerticalLayout {
+            for label[index] in ComposerState.mode-labels: TextButton {
+                text: (index == ComposerState.mode-index ? "◉  " : "○  ") + label;
+                clicked => { ComposerState.mode(index); ConversationViewState.menu-open = false; ConversationViewState.menu-page = ""; }
+            }
+        }
+        if ConversationViewState.menu-page == "model": VerticalLayout {
+            for choice in ConversationViewState.models: VerticalLayout {
+                if choice.header: Text { text: choice.label; color: Theme.primary; font-size: 14px; }
+                if !choice.header: TextButton {
+                    text: (choice.value == ConversationViewState.model ? "◉  " : "○  ") + choice.label;
+                    clicked => { ComposerState.command("model", choice.value); ConversationViewState.menu-open = false; ConversationViewState.menu-page = ""; }
+                }
+            }
+        }
+        if ConversationViewState.menu-page == "thinking": VerticalLayout {
+            for label[index] in ConversationViewState.thinking-labels: TextButton {
+                property <string> value: index == 0 ? "off" : index == 1 ? "minimal" : index == 2 ? "low" : index == 3 ? "medium" : index == 4 ? "high" : index == 5 ? "xhigh" : "max";
+                text: (self.value == ConversationViewState.thinking ? "◉  " : "○  ") + label;
+                clicked => { ComposerState.command("thinking", self.value); ConversationViewState.menu-open = false; ConversationViewState.menu-page = ""; }
             }
         }
         @children
-    }
+    } }
 }
 
 export component SessionInfoSheet inherits Sheet {
