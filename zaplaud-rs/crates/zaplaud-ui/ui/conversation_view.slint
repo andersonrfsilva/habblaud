@@ -6,6 +6,7 @@ import { ScrollList, ScrollContainer, TextButton, Banner, Sheet, Avatar, Pill, D
 import { ComposerState } from "composer.slint";
 import { CastState } from "cast.slint";
 import { AsideState } from "aside.slint";
+import { FilesState } from "files.slint";
 import { MaterialIcons } from "widgets/material-icons.slint";
 export { MdBlock, MdCell, MdSpan, MarkdownGeometry } from "markdown/markdown.slint";
 
@@ -287,6 +288,10 @@ export component ConversationMenu inherits Rectangle {
             if AsideState.available: MenuAction {
                 label: ConversationViewState.aside-label; enabled: AsideState.enabled;
                 clicked => { ConversationViewState.menu-open = false; AsideState.open(); }
+            }
+            MenuAction {
+                label: FilesState.title;
+                clicked => { ConversationViewState.menu-open = false; FilesState.open(true); }
             }
             if CastState.dismiss-visible: MenuAction {
                 label: CastState.dismiss-label; leading-icon: MaterialIcons.exit-to-app; enabled: CastState.enabled;

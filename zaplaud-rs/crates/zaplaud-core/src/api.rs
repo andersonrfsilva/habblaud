@@ -14,6 +14,7 @@ use serde_json::{Value, json};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, MutexGuard};
 use url::Url;
+mod files;
 mod reconnect;
 mod routes;
 pub use reconnect::*;

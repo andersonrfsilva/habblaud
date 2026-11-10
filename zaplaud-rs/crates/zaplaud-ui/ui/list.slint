@@ -3,6 +3,7 @@ import { Theme, StatusColors } from "resources.slint";
 import { Labels } from "labels.slint";
 import { TextField, TextButton, SegmentedControl, Chip, Banner, Avatar, Badge, ScrollList, ScrollContainer, Menu, ProgressRing, Tooltip, Fab, IconButton } from "widgets/kit.slint";
 import { MaterialIcons } from "widgets/material-icons.slint";
+import { FilesState } from "files.slint";
 export struct SessionRow {
     key: string, title: string, subtitle: string, activity: string, time: string, unread: string,
     initials: string, avatar: image, brand: image, brand-color: color, fallback-color: color,
@@ -155,5 +156,6 @@ export component ListPane inherits Rectangle {
     menu := Menu { x: root.width - 52px; y: 56px; width: 150px;
         TextButton { min-height: 48px; preferred-height: 48px; text: Labels.settings; text-weight: 400; foreground: Theme.on-surface; horizontal-alignment: left; border-radius: 0px; clicked => { menu.close(); ListState.menu-open = false; ListState.settings(); } }
         TextButton { min-height: 48px; preferred-height: 48px; text: Labels.add-server; text-weight: 400; foreground: Theme.on-surface; horizontal-alignment: left; border-radius: 0px; clicked => { menu.close(); ListState.menu-open = false; ListState.add-server(); } }
+        TextButton { min-height: 48px; preferred-height: 48px; text: FilesState.title; text-weight: 400; foreground: Theme.on-surface; horizontal-alignment: left; border-radius: 0px; clicked => { menu.close(); ListState.menu-open = false; FilesState.open(false); } }
     }
 }

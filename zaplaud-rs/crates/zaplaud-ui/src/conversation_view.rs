@@ -587,18 +587,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
     });
     state.on_open_link(move |url| {
         if valid_link(&url) {
-            let program = if cfg!(target_os = "macos") {
-                "open"
-            } else {
-                "xdg-open"
-            };
-            // O navegador pode continuar aberto depois de fechar o cliente.
-            let _ = std::process::Command::new(program)
-                .arg(url.as_str())
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn();
+            let _ = open_system(std::ffi::OsStr::new(url.as_str()));
         }
     });
     let mut snapshots = context.snapshots.subscribe();
@@ -632,6 +621,22 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
         }
         stop_session(&mut task).await;
     });
+}
+
+pub(crate) fn open_system(target: &std::ffi::OsStr) -> std::io::Result<()> {
+    let program = if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    // O aplicativo externo pode continuar aberto depois de fechar o cliente.
+    std::process::Command::new(program)
+        .arg(target)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map(|_| ())
 }
 
 #[cfg(test)]

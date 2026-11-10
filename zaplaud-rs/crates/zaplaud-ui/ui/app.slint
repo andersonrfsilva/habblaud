@@ -15,6 +15,8 @@ import { CastSheet, CastState } from "cast.slint";
 import { AsideSheet, AsideState } from "aside.slint";
 export { CastState, CastRow } from "cast.slint";
 export { AsideState, AsideTurnRow, AsideTopicRow } from "aside.slint";
+import { FilesSheet, FilesState } from "files.slint";
+export { FilesState, FilesRootRow, FilesCrumbRow, FilesEntryRow, FilesDownloadRow } from "files.slint";
 import { ComposerPane, ComposerDialogs, ComposerState } from "composer.slint";
 import { SettingsPane, SettingsState } from "settings.slint";
 import { PermissionSheet, PermissionState } from "permission.slint";
@@ -55,7 +57,7 @@ export component AppWindow inherits Window {
     forward-focus: keys;
     private property <bool> logout-open: ShellState.logout-origin != "";
     private property <bool> message-open: ShellState.message != "";
-    private property <bool> overlay-open: PermissionState.visible || AsideState.visible || CastState.visible || CastState.confirming || ConversationViewState.menu-open || ConversationViewState.info-open || ComposerState.confirm-visible || ComposerState.shake-confirm || ComposerState.picker-visible || root.logout-open || root.message-open;
+    private property <bool> overlay-open: FilesState.visible || PermissionState.visible || AsideState.visible || CastState.visible || CastState.confirming || ConversationViewState.menu-open || ConversationViewState.info-open || ComposerState.confirm-visible || ComposerState.shake-confirm || ComposerState.picker-visible || root.logout-open || root.message-open;
     private property <bool> settings-open: SettingsState.visible;
     private property <bool> http-open: LoginState.confirm-http;
     changed http-open => { if !self.http-open && LoginState.visible { keys.focus(); } }
@@ -105,6 +107,7 @@ export component AppWindow inherits Window {
     if ConversationViewState.info-open: SessionInfoSheet {}
     CastSheet {}
     AsideSheet {}
+    FilesSheet {}
     ComposerDialogs {}
     PermissionSheet { visible: PermissionState.visible; }
     if ShellState.logout-origin != "": Dialog {

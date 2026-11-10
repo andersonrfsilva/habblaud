@@ -12,6 +12,7 @@ mod composer;
 mod conversation;
 mod conversation_view;
 pub mod feature;
+mod files;
 mod instance;
 mod list;
 mod login;
@@ -37,6 +38,7 @@ const FEATURES: &[Feature] = &[
     conversation_view::setup,
     cast::setup,
     aside::setup,
+    files::setup,
     composer::setup,
     permission::setup,
     alerts::setup,

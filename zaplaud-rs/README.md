@@ -44,7 +44,7 @@ O pacote usa `software` do Slint e não inclui Skia. Para emoji colorido, compil
 | Arquivo ou módulo | Responsabilidade e limite de alteração |
 | --- | --- |
 | `crates/zaplaud-core/src/model.rs` | Modelo compartilhado, tipos de eventos e conversão do contrato Kotlin/servidor. Não deve depender de Slint. |
-| `crates/zaplaud-core/src/api.rs` | HTTP, política de origem, autenticação, SSE e contrato `SessionPersistence`. Recebe a persistência por injeção; não toca widgets nem disco diretamente. |
+| `crates/zaplaud-core/src/api.rs` e `api/` | HTTP, política de origem, autenticação, SSE e contrato `SessionPersistence`. Downloads de arquivos gravam um temporário irmão e publicam sem sobrescrever o destino; não dependem de widgets. |
 | `crates/zaplaud-core/src/error.rs` | Erro compartilhado do núcleo. |
 | `crates/zaplaud-core/src/rules/` | Regras puras Kotlin, redutores e efeitos tipados do compositor, asides e permissões; `list.rs` exporta ordenação e marcadores de leitura para o controlador da lista. |
 | `crates/zaplaud-core/tests/` | Contrato com servidor real e payloads capturados sem segredos. |
@@ -192,6 +192,13 @@ Os campos de `Theme` incluem os 48 papéis Material 3 em claro e escuro. O [base
 `controller::cast::State` executa as rotas tipadas de elenco sem repetir POSTs. A origem das ações segue a seleção, depois o filtro, depois o servidor único. `CastState` publica retomar/dispensar e o texto de estado para o host da conversa; `ListState.cast` abre a escolha de contato e pasta.
 
 `controller::aside::run` recebe eventos por `mpsc`, publica o redutor por `watch` e sinaliza 401 por um canal separado. Descartar o runner cancela chamadas e esperas. Fechar ou trocar de sessão limpa a folha e encerra o polling. O runner limita a espera periódica de 700 ms do Kotlin a 1 s, conforme a meta desktop; não cria SSE adicional. Perguntas, cancelamentos e a consulta inicial continuam imediatos. `AsideState.open()` é a entrada do menu da conversa.
+
+
+### Arquivos da pasta de trabalho
+
+O menu da conversa abre **Arquivos** na pasta da sessão; o menu da lista começa pela primeira raiz. O painel direito permite escolher raízes, seguir breadcrumbs e navegar por teclado (↑/↓, Enter, Backspace e Esc). Acesso depende da permissão remota `terminal`. Clique em arquivo baixa para Downloads, respeitando `XDG_DOWNLOAD_DIR` no Linux e `~/Downloads` no macOS. Nomes são saneados e colisões recebem ` (1)`, ` (2)` antes da extensão. Downloads simultâneos mostram progresso e cancelamento; o resultado oferece **Abrir** e **Mostrar na pasta**. A transferência usa streaming sem limite total, com timeout de leitura; falhas e cancelamento removem o temporário sem deixar arquivo parcial.
+
+Para exercitar o recurso na fixture, acrescente `--files /caminho/da/arvore` ao comando `scripts/android-smoke.ts`. Sem essa opção, arquivos permanecem desligados.
 
 ### Exercício visual e medição
 

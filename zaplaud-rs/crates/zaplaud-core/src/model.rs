@@ -2,6 +2,33 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileRoot {
+    pub path: String,
+    pub label: String,
+    pub room_id: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct FileEntry {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub entry_type: String,
+    pub size: u64,
+    /// Milissegundos desde 1970, incluindo a fração retornada pelo sistema de arquivos.
+    pub mtime: f64,
+    pub kind: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct FileListing {
+    pub path: String,
+    pub root: String,
+    pub entries: Vec<FileEntry>,
+    pub truncated: bool,
+}
+
 pub const NEW_CAST_PREFIX: &str = "novo-";
 pub const MAX_ATTACHMENT_SIZE: i64 = 15 * 1024 * 1024;
 pub const MAX_ATTACHMENTS: usize = 5;
