@@ -95,7 +95,7 @@ conditions e atualize sua linha ao terminar.
 | 071 | [Elenco com ZeroClaw: chamar e dispensar personagens pelo gateway, sem auxiliar nem tmux](071-elenco-com-zeroclaw.md) | P1 | L | 069, 070 | DONE no branch `advisor/zeroclaw-tenants` (`619e63a`), não mesclado. Smoke com modelo real (Sonnet) e ZeroClaw 0.8.7: chamar, ferramentas, steer, STOP, dispensar e reinício sem sessão presa |
 | 072 | [ZeroClaw no cliente web e no Android: rótulos, controles permitidos, sem barra de contexto não confiável](072-zeroclaw-no-cliente-web-e-android.md) | P1 | L | 070, 071 (e 068 para o interruptor de resumo no Android) | DONE no branch `advisor/zeroclaw-tenants` (`bcf122c`), não mesclado. Desvio aprovado: `client/src/net/store.ts` manda `expectedSessionId` para ZeroClaw. Chromium 5/5, instrumentados 27/27; iOS não compilado |
 | 073 | [Cartão de uso lido do `GET /v1/cota`, sem `omp usage`](073-cartao-de-uso-pela-cota.md) | P1 | M | — | DONE no branch `advisor/zeroclaw-tenants` (`552b62f`), não mesclado |
-| 074 | [Zaplaud desktop em Rust + Slint: roteiro por fases (27 capacidades, portões, harmonia gerada do Kotlin)](074-zaplaud-cliente-rust-slint.md) | P3 | L | decisão do dono (067: portão aberto, recomendação "não agora") | TODO (aguardando decisão do dono) |
+| 074 | [Zaplaud desktop em Rust + Slint: roteiro por fases (27 capacidades, portões, harmonia gerada do Kotlin)](074-zaplaud-cliente-rust-slint.md) | P3 | L | ordem do dono em 2026-11-10 (Compose no miranote: 418–490 MiB, "inaceitável") | IN PROGRESS: fases 0–5 feitas no branch `feat/zaplaud-rs` (`6d19879`, não mesclado), ver [074-resultado.md](074-resultado.md). 27 capacidades implementadas; 196 testes, 3 roteiros gráficos × 2 temas × 2 modos de desenho, `npm test -- server` 1.271. Release: abre em 108 ms, 37 MiB de PSS parado (29 MiB no modo leve), binário de 31 MiB. Duas revisões independentes (paridade e segurança) com tudo corrigido. Falta a fase 6: Wayland, macOS, chaveiro e avisos reais, instalação no miranote (máquina desligada na hora) e uso real do dono; depois, remover o desktop Compose |
 
 Integração 054–062 (2026-11-08): branch `advisor/zaplaud-modernizacao-054-062`, mesclada em `producao` e enviada a
 `fork/main` a pedido do dono. Instrumentados 141 testes, 0 falhas em `28efc0e` (antes de reverter o 062) e 142 em
@@ -144,7 +144,15 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
   Worktrees em `/tmp/habblaud-NNN`. 063 e 064 passaram por leitura fria de um revisor (19 apontamentos corrigidos).
   **063–066 integrados em `advisor/zaplaud-desktop-063-066` (`3255ff4`) e mesclados em `producao` em `e214452`**
   (2026-11-09, a pedido do dono; sem push). Documentação: [docs/zaplaud-desktop.md](../docs/zaplaud-desktop.md).
-  Rust: roteiro no 074, só com decisão do dono.
+  Rust: executado no 074 por ordem do dono em 2026-11-10 (subagentes em paralelo, uma worktree por frente).
+
+- 074: fases 0–5 em `feat/zaplaud-rs` (`6d19879`). Textos, cores e ícones do cliente Rust são gerados de
+  `android/shared/src/commonMain` na compilação: mudar `strings.xml`, o tema em `ZaplaudApp.kt` ou os vetores muda os
+  dois clientes, e o CI `zaplaud-rs.yml` roda quando esses arquivos mudam. A fixture ganhou comandos opcionais no stdin
+  (`roles-seed`, `seed-closed-omp`, `seed-subagents`, `seed-usage`, `reply`); sem eles, responde como antes. O estado
+  em disco é o mesmo do desktop Compose (interoperabilidade provada com o store JVM real). Decisões abertas do dono:
+  modo de desenho padrão (Skia por CPU com emoji colorido, ou modo leve), remoção do desktop Compose e merge em
+  `producao`. Pacote local: `~/dados/zaplaud-rs-dist/final/zaplaud-linux-x86_64.tar.gz`.
 
 - 054–062: modernização visual do Zaplaud (variante `plan`, skills `improve` e `improve-ui`), commit `dab677d`,
   2026-11-08. Evidência: código e capturas do emulador `habblaud034` com a fixture, só tema escuro. Execute na ordem

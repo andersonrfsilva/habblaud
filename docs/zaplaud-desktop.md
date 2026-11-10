@@ -1,13 +1,29 @@
 # Zaplaud desktop (Linux e macOS)
 
-O Zaplaud desktop é o mesmo app do celular rodando numa janela. Telas, regras, API, tema e textos vêm do módulo
+Há dois clientes desktop no repositório, com as mesmas telas e o mesmo estado em disco:
+
+| | Cliente nativo (Rust + Slint) | Cliente Compose (JVM) |
+|---|---|---|
+| Onde | [`zaplaud-rs/`](../zaplaud-rs/README.md) | `android/desktop` + `android/shared/src/jvmMain` |
+| Abrir a janela | ~0,1 s | ~1 s |
+| Memória parada | 37 MiB (29 MiB no modo leve) | 339 MiB no teste; 418–490 MiB no uso real |
+| Tamanho | 31 MiB | 192 MiB |
+| Estado | fases 0–5 do plano 074 feitas; falta verificar Wayland, macOS, chaveiro e uso real | em uso; sai quando o nativo for aprovado no dia a dia |
+
+O cliente nativo gera textos, cores e ícones a partir do Kotlin na compilação, então continua igual ao celular.
+Como compilar, instalar, arquitetura e limitações dele: [`zaplaud-rs/README.md`](../zaplaud-rs/README.md) e
+[plans/074-resultado.md](../plans/074-resultado.md). O resto deste documento descreve o cliente Compose.
+
+## Cliente Compose
+
+O Zaplaud desktop Compose é o mesmo app do celular rodando numa janela. Telas, regras, API, tema e textos vêm do módulo
 Kotlin Multiplatform `android/shared` (`commonMain`); o desktop só acrescenta o que depende do sistema. Por isso
 qualquer mudança feita no Zaplaud do celular aparece no desktop sem retrabalho, e os dois continuam visualmente iguais.
 
 Histórico da decisão e números: planos [063](../plans/063-zaplaud-desktop-alvo-jvm.md) a
 [067](../plans/067-zaplaud-desktop-medir-e-decidir-rust.md), medição das pilhas em
 [063-medicao-pilhas-desktop.md](../plans/063-medicao-pilhas-desktop.md) e do app real em
-[067-resultado.md](../plans/067-resultado.md). O caminho para um cliente Rust está no
+[067-resultado.md](../plans/067-resultado.md). O roteiro do cliente nativo está no
 [plano 074](../plans/074-zaplaud-cliente-rust-slint.md).
 
 ## Como compilar, testar e instalar

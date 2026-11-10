@@ -14,7 +14,8 @@
 - **Esforço**: L (vários L; ver fases)
 - **Risco**: HIGH (duplica a interface; só compensa se o consumo da JVM incomodar no uso real)
 - **Depende de**: decisão do dono. O portão do plano 067 abriu por memória (339 MiB > 300 MiB, medido com servidor de
-  teste), mas a recomendação foi **não reescrever agora**. Este plano só começa com ordem explícita do dono.
+  teste), e a recomendação foi **não reescrever agora**. Em 2026-11-10 o dono mandou executar, depois de medir
+  418–490 MiB no miranote. **Resultado das fases 0–5: [074-resultado.md](074-resultado.md).** Falta a fase 6.
 - **Categoria**: direction
 - **Planejado em**: commit `e214452` (merge do desktop em `producao`), 2026-11-09
 
