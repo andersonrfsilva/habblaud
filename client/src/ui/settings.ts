@@ -11,6 +11,7 @@ import type { SoundControl } from './sound';
 import { AboutGroup } from './version';
 import type { WorldThemeLink } from './world/world-dialog';
 import { LOCALE_STORAGE_KEY, LOCALES, normalizeLocale, tr, type Locale } from '../../../shared/i18n';
+import { normalizeDeliverAs, parseCastModelCatalog, type CastModelCatalog } from './provider';
 
 type LanguageChoice = 'auto' | Locale;
 
@@ -93,6 +94,11 @@ export class SettingsPopover implements UiComponent {
   private coreLayout: ReturnType<typeof segmented<UiPrefs['coreLayout']>>;
   private language: ReturnType<typeof segmented<LanguageChoice>>;
   private ompDeliverAs: ReturnType<typeof segmented<UiPrefs['ompDeliverAs']>>;
+  private zeroclawDeliverAs: { row: HTMLElement; set(v: UiPrefs['ompDeliverAs']): void };
+  private messageGroup: HTMLElement;
+  private catalog: CastModelCatalog | undefined;
+  private catalogLoading = false;
+  private catalogLoaded = false;
   private soundGroup: SoundSettingsGroup;
   private demoGroup: HTMLElement;
   /** Só na página do celular (porta remota com login): sair deste aparelho. */
@@ -183,6 +189,13 @@ export class SettingsPopover implements UiComponent {
     this.ompDeliverAs.row.append(
       h('span', { class: 'ui-set__hint', text: tr('Vale para todos os agentes do omp, quando a mensagem chega com ele trabalhando; parado, qualquer modo começa na hora. Sessões abertas antes de atualizar a extensão do Habblaud sempre enfileiram.') }),
     );
+    this.zeroclawDeliverAs = segmented<UiPrefs['ompDeliverAs']>(
+      tr('Modo de envio'),
+      [['followUp', tr('Enfileirar')], ['steer', tr('Mudar direção')]],
+      (v) => ctx.updatePrefs({ ompDeliverAs: v }),
+    );
+    this.zeroclawDeliverAs.row.append(h('span', { class: 'ui-set__hint', text: tr('Vale para o ZeroClaw: enfileirar espera o fim do turno; mudar direção envia durante o turno. Parado, ambos começam na hora.') }));
+    this.messageGroup = h('div', { class: 'ui-set-group', hidden: true }, h('h3', { text: tr('Mensagens') }), this.ompDeliverAs.row, this.zeroclawDeliverAs.row);
     this.soundGroup = new SoundSettingsGroup(ctx, sound);
 
     // Nomes dos idiomas sempre na própria língua, para quem não entende o idioma atual achar o seu.
@@ -257,7 +270,7 @@ export class SettingsPopover implements UiComponent {
         h('h3', { text: tr('Avisos') }),
         sw('browserNotifications', tr('Notificações do navegador'), tr('Avisa quando alguém precisa de você e a aba está em segundo plano.'), () => void this.toggleNotifications()),
       ),
-      h('div', { class: 'ui-set-group' }, h('h3', { text: tr('Mensagens ao omp') }), this.ompDeliverAs.row),
+      this.messageGroup,
       this.soundGroup.el,
       h('div', { class: 'ui-set-group' }, h('h3', { text: tr('Idioma') }), this.language.row),
       this.demoGroup,
@@ -321,6 +334,12 @@ export class SettingsPopover implements UiComponent {
   }
 
   render(): void {
+    if (!this.catalogLoading && !this.catalogLoaded && this.isOpen) void this.loadCatalog();
+    setHidden(this.messageGroup, !this.catalog);
+    setHidden(this.ompDeliverAs.row, this.catalog?.provider !== 'omp');
+    setHidden(this.zeroclawDeliverAs.row, this.catalog?.provider !== 'zeroclaw');
+    setText(this.messageGroup.querySelector('h3')!, this.catalog?.provider === 'omp' ? tr('Mensagens ao omp') : tr('Mensagens'));
+    this.zeroclawDeliverAs.set(normalizeDeliverAs('zeroclaw', this.ctx.prefs.ompDeliverAs)!);
     const p = this.ctx.prefs;
     for (const [key, r] of this.switches) {
       const meta = this.ctx.store.liveSnapshot?.meta;
@@ -329,7 +348,7 @@ export class SettingsPopover implements UiComponent {
       r.btn.disabled = (key === 'demo' && this.demoBusy) || (key === 'ompRoom' && this.ompBusy);
     }
     // Só com omp no servidor e pelo próprio computador (POST /api/omp/settings não vale pela porta remota).
-    setHidden(this.switches.get('ompRoom')!.row, this.ctx.store.liveSnapshot?.meta.ompRoomByProject === undefined || access().remote);
+    setHidden(this.switches.get('ompRoom')!.row, this.catalog?.provider !== 'omp' || this.ctx.store.liveSnapshot?.meta.ompRoomByProject === undefined || access().remote);
     this.bubbles.set(p.bubbles);
     this.liveliness.set(p.liveliness);
     this.daylight.set(p.daylight);
@@ -352,6 +371,20 @@ export class SettingsPopover implements UiComponent {
           : tr('Avisa quando alguém precisa de você e a aba está em segundo plano.');
     setText(notif.hint, hint);
     notif.btn.disabled = state === 'unsupported';
+  }
+
+  private async loadCatalog(): Promise<void> {
+    this.catalogLoading = true;
+    try {
+      const response = await fetch('/api/cast/models');
+      this.catalog = response.ok ? parseCastModelCatalog(await response.json()) : undefined;
+    } catch {
+      this.catalog = undefined;
+    } finally {
+      this.catalogLoading = false;
+      this.catalogLoaded = true;
+      this.ctx.invalidate();
+    }
   }
 
   private async toggleNotifications(): Promise<void> {

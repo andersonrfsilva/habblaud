@@ -12,6 +12,30 @@ import { h, iconButton, setAttr, setHidden, setStyleVar, setText, setTitle, setV
 import { formatTokens, usageLevel } from './format';
 import { tr } from '../../../shared/i18n';
 import { pixelIcon } from './icons';
+import { runtimeAllowsContext, runtimeAllowsControl, runtimeAllowsOmpTools } from './provider';
+
+export function barActions(agent: AgentInfo | undefined, ready: boolean, mock: boolean) {
+  const main = !!agent && agent.kind === 'main';
+  const live = main && agent.status !== 'offline' && agent.status !== 'done';
+  const commands = live && ready && !mock && runtimeAllowsControl(agent.provider);
+  const omp = commands && runtimeAllowsOmpTools(agent.provider);
+  return {
+    new: commands,
+    stop: commands,
+    canStop: commands && (agent.status === 'working' || agent.status === 'waiting'),
+    shake: omp,
+    advisor: omp,
+    resume: omp,
+    context: main && runtimeAllowsContext(agent.provider) ? contextView(agent.context) : undefined,
+  };
+}
+
+export function newSessionAgent(agents: readonly AgentInfo[], previous: AgentInfo): AgentInfo | undefined {
+  return agents.find((agent) => agent.provider === previous.provider && agent.kind === 'main' &&
+    agent.account === previous.account && agent.roomId === previous.roomId &&
+    agent.cast === previous.cast && (agent.id === previous.id || !!previous.cast) &&
+    agent.sessionId !== previous.sessionId && agent.status !== 'offline' && agent.status !== 'done');
+}
 
 /** Rótulo e dica de cada botão, na ordem da faixa. */
 const BUTTONS: ReadonlyArray<[OmpCommand, string]> = [
@@ -72,6 +96,7 @@ export class OmpBar {
   /** Aviso dos comandos (/new, /shake, /resume...): o TerminalPanel o põe na linha de estado da sessão. */
   readonly statusEl: HTMLElement;
   private stopBtn: HTMLButtonElement;
+  private commandButtons = new Map<string, HTMLButtonElement>();
   /** Olho do advisor: fica na barra de cima do terminal, ao lado da estrela (o TerminalPanel o coloca lá). */
   readonly eyeBtn: HTMLButtonElement;
   /** Último estado do advisor confirmado pelo omp, por agente (a extensão não lê o estado real). */
@@ -102,7 +127,11 @@ export class OmpBar {
       'div',
       { class: 'ui-term__cmds', role: 'group', attrs: { 'aria-label': tr('Comandos do omp') } },
       this.stopBtn,
-      ...BUTTONS.map(([cmd, hint]) => h('button', { class: 'ui-btn ui-btn--sm ui-term__cmd', type: 'button', text: `/${cmd}`, title: hint, on: { click: () => void this.run(cmd) } })),
+      ...BUTTONS.map(([cmd, hint]) => {
+        const button = h('button', { class: 'ui-btn ui-btn--sm ui-term__cmd', type: 'button', text: `/${cmd}`, title: hint, on: { click: () => void this.run(cmd) } });
+        this.commandButtons.set(cmd, button);
+        return button;
+      }),
       h('button', {
         class: 'ui-btn ui-btn--sm ui-term__cmd',
         type: 'button',
@@ -111,19 +140,20 @@ export class OmpBar {
         on: { click: () => this.agentId && this.onPickResume?.(this.agentId) },
       }),
     );
+    this.commandButtons.set('resume', this.buttons.querySelector('button:last-child')!);
     this.statusEl = h('span', { class: 'ui-term__cmd-status', role: 'status', hidden: true });
     this.el = h('div', { class: 'ui-term__omp', hidden: true }, this.meter, this.buttons);
   }
 
   /** `ready`: a caixa de mensagem do agente está pronta (a extensão do omp está conectada). */
   render(agent: AgentInfo | undefined, ready: boolean): void {
-    const omp = !!agent && agent.provider === 'omp' && agent.kind === 'main';
+    const actions = barActions(agent, ready, this.ctx.store.mock);
     if (agent?.id !== this.agentId) {
       this.agentId = agent?.id ?? null;
       this.say('');
     }
-    const view = omp ? contextView(agent.context) : undefined;
-    const commands = omp && ready && !this.ctx.store.mock;
+    const view = actions.context;
+    const commands = actions.new;
     setHidden(this.el, !view && !commands);
     setHidden(this.meter, !view);
     if (view) {
@@ -134,8 +164,13 @@ export class OmpBar {
       setTitle(this.meter, tr('Contexto da sessão: {0} (atualiza a cada 10 s e no fim de cada turno)', [view.text]));
     }
     setHidden(this.buttons, !commands);
+    setHidden(this.commandButtons.get('shake')!, !actions.shake);
+    setHidden(this.commandButtons.get('resume')!, !actions.resume);
+    setTitle(this.commandButtons.get('new')!, agent?.provider === 'zeroclaw' ? tr('Começa uma conversa nova no ZeroClaw (a atual fica no histórico)') : BUTTONS[0][1]);
+    setTitle(this.stopBtn, agent?.provider === 'zeroclaw' ? tr('Interrompe o turno atual no ZeroClaw') : tr('Interrompe o que o agente está fazendo agora (como o Esc no omp)'));
+    setAttr(this.buttons, 'aria-label', agent?.provider === 'zeroclaw' ? tr('Comandos do ZeroClaw') : tr('Comandos do omp'));
     for (const b of this.buttons.querySelectorAll('button')) b.disabled = this.busy;
-    setHidden(this.eyeBtn, !commands);
+    setHidden(this.eyeBtn, !actions.advisor);
     this.eyeBtn.disabled = this.busy;
     const on = this.agentId ? this.advisor.get(this.agentId) : undefined;
     if (on !== this.eyeShown) {
@@ -153,7 +188,7 @@ export class OmpBar {
           : tr('Liga o advisor do omp nesta sessão (/advisor on). O Habblaud não vê se ele já está ligado; o olho mostra o último comando enviado daqui'),
     );
     // Só há o que parar num turno (ou esperando você no meio dele).
-    this.stopBtn.disabled = this.busy || (agent?.status !== 'working' && agent?.status !== 'waiting');
+    this.stopBtn.disabled = this.busy || !actions.canStop;
   }
 
   private say(text: string, error = false): void {
@@ -178,7 +213,10 @@ export class OmpBar {
   }
 
   private run(command: OmpCommand | 'stop'): void {
-    if (command === 'new' && !window.confirm(tr('Começar uma conversa nova no omp? A atual continua no histórico (/resume).'))) return;
+    const agent = this.agentId ? this.ctx.agent(this.agentId) : undefined;
+    const actions = barActions(agent, !!agent?.canMessage, this.ctx.store.mock);
+    if (command === 'stop' ? !actions.canStop : command === 'new' ? !actions.new : !actions.shake) return;
+    if (command === 'new' && !window.confirm(agent?.provider === 'zeroclaw' ? tr('Começar uma conversa nova no ZeroClaw? A atual continua no histórico.') : tr('Começar uma conversa nova no omp? A atual continua no histórico (/resume).'))) return;
     void this.send(command === 'stop' ? { stop: true } : { command }, command === 'stop' ? STOP : `/${command}`);
   }
 
@@ -194,11 +232,17 @@ export class OmpBar {
   private async send(change: OmpControl, label: string): Promise<boolean> {
     const agentId = this.agentId;
     if (!agentId || this.busy) return false;
+    const previous = this.ctx.agent(agentId);
+    if (!previous || !runtimeAllowsControl(previous.provider)) return false;
+    if (previous.provider === 'zeroclaw' && !(change.stop === true || change.command === 'new')) return false;
+    const guarded = { ...change, expectedSessionId: previous.sessionId };
+    const zeroclaw = previous.provider === 'zeroclaw';
+    const changingSession = zeroclaw && change.command === 'new';
     this.busy = true;
     this.ctx.invalidate();
     this.say(tr('Enviando {0}…', [label]));
     try {
-      const r = await this.ctx.store.controlAgent(agentId, change);
+      const r = await this.ctx.store.controlAgent(agentId, guarded);
       if ('error' in r) {
         this.say(r.error, true);
         return false;
@@ -211,6 +255,15 @@ export class OmpBar {
       for (let i = 0; i < (target ? RESUME_POLLS : 20); i++) {
         // O cliente compila para antes do ES2024 (sem Promise.withResolvers).
         await new Promise((ok) => setTimeout(ok, 500));
+        if (changingSession) {
+          const next = newSessionAgent(this.ctx.store.snapshot?.agents ?? [], previous);
+          if (next) {
+            this.agentId = next.id;
+            this.onResumed?.(next.id);
+            this.say(tr('Conversa nova aberta.'));
+            return true;
+          }
+        }
         const resumed = target ? this.resumedAgent(target) : undefined;
         if (resumed) {
           this.agentId = resumed.id;
@@ -227,16 +280,16 @@ export class OmpBar {
           }
           continue;
         }
-        if (!m || m.status === 'delivered') {
-          this.say(tr('{0} enviado ao omp.', [label]));
+        if (((!zeroclaw && !m) || m?.status === 'delivered') && !changingSession) {
+          this.say(zeroclaw ? tr('{0} enviado ao ZeroClaw.', [label]) : tr('{0} enviado ao omp.', [label]));
           return true;
         }
-        if (m.status === 'failed') {
-          this.say(m.error ?? tr('o omp não rodou o comando'), true);
+        if (m?.status === 'failed') {
+          this.say(m.error ?? (zeroclaw ? tr('O ZeroClaw não confirmou o comando.') : tr('o omp não rodou o comando')), true);
           return false;
         }
       }
-      this.say(target ? tr('O omp não retomou a conversa: veja o motivo na tela do omp.') : tr('O omp ainda não confirmou o comando.'), true);
+      this.say(zeroclaw ? tr('O ZeroClaw ainda não confirmou o comando. Confira a conversa antes de tentar novamente.') : target ? tr('O omp não retomou a conversa: veja o motivo na tela do omp.') : tr('O omp ainda não confirmou o comando.'), true);
       return false;
     } catch {
       this.say(OFFLINE_ERROR, true);

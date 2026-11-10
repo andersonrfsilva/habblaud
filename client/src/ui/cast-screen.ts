@@ -11,6 +11,7 @@ import { createAvatar } from './avatar';
 import { FolderPicker, folderOptions } from './folder-picker';
 import { shortPath, spawnFolders, type FolderOption } from './spawn';
 import { modelGroups } from './format';
+import { castDefaultModel, castModelOptions, parseCastModelCatalog, validCastModel, type CastModelCatalog } from './provider';
 
 const HOST_OFF = (): string => tr('auxiliar do host desligado (npm run codex:bridge)');
 const active = (jobs: readonly CastJobInfo[], cast: string): CastJobInfo | undefined =>
@@ -25,6 +26,7 @@ export class CastScreen {
   private readonly recentTypes = new Set<string>();
   /** Modelos do omp vistos nas sessões (a extensão manda a lista no início e no batimento); ficam para a ficha. */
   private readonly knownModels = new Set<string>();
+  private catalog: CastModelCatalog | undefined;
 
   constructor(private readonly ctx: UiContext) {
     this.content = h('div', { class: 'ui-dialog__body ui-cast__content' });
@@ -33,7 +35,7 @@ export class CastScreen {
     ctx.root.addEventListener('habblaud:cast-create', (event) => void this.open((event as CustomEvent<AgentInfo>).detail));
     ctx.store.on('snapshot', (snapshot) => {
       for (const agent of snapshot.agents) {
-        for (const m of agent.models ?? []) this.knownModels.add(m);
+        if (agent.provider === 'omp') for (const m of agent.models ?? []) this.knownModels.add(m);
         if (!agent.agentType) continue;
         this.recentTypes.delete(agent.agentType);
         this.recentTypes.add(agent.agentType);
@@ -50,12 +52,21 @@ export class CastScreen {
     } catch { /* As salas abertas continuam disponíveis. */ }
   }
 
+  private async loadCatalog(): Promise<void> {
+    this.catalog = undefined;
+    try {
+      const response = await fetch('/api/cast/models');
+      if (response.ok) this.catalog = parseCastModelCatalog(await response.json());
+    } catch { /* Sem catálogo, nenhum controle exclusivo de runtime é oferecido. */ }
+  }
+
   async open(agent?: AgentInfo): Promise<void> {
     if (!this.el.open) this.el.showModal();
     this.content.replaceChildren(h('p', { text: tr('Carregando…') }));
-    const [result] = await Promise.all([this.ctx.store.castList(), this.loadFolders()]);
+    const [result] = await Promise.all([this.ctx.store.castList(), this.loadFolders(), this.loadCatalog()]);
     if ('error' in result) { this.content.replaceChildren(h('p', { role: 'alert', text: result.error })); return; }
     this.members = result.members;
+    if (!this.catalog) { this.content.replaceChildren(h('p', { role: 'alert', text: tr('Erro ao carregar o elenco.') })); return; }
     if (agent) this.edit(undefined, agent);
     else this.showList();
   }
@@ -77,7 +88,7 @@ export class CastScreen {
       const call = member.kind === 'main' ? h('button', { class: 'ui-btn ui-btn--sm ui-btn--primary', type: 'button', text: tr('Chamar'), on: { click: () => {
         const agentId = call?.dataset.dismiss;
         if (!agentId) return void this.call(member.id);
-        if (!confirm(tr('Dispensar {0}? A sessão do omp fecha; a conversa fica guardada para Continuar.', [member.name]))) return;
+        if (!confirm(this.catalog?.provider === 'zeroclaw' ? tr('Dispensar') + ` ${member.name}?` : tr('Dispensar {0}? A sessão do omp fecha; a conversa fica guardada para Continuar.', [member.name]))) return;
         call!.disabled = true;
         void this.ctx.store.dismissCast(agentId).then((error) => { if (error) reason.textContent = error; });
       } } }) : null;
@@ -94,7 +105,7 @@ export class CastScreen {
       if (!this.el.open || !this.content.contains(list)) return;
       const jobs = await this.ctx.store.castJobs();
       if (!this.el.open || !this.content.contains(list)) return;
-      reason.textContent = jobs.available ? '' : HOST_OFF();
+      reason.textContent = jobs.available ? '' : this.catalog?.provider === 'omp' ? HOST_OFF() : tr('Sem conexão com o Habblaud.');
       for (const { member, button, status } of calls) {
         const busy = !!active(jobs.jobs, member.id);
         const agent = this.ctx.store.snapshot?.agents.find((a) => a.cast === member.id && a.status !== 'offline');
@@ -117,8 +128,9 @@ export class CastScreen {
   async call(id: string): Promise<void> {
     if (!this.el.open) this.el.showModal();
     this.content.replaceChildren(h('p', { text: tr('Carregando…') }));
-    const [list, jobs] = await Promise.all([this.ctx.store.castList(), this.ctx.store.castJobs(), this.loadFolders()]);
+    const [list, jobs] = await Promise.all([this.ctx.store.castList(), this.ctx.store.castJobs(), this.loadFolders(), this.loadCatalog()]);
     if ('error' in list) { this.content.replaceChildren(h('p', { role: 'alert', text: list.error })); return; }
+    if (!this.catalog) { this.content.replaceChildren(h('p', { role: 'alert', text: tr('Erro ao carregar o elenco.') })); return; }
     const member = list.members.find((m) => m.id === id && m.kind === 'main');
     if (!member) return;
     const restricted = member.rooms.length > 0;
@@ -148,7 +160,7 @@ export class CastScreen {
       if (failure) { status.textContent = failure; start.disabled = false; return; }
       sent = true;
       start.textContent = tr('chamando…');
-      status.textContent = tr('Abrindo o omp no host…');
+      status.textContent = this.catalog?.provider === 'omp' ? tr('Abrindo o omp no host…') : tr('chamando…');
     })() } });
     const back = h('button', { class: 'ui-btn', type: 'button', text: tr('Voltar'), on: { click: () => void this.open() } });
     let available = jobs.available;
@@ -165,7 +177,7 @@ export class CastScreen {
     picker.set(options, first.length ? [first[0]] : []);
     if (member.last?.[picker.value()]) mode = 'resume';
     sync();
-    if (!available) status.textContent = HOST_OFF();
+    if (!available) status.textContent = this.catalog.provider === 'omp' ? HOST_OFF() : tr('Sem conexão com o Habblaud.');
     else if (!calling) status.textContent = jobs.jobs.filter((job) => job.cast === id && job.status === 'failed').at(-1)?.error ?? '';
     this.content.replaceChildren(h('div', { class: 'ui-cast__call' },
       h('div', { class: 'ui-cast__identity' }, createAvatar({ ...member, kind: 'main' }, 'sm'), h('h3', { class: 'ui-cast__title', text: tr('Chamar {0}', [member.name]) })),
@@ -185,7 +197,7 @@ export class CastScreen {
       // Chegou: o personagem já está andando para a sala, a janela sai da frente.
       if (sent && !calling && latest.jobs.some((job) => job.cast === id && job.op === 'start' && job.status === 'done')) { this.el.close(); return; }
       start.textContent = calling ? tr('chamando…') : tr('Chamar');
-      status.textContent = !available ? HOST_OFF() : calling ? tr('Abrindo o omp no host…') : failed?.error ?? '';
+      status.textContent = !available ? (this.catalog?.provider === 'omp' ? HOST_OFF() : tr('Sem conexão com o Habblaud.')) : calling ? (this.catalog?.provider === 'omp' ? tr('Abrindo o omp no host…') : tr('chamando…')) : failed?.error ?? '';
       sync();
       setTimeout(() => void watch(), 2000);
     };
@@ -200,6 +212,8 @@ export class CastScreen {
   }
 
   private edit(member?: CastMember, agent?: AgentInfo): void {
+    if (!this.catalog) return;
+    const zeroclaw = this.catalog.provider === 'zeroclaw';
     let seed = member?.seed ?? agent?.seed ?? crypto.getRandomValues(new Uint32Array(1))[0];
     let look: 'f' | 'm' = member?.look ?? agent?.look ?? 'f';
     let base = appearanceFromSeed(seed, { look });
@@ -209,7 +223,7 @@ export class CastScreen {
     const name = h('input', { class: 'ui-rename__input', type: 'text', attrs: { maxlength: '24', required: '' } });
     name.value = member?.name ?? agent?.name ?? '';
     const kind = h('select', { class: 'ui-rename__input' });
-    for (const [value, label] of [['main', tr('Principal')], ['advisor', tr('Advisor')], ['sub', tr('Subagente')]]) kind.append(h('option', { text: label, attrs: { value } }));
+    for (const [value, label] of zeroclaw ? [['main', tr('Principal')]] : [['main', tr('Principal')], ['advisor', tr('Advisor')], ['sub', tr('Subagente')]]) kind.append(h('option', { text: label, attrs: { value } }));
     kind.value = member?.kind ?? 'main';
     const match = h('input', { class: 'ui-rename__input', type: 'text', attrs: { list: 'ui-cast-types' } });
     match.value = member?.match?.join(', ') ?? '';
@@ -231,7 +245,11 @@ export class CastScreen {
     const current = member?.model ?? '';
     const known = [...this.knownModels];
     let model: HTMLInputElement | HTMLSelectElement;
-    if (known.length) {
+    if (zeroclaw) {
+      model = h('select', { class: 'ui-rename__input', attrs: { required: '' } });
+      model.append(h('option', { text: tr('Escolha o modelo'), attrs: { value: '', disabled: '' } }));
+      for (const option of castModelOptions(this.catalog)) model.append(h('option', { text: option.label, attrs: { value: option.value } }));
+    } else if (known.length) {
       model = h('select', { class: 'ui-rename__input' });
       model.append(h('option', { text: tr('Padrão do omp'), attrs: { value: '' } }));
       if (current && !known.includes(current)) model.append(h('option', { text: current, attrs: { value: current } }));
@@ -243,7 +261,7 @@ export class CastScreen {
     } else {
       model = h('input', { class: 'ui-rename__input', type: 'text', attrs: { maxlength: '200', placeholder: tr('provedor/modelo (vazio = padrão do omp)') } });
     }
-    model.value = current;
+    model.value = zeroclaw ? (current ? (validCastModel(this.catalog, current) ? current : '') : castDefaultModel(this.catalog) ?? '') : current;
     const instructions = h('textarea', { class: 'ui-rename__input ui-spawn__prompt', attrs: { maxlength: '8000' } });
     instructions.value = member?.instructions ?? '';
     const idle = h('input', { class: 'ui-rename__input', type: 'number', attrs: { min: '0', max: '1440', step: '1' } });
@@ -267,7 +285,8 @@ export class CastScreen {
       const homeValue = kind.value === 'main' ? home.value : '';
       const problem = validateCast(name.value, allowed, homeValue, types);
       if (problem || !fields.value) { error.textContent = problem ?? tr('Aparência inválida.'); return; }
-      const body: Omit<CastMember, 'id'> = { name: name.value.trim(), look, seed, kind: kind.value as CastMember['kind'], rooms: allowed, parts: changedParts(base, fields.value), ...(kind.value === 'sub' ? { match: types } : {}), ...(homeValue ? { home: homeValue } : {}), ...(kind.value === 'main' ? { ...(model.value ? { model: model.value } : {}), ...(instructions.value ? { instructions: instructions.value } : {}), idleMinutes: Number(idle.value), ...(account.value ? { account: account.value } : {}) } : {}) };
+      if (zeroclaw && !validCastModel(this.catalog, model.value)) { error.textContent = tr('Escolha o modelo'); return; }
+      const body: Omit<CastMember, 'id'> = { name: name.value.trim(), look, seed, kind: kind.value as CastMember['kind'], rooms: allowed, parts: changedParts(base, fields.value), ...(kind.value === 'sub' ? { match: types } : {}), ...(homeValue ? { home: homeValue } : {}), ...(kind.value === 'main' ? { ...(model.value ? { model: model.value } : {}), ...(instructions.value ? { instructions: instructions.value } : {}), idleMinutes: Number(idle.value), ...(!zeroclaw && account.value ? { account: account.value } : {}) } : {}) };
       save.disabled = true;
       const failure = await this.ctx.store.saveCast(member ? { ...body, id: member.id } : body, member ? undefined : agent?.id);
       save.disabled = false;
@@ -277,7 +296,7 @@ export class CastScreen {
     const cancel = h('button', { class: 'ui-btn', type: 'button', text: tr('Cancelar'), on: { click: () => this.showList() } });
     const group = (title: string, ...children: HTMLElement[]) => h('section', { class: 'ui-set-group' }, h('h3', { text: title }), ...children);
     const execution = group(tr('Execução'), field(tr('Modelo'), model), field(tr('Instruções'), instructions),
-      field(tr('Ociosidade em minutos (0 = nunca)'), idle), field(tr('Conta'), account));
+      field(tr('Ociosidade em minutos (0 = nunca)'), idle), ...(!zeroclaw ? [field(tr('Conta'), account)] : []));
     const sub = group(tr('Subagente'), field(tr('Tipos de subagente (separados por vírgula; vazio = qualquer)'), match), suggestions);
     const mainHome = field(tr('Sala principal'), home);
     const syncKind = () => {

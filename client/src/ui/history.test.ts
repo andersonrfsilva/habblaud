@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import type { AgentInfo, RecentSession } from '../../../shared/types';
-import { canResume, dayLabel, filterSessions, formatSize, groupSessionsByDay, resumeTargets } from './history';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { AgentInfo, CastMember, RecentSession } from '../../../shared/types';
+import { canResume, canResumeViaCast, castResumeTargets, dayLabel, filterSessions, formatSize, groupSessionsByDay, resumeHistoryCast, resumeTargets } from './history';
 import { parseRecentSessions } from './recent-sessions';
 
 const NOW = new Date(2026, 9, 8, 15, 0, 0).getTime();
@@ -9,6 +9,8 @@ const at = (day: number, hour: number, min = 0) => new Date(2026, 9, day, hour, 
 function session(p: Partial<RecentSession> & Pick<RecentSession, 'sessionId' | 'lastAt'>): RecentSession {
   return { account: '.claude', projectDir: '-p', size: 1_000, open: false, ...p };
 }
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe('sessões do Codex no histórico', () => {
   it('parseRecentSessions guarda o provider só quando é o Codex; a busca acha "codex"', () => {
@@ -42,6 +44,76 @@ describe('retomar sessão do omp', () => {
     const a = (id: string, p: Partial<AgentInfo>) => ({ id, provider: 'omp', kind: 'main', canMessage: true, status: 'idle', ...p }) as AgentInfo;
     const list = [a('livre', {}), a('shell', { status: 'shell' }), a('ocupado', { status: 'working' }), a('sem-ext', { canMessage: undefined }), a('sub', { kind: 'sub' }), a('claude', { provider: 'claude' })];
     expect(resumeTargets(list).map((x) => x.id)).toEqual(['livre', 'shell']);
+  });
+});
+
+describe('retomada ZeroClaw pelo elenco', () => {
+  const catalog = { provider: 'zeroclaw' as const, models: [{ alias: 'm_123', model: 'openai/gpt-5' }], defaultModel: 'm_123' };
+  const zero = session({ provider: 'zeroclaw', account: 'tenant', project: '/project', sessionId: '12345678-abcd', lastAt: 1 });
+
+  it('preserva provider, conta e sessão na leitura do histórico e na busca', () => {
+    const [parsed] = parseRecentSessions({ sessions: [zero] });
+    expect(parsed).toEqual(zero);
+    expect(filterSessions([parsed], 'ZeroClaw')).toEqual([zero]);
+    expect(canResume(zero)).toBe(false);
+    expect(resumeTargets([{ provider: 'zeroclaw', kind: 'main', canMessage: true, status: 'idle' } as AgentInfo])).toEqual([]);
+  });
+
+  it('exige runtime, conta, pasta e sessão compatíveis e encerrados', () => {
+    expect(canResumeViaCast(zero, catalog, 'zeroclaw')).toBe(true);
+    expect(canResumeViaCast(zero, undefined, 'zeroclaw')).toBe(false);
+    expect(canResumeViaCast(zero, { ...catalog, provider: 'omp' }, 'zeroclaw')).toBe(false);
+    expect(canResumeViaCast({ ...zero, provider: 'omp' }, catalog, 'omp')).toBe(false);
+    expect(canResumeViaCast(zero, catalog, 'omp')).toBe(false);
+    expect(canResumeViaCast(zero, catalog, undefined)).toBe(false);
+    expect(canResumeViaCast({ ...zero, project: undefined }, catalog, 'zeroclaw')).toBe(false);
+    expect(canResumeViaCast({ ...zero, project: 'relative' }, catalog, 'zeroclaw')).toBe(false);
+    expect(canResumeViaCast({ ...zero, sessionId: 'invalid' }, catalog, 'zeroclaw')).toBe(false);
+    expect(canResumeViaCast({ ...zero, open: true }, catalog, 'zeroclaw')).toBe(false);
+  });
+
+  it('oferece só personagens principais livres, com pasta e conta compatíveis', () => {
+    const member = (id: string, extra: Partial<CastMember> = {}): CastMember => ({ id, name: id, kind: 'main', rooms: [], seed: 1, look: 'f', ...extra });
+    const members = [
+      member('free'), member('room', { rooms: ['/project'], account: 'tenant' }),
+      member('other-room', { rooms: ['/other'] }), member('other-account', { account: 'other' }),
+      member('advisor', { kind: 'advisor' }), member('busy'), member('offline'),
+    ];
+    const agents = [{ cast: 'busy', status: 'idle' }, { cast: 'offline', status: 'offline' }] as AgentInfo[];
+    expect(castResumeTargets(zero, members, agents).map((m) => m.id)).toEqual(['free', 'room', 'offline']);
+  });
+
+  it('retoma pelo startCast com UUID e conta exatos, nunca pelo controle OMP', async () => {
+    const startCast = vi.fn().mockResolvedValue(undefined);
+    const terminal = { openSession: vi.fn() };
+    expect(await resumeHistoryCast(zero, 'character', { startCast }, terminal)).toBeUndefined();
+    expect(startCast).toHaveBeenCalledExactlyOnceWith('character', '/project', 'resume', '', { session: zero.sessionId, account: zero.account });
+    expect(terminal.openSession).not.toHaveBeenCalled();
+  });
+
+  it('sessão aberta abre o terminal e não cria segunda chamada nem POST', async () => {
+    const startCast = vi.fn();
+    const openSession = vi.fn();
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    const opened = { ...zero, open: true, agentId: 'live' };
+    await resumeHistoryCast(opened, 'character', { startCast }, { openSession });
+    await resumeHistoryCast(opened, undefined, { startCast }, { openSession });
+    expect(openSession).toHaveBeenCalledTimes(2);
+    expect(openSession).toHaveBeenCalledWith(opened);
+    expect(startCast).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('Novo usa cast/new e apresenta erro de histórico/associação do servidor sem fallback vazio', async () => {
+    const fetch = vi.fn().mockResolvedValue({ ok: false, json: async () => ({ error: 'Histórico ZeroClaw incompatível com a sala ou o catálogo' }) });
+    vi.stubGlobal('fetch', fetch);
+    const error = await resumeHistoryCast(zero, undefined, { startCast: vi.fn() }, { openSession: vi.fn() });
+    expect(fetch).toHaveBeenCalledExactlyOnceWith('/api/cast/new', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ room: '/project', session: zero.sessionId, account: 'tenant' }),
+    });
+    expect(error).toBe('Histórico ZeroClaw incompatível com a sala ou o catálogo');
   });
 });
 

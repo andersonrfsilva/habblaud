@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { mkdirSync, realpathSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ModSummary, OfficeSnapshot, PermissionRequestInfo, UpdateStatus } from '../../shared/types';
+import type { AgentInfo, ModSummary, OfficeSnapshot, PermissionRequestInfo, UpdateStatus } from '../../shared/types';
 import { CastLauncher } from '../cast/launcher';
 import { AccountsService } from '../accounts/service';
 import { setQuiet } from '../log';
@@ -15,6 +15,7 @@ import { createApiHandler, type ApiDeps } from './app';
 import { createRequestGuard, hostAllowed, hostnameOf, isLoopbackHost, originAllowed, parseAllowedHosts } from './guard';
 import { Hub } from './sse';
 import { createStaticHandler, IMMUTABLE, PAGE_CSP, REVALIDATE } from './static';
+import { SUMMARY_INPUT_MAX, Summarizer } from '../summaries/summarizer';
 
 setQuiet(true);
 
@@ -24,7 +25,7 @@ interface Env {
   close: () => Promise<void>;
 }
 
-async function start(extra: Partial<ApiDeps> = {}, officeExtra: Partial<OfficeDeps> = {}): Promise<Env & { cleanup: () => void }> {
+async function start(extra: Partial<ApiDeps> = {}, officeExtra: Partial<OfficeDeps> = {}, seedAgent = true): Promise<Env & { cleanup: () => void }> {
   const tmp = tempDir();
   const dir = join(tmp.dir, '.claude');
   mkdirSync(join(dir, 'sessions'), { recursive: true });
@@ -59,7 +60,7 @@ async function start(extra: Partial<ApiDeps> = {}, officeExtra: Partial<OfficeDe
   });
   await new Promise<void>((ok) => server.listen(0, '127.0.0.1', ok));
   const port = (server.address() as AddressInfo).port;
-  office.addMain({ id: '.claude:1', account: '.claude', sessionId: 's1', cwd: '/p/loja', role: 'Agente principal', startedAt: Date.now(), status: 'working' });
+  if (seedAgent) office.addMain({ id: '.claude:1', account: '.claude', sessionId: 's1', cwd: '/p/loja', role: 'Agente principal', startedAt: Date.now(), status: 'working' });
   return {
     base: `http://127.0.0.1:${port}`,
     office,
@@ -95,6 +96,59 @@ function raw(base: string, path: string, opts: { method?: string; headers?: Reco
 }
 
 describe('rotas do auxiliar do elenco', () => {
+  it('publica o catálogo ZeroClaw antes de qualquer sessão e aceita somente GET', async () => {
+    const launcher = new CastLauncher({ dataDir: '/tmp', member: () => undefined, agents: () => [], account: () => undefined, changed: () => {} });
+    const catalog = {
+      provider: 'zeroclaw' as const,
+      models: [{ alias: 'm_0123456789ab', model: 'anthropic/claude-sonnet' }, { alias: 'm_abcdef012345', model: 'openai/gpt-6' }],
+      defaultModel: 'm_abcdef012345',
+    };
+    const models = vi.spyOn(launcher, 'models').mockReturnValue(catalog);
+    const env = await start({ terminal: true, castLauncher: launcher }, {}, false);
+    try {
+      expect((await snapshotOf(env.base)).agents).toEqual([]);
+      const res = await fetch(`${env.base}/api/cast/models`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual(catalog);
+      expect(models).toHaveBeenCalledTimes(1);
+      for (const method of ['HEAD', 'POST', 'PUT', 'PATCH', 'DELETE']) {
+        const denied = await fetch(`${env.base}/api/cast/models`, { method, headers: JSON_HEADERS });
+        expect(denied.status).toBe(405);
+        expect(denied.headers.get('allow')).toBe('GET');
+      }
+      expect((await raw(env.base, '/api/cast/models', { headers: { Host: 'habblaud.lan' } })).status).toBe(403);
+      expect(models).toHaveBeenCalledTimes(1);
+    } finally {
+      models.mockRestore();
+      await env.close();
+      env.cleanup();
+    }
+  });
+  it('publica catálogo OMP vazio sem auxiliar nem sessões', async () => {
+    const launcher = new CastLauncher({ dataDir: '/tmp', member: () => undefined, agents: () => [], account: () => undefined, changed: () => {} });
+    const env = await start({ terminal: true, castLauncher: launcher }, {}, false);
+    try {
+      expect(launcher.available()).toBe(false);
+      const res = await fetch(`${env.base}/api/cast/models`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ provider: 'omp', models: [] });
+    } finally {
+      await env.close();
+      env.cleanup();
+    }
+  });
+  it('recusa catálogo sem terminal ou sem launcher', async () => {
+    const launcher = new CastLauncher({ dataDir: '/tmp', member: () => undefined, agents: () => [], account: () => undefined, changed: () => {} });
+    for (const deps of [{ terminal: false, castLauncher: launcher }, { terminal: true }]) {
+      const env = await start(deps, {}, false);
+      try {
+        expect((await fetch(`${env.base}/api/cast/models`)).status).toBe(403);
+      } finally {
+        await env.close();
+        env.cleanup();
+      }
+    }
+  });
   it('navega somente pastas contidas nas raízes e exige a trava', async () => {
     const tmp = tempDir();
     const root = join(tmp.dir, 'root');
@@ -119,9 +173,10 @@ describe('rotas do auxiliar do elenco', () => {
     }
   });
   it('exige acesso local e aceita uma chamada após o poll', async () => {
+    const agents: AgentInfo[] = [];
     const launcher = new CastLauncher({
       dataDir: '/tmp', member: () => ({ id: 'ana', name: 'Ana', kind: 'main', look: 'f', seed: 1, rooms: ['/a'] }),
-      agents: () => [], account: () => '/tmp', changed: () => {},
+      agents: () => agents, account: () => '/tmp', changed: () => {},
     });
     const env = await start({ terminal: true, castLauncher: launcher });
     try {
@@ -130,9 +185,20 @@ describe('rotas do auxiliar do elenco', () => {
       expect((await post('/api/cast/ana/start', body)).status).toBe(503);
       expect((await raw(env.base, '/api/host/cast/poll', { method: 'POST', headers: { Host: 'habblaud.lan', ...JSON_HEADERS }, body: '{}' })).status).toBe(403);
       expect((await post('/api/host/cast/poll')).status).toBe(200);
-      expect((await post('/api/cast/ana/start', body)).status).toBe(202);
+      const started = await post('/api/cast/ana/start', body);
+      expect(started.status).toBe(202);
+      expect(await started.json()).toMatchObject({ job: { cast: 'ana', op: 'start', status: 'queued' } });
       expect((await post('/api/cast/ana/start', body)).status).toBe(409);
       expect((await post('/api/agents/unknown/dismiss')).status).toBe(404);
+      env.office.cast.put({ id: 'ana', name: 'Ana', kind: 'main', look: 'f', seed: 1, rooms: ['/a'] });
+      env.office.addMain({ id: 'cast-ana', account: '.claude', sessionId: 'ana-session', cast: 'ana', cwd: '/a', role: 'Agente principal', startedAt: Date.now(), status: 'idle' });
+      agents.push(env.office.get('cast-ana')!);
+      const [job] = launcher.poll();
+      launcher.ack({ results: [{ id: job.id, ok: true }] });
+      launcher.tick();
+      const dismissed = await post('/api/agents/cast-ana/dismiss');
+      expect(dismissed.status).toBe(202);
+      expect(await dismissed.json()).toMatchObject({ job: { cast: 'ana', op: 'stop', status: 'queued' } });
     } finally {
       await env.close();
       env.cleanup();
@@ -581,5 +647,89 @@ describe('arquivos (/api/files)', () => {
       await off.close();
       off.cleanup();
     }
+  });
+});
+
+describe('HTTP summary capability and POST contract', () => {
+  const environments: (Env & { cleanup(): void })[] = [];
+  const cleanups: (() => void)[] = [];
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    for (const env of environments.splice(0)) { await env.close(); env.cleanup(); }
+    for (const cleanup of cleanups.splice(0)) cleanup();
+  });
+  function summaries(missingToken = false) {
+    const tmp = tempDir();
+    cleanups.push(tmp.cleanup);
+    const tokenFile = join(tmp.dir, 'token');
+    if (!missingToken) writeFileSync(tokenFile, 'test-token');
+    const forbidden = (): never => { throw new Error('HTTP consulted OMP'); };
+    return new Summarizer({
+      http: { url: 'http://127.0.0.1:4000', model: 'test-model', tokenFile, auth: 'x-api-key' },
+      bin: forbidden, agentDir: forbidden, tiny: forbidden,
+    });
+  }
+  async function environment(extra: Partial<ApiDeps>) {
+    const env = await start(extra);
+    environments.push(env);
+    return env;
+  }
+  const post = (base: string, text: string) => raw(base, '/api/summaries', {
+    method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ text }),
+  });
+  it('advertises only configured HTTP on authorized connections, without exposing configuration', async () => {
+    const httpSummaries = summaries();
+    const cases: { extra: Partial<ApiDeps>; expected: boolean }[] = [
+      { extra: {}, expected: false },
+      { extra: { summaries: new Summarizer({ bin: () => undefined, agentDir: () => undefined }) }, expected: false },
+      { extra: { summaries: httpSummaries }, expected: true },
+      { extra: { summaries: httpSummaries, remote: { is: () => true, allows: () => false } }, expected: false },
+      { extra: { summaries: httpSummaries, remote: { is: () => true, allows: (feature) => feature === 'messages' } }, expected: true },
+    ];
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    for (const { extra, expected } of cases) {
+      const env = await environment(extra);
+      const health = JSON.parse((await raw(env.base, '/api/health')).body);
+      expect(health.summaryHttp).toBe(expected);
+      expect(JSON.stringify(health)).not.toMatch(/test-token|test-model|tokenFile|4000/);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it('returns 200 without OMP and rejects invalid input before upstream calls', async () => {
+    const env = await environment({ summaries: summaries() });
+    const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify({ content: [{ type: 'text', text: 'Resumo' }] })));
+    vi.stubGlobal('fetch', fetchMock);
+    for (const text of ['', '   ', 'x'.repeat(SUMMARY_INPUT_MAX + 1)]) expect((await post(env.base, text)).status).toBe(422);
+    expect(fetchMock).not.toHaveBeenCalled();
+    const result = await post(env.base, 'agent response');
+    expect(result.status).toBe(200);
+    expect(JSON.parse(result.body)).toEqual({ summary: 'Resumo' });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+  it('rejects unauthorized POST without calling upstream', async () => {
+    const env = await environment({ summaries: summaries(), remote: { is: () => true, allows: () => false } });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    expect((await post(env.base, 'agent response')).status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it('preserves 502 for upstream 429 and retries the next identical request', async () => {
+    const env = await environment({ summaries: summaries() });
+    const fetchMock = vi.fn().mockImplementation(async () => new Response('sensitive upstream body', { status: 429 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const first = await post(env.base, 'agent response');
+    expect(first.status).toBe(502);
+    expect(first.body).toContain('HTTP 429');
+    expect(first.body).not.toContain('sensitive upstream body');
+    expect((await post(env.base, 'agent response')).status).toBe(502);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+  it('returns 503 for missing token without upstream calls', async () => {
+    const env = await environment({ summaries: summaries(true) });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    expect((await post(env.base, 'agent response')).status).toBe(503);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

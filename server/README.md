@@ -25,6 +25,67 @@ cópia da chamada `Agent` do pai (mesmo `tool_use` id do `.meta.json`) e o resul
 com a instrução do fork. O parser ignora essa cópia — senão o resultado herdado parece o fim do subagente e o fork
 nunca entra no escritório — e usa o texto depois de `</fork-boilerplate>` como o pedido dele.
 
+## ZeroClaw (opt-in)
+
+`HABBLAUD_ZEROCLAW_URL=http://127.0.0.1:42617` liga a fonte do gateway ZeroClaw Gluon.
+Ausente ou vazia, não abre rede, temporizadores nem diretórios dessa fonte. A URL aceita somente
+HTTP em loopback, sem credenciais, query, fragmento ou caminho. Este desenho usa `require_pairing=false`
+no gateway isolado do tenant, sem porta publicada. Não existe variável de token ZeroClaw.
+
+Com essa URL configurada e válida, o elenco usa ZeroClaw, sem auxiliar do host, conta OMP ou tmux.
+Sem a URL, o elenco continua usando OMP; configuração ZeroClaw inválida não faz fallback.
+O runtime ZeroClaw exige também:
+
+| Variável | Formato |
+| --- | --- |
+| `HABBLAUD_ZEROCLAW_AGENTS` | JSON não vazio `[{"alias":"m_<12 hex>","model":"provedor/modelo"}]`, na ordem do catálogo |
+| `HABBLAUD_ZEROCLAW_DEFAULT_AGENT` | Alias padrão presente nesse catálogo |
+
+O alias é `m_` seguido dos primeiros 12 dígitos hexadecimais minúsculos de SHA-256 do identificador
+`model` completo em UTF-8. O mesmo alias identifica o agente e o modelo na configuração do gateway.
+Não se usa slug, índice nem remoção de pontuação. Modelos e aliases devem ser únicos, sem espaços,
+controles ou curingas nos modelos; catálogo parcial, hash incorreto e default desconhecido são recusados.
+No perfil, `model` guarda o alias técnico. Um identificador legado exatamente igual a uma entrada
+é resolvido em memória, sem regravar perfis nem remover sufixos; modelo desconhecido recebe 422.
+Campo ausente usa o alias padrão. Retomar mantém UUID e alias originais, exige metadados ZeroClaw
+na mesma sala e recusa modelo incompatível; histórico OMP não vira conversa ZeroClaw.
+
+`GET /api/cast/models` funciona antes da primeira sessão, sob a mesma trava do terminal.
+ZeroClaw devolve `{provider:'zeroclaw',models:[{alias,model}],defaultModel:alias}`, na ordem configurada:
+`model` é o identificador legível, e `alias` é a chave enviada e armazenada.
+OMP devolve `{provider:'omp',models:[]}` e mantém sua descoberta existente.
+O endpoint não expõe URL, credenciais nem TOML e aceita somente GET.
+
+Na conversa nova, instruções do personagem são contexto textual, não system prompt:
+`Instruções do personagem:\n<instructions>`, seguido de `\n\nPedido inicial:\n<prompt>` quando houver pedido.
+Sem instruções, envia somente o pedido; sem ambos, abre a sessão sem inferência.
+Retomar envia apenas o pedido opcional, sem repetir instruções. Cada campo mantém o limite de 8.000 caracteres.
+
+A dispensa bloqueia novos envios e cancela pendências com `cancelSession`; se houver turno ativo ou
+continuidade incerta, aguarda `stopSession` confirmar término antes de `closeSession`.
+Sessão ociosa fecha sem abort. Fechar conexão não interrompe inferência, e nenhuma dispensa usa DELETE:
+o histórico e a referência para retomada permanecem. Falha ao parar mantém sessão aberta e vaga ocupada.
+`HABBLAUD_CAST_MAX` conta também sessões desconectadas e em dispensa até o fechamento confirmado.
+A dispensa por ociosidade usa o limite existente de 120 minutos ou `idleMinutes`; `0` desliga a regra.
+
+O estado fica em `<HABBLAUD_DATA_DIR>/zeroclaw/` (por padrão `~/.habblaud/zeroclaw/`):
+`open-sessions.json` guarda intenções de sessões abertas; `sessions.json` guarda metadados locais;
+`sessions/<UUID>.jsonl` preserva prompts, deltas e ferramentas no formato de leitura Claude.
+Somente intenções explícitas são retomadas. Inventário HTTP e arquivo histórico não são presença.
+Uma sessão aparece no escritório apenas com socket confirmado, gateway alcançável e projeto local conhecido.
+O histórico HTTP não informa projeto nem recupera ferramentas; sessões externas podem não ter sala.
+
+Reconexão conserva UUID e alias, usa backoff e nunca reenvia prompts. Quedas durante turnos deixam
+aviso de lacuna; `/state` reconcilia se ainda há inferência, sem inventar resposta, sucesso ou ferramentas.
+Fechar socket não interrompe inferência. STOP usa aborto HTTP; `no_active_response` confirma término
+mesmo sem frame WS. Tokens/custos do frame `done` não alimentam contexto nem uso da conta.
+O JSONL permanece legível com gateway offline e depois do fechamento da sessão.
+
+Esta fonte compartilha o conector com a entrega de mensagens e controles descrita abaixo.
+O elenco usa esse mesmo transporte; a interface ZeroClaw depende do plano 072.
+Para rollback, remova `HABBLAUD_ZEROCLAW_URL` e preserve a pasta `zeroclaw/`.
+
+
 ## Esperando o shell
 
 O status `shell` (ver `shared/types.ts`) é o agente que terminou o turno com comando(s) rodando em segundo
@@ -62,6 +123,65 @@ linhas com mais de 2 min), aviso e efeito na sala, publicado em `RoomInfo.effect
 until, agentId}`): festa (PR aberto/mergeado, release) por 12 s; alarme (CI vermelho) até um CI verde na sala (que vira
 festa) ou 10 min. Push só avisa. O mesmo CI visto de novo em 2 min não repete o aviso.
 
+## Resumos por HTTP ou RPC
+
+Com mensagens habilitadas, o resumidor usa Anthropic Messages HTTP quando configurado. Não exige binário,
+conta OMP nem papel Tiny nesse modo. Sem configuração HTTP, mantém o pool RPC e o papel Tiny existentes.
+
+| Variável | Valor |
+| --- | --- |
+| `HABBLAUD_SUMMARY_URL` | Base HTTP(S), sem `/v1/messages`, usuário, senha, query ou fragmento; aceita caminho-base e remove barras finais |
+| `HABBLAUD_SUMMARY_MODEL` | ID literal de inferência autorizado no gateway; não é alias ZeroClaw nem `@tiny` |
+| `HABBLAUD_SUMMARY_TOKEN_FILE` | Caminho do arquivo de token visto pelo processo; somente o caminho fica na configuração |
+| `HABBLAUD_SUMMARY_AUTH` | `x-api-key` (padrão) ou `bearer`; nunca deduzido pela porta |
+
+Todas ausentes ou vazias mantêm RPC. Qualquer variável preenchida exige URL, modelo e arquivo; configuração
+parcial ou inválida impede a inicialização com erro sem valores sensíveis. Para servidores externos, use
+**HTTPS obrigatório**: o token e o texto da conversa seguem para esse endpoint. HTTP destina-se a serviços locais.
+
+O pedido é `POST <base>/v1/messages`, não-stream, com versão Anthropic `2023-06-01`, `max_tokens:512` e somente
+o header de autenticação escolhido. Redirects são recusados. O prazo de 90 segundos inclui leitura do corpo.
+Somente blocos de texto entram no resumo; thinking e outros blocos não são expostos. Não há retry automático
+nem fallback RPC quando HTTP falha. A próxima solicitação pode tentar novamente, pois falhas saem do cache.
+
+O arquivo é lido e aparado a cada chamada efetiva; rotação vale na próxima chamada não atendida pelo cache.
+Arquivo ausente, ilegível ou vazio retorna 503 com mensagem fixa. O resumidor não lê `.env` nem token de pareamento
+ZeroClaw. Cache, deduplicação e fila são compartilhados pelos modos; por padrão são dois pedidos simultâneos.
+`warm()` em HTTP não abre processos nem faz rede.
+
+Exemplo para tenant futuro (somente após omp-tenant 039 e ativação autorizada no 043; montagem pelo 040):
+
+```sh
+HABBLAUD_SUMMARY_URL=http://127.0.0.1:4000
+HABBLAUD_SUMMARY_MODEL=ID_DE_MODELO_LIBERADO
+HABBLAUD_SUMMARY_TOKEN_FILE=/run/secrets/summary-token
+HABBLAUD_SUMMARY_AUTH=x-api-key
+```
+
+O proxy traduz o token do tenant para Bearer. O caminho deve corresponder ao arquivo montado pelo operador.
+
+Exemplo para host, com gateway direto (não é o gateway de sessões ZeroClaw na porta 42617):
+
+```sh
+HABBLAUD_SUMMARY_URL=http://127.0.0.1:4001
+HABBLAUD_SUMMARY_MODEL=ID_DE_MODELO_PERMITIDO
+HABBLAUD_SUMMARY_TOKEN_FILE=/CAMINHO/ABSOLUTO/summary-token
+HABBLAUD_SUMMARY_AUTH=bearer
+```
+
+O operador deve criar ou selecionar um token de cliente do gateway com grant para esse modelo. Grave-o em
+arquivo 0600 legível pelo processo Habblaud, sem o publicar em comandos, logs ou repositório. Em contêiner,
+monte o arquivo somente leitura; o caminho do ambiente é o visto pelo processo. `127.0.0.1` exige rede
+compartilhada com o host. Configurar o ambiente de `habblaud.service` e reiniciar para aplicar são tarefas do
+operador, não desta implementação. Alterações de modelo/configuração exigem reinício autorizado.
+
+Para voltar ao RPC, remova **todas as quatro variáveis** e reinicie numa instalação que ainda possua OMP,
+conta e Tiny. `/api/health.summaryHttp` anuncia apenas HTTP configurado e permissão `messages` nesta conexão,
+sem URL, modelo, caminho ou token. É falso em RPC, sem resumidor ou sem autorização remota; não testa o upstream.
+O plano Habblaud 072 libera o interruptor Android sem Tiny usando essa capacidade; antes dele, o backend pode
+funcionar com o interruptor ainda bloqueado. Os aproximadamente 470 MiB dos processos ociosos são referência
+fornecida de produção, não economia validada; medir somente após publicação.
+
 ## API
 
 O auxiliar no host (`npm run codex:bridge`) abre sessões omp em `tmux` como `hb-<id>`. Para ver o TUI, use
@@ -74,6 +194,7 @@ O auxiliar no host (`npm run codex:bridge`) abre sessões omp em `tmux` como `hb
 | `GET /api/agents/:id` | `AgentDetail` (histórico de até 200 atividades) |
 | `GET /api/agents/:id/terminal` | SSE do terminal: eventos `init` e `append` (`TerminalMessage`); só com bind local (ver abaixo) |
 | `GET /api/cast` | `{members}` sem vínculos; acesso local ou pela porta remota após login, com `terminal` em `HABBLAUD_REMOTE_ALLOW` |
+| `GET /api/cast/models` | Catálogo configurado ZeroClaw com aliases e modelo padrão, ou `{provider:'omp',models:[]}`; disponível sem sessão; mesma trava do terminal |
 | `POST /api/cast` | Cria membro sem `id`; 201, 400 ou 409; mesma trava do terminal |
 | `PUT /api/cast/:id` | Edita membro e atualiza os agentes que o vestem; mesma trava do terminal |
 | `DELETE /api/cast/:id` | Apaga membro e vínculos; agentes voltam ao sorteio; mesma trava do terminal |
@@ -81,7 +202,7 @@ O auxiliar no host (`npm run codex:bridge`) abre sessões omp em `tmux` como `hb
 | `DELETE /api/agents/:id/cast` | Remove o vínculo e volta ao sorteio; mesma trava do terminal |
 | `POST /api/cast/:id/start` | `{room, mode: 'new' \| 'resume', prompt?}`: enfileira uma chamada; 202, 409 (ocupado ou limite de `HABBLAUD_CAST_MAX` personagens abertos), 422 ou 503; mesma trava do terminal |
 | `POST /api/agents/:id/dismiss` | Enfileira a dispensa de uma sessão aberta pelo Habblaud; mesma trava do terminal |
-| `GET /api/cast/jobs` | `{jobs, available}`: estado das chamadas e presença do auxiliar; mesma trava do terminal |
+| `GET /api/cast/jobs` | `{jobs, available}`: estado das chamadas e disponibilidade do runtime (auxiliar no OMP, conector no ZeroClaw); mesma trava do terminal |
 | `GET /api/cast/dirs?path=<absoluto>` | `{path, parent?, dirs}`: subpastas nas raízes de `HABBLAUD_CAST_ROOTS` (separadas por vírgulas) ou na pasta pessoal; mesma trava do terminal |
 | `POST /api/host/cast/poll`, `/api/host/cast/ack` | Auxiliar busca e confirma chamadas e dispensas; somente acesso local |
 | `GET /api/sessions/recent` | `RecentSessionsResponse`: sessões dos últimos 7 dias de todas as contas (até 150); mesma trava do terminal |
@@ -90,7 +211,7 @@ O auxiliar no host (`npm run codex:bridge`) abre sessões omp em `tmux` como `hb
 | `GET /api/stats/days?tz=<IANA>` | `StatsDaysResponse`: dias com dados reais (e do demo, se ligado), mais recente primeiro |
 | `GET /api/timeline/days` | `{recording, days:[{day, bytes, from, to}]}`: dias gravados para o timelapse, do mais recente ao mais antigo |
 | `GET /api/timeline/:dia` | o arquivo do dia (`AAAA-MM-DD`) em JSONL (`application/x-ndjson`, gzip se aceito); 400 para dia inválido, 404 sem gravação |
-| `GET /api/health` | `{ok, version, demo, docker, remote, terminal, permissions, pty, messages, codexEvents, ompEvents, semMarca, updates:{state, latest, available}, sources, accounts:[{id, provider?, usageStatus}]}` (`terminal`, `permissions` e `messages` valem para a conexão que perguntou; `pty` nunca vale pela porta remota) |
+| `GET /api/health` | `{ok, version, demo, docker, remote, terminal, permissions, pty, messages, summaryHttp, codexEvents, ompEvents, semMarca, updates:{state, latest, available}, sources, accounts:[{id, provider?, usageStatus}]}` (`terminal`, `permissions`, `messages` e `summaryHttp` valem para a conexão que perguntou; `pty` nunca vale pela porta remota) |
 | `POST /api/demo` | `{enabled: boolean}` liga/desliga agentes simulados (misturados aos reais) |
 | `POST /api/rooms/rename` | `{id, name}`: renomeia a sala (nome vazio volta ao padrão, o nome da pasta); `200 {name}`, `400`, `404` (sala desconhecida), `403` (terminal desligado ou fora do acesso local); o nome fica em `rooms.json` na pasta de dados |
 | `GET /api/access` | `AccessInfo`: `{remote, local, permissions, messages, messageSessionGuard?, terminal, spawn, world}`: o que esta conexão pode usar (a porta remota só vê o que `HABBLAUD_REMOTE_ALLOW` liberar) |
@@ -103,11 +224,12 @@ O auxiliar no host (`npm run codex:bridge`) abre sessões omp em `tmux` como `hb
 | `GET /api/permissions/:id` | (página) detalhe do pedido com os argumentos (`PermissionRequestInfo` com `input`) |
 | `POST /api/permissions/:id/decision` | (página) `PermissionDecision`: `{behavior: 'allow' \| 'deny' \| 'terminal' \| 'answer', message?, interrupt?, suggestion?, answers?}` |
 | `POST /api/messages` | (página) `{agentId, text, attachments?: string[], deliverAs?, expectedSessionId?: string}`: até cinco IDs; aceita somente anexos; `201 OutboxMessage`; trava `messages` |
+| `POST /api/summaries` | `{text}` não vazio, até 32768 caracteres: `200 {summary}`, `422` entrada inválida, `403` sem permissão `messages`, `404` sem resumidor, `503` indisponível e `502` falha upstream (inclusive 429); ver resumos abaixo |
 | `POST /api/messages/attachments` | (página) bytes `application/octet-stream` com headers de nome/tipo: `201 {id, name, size}`; até 15 MiB/arquivo, mesma trava `messages` e Origin; não aceita destino |
 | `GET /api/messages/:id` | (página) situação da mensagem (`OutboxMessage`: `queued` \| `sent` \| `delivered` \| `failed`) |
 | `POST /api/mod/inbox` | (plugin `habblaud-mensagens`) `{session, account?}`: marca a presença da sessão e entrega `{messages: InboxMessage[]}` |
 | `POST /api/mod/inbox/ack` | (plugin) `{session, results: [{id, ok, error?}]}`: confirma cada mensagem entregue (ou a falha) |
-| `POST /api/messages/control` | (página, só omp) `{agentId, model?, thinking?, stop?, resume?, expectedSessionId?: string}`: controla a sessão viva; mesmas respostas de `POST /api/messages` |
+| `POST /api/messages/control` | (página) `{agentId, model?, thinking?, command?, stop?, resume?, expectedSessionId?: string}`: controles OMP; ZeroClaw aceita somente `{stop:true}` ou `{command:'new'}` isolados; mesmas respostas de `POST /api/messages` |
 | `POST /api/codex/events` | (hook do Codex) `{account?, codexHome?, event}`: `200 {ok}`; só pelo computador (a porta remota recebe 403) |
 | `POST /api/codex/bridge/poll` e `/ack` | (auxiliar `npm run codex:bridge`) busca as mensagens para o Codex e confirma cada entrega (`{results: [{id, ok, error?}]}`: `200 {ok: true}`); só pelo computador |
 | `GET /api/codex/bridge/files/:jobId/attachments/:fileId` | bytes de anexo de mensagem ou spawn para o auxiliar; somente arquivo pertencente a um job enviado e ainda vivo, com a mesma proteção local do poll/ack; nunca pela allowlist remota de arquivos |
@@ -354,38 +476,72 @@ ou resposta inválidos), 404 (pedido desconhecido, já entregue ou expirado), 40
 
 ## Mensagens pelo escritório
 
-A página manda texto a um agente principal (`POST /api/messages`, pela gaveta do agente ou pelo rodapé do terminal) e
-o plugin `habblaud-mensagens` da sessão o busca (`POST /api/mod/inbox`, a cada 2 s) e o entrega com
+A página manda texto a um agente principal (`POST /api/messages`, pela gaveta do agente ou pelo rodapé do terminal).
+No caminho do plugin, `habblaud-mensagens` busca o pedido (`POST /api/mod/inbox`, a cada 2 s) e o entrega com
 `$.prompt.submit({ text, asUser: true })`: o modelo lê como se você tivesse digitado. Depois confirma
 (`POST /api/mod/inbox/ack`). Detalhes do plugin em [`mod/README.md`](../mod/README.md).
 
 `messages/registry.ts` (`MessageRegistry`):
 
 - **presença:** cada pergunta do plugin marca a sessão (o principal com aquele `sessionId`, e a `account` igual se
-  vier); vista há até 10 s, o agente sai no snapshot com `canMessage: true`. O snapshot só muda quando a presença muda;
+  vier); vista há até 10 s, o agente sai no snapshot com `canMessage: true`. ZeroClaw usa o socket compartilhado da
+  fonte: exige sessão presente, conectada, continuidade conhecida e não estar em dispensa/substituição.
+  O snapshot só muda quando a presença muda;
 - **fila:** até 5 mensagens em aberto por agente (429) e 20.000 caracteres por mensagem; o texto vai como foi digitado,
   nunca aparece nas respostas para a página nem no log, e é descartado quando a mensagem se resolve;
-- **estados:** `queued` → `sent` (o plugin buscou) → `delivered` ou `failed`. `queued` sem ser buscada em 60 s, `sent`
-  sem confirmação em 30 s ou agente que saiu = `failed`, com o motivo. `delivered` significa aceitação pelo runtime,
-  não leitura pelo modelo nem conclusão do trabalho. Resolvidas ficam 10 min para o `GET`;
+- **estados:** admissão síncrona retorna `201` com cópia `queued`; a consulta pode já mostrar `sent`, `delivered` ou
+  `failed`. No caminho do plugin, `sent` significa que ele buscou e `delivered` exige confirmação do runtime.
+  No ZeroClaw, `sent` começa no despacho e `delivered` significa somente aceitação pelo buffer local do socket,
+  não confirmação do gateway, aplicação do steering, leitura pelo modelo nem resposta concluída.
+  `queued` expira em 60 s e `sent` em 30 s; saída ou troca de sessão também falha pendências.
+  Resolvidas ficam 10 min para o `GET`, sempre sem texto, conteúdo ou caminhos dos anexos;
 - entregue: atividade ✉️ "Mensagem pelo Habblaud" no agente (o detalhe mascarado e cortado); agentes do demo recebem
   mensagens fictícias, entregues em ~1 s, sem sessão real.
 
-No `POST /api/messages`, `deliverAs` é opcional e aceito somente para OMP: `aside`, `followUp` ou `steer`.
+No `POST /api/messages`, `deliverAs` é opcional para OMP e ZeroClaw; os demais provedores não aceitam o campo.
 Omissão preserva `followUp` para clientes antigos. Com OMP livre, qualquer modo inicia um turno; ocupado, `aside`
 entra no próximo limite de etapa sem cortar o lote comum de ferramentas, salvo esperas interruptíveis `wait`/`vibe_wait`;
 `followUp` espera o fim do turno; `steer` pode pular ferramentas pendentes, mas não desfaz alterações nem garante
 cancelar operação iniciada. Upload e polling da extensão, atualmente de até 5 s quando ocupada, acrescentam latência.
 O `aside` da mensagem principal não é o chat paralelo efêmero de `/api/asides`. O status retorna o modo aceito.
 
+### Suporte ZeroClaw
+
+| Pedido | ZeroClaw |
+| --- | --- |
+| Texto sem modo ou `followUp`, sessão idle | Envia `message` no socket existente |
+| Texto sem modo ou `followUp`, sessão busy | Aguarda `done`/`aborted` ou confirmação HTTP terminal; libera um followUp por término |
+| `steer`, sessão idle ou busy | Envia no mesmo socket; ocupado, o gateway aplica entre iterações |
+| `deliverAs:'aside'` | 400; não há conversa paralela equivalente |
+| Pergunta de `/api/asides` | Indisponível; não converte em followUp nem steer |
+| `{stop:true}` isolado | Abort HTTP da sessão exata, sem frame `stop` e sem fechar socket; mantém followUps válidos |
+| `{command:'new'}` isolado | Confirma término, cancela pendências antigas e abre UUID novo com o mesmo personagem, sala e alias |
+| `model`, `thinking`, `resume`, `shake`, advisor ou combinações | 409, antes de enfileirar ou fazer I/O |
+
+`expectedSessionId` é permitido também nos dois controles suportados; UUID antigo retorna 409 com
+`code:'session_changed'`, sem entregar no contexto novo. `/new` só se confirma após `session_start`.
+O histórico anterior permanece; texto e anexos pendentes não migram para a nova conversa.
+
+O gateway não fornece ack de aplicação correlacionado por mensagem. Aceitação no buffer não garante steering
+aplicado nem turno concluído. Erros de steering sem ID aparecem na sessão, sem atribuição arbitrária a uma mensagem.
+Não há replay nem reenvio automático após queda ou timeout: o resultado pode ser incerto, e repetir pode executar
+o pedido duas vezes. Reconexão sem continuidade bloqueia textos e falha pendências ainda não enviadas.
+STOP e `/new` podem recuperar uma sessão conectada com continuidade perdida, mas exigem término observado ou
+prova HTTP terminal da sessão exata; desconexão, `running`, 404 ou falha HTTP não provam idle.
+
+Anexos são gravados antes do despacho e entram no texto como lista de **caminhos absolutos**, usando
+`promptWithAttachments()`. O mesmo caminho precisa estar montado nos contêineres Habblaud e ZeroClaw do tenant.
+Não há upload ao gateway, conversão base64 nem promessa de suporte nativo a imagem, áudio ou vídeo.
+
 As rotas (`messages/http.ts`) seguem a trava do terminal e mais uma chave: `ServerConfig.messages` = terminal ligado e
 `HABBLAUD_MENSAGENS` não desligado (`0`, `false`, `off`, `no`). Desligado ou `Host` que não é local → 403 em todas.
-Erros de `POST /api/messages`: 400 (corpo inválido, texto vazio ou longo demais), 404 (agente desconhecido), 409 (o
-agente não recebe: subagente, saiu ou sessão sem o plugin conectado) e 429. O estado sai em `meta.messages` do
-snapshot e em `messages` no `/api/health`.
+Erros de `POST /api/messages`: 400 (corpo inválido, texto vazio/longo demais ou aside ZeroClaw),
+404 (agente desconhecido), 409 (sessão alterada ou indisponível: subagente, saiu, plugin/socket ausente,
+continuidade perdida ou em dispensa) e 429 (cinco entradas em aberto). O estado sai em `meta.messages` do
+snapshot e em `messages` no `/api/health`. Controles incompatíveis retornam 409.
 
 Qualquer processo local consegue chamar essas rotas (como as de permissão): ligar as mensagens é aceitar que um
-programa da própria máquina possa digitar nas sessões que têm o plugin.
+programa da própria máquina possa digitar nas sessões disponíveis, inclusive pelo socket ZeroClaw.
 
 ## Elenco de personagens
 
@@ -452,6 +608,27 @@ do Codex levam `provider: 'codex'` (ausente = Claude Code). Ids: `<conta>:<threa
   do omp. Nunca usa `invalidate` nem `--force-refresh`; `metadata` (e-mails, ids) é descartado. `HABBLAUD_OMP_USAGE=0`
   desliga; no Docker, sempre desligado.
   Retorno 0 = entrou na fila da sessão (`delivered`); o Codex consome a fila a cada ~10 s, quando a sessão fica ociosa.
+
+### Cota da instalação por HTTP
+
+`HABBLAUD_QUOTA_URL` recebe o endpoint completo, por exemplo `http://127.0.0.1:4000/v1/cota`;
+`HABBLAUD_QUOTA_TOKEN_FILE` recebe um caminho absoluto com somente o bearer do tenant.
+Monte o arquivo somente leitura, legível pelo usuário do servidor. Ele é relido a cada consulta para aceitar rotação.
+URL e caminho vêm somente do ambiente do servidor, nunca do navegador. Use loopback do pod ou HTTPS de destino
+confiável, sem credenciais na URL, fragmentos ou redirects. Não use token de pareamento ZeroClaw nem credencial
+administrativa do gateway. O operador do plano omp-tenant 040 configura mounts/env; este recurso não opera tenants.
+
+A consulta independe de OMP, Docker, binários e sessões. Ela começa imediatamente e repete após 5 min de sucesso
+ou 1 min de falha, com timeout total de 10 s incluindo o corpo e uma consulta em voo. A cota global substitui o uso
+local em todas as contas reais, inclusive contas registradas depois da coleta; não cria conta sintética.
+Os reports representam a mesma cota: seus percentuais não são somados. Antes do primeiro sucesso não há números.
+Falhas mantêm o último `fetchedAt`; após 30 min os dados ficam antigos. Janelas cujo reinício passou são omitidas,
+nunca convertidas em 0%. Exaustão continua 100%, com a data de renovação.
+
+Sem as duas variáveis, o caminho legado permanece intacto. Configuração parcial ou URL/caminho inválidos impedem
+a inicialização com erro sanitizado. No modo HTTP, `omp usage` fica desligado mesmo se o token estiver ilegível
+ou o endpoint indisponível; não há fallback. Para voltar ao caminho legado, remova ambas as variáveis e reinicie
+o servidor em uma janela operacional autorizada.
 
 ## Habblaud World
 
@@ -584,6 +761,8 @@ em `shared/world/city.ts` (fonte da verdade; o servidor do mundo guarda a cópia
 | `HABBLAUD_CODEX_BIN` | `codex` do PATH | binário do Codex para o `codex queue` (modo Node e `npm run codex:bridge`) |
 | `HABBLAUD_OMP_USAGE` | ligado (Docker: desligado) | `0` desliga o `omp usage --json` (uso do plano das contas do omp) |
 | `HABBLAUD_OMP_BIN` | `omp` do PATH, senão `~/.bun/bin/omp` | executável do omp para o uso do plano (caminho ou nome no PATH) |
+| `HABBLAUD_QUOTA_URL` | — | endpoint HTTP(S) completo da cota do tenant; exige arquivo de token e desliga a coleta por `omp usage` |
+| `HABBLAUD_QUOTA_TOKEN_FILE` | — | arquivo absoluto contendo somente o bearer do tenant, montado RO; exige URL |
 | `HABBLAUD_MENSAGENS` | ligado (com o terminal) | `0`, `false`, `off` ou `no` desligam só as mensagens pelo escritório |
 | `HABBLAUD_CLAUDE_DIRS` | — | config dirs separados por vírgula; substitui a detecção (`~/.claude*` com `projects/` ou `sessions/` + `CLAUDE_CONFIG_DIR`) |
 | `HABBLAUD_DATA_DIR` | `~/.habblaud` (Docker: `/data`) | estado do Habblaud (nomes e personagens dos projetos persistidos em `names.json`, linha do tempo em `timeline/`, estatísticas do Meu dia em `stats/`, última verificação de versão em `updates.json`) |

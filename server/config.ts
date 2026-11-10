@@ -2,14 +2,42 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { isIP } from 'node:net';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { discoverClaudeDirs } from './accounts/detect';
 import { discoverOmpDirs } from './sources/omp/accounts';
+import { parseZeroClawCatalog, type ZeroClawCatalog } from './cast/zeroclaw';
 import { parseAllowedHosts } from './http/guard';
 import { parseRemoteConfig, type RemoteConfig } from './http/remote';
 import { parseGithubRepo } from './updates/checker';
 import { tr } from '../shared/i18n';
+
+export interface SummaryHttpConfig {
+  url: string;
+  model: string;
+  tokenFile: string;
+  auth: 'x-api-key' | 'bearer';
+}
+
+/** Configuração explícita: qualquer variável preenchida exige o conjunto completo, sem fallback RPC. */
+export function parseSummaryHttpConfig(env: NodeJS.ProcessEnv): SummaryHttpConfig | undefined {
+  const url = env.HABBLAUD_SUMMARY_URL?.trim();
+  const model = env.HABBLAUD_SUMMARY_MODEL?.trim();
+  const tokenFile = env.HABBLAUD_SUMMARY_TOKEN_FILE?.trim();
+  const auth = env.HABBLAUD_SUMMARY_AUTH?.trim();
+  if (!url && !model && !tokenFile && !auth) return undefined;
+  if (!url) throw new Error('HABBLAUD_SUMMARY_URL obrigatória');
+  if (!model) throw new Error('HABBLAUD_SUMMARY_MODEL obrigatória');
+  if (!tokenFile) throw new Error('HABBLAUD_SUMMARY_TOKEN_FILE obrigatória');
+  let parsed: URL;
+  try { parsed = new URL(url); } catch { throw new Error('HABBLAUD_SUMMARY_URL inválida'); }
+  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password ||
+      url.includes('?') || url.includes('#') || /\/v1\/messages\/?$/.test(parsed.pathname.replace(/\/+$/, ''))) {
+    throw new Error('HABBLAUD_SUMMARY_URL inválida');
+  }
+  if (auth && auth !== 'x-api-key' && auth !== 'bearer') throw new Error('HABBLAUD_SUMMARY_AUTH inválida');
+  return { url: parsed.href.replace(/\/+$/, ''), model, tokenFile, auth: auth === 'bearer' ? 'bearer' : 'x-api-key' };
+}
 
 export interface ServerConfig {
   port: number;
@@ -42,6 +70,8 @@ export interface ServerConfig {
    * trava do terminal e HABBLAUD_MENSAGENS sem desligar (ver messagesOffReason).
    */
   messages: boolean;
+  /** Resumos por Anthropic Messages; ausente mantém o runner RPC. Nunca contém o token. */
+  summaryHttp?: SummaryHttpConfig;
   /** Grava a linha do tempo do escritório para o timelapse (<dataDir>/timeline); HABBLAUD_TIMELINE=0 desliga. */
   timeline: boolean;
   /** Raiz do projeto (onde fica o package.json); serve dist/client a partir daqui. */
@@ -57,10 +87,16 @@ export interface ServerConfig {
   castMax?: number;
   /** Observa as sessões do omp (sources/omp/); HABBLAUD_OMP=0 desliga. */
   omp: boolean;
+  /** Gateway ZeroClaw HTTP somente em loopback; ausente = fonte desligada. */
+  zeroclawUrl?: string;
+  /** Catálogo validado do runtime ZeroClaw; aliases estáveis e modelo padrão explícito. */
+  zeroclawCatalog?: ZeroClawCatalog;
   /** Agent dirs do omp com sessions/ (HABBLAUD_OMP_DIRS › PI_CODING_AGENT_DIR › ~/.omp/agent); vazio com HABBLAUD_OMP=0. */
   ompDirs: string[];
   /** Roda `omp usage --json` para o uso do plano das contas do omp; HABBLAUD_OMP_USAGE=0 desliga; sempre desligado no Docker (sem omp nem credenciais no container). */
   ompUsage: boolean;
+  /** Cota global do tenant consultada por HTTP, sem processo OMP. */
+  quota?: { url: string; tokenFile: string };
   /** Segunda porta, com login, para o celular na rede local (http/remote.ts); ausente = desligada. */
   remote?: RemoteConfig;
   /** Por que o acesso remoto ficou desligado quando as variáveis estão incompletas. */
@@ -237,6 +273,18 @@ export function castMax(raw: string | undefined): number | undefined {
   return Number.isInteger(n) && n >= 1 && n <= 50 ? n : undefined;
 }
 
+/** Pairing desligado exige gateway na mesma máquina, sem credenciais na URL. */
+export function parseZeroClawUrl(raw: string | undefined): string | undefined {
+  if (!raw?.trim()) return undefined;
+  const invalid = new Error('HABBLAUD_ZEROCLAW_URL deve ser uma origem HTTP loopback sem credenciais, caminho, query ou fragmento');
+  let url: URL;
+  try { url = new URL(raw.trim()); } catch { throw invalid; }
+  const host = url.hostname.replace(/^\[|\]$/g, '');
+  const loopback = host === 'localhost' || host === '::1' || (isIP(host) === 4 && host.startsWith('127.'));
+  if (url.protocol !== 'http:' || !loopback || url.username || url.password || url.search || url.hash || url.pathname !== '/') throw invalid;
+  return url.origin;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] = process.argv): ServerConfig {
   const home = env.HOME || homedir();
   const inDocker = detectDocker(env);
@@ -246,6 +294,24 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
   const pkg = readPackage(rootDir);
   const remote = parseRemoteConfig(env, inDocker);
   const omp = !env.HABBLAUD_OMP?.trim() || isTruthy(env.HABBLAUD_OMP);
+  const zeroclawUrl = parseZeroClawUrl(env.HABBLAUD_ZEROCLAW_URL);
+  if (!zeroclawUrl && (env.HABBLAUD_ZEROCLAW_AGENTS !== undefined || env.HABBLAUD_ZEROCLAW_DEFAULT_AGENT !== undefined)) {
+    throw new Error('HABBLAUD_ZEROCLAW_URL obrigatória com catálogo ZeroClaw');
+  }
+  const zeroclawCatalog = zeroclawUrl
+    ? parseZeroClawCatalog(env.HABBLAUD_ZEROCLAW_AGENTS, env.HABBLAUD_ZEROCLAW_DEFAULT_AGENT)
+    : undefined;
+  const quotaUrl = env.HABBLAUD_QUOTA_URL?.trim();
+  const tokenFile = env.HABBLAUD_QUOTA_TOKEN_FILE?.trim();
+  let quota: ServerConfig['quota'];
+  if (quotaUrl || tokenFile) {
+    const invalid = () => new Error('Configuração de cota inválida: informe HABBLAUD_QUOTA_URL HTTP(S) sem credenciais/fragmento e HABBLAUD_QUOTA_TOKEN_FILE absoluto.');
+    if (!quotaUrl || !tokenFile || !isAbsolute(tokenFile)) throw invalid();
+    let url: URL;
+    try { url = new URL(quotaUrl); } catch { throw invalid(); }
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash || quotaUrl.includes('#')) throw invalid();
+    quota = { url: url.href, tokenFile };
+  }
   return {
     port: Number.isFinite(port) && port > 0 && port < 65536 ? port : 4747,
     host,
@@ -259,6 +325,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     allowedHosts: parseAllowedHosts(env.HABBLAUD_ALLOWED_HOSTS),
     terminal: terminalOffReason(env, host, inDocker) === undefined,
     messages: messagesOffReason(env, host, inDocker) === undefined,
+    summaryHttp: parseSummaryHttpConfig(env),
     timeline: !env.HABBLAUD_TIMELINE?.trim() || isTruthy(env.HABBLAUD_TIMELINE),
     rootDir,
     version: pkg.version,
@@ -267,8 +334,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     codex: !env.HABBLAUD_CODEX?.trim() || isTruthy(env.HABBLAUD_CODEX),
     ...(castMax(env.HABBLAUD_CAST_MAX) ? { castMax: castMax(env.HABBLAUD_CAST_MAX) } : {}),
     omp,
+    zeroclawUrl,
+    zeroclawCatalog,
     ompDirs: omp ? discoverOmpDirs(env, home) : [],
-    ompUsage: omp && !inDocker && (!env.HABBLAUD_OMP_USAGE?.trim() || isTruthy(env.HABBLAUD_OMP_USAGE)),
+    ompUsage: !quota && omp && !inDocker && (!env.HABBLAUD_OMP_USAGE?.trim() || isTruthy(env.HABBLAUD_OMP_USAGE)),
+    quota,
     remote: remote.config,
     remoteWarning: remote.warning,
     world: parseWorldConfig(env, argv),

@@ -36,6 +36,9 @@ import io.ktor.http.encodeURLPathPart
 
 private data class CastChoice(val id: String, val name: String, val rooms: List<String>, val avatar: Avatar?)
 private val sessionIdPattern = Regex("^[0-9a-fA-F][0-9a-fA-F-]{7,199}$")
+internal fun canResumeCast(selected: SessionItem?, runtime: String?): Boolean =
+    selected != null && selected.agentId == null && supportsSessionControl(selected.key.provider) &&
+        selected.key.provider == runtime && selected.key.sessionId.matches(sessionIdPattern) && selected.project?.startsWith('/') == true
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -46,6 +49,7 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
     var characters by remember(api) { mutableStateOf(emptyList<CastChoice>()) }
     var folders by remember(api) { mutableStateOf(emptyList<String>()) }
     var jobs by remember(api) { mutableStateOf(emptyMap<String, String>()) }
+    var runtime by remember(api) { mutableStateOf<String?>(null) }
     var dialog by remember { mutableStateOf("") }
     var choice by remember { mutableStateOf<CastChoice?>(null) }
     var result by remember { mutableStateOf("") }
@@ -55,6 +59,7 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
     LaunchedEffect(selected?.key) { result = "" }
     // Elenco e pastas mudam pouco: carregam ao conectar, depois de cada pedido e ao abrir a escolha; os pedidos, a cada 5 s.
     suspend fun loadCast() {
+        runtime = catalogRuntime(api.request("/api/cast/models"))
         characters = wireJson.parseToJsonElement(api.request("/api/cast")).jsonObject.objects("members")
             .filter { it.string("kind") == "main" }.mapNotNull { member ->
                 val id = member.string("id") ?: return@mapNotNull null
@@ -65,7 +70,7 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
         folders = wireJson.parseToJsonElement(api.request("/api/cast/folders")).jsonObject.objects("folders").mapNotNull { it.string("path") }
     }
     LaunchedEffect(api, connected, refresh, lifecycleOwner) {
-        if (!connected) { availability = "offline"; return@LaunchedEffect }
+        if (!connected) { availability = "offline"; runtime = null; return@LaunchedEffect }
         var castLoaded = false
         var unauthorized = false
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -86,7 +91,7 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
                 if (availability == "available" && !castLoaded) { loadCast(); castLoaded = true }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                if (e is ApiException && e.status == 401) { unauthorized = true; onUnauthorized(); return@repeatOnLifecycle }
+                if (e is ApiException && e.status == 401) { unauthorized = true; runtime = null; characters = emptyList(); onUnauthorized(); return@repeatOnLifecycle }
                 availability = if (e is ApiException && e.status == 403) "forbidden" else "offline"
             }
             delay(5_000)
@@ -131,8 +136,7 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
     val eligible = if (selected?.project?.startsWith('/') == true) free.filter { it.rooms.isEmpty() || selected.project in it.rooms } else emptyList()
     val resumeChoices = eligible.sortedByDescending { it == current }
     // "Novo" também retoma: o ▶ não depende de haver personagem livre na pasta.
-    val resume = selected != null && selected.agentId == null && selected.key.provider == "omp" &&
-        selected.key.sessionId.matches(sessionIdPattern) && selected.project?.startsWith('/') == true
+    val resume = canResumeCast(selected, runtime)
     val dismiss = selected?.agentId != null && selected.castOpened && (current != null || newAgent)
     val actions: @Composable () -> Unit = {
         if (availability == "available" && resume) ActionIcon(Res.string.cast_resume, Icons.Default.PlayArrow, !sending) { choice = null; dialog = "resume-select" }

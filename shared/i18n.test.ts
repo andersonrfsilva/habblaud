@@ -105,3 +105,28 @@ describe('modo sem marca', () => {
     expect(unbrand('your Claude Code agents')).toBe('your agents');
   });
 });
+
+describe('identidade ZeroClaw', () => {
+  afterEach(() => {
+    setLocale('pt-BR');
+    setNeutralBrand(false);
+  });
+
+  it('preserva a marca normal e remove o nome solto e entre parênteses no modo neutro', () => {
+    expect(unbrand('ZeroClaw')).toBe('ZeroClaw');
+    setNeutralBrand(true);
+    expect(unbrand('ZeroClaw')).toBe('Agente');
+    expect(unbrand('Agente principal (ZeroClaw)')).toBe('Agente principal');
+    for (const locale of ['en', 'fr'] as const) {
+      setLocale(locale);
+      expect(unbrand('ZeroClaw')).toBe('Agent');
+    }
+  });
+
+  it('não reescreve caminhos, comandos nem identificadores técnicos', () => {
+    setNeutralBrand(true);
+    for (const value of ['.zeroclaw', '/opt/zeroclaw', '/opt/ZeroClaw', 'zeroclaw:install', 'ZeroClaw:install', 'vendor/ZeroClaw-model', 'model-ZeroClaw-1', 'ZeroClaw.json']) {
+      expect(unbrand(value)).toBe(value);
+    }
+  });
+});

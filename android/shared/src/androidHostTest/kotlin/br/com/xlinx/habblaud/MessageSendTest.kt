@@ -180,4 +180,97 @@ class MessageSendTest {
             assertEquals(0, server.requestCount); restored.stop()
         } finally { server.shutdown() }
     }
+    @Test fun zeroClawExactDeliveryBodiesNormalizeAsideWithoutChangingPreference() = runBlocking {
+        for ((preference, expected) in listOf("steer" to "steer", "followUp" to "followUp", "aside" to "followUp", "invalid" to "followUp")) {
+            val server = MockWebServer(); server.start()
+            try {
+                server.enqueue(MockResponse().setBody("{\"id\":\"zc\",\"status\":\"delivered\"}"))
+                val c = controller(this, MemoryStore(), server); open(c, a.copy(provider = "zeroclaw"))
+                c.deliverAs = preference; c.edit(text = "pedido"); c.send("agent")
+                waitFor { c.state.value.operation?.status == "delivered" }
+                val request = server.takeRequest()
+                assertEquals("/api/messages", request.path)
+                assertEquals("{\"agentId\":\"agent\",\"text\":\"pedido\",\"expectedSessionId\":\"one\",\"deliverAs\":\"$expected\"}", request.body.readUtf8())
+                assertEquals(preference, c.deliverAs); c.stop()
+            } finally { server.shutdown() }
+        }
+    }
+
+    @Test fun zeroClawExactStopAndNewNeverSendOmpOnlyCommands() = runBlocking {
+        val server = MockWebServer(); server.start()
+        try {
+            val c = controller(this, MemoryStore(), server); open(c, a.copy(provider = "zeroclaw"))
+            c.shake("agent"); c.setModel("agent", "model"); c.setThinking("agent", "high")
+            assertEquals(0, server.requestCount)
+            server.enqueue(MockResponse().setBody("{\"id\":\"stop\",\"status\":\"delivered\"}"))
+            c.interrupt("agent"); waitFor { c.state.value.control?.id == "stop" }
+            assertEquals("{\"agentId\":\"agent\",\"stop\":true,\"expectedSessionId\":\"one\"}", server.takeRequest().body.readUtf8())
+            c.edit(text = "rascunho antigo")
+            server.enqueue(MockResponse().setBody("{\"id\":\"new\",\"status\":\"delivered\"}"))
+            c.newSession("agent"); waitFor { c.state.value.control?.id == "new" }
+            val request = server.takeRequest()
+            assertEquals("/api/messages/control", request.path)
+            assertEquals("{\"agentId\":\"agent\",\"command\":\"new\",\"expectedSessionId\":\"one\"}", request.body.readUtf8())
+            assertEquals("rascunho antigo", c.state.value.draft.text); c.stop()
+        } finally { server.shutdown() }
+    }
+
+    @Test fun zeroClawConflictKeepsDraftAndNeverReplays() = runBlocking {
+        val server = MockWebServer(); server.start(); val store = MemoryStore(); var changed = false
+        val key = a.copy(provider = "zeroclaw")
+        try {
+            server.enqueue(MockResponse().setResponseCode(409).setBody("{\"code\":\"session_changed\"}"))
+            val c = controller(this, store, server) { changed = true }; open(c, key)
+            c.edit(text = "rascunho"); c.newSession("agent")
+            waitFor { changed }
+            assertEquals("rascunho", store.message(key).draft.text)
+            c.stop(); c.start(); waitFor { !c.state.value.loading }
+            assertEquals(1, server.requestCount); c.stop()
+        } finally { server.shutdown() }
+    }
+
+    @Test fun zeroClawLostNewResponseDoesNotReplayAfterRestart() = runBlocking {
+        val server = MockWebServer(); server.start(); val store = MemoryStore()
+        val key = a.copy(provider = "zeroclaw")
+        try {
+            server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST))
+            val c = controller(this, store, server); open(c, key); c.newSession("agent")
+            waitFor { c.state.value.controlError == "unknown" }; c.stop()
+            val restored = controller(this, store, server); open(restored, key)
+            restored.newSession("agent")
+            assertEquals("confirm", restored.state.value.controlError)
+            assertEquals(1, server.requestCount); restored.stop()
+        } finally { server.shutdown() }
+    }
+
+    @Test fun zeroClawControlResponseStaysWithOriginalSessionDuringSwitch() = runBlocking {
+        val server = MockWebServer(); server.start(); val store = MemoryStore()
+        val first = a.copy(provider = "zeroclaw"); val second = b.copy(provider = "zeroclaw")
+        try {
+            server.enqueue(MockResponse().setBody("{\"id\":\"new\",\"status\":\"delivered\"}").setBodyDelay(300, java.util.concurrent.TimeUnit.MILLISECONDS))
+            val c = controller(this, store, server); open(c, first); c.edit(text = "A"); c.newSession("agent")
+            waitFor { server.requestCount == 1 }
+            c.open(second); waitFor { !c.state.value.loading }; c.edit(text = "B")
+            waitFor { store.items[first]?.control?.id == "new" }
+            assertEquals(second, c.state.value.key); assertNull(c.state.value.control)
+            assertEquals("B", c.state.value.draft.text)
+            assertEquals("A", store.message(first).draft.text)
+            assertEquals(1, server.requestCount); c.stop()
+        } finally { server.shutdown() }
+    }
+
+    @Test fun zeroClawLostMessageResponseNeverReplaysOnReconnect() = runBlocking {
+        val server = MockWebServer(); server.start(); val store = MemoryStore()
+        val key = a.copy(provider = "zeroclaw")
+        try {
+            server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST))
+            val c = controller(this, store, server); open(c, key); c.edit(text = "pedido"); c.send("agent")
+            waitFor { c.state.value.operation?.status == "unknown" && !c.state.value.sending }; c.stop()
+            val restored = controller(this, store, server); open(restored, key)
+            assertEquals("pedido", restored.state.value.draft.text)
+            restored.send("agent")
+            assertEquals("confirm", restored.state.value.error)
+            assertEquals(1, server.requestCount); restored.stop()
+        } finally { server.shutdown() }
+    }
 }

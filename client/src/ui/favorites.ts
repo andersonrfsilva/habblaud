@@ -7,8 +7,8 @@ import { parseRecentSessions } from './recent-sessions';
 export const FAVORITES_KEY = 'habblaud.history.favorites';
 export const MAX_FAVORITES = 100;
 
-export function sessionKey(s: Pick<RecentSession, 'account' | 'sessionId'>): string {
-  return `${s.account}:${s.sessionId}`;
+export function sessionKey(s: Pick<RecentSession, 'account' | 'sessionId' | 'provider'>): string {
+  return `${s.provider && s.provider !== 'claude' ? `${s.provider}:` : ''}${s.account}:${s.sessionId}`;
 }
 
 /** Retratos válidos do JSON salvo (reusa parseRecentSessions({ sessions: raw })), sem duplicados. */
@@ -69,7 +69,7 @@ export function agentSession(agent: AgentInfo, room: Pick<RoomInfo, 'path'> | un
     size: 0,
     open: false,
   };
-  if (agent.provider === 'codex' || agent.provider === 'omp') s.provider = agent.provider;
+  if (agent.provider === 'codex' || agent.provider === 'omp' || agent.provider === 'zeroclaw') s.provider = agent.provider;
   if (room?.path) s.project = room.path;
   if (agent.title) s.title = agent.title;
   return s;

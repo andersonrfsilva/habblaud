@@ -7,9 +7,63 @@
 import type { AccountInfo, OfficeSnapshot, Provider } from '../../../shared/types';
 import { shortcutHint } from './model';
 import { isNeutralBrand, tr, unbrand } from '../../../shared/i18n';
+import type { OmpDeliverAs } from '../../../shared/messages';
+
+export function runtimeAllowsMessages(provider: unknown): boolean {
+  return provider === undefined || provider === 'claude' || provider === 'codex' || provider === 'omp' || provider === 'zeroclaw';
+}
+
+export function runtimeAllowsControl(provider: unknown): boolean {
+  return provider === 'omp' || provider === 'zeroclaw';
+}
+
+export function runtimeAllowsDeliveryModes(provider: unknown): boolean {
+  return provider === 'omp' || provider === 'zeroclaw';
+}
+
+export function runtimeAllowsOmpTools(provider: unknown): boolean {
+  return provider === 'omp';
+}
+
+export function runtimeAllowsContext(provider: unknown): boolean {
+  return provider === 'omp';
+}
+
+export function normalizeDeliverAs(provider: unknown, value: unknown): OmpDeliverAs | undefined {
+  if (!runtimeAllowsDeliveryModes(provider)) return undefined;
+  if (value === 'steer' || value === 'followUp') return value;
+  return provider === 'omp' && value === 'aside' ? 'aside' : 'followUp';
+}
+
+export interface CastModelCatalog {
+  provider: 'omp' | 'zeroclaw';
+  models: { alias: string; model: string }[];
+  defaultModel: string;
+}
+
+export function parseCastModelCatalog(raw: unknown): CastModelCatalog | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const value = raw as Record<string, unknown>;
+  const defaultModel = value.provider === 'omp' && value.defaultModel === undefined ? '' : value.defaultModel;
+  if ((value.provider !== 'omp' && value.provider !== 'zeroclaw') || typeof defaultModel !== 'string' || !Array.isArray(value.models)) return undefined;
+  if (!value.models.every((item) => item && typeof item === 'object' && typeof item.alias === 'string' && !!item.alias && typeof item.model === 'string' && !!item.model)) return undefined;
+  return { provider: value.provider, models: value.models.map((item) => ({ alias: item.alias, model: item.model })), defaultModel };
+}
+
+export function castModelOptions(catalog: CastModelCatalog | undefined): { value: string; label: string }[] {
+  return catalog?.models.map((item) => ({ value: item.alias, label: item.model })) ?? [];
+}
+
+export function validCastModel(catalog: CastModelCatalog | undefined, alias: string): boolean {
+  return !!catalog?.models.some((item) => item.alias === alias);
+}
+
+export function castDefaultModel(catalog: CastModelCatalog | undefined): string | undefined {
+  return catalog && validCastModel(catalog, catalog.defaultModel) ? catalog.defaultModel : undefined;
+}
 
 /** Nome de cada ferramenta como aparece nos textos ("Agente" nas três, no modo sem marca). */
-export const PROVIDER_NAME: Record<Provider, string> = { claude: unbrand('Claude Code'), codex: unbrand('Codex'), omp: unbrand('omp') };
+export const PROVIDER_NAME: Record<Provider, string> = { claude: unbrand('Claude Code'), codex: unbrand('Codex'), omp: unbrand('omp'), zeroclaw: unbrand('ZeroClaw') };
 
 /** Ferramenta de um agente, conta, sessão ou pedido (ausente = Claude Code). */
 export function providerOf(x: { provider?: Provider } | null | undefined): Provider {

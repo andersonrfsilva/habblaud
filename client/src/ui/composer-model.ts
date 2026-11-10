@@ -6,6 +6,7 @@
 import { MESSAGE_MAX, MESSAGE_ATTACHMENTS_MAX, MESSAGE_ATTACHMENT_MAX_BYTES, type OmpDeliverAs } from '../../../shared/messages';
 import type { AgentInfo, OutboxStatus, Provider } from '../../../shared/types';
 import { isNeutralBrand, tr } from '../../../shared/i18n';
+import { runtimeAllowsMessages } from './provider';
 
 /** Dica para quem tem o recurso ligado, mas a sessão do agente não está com o plugin conectado. */
 export const PLUGIN_HINT = tr('Para mandar mensagens daqui: npm run mod:install (plugin habblaud-mensagens)');
@@ -36,16 +37,19 @@ export function composerMode(agent: AgentInfo | undefined, env: ComposerEnv): Co
   if (env.replaying) return { kind: 'off', text: tr('Sem mensagens no timelapse: o escritório mostrado é o de outro momento') };
   if (agent?.kind === 'sub') return { kind: 'off', text: tr('Subagentes não recebem mensagens: escreva para o agente principal') };
   if (!agent || agent.status === 'offline' || agent.status === 'done') return { kind: 'off', text: tr('Sessão encerrada') };
+  if (!runtimeAllowsMessages(agent.provider)) return { kind: 'off', text: tr('Esta sessão não recebe mensagens daqui') };
+  const zeroclaw = agent.provider === 'zeroclaw';
   const codex = agent.provider === 'codex';
   const omp = agent.provider === 'omp';
-  if (!env.enabled) return { kind: 'off', text: codex ? tr('Para responder, use o Codex') : omp ? tr('Para responder, use o omp') : tr('Para responder, use o terminal do Claude Code') };
+  if (!env.enabled) return { kind: 'off', text: zeroclaw ? tr('Para responder, use o ZeroClaw') : codex ? tr('Para responder, use o Codex') : omp ? tr('Para responder, use o omp') : tr('Para responder, use o terminal do Claude Code') };
   if (!env.local) return { kind: 'off', text: tr('Para mandar mensagens por aqui, abra o Habblaud por http://localhost (ou 127.0.0.1)') };
-  if (!agent.canMessage) return { kind: 'hint', text: codex ? CODEX_BRIDGE_HINT : omp ? OMP_EXTENSION_HINT : PLUGIN_HINT };
+  if (!agent.canMessage) return { kind: 'hint', text: zeroclaw ? tr('Esta sessão ZeroClaw está indisponível: confira a conexão no servidor') : codex ? CODEX_BRIDGE_HINT : omp ? OMP_EXTENSION_HINT : PLUGIN_HINT };
   return { kind: 'ready' };
 }
 
 /** Dica embaixo da caixa (gaveta, Claude Code e Codex): como a mensagem entra na sessão. */
 export function composerTip(provider: Provider = 'claude'): string {
+  if (provider === 'zeroclaw') return tr('O modo escolhido define a entrega durante o turno. Entrega não confirma leitura nem conclusão. Enter manda; Shift+Enter quebra a linha.');
   return provider === 'codex'
     ? tr('Entra na fila da sessão e vira o próximo prompt quando o Codex terminar o que está fazendo. Enter manda; Shift+Enter quebra a linha.')
     : tr('Entra na sessão como se você tivesse digitado. Enter manda; Shift+Enter quebra a linha.');
@@ -97,12 +101,13 @@ export function sendStatusText(s: SendState | undefined, now: number, provider: 
     case 'sending':
       return tr('Enviando…');
     case 'queued':
-      return codex ? tr('Na fila: entregando ao Codex…') : provider === 'omp' ? tr('Na fila: esperando a extensão do omp buscar a mensagem…') : tr('Na fila: esperando a sessão buscar a mensagem…');
+      return provider === 'zeroclaw' ? tr('Na fila: aguardando a entrega ao ZeroClaw…') : codex ? tr('Na fila: entregando ao Codex…') : provider === 'omp' ? tr('Na fila: esperando a extensão do omp buscar a mensagem…') : tr('Na fila: esperando a sessão buscar a mensagem…');
     case 'sent':
       return tr('Entregando à sessão…');
     case 'delivered':
       // Entrega ao runtime não confirma leitura pelo modelo nem conclusão do trabalho.
       if (now - s.at >= DELIVERED_SHOW_MS) return '';
+      if (provider === 'zeroclaw') return tr('Enviada ao ZeroClaw ✓: escrita na conexão; não confirma leitura nem conclusão.');
       if (provider === 'omp') {
         if (s.deliverAs === 'aside') return tr('Aceita pelo runtime ✓: se ocupado, acrescenta no próximo limite de etapa; não confirma leitura nem conclusão.');
         if (s.deliverAs === 'steer') return tr('Aceita pelo runtime ✓: se ocupado, muda direção no próximo ponto possível; não confirma leitura nem conclusão.');
@@ -136,7 +141,7 @@ export const OFFLINE_ERROR = tr('não foi possível falar com o Habblaud');
 
 /** Prazo da consulta acabou sem notícia: onde conferir. */
 export function timeoutError(provider: Provider = 'claude'): string {
-  return provider === 'codex' ? CODEX_TIMEOUT_ERROR : provider === 'omp' ? OMP_TIMEOUT_ERROR : TIMEOUT_ERROR;
+  return provider === 'zeroclaw' ? tr('sem notícia da entrega: confira a conversa no ZeroClaw; não reenvie sem conferir') : provider === 'codex' ? CODEX_TIMEOUT_ERROR : provider === 'omp' ? OMP_TIMEOUT_ERROR : TIMEOUT_ERROR;
 }
 
 /** Texto do clipboard tem precedência, mesmo quando o navegador também oferece uma imagem. */

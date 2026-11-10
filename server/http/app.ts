@@ -462,6 +462,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
           // O terminal interativo (pty) nunca vale pela porta remota.
           pty: !!deps.pty && !remote,
           messages: !!deps.messages && (!remote || trusted(req, 'messages')),
+          summaryHttp: !!deps.summaries?.httpConfigured && trusted(req, 'messages'),
           codexEvents: !!deps.codexLive,
           ompEvents: !!deps.ompLive,
           // Modo sem marca (HABBLAUD_SEM_MARCA=1): o main.ts do navegador lê antes de montar a interface.
@@ -553,11 +554,14 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
     }
     const castStart = /^\/api\/cast\/([a-z0-9-]{1,40})\/start$/.exec(path);
     const castDismiss = /^\/api\/agents\/([^/]+)\/dismiss$/.exec(path);
-    if (path === '/api/cast/jobs' || path === '/api/cast/folders' || path === '/api/cast/dirs' || path === '/api/cast/new' || path === '/api/cast/roles' || castStart || castDismiss) {
+    if (path === '/api/cast/models' || path === '/api/cast/jobs' || path === '/api/cast/folders' || path === '/api/cast/dirs' || path === '/api/cast/new' || path === '/api/cast/roles' || castStart || castDismiss) {
       const launcher = deps.castLauncher;
       // Mesma trava do terminal: local, ou a porta remota com login e `terminal` em HABBLAUD_REMOTE_ALLOW.
       if (!deps.terminal || !trusted(req, 'terminal') || !launcher) sendJson(res, 403, { error: denied(req, tr('o elenco só pode ser editado pelo próprio computador')) });
-      else if (path === '/api/cast/jobs') {
+      else if (path === '/api/cast/models') {
+        if (method !== 'GET') methodNotAllowed(res, 'GET');
+        else sendJson(res, 200, launcher.models());
+      } else if (path === '/api/cast/jobs') {
         if (!isRead) methodNotAllowed(res, 'GET');
         else sendJson(res, 200, { jobs: launcher.jobs(), available: launcher.available() });
       } else if (path === '/api/cast/roles' && isRead) {
@@ -658,7 +662,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       return true;
     }
     if (path === '/api/summaries') {
-      // Manda texto ao modelo (papel tiny do omp): a mesma trava das mensagens.
+      // Manda texto ao modelo (HTTP configurado ou papel tiny do omp): a mesma trava das mensagens.
       if (method !== 'POST') methodNotAllowed(res, 'POST');
       else if (!deps.summaries) sendJson(res, 404, { error: tr('resumo indisponível: omp ou conta do omp não encontrados') });
       else if (!trusted(req, 'messages')) sendJson(res, 403, { error: denied(req, tr('o resumo só pode ser pedido pelo próprio computador')) });
