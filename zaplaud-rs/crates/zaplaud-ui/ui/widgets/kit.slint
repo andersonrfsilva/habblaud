@@ -114,7 +114,8 @@ export component TextField inherits Rectangle {
     init => { if root.autofocus { input.focus(); } }
     callback edited(string);
     callback accepted();
-    min-height: 56px;
+    // Mínimo acompanha o texto até max-lines: o layout não pode espremer o campo abaixo das linhas digitadas.
+    min-height: root.multiline && root.max-lines > 0 ? min(max(56px, metrics.preferred-height + 32px), root.max-lines * 24px + 32px) : 56px;
     preferred-height: root.multiline ? (root.max-lines > 0 ? min(max(56px, metrics.preferred-height + 32px), root.max-lines * 24px + 32px) : 100px) : 56px; vertical-stretch: 0;
     background: root.outlined ? transparent : Theme.surface-container-high;
     border-radius: root.outlined ? 4px : 28px;
@@ -122,14 +123,25 @@ export component TextField inherits Rectangle {
     border-color: input.has-focus ? Theme.primary : Theme.outline;
     forward-focus: input;
     // TextInput mede o viewport imposto; o texto sem altura imposta mede as linhas reais.
-    metrics := Text { visible: false; width: input.width; text: root.multiline ? root.text : ""; font-size: 16px; wrap: word-wrap; }
-    Text { x: input.x; y: 16px; width: input.width; height: parent.height - 32px; text: root.text == "" && (!root.outlined || !input.has-focus) ? root.placeholder : ""; color: Theme.on-surface-variant; font-size: 16px; }
+    metrics := Text { visible: false; width: viewport.width; text: root.multiline ? root.text : ""; font-size: 16px; wrap: word-wrap; }
+    Text { x: viewport.x; y: 16px; width: viewport.width; height: parent.height - 32px; text: root.text == "" && (!root.outlined || !input.has-focus) ? root.placeholder : ""; color: Theme.on-surface-variant; font-size: 16px; }
     if root.outlined && (root.text != "" || input.has-focus): Rectangle {
         x: 12px; y: -8px; height: 16px; width: floating-label.preferred-width + 8px; background: Theme.background;
         floating-label := Text { text: root.placeholder; color: input.has-focus ? Theme.primary : Theme.on-surface-variant; font-size: 12px; horizontal-alignment: center; }
     }
-    input := TextInput {
+    // Campo multilinha quebra a linha e, passando de max-lines, rola para manter o cursor visível.
+    viewport := Rectangle {
         x: root.leading-icon.width > 0 ? 52px : 16px; y: 16px; width: parent.width - self.x - (root.trailing-icon.width > 0 ? 56px : 16px) - root.trailing-space; height: parent.height - 32px;
+        clip: root.multiline;
+    input := TextInput {
+        property <length> scroll: 0px;
+        y: max(parent.height - self.height, min(0px, self.scroll)); width: parent.width;
+        height: root.multiline ? max(parent.height, metrics.preferred-height) : parent.height;
+        wrap: root.multiline ? word-wrap : no-wrap;
+        cursor-position-changed(position) => {
+            if position.y + self.y < 0px { self.scroll = -position.y; }
+            else if position.y + 24px + self.y > parent.height { self.scroll = parent.height - position.y - 24px; }
+        }
         text <=> root.text; enabled: root.enabled; single-line: !root.multiline;
         color: Theme.on-surface; font-size: 16px;
         selection-background-color: Theme.primary; selection-foreground-color: Theme.on-primary;
@@ -142,6 +154,7 @@ export component TextField inherits Rectangle {
             return reject;
         }
         accessible-label: root.placeholder;
+    }
     }
     if root.leading-icon.width > 0: Image { x: 16px; y: (parent.height - 24px) / 2; width: 24px; height: 24px; source: root.leading-icon; colorize: Theme.on-surface-variant; }
     if root.trailing-icon.width > 0: IconButton { x: parent.width - 48px; y: (parent.height - 40px) / 2; icon: root.trailing-icon; label: root.trailing-label; enabled: root.enabled; clicked => { root.trailing-clicked(); } }

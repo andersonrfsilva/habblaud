@@ -58,7 +58,10 @@ export component AsideSheet inherits Rectangle {
                 if AsideState.loading && AsideState.turns.length == 0: ProgressRing { width: 40px; height: 40px; x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; }
                 if !AsideState.loading && AsideState.turns.length == 0: Text { text: AsideState.empty; color: Theme.on-surface-variant; vertical-alignment: center; horizontal-alignment: center; }
                 ScrollList {
-                    changed content-height => { self.content-y = min(0px, self.height - self.content-height); }
+                    // Só acompanha o fim se o usuário já estava nele: rolar para o início não é desfeito pelo polling.
+                    property <bool> following: true;
+                    changed content-height => { if self.following { self.content-y = min(0px, self.height - self.content-height); } }
+                    scrolled => { self.following = self.content-height <= self.height || self.content-y <= self.height - self.content-height + 2px; }
                 for turn in AsideState.turns: VerticalLayout { spacing: 6px; padding-bottom: 12px;
                     HorizontalLayout { Rectangle { horizontal-stretch: 15; } Rectangle {
                         horizontal-stretch: 85; border-radius: 16px; background: Theme.primary-container;
