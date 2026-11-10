@@ -78,9 +78,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .select()?;
     zaplaud_ui::emoji::setup(renderer == "winit-software")?;
     let window = TranscriptProbe::new()?;
-    window
-        .window()
-        .set_size(slint::LogicalSize::new(width, height));
+    window.set_requested_width(width);
+    window.set_requested_height(height);
     window.global::<Theme>().set_dark(false);
     let state = window.global::<ConversationViewState>();
     state.set_working(working);
@@ -152,8 +151,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 n if n <= pages => window.invoke_page_up(),
                 n if n == pages + 1 => window.invoke_scroll_to(0.5),
                 n if n == pages + 2 || n == pages + 10 => window.invoke_jump_to_end(),
-                n if n == pages + 4 => window.window().set_size(slint::LogicalSize::new((width * 0.6).max(320.), height)),
-                n if n == pages + 5 => window.window().set_size(slint::LogicalSize::new(width, height)),
+                n if n == pages + 4 => window.set_requested_width((width * 0.6).max(320.)),
+                n if n == pages + 5 => window.set_requested_width(width),
                 _ => {
                     if action == pages + 3 || action == pages + 7 {
                         window.global::<ConversationViewState>().set_following(false);
@@ -197,6 +196,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let capture = || -> Result<(),Box<dyn std::error::Error>> {
                 let snapshot = window.window().take_snapshot()?;
                 image::save_buffer(output.join(format!("{:02}.png",step/3)), snapshot.as_bytes(),snapshot.width(),snapshot.height(),image::ColorType::Rgba8)?;
+                let scale = window.window().scale_factor();
+                let expected_width = (window.get_requested_width() * scale).round() as u32;
+                let expected_height = (window.get_requested_height() * scale).round() as u32;
+                if snapshot.width() != expected_width || snapshot.height() != expected_height {
+                    return Err(format!("tamanho divergente: {}x{}, esperado {expected_width}x{expected_height}", snapshot.width(), snapshot.height()).into());
+                }
                 let mut rows: Vec<_> = geometry.borrow().values().copied().collect();
                 rows.sort_by(|a,b|a.0.total_cmp(&b.0));
                 if rows.is_empty() { return Err("nenhuma geometria de linha foi observada".into()); }

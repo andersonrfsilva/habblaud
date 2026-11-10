@@ -378,8 +378,10 @@ export component ConversationStatus inherits Rectangle {
 }
 export component TranscriptProbe inherits Window {
     title: "Zaplaud transcript probe";
-    width: 1440px;
-    height: 900px;
+    in-out property <length> requested-width: 1440px;
+    in-out property <length> requested-height: 900px;
+    width: root.requested-width;
+    height: root.requested-height;
     background: Theme.background;
     public function scroll-to(fraction: float) { transcript.scroll-to(fraction); }
     public function page-up() { transcript.page-up(); }
