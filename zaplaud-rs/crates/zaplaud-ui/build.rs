@@ -15,6 +15,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("cargo:rerun-if-changed={}", input.display());
     }
     slint_build::compile_with_config(
+        "ui/markdown/markdown.slint",
+        slint_build::CompilerConfiguration::new().with_include_paths(vec![output.clone()]),
+    )?;
+    slint_build::compile_with_config(
         "ui/app.slint",
         slint_build::CompilerConfiguration::new().with_include_paths(vec![output]),
     )?;

@@ -11,6 +11,7 @@ name = "zaplaud"
 path = "src/main.rs"
 
 [dependencies]
+pulldown-cmark = { version = "0.13", default-features = false }
 zaplaud-core = { path = "../zaplaud-core" }
 slint.workspace = true
 tokio.workspace = true
@@ -20,6 +21,7 @@ slint-build.workspace = true
 roxmltree.workspace = true
 
 [dev-dependencies]
+serde_json.workspace = true
 roxmltree.workspace = true
 usvg = "0.45"
 
