@@ -538,6 +538,7 @@ async fn pick_files() -> Result<Option<Vec<std::path::PathBuf>>, ()> {
     }))
 }
 
+#[cfg(any(target_os = "linux", test))]
 fn parse_picker_paths(output: Vec<u8>) -> Result<Vec<std::path::PathBuf>, ()> {
     let text = String::from_utf8(output).map_err(|_| ())?;
     Ok(text
