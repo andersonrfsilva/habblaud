@@ -92,6 +92,8 @@ Premissa de trabalho, pendente de confirmação do proprietário: **quando o cli
 - `AppState::new` recebe `LocalStateStore` como `Box<dyn AppPersistence>`. Métodos são síncronos e executam na thread de fundo. Não grave arquivos em callbacks da UI. `seen_id` é SHA-256 lowercase do JSON de `SessionKey`, igual ao JVM.
 - Avatares são solicitados ao instanciar linhas virtuais, com até quatro downloads simultâneos. O cache de imagens decodificadas limita-se a 4 MiB. `AvatarDiskCache` implementa `avatars::AvatarStorage::{read, save}` e preserva os PNG entre execuções.
 - `AppEvents.settings` é evento para a próxima etapa, não uma tela de configurações. `AppEvents.logout(origin)` abre a confirmação e remove somente aquela origem; `AppEvents.theme(dark)` persiste e altera o tema sem recriar a janela.
+- O compositor usa o mesmo `local_state.json` dos clientes Kotlin; não execute os dois clientes como escritores simultâneos. Uploads leem os arquivos originais em blocos e nunca os removem ao liberar anexos.
+- Os callbacks `ComposerState.command(kind,value)` são exclusivos de `composer::setup`: menus de conversa devem invocá-los, não registrar um segundo handler. A confirmação do anel usa `ComposerDialogs` na raiz da janela, fora do slot inferior.
 
 ### Montagem da conversa
 

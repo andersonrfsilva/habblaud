@@ -5,6 +5,23 @@ mod strings {
     #![allow(dead_code)]
     include!(concat!(env!("OUT_DIR"), "/strings.rs"));
 }
+mod native_strings {
+    #![allow(dead_code)]
+    include!(concat!(env!("OUT_DIR"), "/native_strings.rs"));
+}
+
+#[test]
+fn native_picker_copy_is_generated_separately() -> Result<(), Box<dyn std::error::Error>> {
+    let xml = fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("ui/native-strings.xml"))?;
+    let document = roxmltree::Document::parse(&xml)?;
+    let nodes: Vec<_> = document.descendants().filter(|node| node.has_tag_name("string")).collect();
+    assert_eq!(native_strings::ALL.len(), nodes.len());
+    for node in nodes {
+        assert_eq!(native_strings::lookup(node.attribute("name").ok_or("Nome ausente")?), node.text());
+    }
+    assert!(native_strings::lookup("picker_paths").is_some());
+    Ok(())
+}
 
 use std::fs;
 use std::path::PathBuf;
@@ -169,6 +186,7 @@ fn generation_returns_all_rerun_inputs() -> Result<(), Box<dyn std::error::Error
         .filter(|path| {
             path.extension().is_some_and(|extension| extension == "xml")
                 && !path.ends_with("strings.xml")
+                && !path.ends_with("native-strings.xml")
         })
         .count();
     let generated = fs::read_dir(&output)?

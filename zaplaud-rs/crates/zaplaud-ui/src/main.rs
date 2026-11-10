@@ -6,6 +6,7 @@ mod app;
 mod aside;
 mod avatars;
 mod cast;
+mod composer;
 mod conversation;
 mod conversation_view;
 pub mod feature;
@@ -17,6 +18,9 @@ slint::include_modules!();
 pub mod strings {
     include!(concat!(env!("OUT_DIR"), "/strings.rs"));
 }
+pub mod native_strings {
+    include!(concat!(env!("OUT_DIR"), "/native_strings.rs"));
+}
 
 type Feature = fn(&AppWindow, &feature::FeatureContext);
 const FEATURES: &[Feature] = &[
@@ -26,6 +30,7 @@ const FEATURES: &[Feature] = &[
     conversation_view::setup,
     cast::setup,
     aside::setup,
+    composer::setup,
 ];
 
 fn formatted(key: &str, args: &[&str]) -> String {

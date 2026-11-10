@@ -17,6 +17,11 @@ pub fn generate(source: &Path, output: &Path) -> Result<Vec<PathBuf>> {
         output.join("strings.rs"),
         generate_strings(&fs::read_to_string(&strings)?)?,
     )?;
+    let native_strings = Path::new(env!("CARGO_MANIFEST_DIR")).join("ui/native-strings.xml");
+    fs::write(
+        output.join("native_strings.rs"),
+        generate_strings(&fs::read_to_string(&native_strings)?)?,
+    )?;
     let mut slint = generate_theme(&fs::read_to_string(&theme)?)?;
     let avatar = source.join("kotlin/br/com/xlinx/habblaud/CharacterAvatar.kt");
     let status = source.join("kotlin/br/com/xlinx/habblaud/StatusColors.kt");
@@ -31,7 +36,14 @@ pub fn generate(source: &Path, output: &Path) -> Result<Vec<PathBuf>> {
         warnings[0], warnings[1]
     )?;
     slint.push_str("\nexport global Icons {\n");
-    let mut inputs = vec![strings, theme, avatar, status, drawables.clone()];
+    let mut inputs = vec![
+        strings,
+        native_strings,
+        theme,
+        avatar,
+        status,
+        drawables.clone(),
+    ];
     let mut icons = fs::read_dir(drawables)?
         .map(|entry| entry.map(|entry| entry.path()))
         .collect::<std::io::Result<Vec<_>>>()?;

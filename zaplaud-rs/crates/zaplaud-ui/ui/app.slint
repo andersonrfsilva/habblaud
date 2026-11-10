@@ -11,6 +11,7 @@ import { CastSheet, CastState } from "cast.slint";
 import { AsideSheet, AsideState } from "aside.slint";
 export { CastState, CastRow } from "cast.slint";
 export { AsideState, AsideTurnRow, AsideTopicRow } from "aside.slint";
+import { ComposerPane, ComposerDialogs, ComposerState } from "composer.slint";
 export { Theme, Icons, AvatarColors } from "resources.slint";
 export { Labels } from "labels.slint";
 export { LoginState } from "login.slint";
@@ -59,13 +60,14 @@ export component AppWindow inherits Window {
             spacing: 0px;
             if root.wide || !ConversationState.selected: ListPane { width: root.wide ? 360px : parent.width; }
             if root.wide: Rectangle { width: 1px; background: Theme.outline-variant; }
-            if root.wide || ConversationState.selected: ConversationPane { narrow: !root.wide; VerticalLayout { spacing: 0px; ConversationView {} ConversationStatus {} } }
+            if root.wide || ConversationState.selected: ConversationPane { narrow: !root.wide; VerticalLayout { spacing: 0px; ConversationView {} ConversationStatus {} ComposerPane {} } }
         }
     }
     if ConversationViewState.menu-open: ConversationMenu {}
     if ConversationViewState.info-open: SessionInfoSheet {}
     CastSheet {}
     AsideSheet {}
+    ComposerDialogs {}
     if ShellState.logout-origin != "": Dialog {
         title: ShellState.logout-title; text: ShellState.logout-warning; confirm: Labels.confirm; cancel: Labels.cancel;
         confirmed => { if !ShellState.logout-busy { ShellState.logout-busy = true; ShellState.confirm-logout(); } }
