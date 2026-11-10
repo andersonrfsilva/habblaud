@@ -41,6 +41,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         "ui/markdown/markdown.slint",
         slint_build::CompilerConfiguration::new().with_include_paths(vec![output.clone()]),
     )?;
+    println!("cargo:rerun-if-changed=examples/emoji_probe.slint");
+    slint_build::compile_with_config(
+        "examples/emoji_probe.slint",
+        slint_build::CompilerConfiguration::new().with_include_paths(vec![output.clone()]),
+    )?;
     slint_build::compile_with_config(
         "ui/app.slint",
         slint_build::CompilerConfiguration::new().with_include_paths(vec![output]),

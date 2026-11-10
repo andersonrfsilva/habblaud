@@ -1,4 +1,4 @@
-use slint::ComponentHandle;
+use slint::{ComponentHandle, winit_030::WinitWindowAccessor};
 use tokio::sync::mpsc;
 use zaplaud_core::error::Error;
 
@@ -102,21 +102,74 @@ fn labels(window: &AppWindow) {
     labels.set_back_sessions(strings::BACK_SESSIONS.into());
     labels.set_menu(strings::MENU.into());
 }
+fn software_fallback(
+    instance: instance::Instance,
+    renderer: &str,
+    error: &dyn std::fmt::Display,
+) -> Box<dyn std::error::Error> {
+    eprintln!("renderer {renderer}: {error}; reiniciando com software");
+    // O backend Slint é global: exec remove também o contexto gráfico que falhou.
+    drop(instance);
+    use std::os::unix::process::CommandExt;
+    match std::env::current_exe() {
+        Ok(executable) => std::process::Command::new(executable)
+            .args(std::env::args_os().skip(1))
+            .env("SLINT_BACKEND", "winit-software")
+            .exec()
+            .into(),
+        Err(error) => error.into(),
+    }
+}
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let Some(instance) = instance::Instance::acquire(&instance::Instance::runtime_path()?)? else {
         return Ok(());
     };
-    slint::BackendSelector::new()
-        .backend_name("winit".into())
-        .with_winit_window_attributes_hook(window_state::attributes)
-        .select()?;
-    let window = AppWindow::new()?;
-    labels(&window);
-    clock::setup(&window);
-    window
-        .global::<Theme>()
-        .set_dark(std::env::var("ZAPLAUD_THEME").is_ok_and(|theme| theme == "dark"));
-    window.show()?;
+    let renderer = std::env::var("SLINT_BACKEND")
+        .ok()
+        .and_then(|backend| backend.strip_prefix("winit-").map(str::to_owned))
+        .unwrap_or_else(|| "skia-software".into());
+    let create_window = || -> Result<AppWindow, Box<dyn std::error::Error>> {
+        let selector = slint::BackendSelector::new()
+            .backend_name("winit".into())
+            .with_winit_window_attributes_hook(window_state::attributes);
+        let selector = if renderer == "skia-vulkan" {
+            selector.renderer_name("skia".into()).require_vulkan()
+        } else {
+            selector.renderer_name(renderer.clone())
+        };
+        selector.select()?;
+        zaplaud_ui::emoji::setup(matches!(renderer.as_str(), "software" | "sw"))?;
+        let window = AppWindow::new()?;
+        labels(&window);
+        clock::setup(&window);
+        window
+            .global::<Theme>()
+            .set_dark(std::env::var("ZAPLAUD_THEME").is_ok_and(|theme| theme == "dark"));
+        window.show()?;
+        Ok(window)
+    };
+    let window = match create_window() {
+        Ok(window) => window,
+        Err(error) if !matches!(renderer.as_str(), "software" | "sw") => {
+            return Err(software_fallback(instance, &renderer, &error));
+        }
+        Err(error) => return Err(error),
+    };
+    let initialization_failed = (!matches!(renderer.as_str(), "software" | "sw")).then(|| {
+        let failed = std::rc::Rc::new(std::cell::Cell::new(false));
+        let timed_out = failed.clone();
+        let weak = window.as_weak();
+        // Winit guarda erros de criação adiada em about_to_wait sem encerrar o loop.
+        slint::Timer::single_shot(std::time::Duration::from_secs(2), move || {
+            if let Some(window) = weak.upgrade()
+                && window.window().with_winit_window(|_| ()).is_none()
+            {
+                timed_out.set(true);
+                let _ = slint::quit_event_loop();
+            }
+        });
+        failed
+    });
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
@@ -230,12 +283,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             result
         })?;
     let result = window.run();
+    if initialization_failed.is_some_and(|failed| failed.get()) {
+        return Err(software_fallback(
+            instance,
+            &renderer,
+            &"janela gráfica não inicializou em 2 segundos",
+        ));
+    }
+    if let Err(error) = &result
+        && !matches!(renderer.as_str(), "software" | "sw")
+        && window.window().with_winit_window(|_| ()).is_none()
+    {
+        // Sem janela, o worker ainda pode aguardar callbacks do event loop que falhou.
+        return Err(software_fallback(instance, &renderer, error));
+    }
     let window_flush = window_state::flush();
     let _ = sender.send(state::Event::Shutdown);
     worker
         .join()
         .map_err(|_| std::io::Error::other(strings::NETWORK_ERROR))??;
     window_flush?;
+    if let Err(error) = &result
+        && !matches!(renderer.as_str(), "software" | "sw")
+    {
+        return Err(software_fallback(instance, &renderer, error));
+    }
     result?;
     Ok(())
 }

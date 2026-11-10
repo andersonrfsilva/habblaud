@@ -47,6 +47,7 @@ export component TextButton inherits Rectangle {
     in property <color> foreground: Theme.primary;
     in property <length> text-size: 14px;
     in property <int> text-weight: 500;
+    in property <string> text-font-family;
     in property <length> horizontal-padding: 12px;
     in property <TextHorizontalAlignment> horizontal-alignment: center;
     in property <image> trailing-icon;
@@ -58,7 +59,7 @@ export component TextButton inherits Rectangle {
         background: touch.pressed ? root.foreground.with-alpha(0.12) : touch.has-hover ? root.foreground.with-alpha(0.08) : transparent;
         border-width: button-keys.has-focus ? 2px : 0px; border-color: Theme.primary;
     }
-    label := Text { x: root.horizontal-padding; y: 0px; width: parent.width - root.horizontal-padding * 2 - (root.trailing-icon.width > 0 ? 24px : 0px); height: parent.height; text: root.text; color: root.enabled ? root.foreground : Theme.on-surface.with-alpha(0.38); font-size: root.text-size; font-weight: root.text-weight; horizontal-alignment: root.horizontal-alignment; vertical-alignment: center; }
+    label := Text { x: root.horizontal-padding; y: 0px; width: parent.width - root.horizontal-padding * 2 - (root.trailing-icon.width > 0 ? 24px : 0px); height: parent.height; text: root.text; color: root.enabled ? root.foreground : Theme.on-surface.with-alpha(0.38); font-family: root.text-font-family; font-size: root.text-size; font-weight: root.text-weight; horizontal-alignment: root.horizontal-alignment; vertical-alignment: center; }
     if root.trailing-icon.width > 0: Image { x: parent.width - 30px; y: (parent.height - 18px) / 2; width: 18px; height: 18px; source: root.trailing-icon; colorize: root.foreground; }
     forward-focus: button-keys;
     button-keys := FocusScope {

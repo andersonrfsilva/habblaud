@@ -6,7 +6,7 @@ Referências para as próximas fases: [rotas e streams](docs/contrato/01-rotas-e
 
 ## Construir, testar e executar
 
-Requisitos: Rust 1.96.1 (fixado em `rust-toolchain.toml`), ferramentas nativas de compilação e uma sessão gráfica X11 ou Wayland. No macOS, instale as ferramentas de linha de comando do Xcode. O renderer padrão é software; não é necessário OpenGL.
+Requisitos: Rust 1.96.1 (fixado em `rust-toolchain.toml`), ferramentas nativas de compilação e uma sessão gráfica X11 ou Wayland. No macOS, instale as ferramentas de linha de comando do Xcode. O renderer padrão é Skia por CPU (`skia-software`); não é necessário OpenGL. Em Linux, instale também FreeType, Fontconfig, libstdc++ e uma fonte emoji colorida (`noto-fonts-emoji` no Arch; `fonts-noto-color-emoji` no Debian/Ubuntu).
 
 O perfil release usa `opt-level = "s"`, LTO `fat`, uma unidade de geração de código e `panic = "abort"`. O transporte HTTPS preserva raízes nativas e webpki. `notify-rust ~4.18` compartilha zbus 5; a bandeja mantém `ksni` com `async-io`.
 
@@ -211,7 +211,186 @@ python3 zaplaud-rs/scripts/measure.py \
 
 São cinco aberturas isoladas; a última mede lista, conversa com pelo menos 200 entradas reais recebidas por SSE, conversa trabalhando e retorno após vinte ciclos com informações/menu. Cada estado usa uma amostra de CPU de 30 s, sem foco. O primeiro lançamento é frio somente para o processo: o script não descarta o page cache do sistema. PSS/RSS estão em KiB, tamanho em bytes e CPU em percentual de um núcleo. A contagem de wakeups é um proxy explicitamente identificado: context switches voluntários de todas as threads.
 
-`--profile-render` salva a saída `refresh_lazy,console` do renderer software em `/tmp`, incluindo regiões sujas. `--strace /caminho/strace` salva um perfil de syscalls, separado das medições normais: tracing e o contador de FPS alteram os despertares e não devem contaminar a comparação de CPU. `--fixture-url` aceita uma fixture externa, mas não semeia nem certifica 200 entradas.
+`--renderer software --profile-render` salva a saída `refresh_lazy,console` do renderer software em `/tmp`, incluindo regiões sujas. Sem `--renderer`, o script mede o padrão do aplicativo e remove um `SLINT_BACKEND` herdado. `--strace /caminho/strace` salva um perfil de syscalls, separado das medições normais: tracing e o contador de FPS alteram os despertares e não devem contaminar a comparação de CPU. `--fixture-url` aceita uma fixture externa, mas não semeia nem certifica 200 entradas.
+
+### Renderer e emoji
+
+O padrão é `skia-software`, não o renderer `software` do Slint. O Skia rasteriza por CPU,
+sem GPU/EGL, e pinta emoji colorido com ligaturas. `SLINT_BACKEND=winit-software` força
+o caminho leve monocromático; `SLINT_BACKEND=winit-skia-opengl` opta por OpenGL.
+Não confunda `skia-software` com `software`: são rasterizadores diferentes.
+Se a seleção, criação da janela ou inicialização do event loop falhar, o processo
+libera o socket de instância única e faz `exec` de si mesmo com `winit-software`.
+Só há uma tentativa de fallback. A ausência de um display continua sendo erro.
+Uma verificação única após 2 s também encerra a inicialização sem janela nativa:
+Slint/winit 1.18.1 pode guardar o erro em `event_loop.rs:242-244` sem sair do loop.
+Essa verificação não cria polling periódico nem mantém um timer de idle.
+O caminho OpenGL opcional requer libEGL/libGL e um driver Mesa ou do fabricante.
+
+Textos permanecem na primeira fonte sans-serif do sistema. O fallback emoji vem
+antes dos fallbacks adicionais de símbolos: sem essa ordem, DejaVu pode capturar
+`✅`, `⚠️` e partes de `1️⃣` antes da fonte colorida. Fontes monoespaçadas explícitas
+do Markdown não mudam. Em Linux, a fonte colorida deste ensaio foi
+`/usr/share/fonts/noto/NotoColorEmoji.ttf` (`fc-list :lang=und-zsye` e `fc-match emoji`).
+Sem fonte colorida instalada, a Noto Emoji de contorno embutida mantém glifos legíveis.
+Os pacotes DEB/RPM declaram a dependência da fonte colorida.
+
+`ui/fonts/NotoEmoji.ttf` é a variável oficial do
+[Google Fonts](https://github.com/google/fonts/tree/main/ofl/notoemoji), sem mescla
+com a fonte de texto, com licença `OFL-NotoEmoji.txt`. São 1.982.596 bytes,
+SHA-256 `de6c18832938afc99caf132b39d6a30a19bac7f2e812e28db2535b4608d27551`.
+No fallback `software`, ela substitui o emoji colorido na coleção compartilhada;
+Text, TextInput e StyledText/MarkdownView recebem a mesma política.
+
+O diagnóstico anterior de que Slint 1.18.1 perde necessariamente ZWJ/flags não se
+confirmou com a fonte não mesclada. O caminho ativo com `systemfonts` é Parley:
+`i-slint-renderer-software-1.18.1/lib.rs:2814,2890,3172` encaminha Text, TextInput
+e StyledText para `sharedparley`. `parley-0.11.1/src/shape/mod.rs:311-350` segmenta
+clusters de grafemas antes de moldar. `fonts/vectorfont.rs:237-261` é o shaper
+simples, mas não é o caminho de texto vetorial com fontes do sistema.
+A limitação real permanece em `fonts/vectorfont.rs:207-210`: rasteriza somente
+`Source::Outline` com `Format::Alpha`; não pinta COLR/CBDT/sbix.
+O ensaio com Noto Emoji não mesclada mostrou ligaturas de pele/ZWJ, ambas as
+bandeiras, família e keycap nos três controles. Isso não garante todos os emoji
+ou combinações futuras: a cobertura depende da versão da fonte.
+
+Probe reproduzível, executado sob X11/Xvfb:
+
+```sh
+SLINT_BACKEND=winit-skia-software ZAPLAUD_PROBE_APP_FONTS=1 \
+  cargo run --release -p zaplaud-ui --example emoji_probe
+SLINT_BACKEND=winit-software ZAPLAUD_PROBE_APP_FONTS=1 \
+  cargo run --release -p zaplaud-ui --example emoji_probe
+cargo test --locked -p zaplaud-ui --test emoji_fonts
+```
+
+Sem `ZAPLAUD_PROBE_APP_FONTS`, o probe usa a pilha original do sistema.
+`SLINT_FONT_PATH=/caminho/NotoEmoji.ttf` permite repetir o ensaio isolado de contorno.
+O teste de regressão usa a coleção Fontique compartilhada pelo Slint e o mesmo
+Parley 0.11.1/Swash do renderer. Rejeita `.notdef`, glifo sem bitmap/contorno e
+decomposição das sequências do probe. Roda em `cargo test --workspace`, inclusive CI;
+não precisa de display nem de FontTools. Não substitui a inspeção dos PNGs coloridos.
+
+Os candidatos exploratórios foram compilados juntos com
+`--features slint/renderer-femtovg,slint/renderer-skia-vulkan`.
+O build release completo levou 246 s e produziu um binário comum de 28.505.552 bytes.
+Skia 0.153.3 baixou o arquivo pré-compilado oficial `ganesh-gl-jpegd-jpege-pdf-vulkan`
+de `rust-skia/skia-binaries`; não compilou o C++ do Skia nesta máquina.
+Os arquivos extraídos de Skia ocuparam 25 MiB. Sem acesso ao artefato pré-compilado,
+um build de Skia a partir das fontes tem custo diferente, não medido aqui.
+
+Medições exploratórias com `scripts/measure.py`, cinco aberturas e CPU por 30 s,
+Xvfb `localhost:88`, Mesa llvmpipe nos candidatos OpenGL. Valores de PSS em KiB;
+CPU percentual de um núcleo, estados lista / conversa com 252 entradas / trabalhando:
+
+| Candidato | Abertura mediana (ms) | PSS lista / 252 / trabalhando | CPU lista / 252 / trabalhando | Threads lista / 252 / trabalhando | Scroll (ms) | Decisão |
+| --- | ---: | --- | --- | --- | ---: | --- |
+| Skia CPU | 94,63 | 56.248 / 56.993 / 58.893 | 0,67 / 0,77 / 0,37 | 6 / 7 / 7 | 23,50 | Atende PSS < 100 MiB e abertura < 300 ms |
+| FemtoVG OpenGL | 363,56 | 149.899 / 158.514 / 159.928 | 4,07 / 5,80 / 8,50 | 39 / 40 / 40 | 25,37 | Reprovado nas duas metas |
+| Skia OpenGL | 271,46 | 155.500 / 160.804 / 196.302 | 0 / 0 / 8,97 | 39 / 40 / 40 | 22,64 | Reprovado em PSS |
+| Skia CPU final, sem override | 126,93 | 56.817 / 59.581 / 61.725 | 0,63 / 0,63 / 0,87 | 6 / 7 / 7 | 23,10 | Selecionado; binário 30.124.544 bytes |
+
+Esses três candidatos pintaram o probe colorido com a prioridade emoji corrigida.
+O binário experimental comum evita atribuir diferenças de código compilado ao renderer
+selecionado em runtime; não representa três builds mínimos independentes.
+O sistema com `software`, sem fallback, omite foguete, pessoa e bandeiras.
+Noto Emoji de contorno corrige a visibilidade, mas não pode produzir cor.
+Vulkan não encontrou uma janela utilizável em 30 s neste ambiente sem ICD Vulkan
+instalado em `/usr/share/vulkan/icd.d` ou `/etc/vulkan/icd.d`; não há medição válida
+nem screenshot de uma janela Vulkan. O probe aceita `ZAPLAUD_PROBE_VULKAN=1` no
+build experimental para repetir `BackendSelector::require_vulkan()`.
+
+Evidências locais: `/tmp/zaplaud-rs-emoji-<candidato>.png` e
+`/tmp/zaplaud-rs-emoji-<candidato>-metrics.json`.
+Os resultados não garantem o mesmo consumo em GPU real, outro driver ou macOS.
+
+O build final habilita somente Skia e software, com Noto Emoji embutida. A rodada
+final mediu o padrão real, sem `SLINT_BACKEND`/`SLINT_FONT_PATH`/`SLINT_DEFAULT_FONT`.
+O PSS após vinte ciclos foi 59.653 KiB; CPU 0,37%, nove threads. CPU não foi zero:
+os estados medidos ficaram entre 0,37% e 0,87% de um núcleo.
+O JSON integral está em `/tmp/zaplaud-rs-emoji-final-metrics.json`.
+
+Na lista final e nas duas conversas, os arquivos de fonte mapeados somaram
+12.488 KiB PSS em `/proc/<pid>/smaps`:
+
+| Arquivo mapeado | PSS (KiB) |
+| --- | ---: |
+| `/usr/share/fonts/noto/NotoColorEmoji.ttf` | 10.480 |
+| `/usr/share/fonts/noto/NotoSans-Regular.ttf` | 608 |
+| `/usr/share/fonts/noto/NotoSans-Medium.ttf` | 608 |
+| `/usr/share/fonts/TTF/DejaVuSans.ttf` | 744 |
+| `/usr/share/fonts/noto/NotoZnamennyMusicalNotation-Regular.ttf` | 48 |
+
+Noto Emoji de contorno e Noto Sans Mono embutidas pertencem ao mapeamento do
+executável, não aparecem como arquivos `.ttf` separados. Skia também pode copiar
+dados de fonte para o heap (`font_cache.rs:79-83`); a soma acima não atribui esse
+heap às fontes nem deve ser subtraída do PSS total como custo completo delas.
+O script agora registra nomes e PSS por arquivo em cada estado.
+Nas capturas reais com Markdown e o probe, também foram mapeadas
+`/usr/share/fonts/noto/NotoSans-Bold.ttf` (280/236 KiB claro/escuro),
+`NotoSans-Italic.ttf` (244/244 KiB) e `NotoSansMono-Regular.ttf` (192/192 KiB),
+todas no mesmo diretório. O total mapeado foi 12.678/12.676 KiB.
+Os JSONs `/tmp/zaplaud-rs-emoji-app-fonts-{light,dark}.json` registram a lista
+completa e o PSS de cada arquivo; páginas compartilhadas mudam o PSS entre amostras.
+
+O fallback foi exercitado com `SLINT_BACKEND=winit-skia-opengl`,
+`LIBGL_DRIVERS_PATH=/nonexistent`, `__EGL_VENDOR_LIBRARY_FILENAMES=/nonexistent`
+e `__GLX_VENDOR_LIBRARY_NAME=nonexistent`. A janela software abriu após `exec`,
+no mesmo PID, com `SLINT_BACKEND=winit-software` confirmado em `/proc/<pid>/environ`.
+Evidências: `/tmp/zaplaud-rs-emoji-fallback.png` e `.log`.
+
+As capturas finais do aplicativo ficam em
+`/tmp/zaplaud-rs-emoji-app-{list,message}-{light,dark}.png`.
+Usam fixture real na porta 14788: título emoji em uma sessão recente e mensagem
+com o probe no transcript. Um POST real de `/api/messages` contendo o probe foi
+confirmado pelo comando `deliver`, sem alterar o código do servidor.
+`cargo fmt --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`
+e `ZAPLAUD_KEYRING=memory cargo test --workspace --locked` passaram: 194 testes,
+um teste JVM de interoperabilidade ignorado no gate normal.
+
+#### Símbolos de interface e apresentação de texto
+
+A fonte de emoji não deve pintar os quadros do indicador como imagens coloridas.
+A lista separa o glifo do texto de atividade e desenha somente o glifo com
+`font-family: "DejaVu Sans"`, tanto na lista quanto na conversa.
+A família genérica `monospace` não bastou no Slint: o quadro
+`✳` ainda podia cair na fonte colorida. Botões autônomos de voltar, retomar e menu
+usam `TextButton.text-font-family` para manter `‹`, `▶` e `⋮` em contorno.
+DejaVu Sans foi embutida sem modificação (759.720 bytes, licença Bitstream/DejaVu
+em `ui/fonts/LICENSE-DejaVu.txt`) somente para esses símbolos. Noto Emoji não
+cobre `⋮`; DejaVu Sans Mono também não cobre `⋮` nem os quadros braille.
+A cobertura foi conferida antes da escolha da fonte completa. Não há mescla.
+Os rótulos de atividade continuam na família sans-serif original.
+Marcas de família de modelo (Claude, Gemini e OpenAI) são SVGs, não glifos.
+
+O probe e o teste incluem `· • ✓ ‹ › ← → ↑ ↓ ↗ ▶ ◉ ○`, todos os seis quadros
+distintos `· ✢ ✳ ✶ ✻ ✽` e os dez quadros braille. O teste usa a mesma família
+nomeada DejaVu Sans e exige `swash::scale::image::Content::Mask`, além de cobertura e
+rasterização. Assim, bitmap colorido para um símbolo da interface falha no teste.
+O probe permite `ZAPLAUD_THEME=dark` e mostra a mesma matriz nos dois temas.
+As medições release acima precedem esse ajuste de símbolos; não medem o acréscimo
+da fonte de 759.720 bytes ao executável.
+Evidências do ajuste: `/tmp/zaplaud-rs-symbol-presentation-before-{light,dark}.png`
+preserva a apresentação colorida anterior. O probe corrigido está em
+`/tmp/zaplaud-rs-emoji-symbols-{skia,software}-{light,dark}.png`.
+Ciclos reais de doze amostras por aplicativo/tema, com os seis quadros distintos,
+foram capturados do Compose e dos dois renderizadores Rust em
+`/tmp/zaplaud-rs-symbol-frames-{compose,skia-software,software}-{light,dark}-sheet.png`.
+Cada linha da montagem é um recorte real; os PNGs completos têm sufixos `-00` a `-11`.
+
+Um ponto no estado “Trabalhando…” não significa que `✻` perdeu o glifo: `·` é o
+primeiro quadro da animação, tanto em `clock.rs:100` quanto em `ReadingScreen.kt:713`.
+Ao remover foco, Rust fixa `✻`; comparações precisam usar o mesmo foco/quadro.
+O defeito confirmado era outro quadro, `✳`, capturado pela fonte emoji colorida
+quando a lista não fixava a família do glifo. A família nomeada de contorno evita isso.
+
+Limitação aceita para o **conteúdo das mensagens**: caracteres cuja apresentação
+padrão é texto podem aparecer coloridos no Skia, como `▶`, `↗` e `✳`.
+Parley 0.11.1 ignora seletores de apresentação na cobertura
+(`src/shape/mod.rs:256-268`); acrescentar apenas U+FE0E não corrige essa seleção.
+Não há patch local nem cópia vendorizada do Parley. A proteção é aplicada aos
+símbolos controlados pela interface, sem reescrever mensagens dos agentes.
+
 
 `--damage` registra os retângulos realmente apresentados ao servidor X11 via XDamage. Use transporte Unix com MIT-SHM, por exemplo `--display :88`: o fallback TCP de `softbuffer` envia a imagem completa mesmo quando o renderer rasteriza somente regiões sujas. No Xvfb isolado por bwrap, habilitar `-listen unix -listen tcp` também permite o socket Unix abstrato do Linux, sem depender do `/tmp` interno.
 
