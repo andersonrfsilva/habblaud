@@ -13,6 +13,7 @@ use zaplaud_core::{
 pub fn setup(window: &AppWindow, context: &FeatureContext) {
     let global = window.global::<AsideState>();
     global.on_valid_draft(|text| valid_draft(&text));
+    global.on_nonblank_draft(|text| nonblank_draft(&text));
     global.set_title(strings::ASIDE_TITLE.into());
     global.set_hint(strings::ASIDE_HINT.into());
     global.set_empty(strings::ASIDE_EMPTY.into());
@@ -208,6 +209,7 @@ fn publish(weak: &slint::Weak<AppWindow>, state: State) {
                             }
                             .into(),
                             failed: turn.status == "failed",
+                            running: matches!(turn.status.as_str(), "queued" | "running"),
                         })
                         .collect::<Vec<_>>()
                 })
@@ -229,6 +231,10 @@ fn valid_draft(text: &str) -> bool {
     text.encode_utf16().take(20_001).count() <= 20_000
 }
 
+fn nonblank_draft(text: &str) -> bool {
+    text.chars().any(|character| !character.is_whitespace())
+}
+
 fn should_clear_draft(
     was_sending: bool,
     sending: bool,
@@ -241,7 +247,17 @@ fn should_clear_draft(
 
 #[cfg(test)]
 mod tests {
-    use super::{should_clear_draft, valid_draft};
+    use super::{nonblank_draft, should_clear_draft, valid_draft};
+
+    #[test]
+    fn aside_send_requires_nonblank_text() {
+        for text in ["", " ", "\t\r\n", "\u{a0}\u{2003}"] {
+            assert!(!nonblank_draft(text));
+        }
+        for text in ["pergunta", " \npergunta\t", "🚀"] {
+            assert!(nonblank_draft(text));
+        }
+    }
 
     #[test]
     fn aside_input_counts_utf16_units() {

@@ -1,9 +1,9 @@
 import { Theme } from "resources.slint";
 import { Labels } from "labels.slint";
-import { Sheet, TextButton, IconButton, TextField, ScrollList, ProgressRing, Menu, RadioButton } from "widgets/kit.slint";
+import { Sheet, TextButton, IconButton, TextField, ScrollList, ProgressRing, Menu, RadioButton, Badge } from "widgets/kit.slint";
 import { MarkdownView, MdBlock } from "markdown/markdown.slint";
 import { MaterialIcons } from "widgets/material-icons.slint";
-export struct AsideTurnRow { question: string, answer: string, blocks: [MdBlock], status: string, failed: bool }
+export struct AsideTurnRow { question: string, answer: string, blocks: [MdBlock], status: string, failed: bool, running: bool }
 export struct AsideTopicRow { id: string, title: string, selected: bool }
 export global AsideState {
     in-out property <bool> visible;
@@ -15,6 +15,7 @@ export global AsideState {
     in-out property <string> draft;
     in-out property <string> submitted-draft;
     callback valid-draft(string) -> bool;
+    pure callback nonblank-draft(string) -> bool;
     in property <string> title;
     in property <string> hint;
     in property <string> empty;
@@ -70,6 +71,7 @@ export component AsideSheet inherits Rectangle {
                     } }
                     if turn.answer != "": MarkdownView { blocks: turn.blocks; source-markdown: turn.answer; link-clicked(url) => { AsideState.link(url); } copy(text) => { AsideState.copy(text); } }
                     if turn.status != "": Text { text: turn.status; font-size: 12px; color: turn.failed ? Theme.error : Theme.on-surface-variant; wrap: word-wrap; }
+                    if turn.running: Badge { width: 8px; height: 8px; border-radius: 4px; }
                 }
             }
             }
@@ -83,7 +85,7 @@ export component AsideSheet inherits Rectangle {
                     }
                 }
                 if AsideState.running: IconButton { icon: MaterialIcons.stop; label: AsideState.stop-label; background: Theme.error-container; foreground: Theme.on-error-container; clicked => { AsideState.stop(); } }
-                if !AsideState.running: IconButton { icon: MaterialIcons.send; label: AsideState.send-label; background: Theme.primary; foreground: Theme.on-primary; enabled: !AsideState.sending && AsideState.draft != ""; clicked => { AsideState.submitted-draft = AsideState.draft; AsideState.ask(AsideState.draft); } }
+                if !AsideState.running: IconButton { icon: MaterialIcons.send; label: AsideState.send-label; background: Theme.primary; foreground: Theme.on-primary; enabled: !AsideState.sending && AsideState.nonblank-draft(AsideState.draft); clicked => { AsideState.submitted-draft = AsideState.draft; AsideState.ask(AsideState.draft); } }
             }
         }
     }
