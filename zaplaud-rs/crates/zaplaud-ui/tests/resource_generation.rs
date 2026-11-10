@@ -83,16 +83,27 @@ fn schemes_preserve_every_explicit_kotlin_color() -> Result<(), Box<dyn std::err
     assert!(theme.contains("dark-primary: #9CDCC6;"));
     assert!(theme.contains("light-surface: #ffffff;"));
     assert!(theme.contains("dark-surface: #171F1B;"));
-    let explicit = kotlin.matches("= Color(").count()
-        + kotlin.matches("= Color.White").count()
-        + kotlin.matches("= Color.Black").count();
-    let generated = theme
-        .lines()
-        .filter(|line| {
-            line.contains("property <color> light-") || line.contains("property <color> dark-")
-        })
-        .count();
-    assert_eq!(generated, explicit);
+    let baseline: serde_json::Value =
+        serde_json::from_str(include_str!("../theme/m3-baseline.json"))?;
+    let roles = baseline["light"].as_object().ok_or("Sem esquema claro")?;
+    assert_eq!(roles.len(), 48);
+    for role in roles.keys() {
+        let mut kebab = String::new();
+        for character in role.chars() {
+            if character.is_uppercase() {
+                kebab.push('-');
+            }
+            kebab.extend(character.to_lowercase());
+        }
+        for scheme in ["light", "dark"] {
+            assert!(baseline[scheme].get(role).is_some());
+            assert!(theme.contains(&format!("property <color> {scheme}-{kebab}:")));
+        }
+        assert!(theme.contains(&format!("property <color> {kebab}: dark ?")));
+    }
+    let changed = resource_gen::generate_theme(&kotlin.replace("0xFF176B58", "0xFF123456"))?;
+    assert!(changed.contains("light-primary: #123456;"));
+    assert!(!changed.contains("light-primary: #176B58;"));
     let error = resource_gen::generate_theme("lightColorScheme() darkColorScheme()")
         .err()
         .ok_or("Esquemas vazios foram aceitos")?;

@@ -1,0 +1,214 @@
+import { ScrollView, ListView } from "std-widgets.slint";
+import { Theme } from "resources.slint";
+export { Theme }
+
+export struct MdSpan {
+    text: string, bold: bool, italic: bool, strike: bool, code: bool, link: string,
+}
+export struct MdCell {
+    rich: styled-text, text: string, alignment: int, header: bool,
+}
+export struct MdBlock {
+    kind: string, rich: styled-text, text: string, spans: [MdSpan],
+    level: int, depth: int, marker: string, language: string,
+    cells: [MdCell], columns: int,
+}
+
+component MdButton inherits Rectangle {
+    in property <string> text;
+    callback clicked;
+    min-width: label.preferred-width + 24px;
+    min-height: 32px;
+    horizontal-stretch: 0;
+    vertical-stretch: 0;
+    border-radius: 6px;
+    border-width: focus.has-focus ? 2px : 1px;
+    border-color: focus.has-focus ? Theme.primary : Theme.outline-variant;
+    background: touch.has-hover ? Theme.surface-container-high : Theme.surface-container-low;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-action-default => { root.clicked(); }
+    forward-focus: focus;
+    label := Text {
+        width: 100%;
+        height: 100%;
+        text: root.text;
+        color: Theme.primary;
+        font-size: 12px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    touch := TouchArea {
+        width: 100%;
+        height: 100%;
+        mouse-cursor: pointer;
+        clicked => { focus.focus(); root.clicked(); }
+    }
+    focus := FocusScope {
+        width: 0px;
+        height: 0px;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+}
+
+component SelectableBlock inherits VerticalLayout {
+    in property <MdBlock> block;
+    callback link-clicked(string);
+    in property <bool> selecting;
+    spacing: 3px;
+    HorizontalLayout {
+        Text { text: root.block.marker; color: Theme.on-surface; width: root.block.marker == "" ? 0px : 28px; }
+        VerticalLayout {
+            if !root.selecting: StyledText {
+                text: root.block.rich;
+                default-color: Theme.on-surface;
+                default-font-size: root.block.level == 1 ? 24px : root.block.level == 2 ? 22px : root.block.level == 3 ? 16px : root.block.level == 4 ? 14px : root.block.level == 5 ? 16px : root.block.level == 6 || root.block.kind == "quote" ? 14px : 16px;
+                link-color: Theme.primary;
+                link-clicked(url) => { root.link-clicked(url); }
+            }
+            if root.selecting: TextInput {
+                text: root.block.text;
+                read-only: true;
+                wrap: word-wrap;
+                color: Theme.on-surface;
+                font-size: 16px;
+                selection-background-color: Theme.primary;
+                selection-foreground-color: Theme.on-primary;
+            }
+        }
+    }
+}
+
+export component MarkdownView inherits VerticalLayout {
+    in property <[MdBlock]> blocks;
+    in property <string> source-markdown;
+    callback link-clicked(string);
+    callback copy(string);
+    in-out property <bool> selecting: false;
+    spacing: 8px;
+    HorizontalLayout {
+        Rectangle { horizontal-stretch: 1; }
+        MdButton { text: root.selecting ? "Texto formatado" : "Selecionar texto"; clicked => { root.selecting = !root.selecting; } }
+        MdButton { text: "Copiar mensagem"; clicked => { root.copy(root.source-markdown); } }
+    }
+    for block in root.blocks: VerticalLayout {
+        padding-left: block.depth * 20px;
+        if block.kind == "rule": Rectangle { height: 1px; background: Theme.outline-variant; }
+        if block.kind == "text": SelectableBlock {
+            block: block;
+            selecting: root.selecting;
+            link-clicked(url) => { root.link-clicked(url); }
+        }
+        if block.kind == "quote": HorizontalLayout {
+            spacing: 8px;
+            Rectangle { width: 3px; background: Theme.outline-variant; }
+            SelectableBlock { block: block; selecting: root.selecting; link-clicked(url) => { root.link-clicked(url); } }
+        }
+        if block.kind == "code": Rectangle {
+            background: Theme.on-background.with-alpha(0.1);
+            border-radius: 8px;
+            VerticalLayout {
+                padding: 10px;
+                spacing: 8px;
+                HorizontalLayout {
+                    Text { text: block.language; color: Theme.on-surface-variant; font-size: 12px; }
+                    MdButton { text: "Copiar código"; clicked => { root.copy(block.text); } }
+                }
+                ScrollView {
+                    height: code.preferred-height + 16px;
+                    content-width: max(self.width, code.preferred-width);
+                    code := TextInput {
+                        width: max(parent.width, self.preferred-width);
+                        height: self.preferred-height;
+                        text: block.text;
+                        read-only: true;
+                        wrap: no-wrap;
+                        font-family: "monospace";
+                        font-size: 14px;
+                        color: Theme.on-surface;
+                        selection-background-color: Theme.primary;
+                        selection-foreground-color: Theme.on-primary;
+                    }
+                }
+            }
+        }
+        if block.kind == "table": ScrollView {
+            height: table.preferred-height + 16px;
+            content-width: max(self.width, block.columns * 180px);
+            table := VerticalLayout {
+                for row in block.cells.length / block.columns: HorizontalLayout {
+                    spacing: 0px;
+                    for column in block.columns: cell-box := Rectangle {
+                        property <MdCell> cell: block.cells[row * block.columns + column];
+                        width: 180px;
+                        border-width: 1px;
+                        border-color: Theme.outline-variant;
+                        background: Theme.on-background.with-alpha(self.cell.header ? 0.06 : 0.02);
+                        VerticalLayout {
+                            padding: 8px;
+                            if !root.selecting: StyledText {
+                                text: cell-box.cell.rich;
+                                default-color: Theme.on-surface;
+                                default-font-size: 16px;
+                                link-color: Theme.primary;
+                                horizontal-alignment: cell-box.cell.alignment == 1 ? center : cell-box.cell.alignment == 2 ? right : left;
+                                link-clicked(url) => { root.link-clicked(url); }
+                            }
+                            if root.selecting: TextInput {
+                                text: cell-box.cell.text;
+                                read-only: true;
+                                wrap: word-wrap;
+                                font-size: 16px;
+                                color: Theme.on-surface;
+                                selection-background-color: Theme.primary;
+                                selection-foreground-color: Theme.on-primary;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export struct MdMessage { blocks: [MdBlock], source: string }
+export component MarkdownDemo inherits Window {
+    title: "Zaplaud Markdown";
+    width: 1000px;
+    height: 760px;
+    background: Theme.background;
+    in property <[MdMessage]> messages;
+    callback link-clicked(string);
+    callback copy(string);
+    public function copy-text(text: string) {
+        clipboard.text = text;
+        clipboard.select-all();
+        clipboard.copy();
+    }
+    clipboard := TextInput { width: 0px; height: 0px; opacity: 0; }
+    VerticalLayout {
+        HorizontalLayout {
+            MdButton { text: "Claro / escuro"; clicked => { Theme.dark = !Theme.dark; } }
+        }
+        ListView {
+            for message in root.messages: Rectangle {
+                background: Theme.surface;
+                VerticalLayout {
+                    padding: 12px;
+                    MarkdownView {
+                        blocks: message.blocks;
+                        source-markdown: message.source;
+                        link-clicked(url) => { root.link-clicked(url); }
+                        copy(text) => { root.copy(text); }
+                    }
+                }
+            }
+        }
+    }
+}

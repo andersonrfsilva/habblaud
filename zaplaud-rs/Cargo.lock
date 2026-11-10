@@ -6473,7 +6473,9 @@ dependencies = [
 name = "zaplaud-ui"
 version = "0.1.0"
 dependencies = [
+ "pulldown-cmark",
  "roxmltree 0.21.2",
+ "serde_json",
  "slint",
  "slint-build",
  "tokio",
