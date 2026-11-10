@@ -5,14 +5,16 @@ export component Divider inherits Rectangle { height: 1px; background: Theme.out
 export component Pill inherits Rectangle {
     in property <string> text;
     in property <color> foreground: Theme.on-surface;
+    in property <length> text-size: 16px;
+    accessible-role: AccessibleRole.text; accessible-label: root.text;
     background: Theme.surface-container-high;
     border-radius: self.height / 2;
     min-height: 32px;
     min-width: label.preferred-width + 32px;
-    label := Text { text: root.text; color: root.foreground; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; }
+    label := Text { text: root.text; color: root.foreground; font-size: root.text-size; horizontal-alignment: center; vertical-alignment: center; }
 }
 export component Badge inherits Pill {
-    background: Theme.primary; foreground: Theme.on-primary; min-height: 16px; min-width: 16px;
+    background: Theme.primary; foreground: Theme.on-primary; text-size: 12px; min-height: 16px; min-width: 16px;
 }
 export component Avatar inherits Rectangle {
     in property <image> source;
@@ -20,10 +22,12 @@ export component Avatar inherits Rectangle {
     in property <color> fallback-color: AvatarColors.background-0;
     in property <image> brand;
     in property <color> brand-color: Theme.on-surface;
+    in property <string> label: root.initials;
+    accessible-role: image; accessible-label: root.label;
     width: 48px; height: 48px; border-radius: self.width / 2; background: root.fallback-color;
     Text { text: root.source.width == 0 ? root.initials : ""; color: AvatarColors.foreground; font-size: 16px; font-weight: 500; horizontal-alignment: center; vertical-alignment: center; }
     Rectangle { width: parent.width; height: parent.height; border-radius: self.width / 2; clip: true;
-        Image { source: root.source; image-fit: contain; image-rendering: pixelated; }
+        Image { width: parent.width; height: parent.height; source: root.source; image-fit: contain; image-rendering: pixelated; }
     }
     if root.brand.width > 0 && root.width >= 32px: Rectangle {
         x: parent.width * 0.58; y: parent.height * 0.58; width: parent.width * 0.42; height: self.width;
@@ -36,12 +40,15 @@ export component TextButton inherits Rectangle {
     in property <string> text;
     in property <bool> enabled: true;
     in property <color> foreground: Theme.primary;
+    in property <length> text-size: 14px;
     callback clicked();
     min-height: 40px; min-width: label.preferred-width + 24px; border-radius: 20px;
-    background: touch.pressed ? root.foreground.with-alpha(0.12) : touch.has-hover ? root.foreground.with-alpha(0.08) : transparent;
-    border-width: button-keys.has-focus ? 2px : 0px;
-    border-color: Theme.primary;
-    label := Text { text: root.text; color: root.enabled ? root.foreground : Theme.on-surface-variant; font-size: 14px; font-weight: 500; horizontal-alignment: center; vertical-alignment: center; }
+    Rectangle {
+        border-radius: root.border-radius;
+        background: touch.pressed ? root.foreground.with-alpha(0.12) : touch.has-hover ? root.foreground.with-alpha(0.08) : transparent;
+        border-width: button-keys.has-focus ? 2px : 0px; border-color: Theme.primary;
+    }
+    label := Text { text: root.text; color: root.enabled ? root.foreground : Theme.on-surface.with-alpha(0.38); font-size: root.text-size; font-weight: 500; horizontal-alignment: center; vertical-alignment: center; }
     forward-focus: button-keys;
     button-keys := FocusScope {
         enabled: root.enabled;
@@ -57,11 +64,15 @@ export component IconButton inherits Rectangle {
     in property <image> icon;
     in property <string> label;
     in property <bool> enabled: true;
+    in property <color> foreground: Theme.on-surface-variant;
     callback clicked();
     width: 40px; height: 40px; border-radius: 20px;
-    background: area.pressed ? Theme.on-surface-variant.with-alpha(0.12) : area.has-hover ? Theme.on-surface-variant.with-alpha(0.08) : transparent;
-    border-width: icon-keys.has-focus ? 2px : 0px; border-color: Theme.primary;
-    Image { x: 8px; y: 8px; width: 24px; height: 24px; source: root.icon; colorize: Theme.on-surface-variant; }
+    Rectangle {
+        border-radius: root.border-radius;
+        background: area.pressed ? root.foreground.with-alpha(0.12) : area.has-hover ? root.foreground.with-alpha(0.08) : transparent;
+        border-width: icon-keys.has-focus ? 2px : 0px; border-color: Theme.primary;
+    }
+    Image { x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; width: 24px; height: 24px; source: root.icon; colorize: root.enabled ? root.foreground : Theme.on-surface.with-alpha(0.38); }
     forward-focus: icon-keys;
     icon-keys := FocusScope {
         enabled: root.enabled;
@@ -70,7 +81,7 @@ export component IconButton inherits Rectangle {
     area := TouchArea { enabled: root.enabled; clicked => { icon-keys.focus(); root.clicked(); } }
     accessible-role: button; accessible-label: root.label; accessible-enabled: root.enabled;
 }
-export component Fab inherits IconButton { width: 56px; height: 56px; border-radius: 16px; background: Theme.primary-container; }
+export component Fab inherits IconButton { width: 56px; height: 56px; border-radius: 16px; background: Theme.primary-container; foreground: Theme.on-primary-container; }
 export component TextField inherits Rectangle {
     in-out property <string> text;
     in property <string> placeholder;
@@ -85,12 +96,14 @@ export component TextField inherits Rectangle {
     callback edited(string);
     callback accepted();
     min-height: 56px;
-    preferred-height: root.multiline ? (root.max-lines > 0 ? min(max(56px, input.preferred-height + 32px), root.max-lines * 24px + 32px) : 100px) : 56px; vertical-stretch: 0;
+    preferred-height: root.multiline ? (root.max-lines > 0 ? min(max(56px, metrics.preferred-height + 32px), root.max-lines * 24px + 32px) : 100px) : 56px; vertical-stretch: 0;
     background: root.outlined ? transparent : Theme.surface-container-high;
     border-radius: root.outlined ? 4px : 28px;
     border-width: root.outlined ? (input.has-focus ? 2px : 1px) : 0px;
     border-color: input.has-focus ? Theme.primary : Theme.outline;
     forward-focus: input;
+    // TextInput mede o viewport imposto; o texto sem altura imposta mede as linhas reais.
+    metrics := Text { visible: false; width: parent.width - 32px; text: root.multiline ? root.text : ""; font-size: 16px; wrap: word-wrap; }
     Text { x: 16px; y: 16px; width: parent.width - 32px; height: parent.height - 32px; text: root.text == "" && (!root.outlined || !input.has-focus) ? root.placeholder : ""; color: Theme.on-surface-variant; font-size: 16px; }
     if root.outlined && (root.text != "" || input.has-focus): Rectangle {
         x: 12px; y: -8px; height: 16px; width: floating-label.preferred-width + 8px; background: Theme.background;
@@ -201,6 +214,11 @@ export component SegmentedControl inherits Rectangle {
         for label[index] in root.labels: TextButton {
             text: (root.selected == index ? "✓  " : "") + label; background: root.selected == index ? Theme.secondary-container : transparent;
             border-radius: 0px;
+            border-top-left-radius: index == 0 ? 20px : 0px;
+            border-bottom-left-radius: index == 0 ? 20px : 0px;
+            border-top-right-radius: index == root.labels.length - 1 ? 20px : 0px;
+            border-bottom-right-radius: index == root.labels.length - 1 ? 20px : 0px;
+            border-width: 1px; border-color: Theme.outline;
             foreground: Theme.on-surface;
             clicked => { root.selected = index; root.chosen(index); }
         }
@@ -216,6 +234,7 @@ export component Banner inherits Rectangle {
     in property <string> action;
     in property <string> severity: "info";
     callback activated();
+    accessible-role: groupbox; accessible-label: root.text;
     min-height: max(40px, label.preferred-height + 16px); background: Theme.secondary-container; border-radius: 10px;
     HorizontalLayout { padding-left: 12px; padding-right: 12px; padding-top: 8px; padding-bottom: 8px; spacing: 8px;
         label := Text { text: root.text; font-size: 12px; wrap: word-wrap; color: root.severity == "error" ? Theme.error : Theme.on-secondary-container; vertical-alignment: center; }
@@ -256,6 +275,8 @@ export component Dialog inherits Rectangle {
 }
 export component Sheet inherits Rectangle {
     callback dismissed();
+    in property <string> title;
+    accessible-role: groupbox; accessible-label: root.title;
     background: Theme.scrim.with-alpha(0.32);
     init => { sheet-keys.focus(); }
     forward-focus: sheet-keys;

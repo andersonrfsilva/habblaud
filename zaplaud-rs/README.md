@@ -119,18 +119,18 @@ Importe componentes de `ui/widgets/kit.slint`; todas as cores vêm dos recursos 
 
 | Componente | Propriedades e callbacks próprios |
 | --- | --- |
-| `Avatar` | `source`, `initials`, `fallback-color`, `brand`, `brand-color`; aceita filhos para badges adicionais. Tamanho padrão 48 px. |
-| `TextButton`, `FilledButton` | `text`, `enabled`, `foreground`, callback `clicked`; mouse, Tab, espaço e Enter. |
-| `IconButton`, `Fab` | `icon`, `label`, `enabled`, callback `clicked`; tamanho 40/56 px. |
+| `Avatar` | `source`, `initials`, `fallback-color`, `brand`, `brand-color`, `label`; aceita filhos para badges adicionais. Tamanho padrão 48 px. |
+| `TextButton`, `FilledButton` | `text`, `text-size` (14 px), `enabled`, `foreground`, callback `clicked`; mouse, Tab, espaço e Enter. |
+| `IconButton`, `Fab` | `icon`, `label`, `foreground`, `enabled`, callback `clicked`; tamanho 40/56 px. |
 | `TextField` | `text` bidirecional; `placeholder`, `multiline`, `password`, `enabled`, `outlined`, `autofocus`; `max-lines` (0 mantém altura multilinha padrão), `sends-on-enter` (Enter aceita, Shift+Enter insere linha); callbacks `edited(string)`, `accepted`; aceita filhos. Usa `TextInput` nativo para IME e teclas mortas. |
 | `Switch`, `RadioButton`, `CheckBox` | `checked` bidirecional, `text`, `enabled`, callback `toggled()`. Desenho Material com cores de `Theme`, sem animação periódica. |
 | `SegmentedControl` | `labels: [string]`, `selected: int` bidirecional, callback `chosen(int)`. |
 | `Chip` | API de `TextButton` mais `selected`. |
-| `Pill`, `Badge` | `text`, `foreground`; Badge aplica primary/onPrimary. |
+| `Pill`, `Badge` | `text`, `text-size` (16/12 px), `foreground`; Badge aplica primary/onPrimary. |
 | `Banner` | `text`, `action`, `severity` (`info`, `warn`, `error`), callback `activated`. |
 | `Menu` | Popup: filhos em coluna; métodos `show()`, `close()`. |
 | `Dialog` | Scrim modal; `title`, `text`, `confirm`, `cancel`; callbacks `confirmed`, `dismissed`; filhos antes dos botões; texto de botão vazio o oculta. Esc dos filhos e clique externo fecham. |
-| `Sheet` | Painel direito com scrim; filhos são conteúdo; callback `dismissed`; Esc e clique externo fecham. |
+| `Sheet` | Painel direito com scrim; `title` nomeia o grupo acessível; filhos são conteúdo; callback `dismissed`; Esc e clique externo fecham. |
 | `Divider`, `ProgressRing` | Divisor e indicador indeterminado. Instancie indicador somente enquanto carregar. |
 | `Tooltip` | `text`, callback `clicked()` para encaminhar clique ao controle envolvido; mostra legenda no hover. |
 | `ScrollList` | Alias do `ListView` padrão, não subclasse: preserva a virtualização reconhecida pelo compilador Slint. Filhos repetidos precisam ser diretos. |
