@@ -144,6 +144,7 @@ def exercise(args,desktop,fixtures,theme):
         login(fixtures[1].port); time.sleep(.5); desktop.screenshot('two-servers-'+theme)
         desktop.click(180,205); time.sleep(.2); desktop.resize(600)
         assert desktop.mapped()[1]==600, 'Janela não aceitou layout estreito'
+        assert desktop.image().getpixel((360,700))!=colors['outlineVariant'], 'Layout estreito manteve divisor de duas colunas'
         desktop.screenshot('narrow-'+theme); desktop.key('Escape'); time.sleep(.2)
         desktop.screenshot('narrow-list-'+theme); desktop.resize(1100)
         fixtures[1].restart(); time.sleep(4)
