@@ -12,11 +12,13 @@ dependencies {
     implementation(compose.desktop.currentOs)
     implementation(compose.components.resources)
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.11.0")
+    implementation(libs.composenativetray)
 }
 compose.desktop {
     application {
         mainClass = "br.com.xlinx.habblaud.desktop.MainKt"
-        jvmArgs += listOf("-XX:+UseSerialGC", "-Xmx256m")
+        // --add-opens: Main.kt troca o WM_CLASS do XToolkit para "zaplaud" (ícone no dock); sem isso a reflexão falha calada.
+        jvmArgs += listOf("-XX:+UseSerialGC", "-Xmx256m", "--add-opens=java.desktop/sun.awt.X11=ALL-UNNAMED")
         // shortcut: ProGuard 7.8 falha em referências opcionais do OkHttp; reavaliar com regras -dontwarn medidas no 067
         buildTypes.release.proguard { isEnabled.set(false) }
         nativeDistributions {

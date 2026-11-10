@@ -6,4 +6,4 @@ Exec=Zaplaud
 Icon=Zaplaud
 Terminal=false
 Categories=Network;Chat;
-StartupWMClass=br-com-xlinx-habblaud-desktop-MainKt
+StartupWMClass=zaplaud
