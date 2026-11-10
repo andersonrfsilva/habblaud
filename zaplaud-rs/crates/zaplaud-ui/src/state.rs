@@ -85,6 +85,25 @@ impl AppPersistence for zaplaud_store::LocalStateStore {
     }
 }
 
+#[derive(Clone)]
+pub struct Persistence(std::sync::Arc<std::sync::Mutex<Box<dyn AppPersistence>>>);
+impl Persistence {
+    pub async fn call<T: Send + 'static>(
+        &self,
+        operation: impl FnOnce(&mut dyn AppPersistence) -> Result<T, String> + Send + 'static,
+    ) -> Result<T, String> {
+        let store = self.0.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut store = store
+                .lock()
+                .map_err(|_| "armazenamento indisponível".to_owned())?;
+            operation(store.as_mut())
+        })
+        .await
+        .map_err(|error| error.to_string())?
+    }
+}
+
 pub enum Event {
     Login {
         origin: String,
@@ -119,7 +138,10 @@ pub enum Event {
         recent: bool,
     },
     Avatar(String),
-    AvatarFinished(String),
+    AvatarFinished {
+        key: String,
+        failed: bool,
+    },
     LogoutFinished {
         origin: String,
         revoked: bool,
@@ -144,7 +166,7 @@ pub struct AppState {
     pub filter: Option<String>,
     pub query: String,
     pub recent: bool,
-    pub persistence: Box<dyn AppPersistence>,
+    pub persistence: Persistence,
     pub next_generation: u64,
 }
 impl AppState {
@@ -154,7 +176,7 @@ impl AppState {
             filter: None,
             query: String::new(),
             recent: false,
-            persistence,
+            persistence: Persistence(std::sync::Arc::new(std::sync::Mutex::new(persistence))),
             next_generation: 0,
         }
     }

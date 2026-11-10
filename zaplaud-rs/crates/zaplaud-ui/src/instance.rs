@@ -1,7 +1,7 @@
 use std::{
     io,
     os::unix::{
-        fs::PermissionsExt,
+        fs::{DirBuilderExt, MetadataExt, PermissionsExt},
         net::{UnixListener, UnixStream},
     },
     path::{Path, PathBuf},
@@ -55,17 +55,13 @@ impl Instance {
         }
     }
     pub fn runtime_path() -> io::Result<PathBuf> {
+        let uid = rustix::process::geteuid().as_raw();
         let base = std::env::var_os("XDG_RUNTIME_DIR")
             .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                std::env::temp_dir().join(format!(
-                    "zaplaud-{}",
-                    std::env::var("USER").unwrap_or_else(|_| "desktop".into())
-                ))
-            });
+            .unwrap_or_else(|| std::env::temp_dir().join(format!("zaplaud-{uid}")));
+        private_directory(&base, uid)?;
         let directory = base.join("zaplaud");
-        std::fs::create_dir_all(&directory)?;
-        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700))?;
+        private_directory(&directory, uid)?;
         Ok(directory.join("instance.sock"))
     }
 }
@@ -73,6 +69,25 @@ impl Drop for Instance {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.path);
     }
+}
+
+fn private_directory(path: &Path, uid: u32) -> io::Result<()> {
+    match std::fs::DirBuilder::new().mode(0o700).create(path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error),
+    }
+    let metadata = std::fs::symlink_metadata(path)?;
+    if !metadata.file_type().is_dir()
+        || metadata.uid() != uid
+        || metadata.permissions().mode() & 0o077 != 0
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "diretório de socket inseguro",
+        ));
+    }
+    Ok(())
 }
 #[cfg(test)]
 mod tests {
@@ -97,6 +112,39 @@ mod tests {
         std::fs::write(&path, b"keep")?;
         assert!(Instance::acquire(&path).is_err());
         assert_eq!(std::fs::read(path)?, b"keep");
+        Ok(())
+    }
+    #[test]
+    fn socket_directory_is_private_and_owned_by_current_user() -> io::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("private");
+        let uid = rustix::process::geteuid().as_raw();
+        private_directory(&path, uid)?;
+        let metadata = std::fs::symlink_metadata(&path)?;
+        assert_eq!(metadata.uid(), uid);
+        assert_eq!(metadata.permissions().mode() & 0o777, 0o700);
+        assert!(private_directory(&path, uid.wrapping_add(1)).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn socket_directory_rejects_symlinks_files_and_public_directories() -> io::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let uid = rustix::process::geteuid().as_raw();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(dir.path(), &link)?;
+        assert!(private_directory(&link, uid).is_err());
+        let file = dir.path().join("file");
+        std::fs::write(&file, b"keep")?;
+        assert!(private_directory(&file, uid).is_err());
+        let public = dir.path().join("public");
+        std::fs::create_dir(&public)?;
+        std::fs::set_permissions(&public, std::fs::Permissions::from_mode(0o755))?;
+        assert!(private_directory(&public, uid).is_err());
+        assert_eq!(
+            std::fs::metadata(public)?.permissions().mode() & 0o777,
+            0o755
+        );
         Ok(())
     }
 }

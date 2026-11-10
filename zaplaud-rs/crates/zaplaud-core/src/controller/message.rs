@@ -1,19 +1,23 @@
 //! Executor do compositor: persistência serial, POST único e tarefas canceláveis.
 use crate::{
     model::*,
-    rules::composer::{self, Effect, Event, Failure, MessageUpdate, State},
+    rules::composer::{self, Effect, Event, Failure, MessageUpdate, SavePurpose, State},
 };
 use futures_util::future::BoxFuture;
 use std::{collections::HashSet, sync::Arc};
 use tokio::{
-    sync::{mpsc, watch},
+    sync::{mpsc, oneshot, watch},
     task::JoinHandle,
 };
 
 /// Adaptador nativo. `save` deve aplicar a atualização dentro da transação do armazenamento.
 pub trait Backend: Send + Sync + 'static {
-    fn save(&self, key: &SessionKey, update: &MessageUpdate) -> Result<MessageLocalState, String>;
-    fn available(&self, attachment: &Attachment) -> bool;
+    fn save(
+        &self,
+        key: &SessionKey,
+        update: &MessageUpdate,
+    ) -> BoxFuture<'static, Result<MessageLocalState, String>>;
+    fn available(&self, attachment: &Attachment) -> BoxFuture<'static, bool>;
     fn eligible(&self, key: &SessionKey, agent_id: &str) -> bool;
     fn request(
         &self,
@@ -32,10 +36,79 @@ pub trait Backend: Send + Sync + 'static {
     fn session_changed(&self, key: &SessionKey);
 }
 
+#[derive(Clone)]
+pub struct MessageFlush {
+    requests: mpsc::UnboundedSender<oneshot::Sender<Result<(), String>>>,
+}
+impl MessageFlush {
+    pub async fn flush(&self) -> Result<(), String> {
+        let (reply, result) = oneshot::channel();
+        self.requests
+            .send(reply)
+            .map_err(|_| "Compositor encerrado".to_owned())?;
+        result
+            .await
+            .map_err(|_| "Compositor encerrado".to_owned())?
+    }
+}
+
+struct SaveJob {
+    token: u64,
+    key: SessionKey,
+    update: MessageUpdate,
+    purpose: SavePurpose,
+}
+async fn save(backend: Arc<dyn Backend>, job: SaveJob) -> Event {
+    let SaveJob {
+        token,
+        key,
+        update,
+        purpose,
+    } = job;
+    match backend.save(&key, &update).await {
+        Ok(local) => {
+            let mut unavailable = HashSet::new();
+            for attachment in &local.draft.attachments {
+                if !backend.available(attachment).await {
+                    unavailable.insert(attachment.uri.clone());
+                }
+            }
+            Event::Saved {
+                token,
+                key,
+                purpose,
+                local,
+                unavailable,
+            }
+        }
+        Err(_) => Event::SaveFailed {
+            token,
+            key,
+            purpose,
+        },
+    }
+}
+async fn save_pending(
+    backend: &Arc<dyn Backend>,
+    pending: &mut Vec<SaveJob>,
+    sender: &mpsc::UnboundedSender<Event>,
+) -> Result<(), String> {
+    let mut result = Ok(());
+    for job in pending.drain(..) {
+        let event = save(backend.clone(), job).await;
+        if matches!(event, Event::SaveFailed { .. }) {
+            result = Err("Falha ao salvar rascunho".to_owned());
+        }
+        let _ = sender.send(event);
+    }
+    result
+}
+
 pub struct MessageController {
     pub events: mpsc::UnboundedSender<Event>,
     pub states: watch::Receiver<State>,
     task: JoinHandle<()>,
+    flush: MessageFlush,
 }
 impl Drop for MessageController {
     fn drop(&mut self) {
@@ -46,12 +119,39 @@ impl MessageController {
     pub fn start(backend: Arc<dyn Backend>) -> Self {
         let (events, mut receiver) = mpsc::unbounded_channel();
         let (states_tx, states) = watch::channel(State::default());
+        let (requests, mut flush_requests) = mpsc::unbounded_channel();
+        let flush = MessageFlush { requests };
         let sender = events.clone();
         let task = tokio::spawn(async move {
             let mut state = State::default();
             let mut foreground = Vec::<JoinHandle<()>>::new();
             let mut polls = Vec::<JoinHandle<()>>::new();
-            while let Some(event) = receiver.recv().await {
+            let mut pending = Vec::<SaveJob>::new();
+            let mut deadline = None::<tokio::time::Instant>;
+            loop {
+                let event = tokio::select! {
+                    biased;
+                    event = receiver.recv() => match event {
+                        Some(event) => event,
+                        None => break,
+                    },
+                    Some(reply) = flush_requests.recv() => {
+                        let result = save_pending(&backend, &mut pending, &sender).await;
+                        deadline = None;
+                        let _ = reply.send(result);
+                        continue;
+                    },
+                    _ = async {
+                        match deadline {
+                            Some(deadline) => tokio::time::sleep_until(deadline).await,
+                            None => std::future::pending().await,
+                        }
+                    } => {
+                        let _ = save_pending(&backend, &mut pending, &sender).await;
+                        deadline = None;
+                        continue;
+                    },
+                };
                 let changing = matches!(&event, Event::Close)
                     || matches!(&event, Event::Open(key) if state.composer.key.as_ref().is_some_and(|current| current != key));
                 let mut cancellation = Vec::new();
@@ -87,31 +187,26 @@ impl MessageController {
                             update,
                             purpose,
                         } => {
-                            // O ator executa as gravações em ordem; cancelamento de rede nunca as interrompe.
-                            let event = match backend.save(&key, &update) {
-                                Ok(local) => {
-                                    let unavailable = local
-                                        .draft
-                                        .attachments
-                                        .iter()
-                                        .filter(|a| !backend.available(a))
-                                        .map(|a| a.uri.clone())
-                                        .collect::<HashSet<_>>();
-                                    Event::Saved {
-                                        token,
-                                        key,
-                                        purpose,
-                                        local,
-                                        unavailable,
-                                    }
-                                }
-                                Err(_) => Event::SaveFailed {
-                                    token,
-                                    key,
-                                    purpose,
-                                },
+                            let job = SaveJob {
+                                token,
+                                key,
+                                update,
+                                purpose,
                             };
-                            let _ = sender.send(event);
+                            if purpose == SavePurpose::Edit {
+                                pending.retain(|pending| pending.key != job.key);
+                                pending.push(job);
+                                deadline = Some(
+                                    tokio::time::Instant::now()
+                                        + std::time::Duration::from_millis(300),
+                                );
+                            } else {
+                                // O ator executa as gravações em ordem; cancelamento de rede nunca as interrompe.
+                                let _ = save_pending(&backend, &mut pending, &sender).await;
+                                deadline = None;
+                                let event = save(backend.clone(), job).await;
+                                let _ = sender.send(event);
+                            }
                         }
                         Effect::CheckRecipient {
                             token,
@@ -168,6 +263,7 @@ impl MessageController {
                     break;
                 }
             }
+            let _ = save_pending(&backend, &mut pending, &sender).await;
             for job in foreground.into_iter().chain(polls) {
                 job.abort();
             }
@@ -176,7 +272,11 @@ impl MessageController {
             events,
             states,
             task,
+            flush,
         }
+    }
+    pub fn flush_handle(&self) -> MessageFlush {
+        self.flush.clone()
     }
     pub fn is_finished(&self) -> bool {
         self.task.is_finished()
@@ -351,6 +451,8 @@ mod tests {
         active_uploads: Arc<AtomicUsize>,
         cancelled: AtomicUsize,
         unauthorized: AtomicUsize,
+        saves: AtomicUsize,
+        saved: tokio::sync::Notify,
     }
     struct ActiveUpload(Arc<AtomicUsize>);
     impl Drop for ActiveUpload {
@@ -363,13 +465,16 @@ mod tests {
             &self,
             _: &SessionKey,
             update: &MessageUpdate,
-        ) -> Result<MessageLocalState, String> {
+        ) -> BoxFuture<'static, Result<MessageLocalState, String>> {
             let mut local = self.local.lock().unwrap();
             *local = composer::update_message(local.clone(), update);
-            Ok(local.clone())
+            self.saves.fetch_add(1, Ordering::SeqCst);
+            self.saved.notify_one();
+            let local = local.clone();
+            Box::pin(async move { Ok(local) })
         }
-        fn available(&self, _: &Attachment) -> bool {
-            true
+        fn available(&self, _: &Attachment) -> BoxFuture<'static, bool> {
+            Box::pin(async { true })
         }
         fn eligible(&self, _: &SessionKey, _: &str) -> bool {
             true
@@ -438,7 +543,7 @@ mod tests {
         let controller = MessageController::start(fake);
         controller.events.send(Event::Start).unwrap();
         controller.events.send(Event::Open(key("first"))).unwrap();
-        settle().await;
+        controller.flush_handle().flush().await.unwrap();
         controller
             .events
             .send(Event::Edit {
@@ -557,6 +662,7 @@ mod tests {
                     mime: "text/plain".into(),
                     size: Some(31),
                     persistent: true,
+                    identity: None,
                 }],
             })
             .unwrap();
@@ -589,6 +695,7 @@ mod tests {
                     mime: "text/plain".into(),
                     size: Some(31),
                     persistent: true,
+                    identity: None,
                 }],
             })
             .unwrap();
@@ -641,5 +748,45 @@ mod tests {
         tokio::time::advance(std::time::Duration::from_secs(60)).await;
         settle().await;
         assert_eq!(fake.calls.lock().unwrap().len(), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn draft_edits_debounce_last_write_and_flush_on_shutdown() {
+        let fake = Arc::new(Fake::default());
+        let controller = MessageController::start(fake.clone());
+        controller.events.send(Event::Open(key("draft"))).unwrap();
+        controller.flush_handle().flush().await.unwrap();
+        fake.saved.notified().await;
+        let initial = fake.saves.load(Ordering::SeqCst);
+        for text in ["first", "second", "latest"] {
+            controller
+                .events
+                .send(Event::Edit {
+                    text: text.into(),
+                    attachments: vec![],
+                })
+                .unwrap();
+            settle().await;
+            tokio::time::advance(std::time::Duration::from_millis(100)).await;
+        }
+        settle().await;
+        assert_eq!(fake.saves.load(Ordering::SeqCst), initial);
+        tokio::time::advance(std::time::Duration::from_millis(199)).await;
+        settle().await;
+        assert_eq!(fake.saves.load(Ordering::SeqCst), initial);
+        tokio::time::advance(std::time::Duration::from_millis(1)).await;
+        fake.saved.notified().await;
+        assert_eq!(fake.saves.load(Ordering::SeqCst), initial + 1);
+        assert_eq!(fake.local.lock().unwrap().draft.text, "latest");
+        controller
+            .events
+            .send(Event::Edit {
+                text: "shutdown".into(),
+                attachments: vec![],
+            })
+            .unwrap();
+        controller.flush_handle().flush().await.unwrap();
+        assert_eq!(fake.saves.load(Ordering::SeqCst), initial + 2);
+        assert_eq!(fake.local.lock().unwrap().draft.text, "shutdown");
     }
 }

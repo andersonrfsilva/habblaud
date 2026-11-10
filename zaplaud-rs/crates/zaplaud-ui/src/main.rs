@@ -204,10 +204,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ));
         })?;
     let result = window.run();
+    let window_flush = window_state::flush();
     let _ = sender.send(state::Event::Shutdown);
     worker
         .join()
         .map_err(|_| std::io::Error::other(strings::NETWORK_ERROR))?;
+    window_flush?;
     result?;
     Ok(())
 }

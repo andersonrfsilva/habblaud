@@ -4,7 +4,10 @@ use crate::{
     strings, update_ui,
 };
 use slint::ComponentHandle;
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use zaplaud_core::{
     Error,
@@ -41,7 +44,42 @@ async fn refresh(api: &HabblaudApi) -> Result<(Access, SessionCollection), Error
     }
     Ok((access, repository))
 }
-async fn stream(api: HabblaudApi, generation: u64, sender: UnboundedSender<Event>) {
+#[derive(Default)]
+struct LatestSnapshots {
+    pending: Mutex<HashMap<String, (u64, String)>>,
+    ready: tokio::sync::Notify,
+}
+impl LatestSnapshots {
+    fn replace(&self, origin: String, generation: u64, data: String) {
+        if let Ok(mut pending) = self.pending.lock() {
+            pending.insert(origin, (generation, data));
+            self.ready.notify_one();
+        }
+    }
+    async fn next(&self) -> Event {
+        loop {
+            let ready = self.ready.notified();
+            if let Ok(mut pending) = self.pending.lock()
+                && let Some(origin) = pending.keys().next().cloned()
+                && let Some((generation, data)) = pending.remove(&origin)
+            {
+                return Event::SnapshotData {
+                    origin,
+                    generation,
+                    data,
+                };
+            }
+            ready.await;
+        }
+    }
+}
+
+async fn stream(
+    api: HabblaudApi,
+    generation: u64,
+    sender: UnboundedSender<Event>,
+    latest: Arc<LatestSnapshots>,
+) {
     let origin = api.origin().to_owned();
     let mut delay = std::time::Duration::from_secs(2);
     loop {
@@ -102,11 +140,10 @@ async fn stream(api: HabblaudApi, generation: u64, sender: UnboundedSender<Event
             }),
             StreamEvent::Data {
                 event_type, data, ..
-            } if event_type == "snapshot" => Some(Event::SnapshotData {
-                origin: origin.clone(),
-                generation,
-                data,
-            }),
+            } if event_type == "snapshot" => {
+                latest.replace(origin.clone(), generation, data);
+                None
+            }
             _ => None,
         };
         if let Some(event) = event
@@ -128,14 +165,18 @@ pub async fn run(
     let mut login_task: Option<tokio::task::JoinHandle<()>> = None;
     let mut avatar_tasks = tokio::task::JoinSet::new();
     let avatar_limit = Arc::new(tokio::sync::Semaphore::new(4));
-    let mut attempted = HashSet::new();
-    match state.persistence.servers() {
+    let mut attempted = crate::avatars::Requests::default();
+    let latest = Arc::new(LatestSnapshots::default());
+    let mut seen_writes = HashMap::new();
+    match state.persistence.call(|store| store.servers()).await {
         Ok(servers) => {
             for origin in servers {
                 if let Ok(api) = HabblaudApi::with_persistence(
                     &origin,
                     Arc::new(zaplaud_store::SecureSessionStorage::new()),
-                ) {
+                )
+                .await
+                {
                     let _ = sender.send(Event::LoginFinished {
                         api,
                         result: Ok(()),
@@ -153,6 +194,11 @@ pub async fn run(
         let event = tokio::select! {
             event=receiver.recv()=>event,
             Some(_)=avatar_tasks.join_next(),if !avatar_tasks.is_empty()=>continue,
+            event=latest.next()=>Some(event),
+            _=tokio::time::sleep_until(next_seen_write(&seen_writes)), if !seen_writes.is_empty()=>{
+                flush_seen(&mut state, &mut seen_writes, false).await;
+                continue;
+            },
         };
         let Some(event) = event else { break };
         match event {
@@ -160,7 +206,8 @@ pub async fn run(
             Event::Theme(dark) => {
                 if state
                     .persistence
-                    .set_theme(if dark { "dark" } else { "light" })
+                    .call(move |store| store.set_theme(if dark { "dark" } else { "light" }))
+                    .await
                     .is_ok()
                 {
                     update_ui(&weak, move |window| {
@@ -182,7 +229,9 @@ pub async fn run(
                 let api = match HabblaudApi::with_persistence(
                     &origin,
                     Arc::new(zaplaud_store::SecureSessionStorage::new()),
-                ) {
+                )
+                .await
+                {
                     Ok(api) => api,
                     Err(error) => {
                         login_error(&weak, error_message(&error));
@@ -193,7 +242,12 @@ pub async fn run(
                     task.abort();
                 }
                 let now = now_millis();
-                let deadline = match state.persistence.retry_until(api.origin()) {
+                let retry_origin = api.origin().to_owned();
+                let deadline = match state
+                    .persistence
+                    .call(move |store| store.retry_until(&retry_origin))
+                    .await
+                {
                     Ok(deadline) => deadline,
                     Err(_) => {
                         login_error(&weak, strings::STORAGE_ERROR.into());
@@ -225,10 +279,14 @@ pub async fn run(
             }
             Event::LoginFinished { api, result } => {
                 let result = match result {
-                    Ok(()) => state
-                        .persistence
-                        .add_server(api.origin())
-                        .map_err(|_| strings::STORAGE_ERROR.to_owned()),
+                    Ok(()) => {
+                        let origin = api.origin().to_owned();
+                        state
+                            .persistence
+                            .call(move |store| store.add_server(&origin))
+                            .await
+                            .map_err(|_| strings::STORAGE_ERROR.to_owned())
+                    }
                     Err(error) => {
                         if let Error::Api {
                             status: 429,
@@ -237,9 +295,11 @@ pub async fn run(
                         } = &error
                         {
                             let deadline = retry_deadline(retry_after.as_deref(), now_millis());
+                            let origin = api.origin().to_owned();
                             if state
                                 .persistence
-                                .set_retry_until(api.origin(), deadline)
+                                .call(move |store| store.set_retry_until(&origin, deadline))
+                                .await
                                 .is_err()
                             {
                                 login_error(&weak, strings::STORAGE_ERROR.into());
@@ -253,6 +313,8 @@ pub async fn run(
                     login_error(&weak, message);
                     continue;
                 }
+                flush_seen(&mut state, &mut seen_writes, true).await;
+                seen_writes.remove(api.origin());
                 if let Some(index) = state
                     .servers
                     .iter()
@@ -260,16 +322,27 @@ pub async fn run(
                 {
                     state.servers.remove(index).task.abort();
                 }
-                let seen = state.persistence.seen(api.origin()).unwrap_or_default();
+                let origin = api.origin().to_owned();
+                let seen = state
+                    .persistence
+                    .call(move |store| store.seen(&origin))
+                    .await
+                    .unwrap_or_default();
                 let restore = state
                     .persistence
-                    .last_session()
+                    .call(|store| store.last_session())
+                    .await
                     .unwrap_or_default()
                     .filter(|key| key.origin == api.origin());
                 let reading = ReadingController::new(api.origin().into(), seen, restore);
                 state.next_generation += 1;
                 let generation = state.next_generation;
-                let task = tokio::spawn(stream(api.clone(), generation, sender.clone()));
+                let task = tokio::spawn(stream(
+                    api.clone(),
+                    generation,
+                    sender.clone(),
+                    latest.clone(),
+                ));
                 state.servers.push(ServerState {
                     api,
                     reading,
@@ -311,11 +384,19 @@ pub async fn run(
                     .servers
                     .iter_mut()
                     .find(|s| s.api.origin() == origin && s.generation == generation)
+                    && server
+                        .reading
+                        .apply_stream_event(
+                            StreamEvent::Data {
+                                event_type: "snapshot".into(),
+                                data,
+                                first_connection: false,
+                            },
+                            now_millis(),
+                        )
+                        .is_err()
                 {
-                    if server.reading.snapshot_data(&data, now_millis()).is_err() {
-                        server.reading.failure(Some(-1));
-                    }
-                    let _ = state.persistence.save_seen(&origin, &server.reading.seen);
+                    server.reading.failure(Some(-1));
                 }
             }
             Event::Connection {
@@ -328,11 +409,15 @@ pub async fn run(
                     .iter_mut()
                     .find(|s| s.api.origin() == origin && s.generation == generation)
                 {
-                    if status == Some(200) {
-                        server.reading.connected();
+                    let event = if status == Some(200) {
+                        StreamEvent::Connected
                     } else {
-                        server.reading.failure(status);
-                    }
+                        StreamEvent::Failure {
+                            status,
+                            retry_after: None,
+                        }
+                    };
+                    let _ = server.reading.apply_stream_event(event, now_millis());
                 }
             }
             Event::Unauthorized(origin) => {
@@ -343,7 +428,6 @@ pub async fn run(
             Event::ReadingPosition { origin, visible } => {
                 if let Some(server) = state.servers.iter_mut().find(|s| s.api.origin() == origin) {
                     server.reading.set_reading_visible(visible);
-                    let _ = state.persistence.save_seen(&origin, &server.reading.seen);
                 }
             }
             Event::Filter {
@@ -359,11 +443,17 @@ pub async fn run(
                 if let Ok(key) = SessionKey::deserialize(&key) {
                     for server in &mut state.servers {
                         if server.api.origin() == key.origin {
-                            if let Some(item) = find_session(&server.reading, &key) {
-                                if !item.sub {
-                                    let _ = state.persistence.set_last_session(Some(&key));
-                                }
+                            if let Some(item) =
+                                find_session(&server.reading, &key).filter(|item| item.sub)
+                            {
                                 server.reading.open(item);
+                            } else {
+                                let remembered = key.clone();
+                                let _ = state
+                                    .persistence
+                                    .call(move |store| store.set_last_session(Some(&remembered)))
+                                    .await;
+                                server.reading.open_key(key.clone());
                             }
                         } else {
                             server.reading.close();
@@ -375,7 +465,10 @@ pub async fn run(
                 for server in &mut state.servers {
                     server.reading.close();
                 }
-                let _ = state.persistence.set_last_session(None);
+                let _ = state
+                    .persistence
+                    .call(|store| store.set_last_session(None))
+                    .await;
             }
             Event::Logout(origin) => {
                 if let Some(index) = state.servers.iter().position(|s| s.api.origin() == origin) {
@@ -388,36 +481,22 @@ pub async fn run(
                 }
             }
             Event::LogoutFinished { origin, revoked } => {
-                if state.persistence.remove_server(&origin).is_ok() {
-                    if let Some(index) = state.servers.iter().position(|s| s.api.origin() == origin)
-                    {
-                        state.servers.remove(index).task.abort();
-                    }
-                    if state.filter.as_deref() == Some(&origin) {
-                        state.filter = None;
-                    }
-                    let empty = state.servers.is_empty();
-                    update_ui(&weak, move |window| {
-                        window.global::<LoginState>().set_visible(empty);
-                        let shell = window.global::<crate::ShellState>();
-                        shell.set_logout_busy(false);
-                        shell.set_logout_origin("".into());
-                        if !revoked {
-                            shell.set_message(strings::LOGOUT_UNCONFIRMED.into());
-                        }
-                    });
-                } else {
-                    update_ui(&weak, |window| {
-                        let shell = window.global::<crate::ShellState>();
-                        shell.set_logout_busy(false);
+                let stored = remove_logged_out(&mut state, &origin).await;
+                seen_writes.remove(&origin);
+                let empty = state.servers.is_empty();
+                update_ui(&weak, move |window| {
+                    window.global::<LoginState>().set_visible(empty);
+                    let shell = window.global::<crate::ShellState>();
+                    shell.set_logout_busy(false);
+                    shell.set_logout_origin("".into());
+                    if !stored {
                         shell.set_message(strings::STORAGE_ERROR.into());
-                    });
-                }
+                    } else if !revoked {
+                        shell.set_message(strings::LOGOUT_UNCONFIRMED.into());
+                    }
+                });
             }
             Event::Avatar(key) => {
-                if attempted.contains(&key) {
-                    continue;
-                }
                 let Some(session_key) = SessionKey::deserialize(&key).ok() else {
                     continue;
                 };
@@ -432,7 +511,10 @@ pub async fn run(
                     continue;
                 };
                 let Some(avatar) = item.avatar else { continue };
-                attempted.insert(key.clone());
+                let cache_key = crate::avatars::key(server.api.origin(), &avatar);
+                if !attempted.start(&cache_key) {
+                    continue;
+                }
                 let generation = server.generation;
                 let api = server.api.clone();
                 let weak = weak.clone();
@@ -443,15 +525,35 @@ pub async fn run(
                     let Ok(_permit) = limit.acquire_owned().await else {
                         return;
                     };
-                    let cache_key = crate::avatars::key(api.origin(), &avatar);
-                    let png = match storage.read(&cache_key).ok().flatten() {
-                        Some(bytes) => Some(bytes),
+                    let disk = storage.clone();
+                    let disk_key = cache_key.clone();
+                    let cached = tokio::task::spawn_blocking(move || {
+                        disk.read(&disk_key)
+                            .ok()
+                            .flatten()
+                            .as_deref()
+                            .and_then(crate::avatars::decode)
+                    })
+                    .await
+                    .ok()
+                    .flatten();
+                    let rgba = match cached {
+                        Some(rgba) => Some(rgba),
                         None => {
                             // A API valida Content-Type e limita bytes antes de chegar ao decoder.
                             match api.avatar_bytes(&avatar).await {
                                 Ok(Some(bytes)) => {
-                                    let _ = storage.save(&cache_key, &bytes);
-                                    Some(bytes)
+                                    let disk_key = cache_key.clone();
+                                    tokio::task::spawn_blocking(move || {
+                                        crate::avatars::save_decoded(
+                                            storage.as_ref(),
+                                            &disk_key,
+                                            &bytes,
+                                        )
+                                    })
+                                    .await
+                                    .ok()
+                                    .flatten()
                                 }
                                 Err(Error::Unauthorized) => {
                                     let _ = send.send(Event::Connection {
@@ -465,21 +567,27 @@ pub async fn run(
                             }
                         }
                     };
+                    let failed = rgba.is_none();
+                    let finished_key = cache_key.clone();
                     let response_key = key.clone();
-                    if let Some(rgba) = png.as_deref().and_then(crate::avatars::decode) {
+                    if let Some(rgba) = rgba {
                         update_ui(&weak, move |window| {
                             list::apply_avatar(&window, &response_key, cache_key, rgba)
                         });
                     }
-                    let _ = send.send(Event::AvatarFinished(key));
+                    let _ = send.send(Event::AvatarFinished {
+                        key: finished_key,
+                        failed,
+                    });
                 });
                 continue;
             }
-            Event::AvatarFinished(key) => {
-                attempted.remove(&key);
+            Event::AvatarFinished { key, failed } => {
+                attempted.finish(key, failed);
                 continue;
             }
         }
+        schedule_seen(&state, &mut seen_writes);
         list::publish(&state, &weak);
         let _ = snapshots.send(Arc::new(crate::feature::AppSnapshot::from_state(&state)));
     }
@@ -487,13 +595,84 @@ pub async fn run(
         task.abort();
     }
     avatar_tasks.abort_all();
+    flush_seen(&mut state, &mut seen_writes, true).await;
+    if seen_writes.values().any(|write| write.deadline.is_some()) {
+        eprintln!("{}", strings::STORAGE_ERROR);
+    }
+    if crate::composer::flush().await.is_err() {
+        eprintln!("{}", strings::STORAGE_ERROR);
+    }
     for server in state.servers {
-        let _ = state
-            .persistence
-            .save_seen(server.api.origin(), &server.reading.seen);
         server.task.abort();
     }
 }
+#[derive(Default)]
+struct SeenWrite {
+    revision: u64,
+    deadline: Option<tokio::time::Instant>,
+}
+fn schedule_seen(state: &AppState, writes: &mut HashMap<String, SeenWrite>) {
+    for server in &state.servers {
+        let pending = writes.entry(server.api.origin().into()).or_default();
+        if pending.revision != server.reading.seen_revision {
+            pending.revision = server.reading.seen_revision;
+            pending.deadline =
+                Some(tokio::time::Instant::now() + std::time::Duration::from_secs(2));
+        }
+    }
+}
+fn next_seen_write(writes: &HashMap<String, SeenWrite>) -> tokio::time::Instant {
+    writes
+        .values()
+        .filter_map(|write| write.deadline)
+        .min()
+        .unwrap_or_else(|| tokio::time::Instant::now() + std::time::Duration::from_secs(86_400))
+}
+async fn flush_seen(state: &mut AppState, writes: &mut HashMap<String, SeenWrite>, all: bool) {
+    for server in &state.servers {
+        let Some(pending) = writes.get_mut(server.api.origin()) else {
+            continue;
+        };
+        if pending
+            .deadline
+            .is_some_and(|deadline| all || deadline <= tokio::time::Instant::now())
+        {
+            let origin = server.api.origin().to_owned();
+            let seen = server.reading.seen.clone();
+            pending.deadline = if state
+                .persistence
+                .call(move |store| store.save_seen(&origin, &seen))
+                .await
+                .is_ok()
+            {
+                None
+            } else {
+                Some(tokio::time::Instant::now() + std::time::Duration::from_secs(2))
+            };
+        }
+    }
+}
+
+async fn remove_logged_out(state: &mut AppState, origin: &str) -> bool {
+    let removed_origin = origin.to_owned();
+    let stored = state
+        .persistence
+        .call(move |store| store.remove_server(&removed_origin))
+        .await
+        .is_ok();
+    if let Some(index) = state
+        .servers
+        .iter()
+        .position(|server| server.api.origin() == origin)
+    {
+        state.servers.remove(index).task.abort();
+    }
+    if state.filter.as_deref() == Some(origin) {
+        state.filter = None;
+    }
+    stored
+}
+
 fn login_error(weak: &slint::Weak<AppWindow>, message: String) {
     update_ui(weak, move |window| {
         let login = window.global::<LoginState>();
@@ -503,11 +682,13 @@ fn login_error(weak: &slint::Weak<AppWindow>, message: String) {
 }
 fn retry_deadline(value: Option<&str>, now: i64) -> i64 {
     if let Some(seconds) = value.and_then(|value| value.parse::<i64>().ok()) {
-        return now.saturating_add(seconds.max(0).saturating_mul(1000));
+        return now.saturating_add(seconds.clamp(0, 86_400).saturating_mul(1000));
     }
     if let Some(date) = value.and_then(|value| httpdate::parse_http_date(value).ok()) {
         return date.duration_since(std::time::UNIX_EPOCH).map_or(now, |d| {
-            (d.as_millis().min(i64::MAX as u128) as i64).max(now)
+            (d.as_millis().min(i64::MAX as u128) as i64)
+                .max(now)
+                .min(now.saturating_add(86_400_000))
         });
     }
     now.saturating_add(60_000)
@@ -538,15 +719,116 @@ fn find_session(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn snapshot_mailbox_keeps_only_latest_per_origin() {
+        let latest = LatestSnapshots::default();
+        for generation in 0..1000 {
+            latest.replace("https://a".into(), generation, generation.to_string());
+        }
+        latest.replace("https://b".into(), 5, "b".into());
+        assert_eq!(latest.pending.lock().unwrap().len(), 2);
+        let mut received = HashMap::new();
+        for _ in 0..2 {
+            if let Event::SnapshotData {
+                origin,
+                generation,
+                data,
+            } = latest.next().await
+            {
+                received.insert(origin, (generation, data));
+            }
+        }
+        assert_eq!(received["https://a"], (999, "999".into()));
+        assert_eq!(received["https://b"], (5, "b".into()));
+        assert!(latest.pending.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn logout_removes_ui_server_even_when_persistence_fails() {
+        let root = tempfile::tempdir().unwrap();
+        let data = root.path().join("data");
+        let store = zaplaud_store::LocalStateStore::with_dirs(zaplaud_store::DesktopDirs {
+            data: data.clone(),
+            cache: root.path().join("cache"),
+        })
+        .unwrap();
+        store.add_server("https://a").unwrap();
+        let mut state = AppState::new(Box::new(store));
+        state.filter = Some("https://a".into());
+        state.servers.push(ServerState {
+            api: HabblaudApi::new("https://a").unwrap(),
+            reading: ReadingController::new("https://a".into(), HashMap::new(), None),
+            generation: 1,
+            task: tokio::spawn(async {}),
+        });
+        std::fs::write(data.join("local_state.json"), b"malformed").unwrap();
+        assert!(!remove_logged_out(&mut state, "https://a").await);
+        assert!(state.servers.is_empty());
+        assert!(state.filter.is_none());
+    }
+
+    #[tokio::test]
+    async fn seen_writes_debounce_changes_and_flush_latest_on_shutdown() {
+        let root = tempfile::tempdir().unwrap();
+        let store = zaplaud_store::LocalStateStore::with_dirs(zaplaud_store::DesktopDirs {
+            data: root.path().join("data"),
+            cache: root.path().join("cache"),
+        })
+        .unwrap();
+        store.add_server("https://a").unwrap();
+        let mut state = AppState::new(Box::new(store));
+        let mut reading = ReadingController::new("https://a".into(), HashMap::new(), None);
+        reading.seen.insert("session".into(), 1);
+        reading.seen_revision = 1;
+        state.servers.push(ServerState {
+            api: HabblaudApi::new("https://a").unwrap(),
+            reading,
+            generation: 1,
+            task: tokio::spawn(async {}),
+        });
+        let mut writes = HashMap::new();
+        schedule_seen(&state, &mut writes);
+        let deadline = writes["https://a"].deadline.unwrap();
+        schedule_seen(&state, &mut writes);
+        assert_eq!(writes["https://a"].deadline, Some(deadline));
+        flush_seen(&mut state, &mut writes, false).await;
+        assert!(
+            state
+                .persistence
+                .call(|store| store.seen("https://a"))
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        state.servers[0].reading.seen.insert("session".into(), 2);
+        state.servers[0].reading.seen_revision = 2;
+        schedule_seen(&state, &mut writes);
+        flush_seen(&mut state, &mut writes, true).await;
+        assert_eq!(
+            state
+                .persistence
+                .call(|store| store.seen("https://a"))
+                .await
+                .unwrap()["session"],
+            2
+        );
+        assert!(writes["https://a"].deadline.is_none());
+        schedule_seen(&state, &mut writes);
+        assert!(writes["https://a"].deadline.is_none());
+    }
+
     #[test]
-    fn login_retry_deadline_matches_jvm_rules() {
+    fn login_retry_deadline_clamps_seconds_and_dates_to_one_day() {
         assert_eq!(retry_deadline(Some("-5"), 1000), 1000);
         assert_eq!(retry_deadline(Some("5"), 1000), 6000);
         assert_eq!(retry_deadline(Some("invalid"), 1000), 61000);
         assert_eq!(
             retry_deadline(Some("Sun, 06 Nov 1994 08:49:37 GMT"), 1000),
-            784111777000
+            86_401_000
         );
-        assert_eq!(retry_deadline(Some("9223372036854775807"), 1000), i64::MAX);
+        assert_eq!(
+            retry_deadline(Some("9223372036854775807"), 1000),
+            86_401_000
+        );
     }
 }

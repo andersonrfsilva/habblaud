@@ -18,6 +18,22 @@ use zaplaud_core::{
 };
 use zaplaud_store::LocalStateStore;
 
+static COMPOSER_ACTIONS: std::sync::OnceLock<mpsc::UnboundedSender<Action>> =
+    std::sync::OnceLock::new();
+
+pub async fn flush() -> Result<(), String> {
+    let Some(actions) = COMPOSER_ACTIONS.get() else {
+        return Ok(());
+    };
+    let (reply, result) = tokio::sync::oneshot::channel();
+    actions
+        .send(Action::Flush(reply))
+        .map_err(|_| "Compositor encerrado".to_owned())?;
+    result
+        .await
+        .map_err(|_| "Compositor encerrado".to_owned())?
+}
+
 struct NativeBackend {
     store: LocalStateStore,
     snapshot: Arc<RwLock<Option<Arc<AppSnapshot>>>>,
@@ -46,13 +62,57 @@ fn failure(error: zaplaud_core::Error) -> Failure {
 fn attachment_path(attachment: &Attachment) -> Option<std::path::PathBuf> {
     url::Url::parse(&attachment.uri).ok()?.to_file_path().ok()
 }
-fn available(attachment: &Attachment) -> bool {
-    attachment_path(attachment).is_some_and(|path| {
-        std::fs::File::open(&path).is_ok()
-            && std::fs::metadata(path).is_ok_and(|metadata| {
-                metadata.is_file() && attachment.size == i64::try_from(metadata.len()).ok()
-            })
+fn file_identity(metadata: &std::fs::Metadata) -> std::io::Result<AttachmentIdentity> {
+    let modified_nanos = metadata
+        .modified()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(std::io::Error::other)?
+        .as_nanos();
+    #[cfg(unix)]
+    let (device, inode) = {
+        use std::os::unix::fs::MetadataExt;
+        (metadata.dev(), metadata.ino())
+    };
+    #[cfg(not(unix))]
+    let (device, inode) = (0, 0);
+    Ok(AttachmentIdentity {
+        modified_nanos,
+        device,
+        inode,
     })
+}
+fn open_regular(path: &std::path::Path) -> std::io::Result<(std::fs::File, std::fs::Metadata)> {
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    if std::fs::symlink_metadata(path)?.file_type().is_symlink() {
+        return Err(std::io::Error::other("Arquivo simbólico"));
+    }
+    let file = options.open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
+        return Err(std::io::Error::other("Arquivo não regular"));
+    }
+    Ok((file, metadata))
+}
+fn open_attachment(attachment: &Attachment) -> std::io::Result<std::fs::File> {
+    let path = attachment_path(attachment).ok_or_else(|| std::io::Error::other("URI inválida"))?;
+    let (file, metadata) = open_regular(&path)?;
+    let size = i64::try_from(metadata.len()).map_err(std::io::Error::other)?;
+    attachments::validate_attachment_size(Some(size)).map_err(std::io::Error::other)?;
+    if attachment.size != Some(size)
+        || attachment.identity.as_ref() != Some(&file_identity(&metadata)?)
+    {
+        return Err(std::io::Error::other("Arquivo alterado desde a seleção"));
+    }
+    Ok(file)
+}
+fn available(attachment: &Attachment) -> bool {
+    open_attachment(attachment).is_ok()
 }
 impl NativeBackend {
     fn api(&self, origin: &str) -> Option<HabblaudApi> {
@@ -66,13 +126,31 @@ impl NativeBackend {
     }
 }
 impl Backend for NativeBackend {
-    fn save(&self, key: &SessionKey, update: &MessageUpdate) -> Result<MessageLocalState, String> {
-        self.store
-            .update_message(key, |local| composer::update_message(local, update))
-            .map_err(|e| e.to_string())
+    fn save(
+        &self,
+        key: &SessionKey,
+        update: &MessageUpdate,
+    ) -> BoxFuture<'static, Result<MessageLocalState, String>> {
+        let store = self.store.clone();
+        let key = key.clone();
+        let update = update.clone();
+        Box::pin(async move {
+            tokio::task::spawn_blocking(move || {
+                store
+                    .update_message(&key, |local| composer::update_message(local, &update))
+                    .map_err(|e| e.to_string())
+            })
+            .await
+            .map_err(|e| e.to_string())?
+        })
     }
-    fn available(&self, attachment: &Attachment) -> bool {
-        available(attachment)
+    fn available(&self, attachment: &Attachment) -> BoxFuture<'static, bool> {
+        let attachment = attachment.clone();
+        Box::pin(async move {
+            tokio::task::spawn_blocking(move || available(&attachment))
+                .await
+                .unwrap_or(false)
+        })
     }
     fn eligible(&self, key: &SessionKey, agent_id: &str) -> bool {
         self.snapshot
@@ -111,10 +189,13 @@ impl Backend for NativeBackend {
     ) -> BoxFuture<'static, Result<String, Failure>> {
         let api = self.api(origin);
         Box::pin(async move {
-            let path = attachment_path(&attachment).ok_or_else(Failure::default)?;
-            let file = tokio::fs::File::open(path)
-                .await
-                .map_err(|_| Failure::default())?;
+            let (file, attachment) = tokio::task::spawn_blocking(move || {
+                open_attachment(&attachment).map(|file| (file, attachment))
+            })
+            .await
+            .map_err(|_| Failure::default())?
+            .map_err(|_| Failure::default())?;
+            let file = tokio::fs::File::from_std(file);
             api.ok_or_else(Failure::default)?
                 .upload(
                     &attachment.name,
@@ -129,15 +210,8 @@ impl Backend for NativeBackend {
                 .map_err(failure)
         })
     }
-    fn release_unused(&self, attachments: &[Attachment], active: &State) {
-        for attachment in attachments {
-            if active.active_attachment(&attachment.uri)
-                || self.store.uses_attachment(&attachment.uri).unwrap_or(true)
-            {
-                continue;
-            }
-            // No desktop a URI aponta para o arquivo do usuário: nunca apague nem altere esse arquivo.
-        }
+    fn release_unused(&self, _: &[Attachment], _: &State) {
+        // No desktop a URI aponta para o arquivo do usuário: nunca apague nem altere esse arquivo.
     }
     fn unauthorized(&self, origin: &str) {
         let _ = self
@@ -161,7 +235,6 @@ impl Backend for NativeBackend {
         }
     }
 }
-#[derive(Clone)]
 enum Action {
     Edit(String),
     Send(bool),
@@ -175,6 +248,7 @@ enum Action {
     Dismiss,
     Confirm,
     Visibility(bool),
+    Flush(tokio::sync::oneshot::Sender<Result<(), String>>),
 }
 
 pub fn setup(window: &AppWindow, context: &FeatureContext) {
@@ -196,6 +270,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
     global.set_picker_label(crate::native_strings::PICKER_PATHS.into());
     global.set_picker_hint(crate::native_strings::PICKER_PATHS_HINT.into());
     let (actions, mut receiver) = mpsc::unbounded_channel();
+    let _ = COMPOSER_ACTIONS.set(actions.clone());
     {
         let actions = actions.clone();
         global.on_edited(move |value| {
@@ -273,7 +348,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
     let mut snapshots = context.snapshots.subscribe();
     let context = context.clone();
     context.runtime.clone().spawn(async move {
-        let store = match LocalStateStore::new() { Ok(store) => store, Err(_) => { update_ui(&weak, |w| w.global::<ComposerState>().set_error(strings::STORAGE_ERROR.into())); return; } };
+        let store = match tokio::task::spawn_blocking(LocalStateStore::new).await { Ok(Ok(store)) => store, _ => { update_ui(&weak, |w| w.global::<ComposerState>().set_error(strings::STORAGE_ERROR.into())); return; } };
         let snapshot = Arc::new(RwLock::new(None));
         let backend = Arc::new(NativeBackend { store: store.clone(), snapshot: snapshot.clone(), commands: context.commands.clone() });
         let mut controller = MessageController::start(backend.clone());
@@ -299,9 +374,11 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                             if let Some(item) = &next {
                                 if app_visible { let _ = controller.events.send(Event::Start); }
                                 let _ = controller.events.send(Event::Open(item.key.clone()));
-                                match store.session_deliver_as(&item.key) {
-                                    Ok(mode) => { let _ = controller.events.send(Event::SetDeliverAs(mode)); }
-                                    Err(_) => { let _ = controller.events.send(Event::AttachmentFailed(item.key.clone())); }
+                                let store = store.clone();
+                                let key = item.key.clone();
+                                match tokio::task::spawn_blocking(move || store.session_deliver_as(&key)).await {
+                                    Ok(Ok(mode)) => { let _ = controller.events.send(Event::SetDeliverAs(mode)); }
+                                    _ => { let _ = controller.events.send(Event::AttachmentFailed(item.key.clone())); }
                                 }
                             }
                         }
@@ -327,6 +404,13 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                 }
                 action = receiver.recv() => {
                     let Some(action) = action else { break; };
+                    let action = match action {
+                        Action::Flush(reply) => {
+                            let _ = reply.send(controller.flush_handle().flush().await);
+                            continue;
+                        }
+                        action => action,
+                    };
                     if let Action::Visibility(visible) = &action {
                         app_visible = *visible;
                         if selected.is_none() {
@@ -339,13 +423,21 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                     let eligible = backend.eligible(&item.key, &agent_id);
                     let event = match action {
                         Action::Edit(text) => Some(Event::Edit { text, attachments: state.composer.draft.attachments.clone() }),
+                        Action::Flush(_) => unreachable!(),
                         Action::Send(confirmed) => Some(Event::Send { agent_id, confirmed, eligible }),
                         Action::Stop(confirmed) => Some(Event::Interrupt { agent_id, confirmed, eligible }),
                         Action::Command(kind,value) => Some(Event::Command { agent_id, kind, value, eligible }),
                         Action::Remove(uri) => state.composer.draft.attachments.iter().find(|a| a.uri == uri).cloned().map(Event::Remove),
                         Action::Mode(index) => {
                             let mode = ["aside", "followUp", "steer"].get(index as usize).copied();
-                            mode.map(|mode| match store.set_session_deliver_as(&item.key,mode) { Ok(()) => Event::SetDeliverAs(mode.into()), Err(_) => Event::SaveFailed { token: 0, key: item.key.clone(), purpose: composer::SavePurpose::Edit } })
+                            if let Some(mode) = mode {
+                                let store = store.clone();
+                                let key = item.key.clone();
+                                Some(match tokio::task::spawn_blocking(move || store.set_session_deliver_as(&key, mode)).await {
+                                    Ok(Ok(())) => Event::SetDeliverAs(mode.into()),
+                                    _ => Event::SaveFailed { token: 0, key: item.key.clone(), purpose: composer::SavePurpose::Edit },
+                                })
+                            } else { None }
                         }
                         Action::Dismiss => {
                             let _ = controller.events.send(Event::DismissControlConfirmation);
@@ -359,7 +451,8 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                                 match pick_files().await {
                                     Ok(Some(paths)) => {
                                         let uris: Vec<_> = paths.iter().filter_map(|path| url::Url::from_file_path(path).ok().map(|uri| uri.to_string())).collect();
-                                        let event = match select_attachments(&uris,&before) { Ok(selected) => Event::AttachmentsSelected { key, before, selected }, Err(_) => Event::AttachmentFailed(key) };
+                                        let selected = select_attachments_async(uris, before.clone()).await;
+                                        let event = match selected { Ok(selected) => Event::AttachmentsSelected { key, before, selected }, Err(_) => Event::AttachmentFailed(key) };
                                         let _ = sender.send(event);
                                     }
                                     Ok(None) => {}
@@ -373,12 +466,16 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                         }
                         Action::Paths(paths) => {
                             let uris = paths.lines().filter(|line| !line.trim().is_empty()).map(|line| url::Url::from_file_path(line.trim()).map(|uri| uri.to_string())).collect::<Result<Vec<_>,_>>();
-                            match uris.ok().and_then(|uris| select_attachments(&uris,&state.composer.draft.attachments).ok()) {
-                                Some(selected) => {
+                            let selected = match uris {
+                                Ok(uris) => select_attachments_async(uris, state.composer.draft.attachments.clone()).await,
+                                Err(_) => Err("URI inválida".into()),
+                            };
+                            match selected {
+                                Ok(selected) => {
                                     update_ui(&weak, |window| window.global::<ComposerState>().set_picker_visible(false));
                                     Some(Event::AttachmentsSelected { key: item.key.clone(), before: state.composer.draft.attachments.clone(), selected })
                                 }
-                                None => Some(Event::AttachmentFailed(item.key.clone())),
+                                Err(_) => Some(Event::AttachmentFailed(item.key.clone())),
                             }
                         }
                         Action::PickerDismiss => { update_ui(&weak, |window| window.global::<ComposerState>().set_picker_visible(false)); None }
@@ -388,9 +485,10 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                     if let Some(event) = event { let _ = controller.events.send(event); }
                 }
             }
-            if weak.upgrade_in_event_loop(|_| {}).is_err() { break; }
+            if receiver.is_empty() && weak.upgrade_in_event_loop(|_| {}).is_err() { break; }
         }
         let _ = controller.events.send(Event::Stop);
+        let _ = controller.flush_handle().flush().await;
         if let Some(job) = picker { job.abort(); }
         if let Some(job) = command_dismiss { job.abort(); }
     });
@@ -416,45 +514,18 @@ async fn pick_files() -> Result<Option<Vec<std::path::PathBuf>>, ()> {
                         .contains("org.freedesktop.portal.Desktop")
             });
         if !portal {
-            for (program, args, separator) in [
-                (
-                    "zenity",
-                    vec!["--file-selection", "--multiple", "--separator=\u{1f}"],
-                    '\u{1f}',
-                ),
-                (
-                    "kdialog",
-                    vec![
-                        "--getopenfilename",
-                        ".",
-                        "*",
-                        "--multiple",
-                        "--separate-output",
-                    ],
-                    '\n',
-                ),
-            ] {
-                let output = tokio::process::Command::new(program)
-                    .args(args)
-                    .kill_on_drop(true)
-                    .output()
-                    .await;
-                match output {
-                    Ok(output) if output.status.success() => {
-                        let text = String::from_utf8(output.stdout).map_err(|_| ())?;
-                        return Ok(Some(
-                            text.trim_end()
-                                .split(separator)
-                                .filter(|path| !path.is_empty())
-                                .map(std::path::PathBuf::from)
-                                .collect(),
-                        ));
-                    }
-                    Ok(output) if output.status.code() == Some(1) => return Ok(None),
-                    Ok(_) => continue,
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-                    Err(_) => continue,
+            // kdialog separa caminhos por newline sem escape; o portal/fallback evita ambiguidade.
+            let output = tokio::process::Command::new("zenity")
+                .args(["--file-selection", "--multiple", "--separator=\u{1f}"])
+                .kill_on_drop(true)
+                .output()
+                .await;
+            match output {
+                Ok(output) if output.status.success() => {
+                    return parse_picker_paths(output.stdout).map(Some);
                 }
+                Ok(output) if output.status.code() == Some(1) => return Ok(None),
+                _ => {}
             }
             return Err(());
         }
@@ -465,6 +536,26 @@ async fn pick_files() -> Result<Option<Vec<std::path::PathBuf>>, ()> {
             .map(|file| file.path().to_owned())
             .collect()
     }))
+}
+
+fn parse_picker_paths(output: Vec<u8>) -> Result<Vec<std::path::PathBuf>, ()> {
+    let text = String::from_utf8(output).map_err(|_| ())?;
+    Ok(text
+        .strip_suffix('\n')
+        .unwrap_or(&text)
+        .split('\u{1f}')
+        .filter(|path| !path.is_empty())
+        .map(std::path::PathBuf::from)
+        .collect())
+}
+
+async fn select_attachments_async(
+    uris: Vec<String>,
+    existing: Vec<Attachment>,
+) -> Result<Vec<Attachment>, String> {
+    tokio::task::spawn_blocking(move || select_attachments(&uris, &existing))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 fn select_attachments(uris: &[String], existing: &[Attachment]) -> Result<Vec<Attachment>, String> {
@@ -485,12 +576,10 @@ fn select_attachments(uris: &[String], existing: &[Attachment]) -> Result<Vec<At
             .map_err(|e| e.to_string())?
             .to_file_path()
             .map_err(|_| "URI inválida")?;
-        let metadata = std::fs::metadata(&path).map_err(|e| e.to_string())?;
+        let (_file, metadata) = open_regular(&path).map_err(|e| e.to_string())?;
         let size = i64::try_from(metadata.len()).map_err(|e| e.to_string())?;
         attachments::validate_attachment_size(Some(size)).map_err(str::to_owned)?;
-        if !metadata.is_file() || std::fs::File::open(&path).is_err() {
-            return Err("Arquivo indisponível".into());
-        }
+        let identity = file_identity(&metadata).map_err(|e| e.to_string())?;
         let name = path
             .file_name()
             .ok_or("Nome inválido")?
@@ -503,6 +592,7 @@ fn select_attachments(uris: &[String], existing: &[Attachment]) -> Result<Vec<At
             mime,
             size: Some(size),
             persistent: true,
+            identity: Some(identity),
         });
     }
     Ok(selected)
@@ -771,6 +861,81 @@ mod tests {
         assert!(
             select_attachments(&[url::Url::from_file_path(path).unwrap().to_string()], &[])
                 .is_err()
+        );
+    }
+    #[test]
+    fn attachment_upload_rejects_same_size_replacement() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("selected.txt");
+        std::fs::write(&path, b"original").unwrap();
+        let uri = url::Url::from_file_path(&path).unwrap().to_string();
+        let selected = select_attachments(&[uri], &[]).unwrap().remove(0);
+        let replacement = root.path().join("replacement.txt");
+        std::fs::write(&replacement, b"replaced").unwrap();
+        std::fs::rename(replacement, &path).unwrap();
+        assert!(open_attachment(&selected).is_err());
+    }
+
+    #[test]
+    fn attachment_upload_rejects_modified_content_and_missing_identity() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("selected.txt");
+        std::fs::write(&path, b"original").unwrap();
+        let uri = url::Url::from_file_path(&path).unwrap().to_string();
+        let mut selected = select_attachments(&[uri], &[]).unwrap().remove(0);
+        let file = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+        file.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1))
+            .unwrap();
+        assert!(open_attachment(&selected).is_err());
+        selected.identity = None;
+        assert!(open_attachment(&selected).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn attachment_selection_and_upload_reject_symlink_target() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("selected.txt");
+        std::fs::write(&path, b"original").unwrap();
+        let uri = url::Url::from_file_path(&path).unwrap().to_string();
+        let selected = select_attachments(std::slice::from_ref(&uri), &[])
+            .unwrap()
+            .remove(0);
+        let other = root.path().join("other.txt");
+        std::fs::write(&other, b"replaced").unwrap();
+        std::fs::remove_file(&path).unwrap();
+        std::os::unix::fs::symlink(other, &path).unwrap();
+        assert!(select_attachments(&[uri], &[]).is_err());
+        assert!(open_attachment(&selected).is_err());
+    }
+
+    #[test]
+    fn attachment_upload_keeps_validated_file_descriptor_after_path_swap() {
+        use std::io::Read;
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("selected.txt");
+        std::fs::write(&path, b"original").unwrap();
+        let uri = url::Url::from_file_path(&path).unwrap().to_string();
+        let selected = select_attachments(&[uri], &[]).unwrap().remove(0);
+        let mut file = open_attachment(&selected).unwrap();
+        let replacement = root.path().join("replacement.txt");
+        std::fs::write(&replacement, b"replaced").unwrap();
+        std::fs::rename(replacement, path).unwrap();
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes).unwrap();
+        assert_eq!(bytes, b"original");
+    }
+
+    #[test]
+    fn picker_separator_preserves_newlines_and_trailing_whitespace() {
+        let paths =
+            parse_picker_paths(b"/tmp/line\nname \x1f/tmp/ends-with-newline\n\n".to_vec()).unwrap();
+        assert_eq!(
+            paths,
+            vec![
+                std::path::PathBuf::from("/tmp/line\nname "),
+                std::path::PathBuf::from("/tmp/ends-with-newline\n"),
+            ]
         );
     }
 }

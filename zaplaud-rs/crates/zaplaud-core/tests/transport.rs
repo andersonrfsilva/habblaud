@@ -180,7 +180,7 @@ async fn connected_resets_failures_and_first_connection() -> TestResult {
     ])
     .await?;
     let api = HabblaudApi::new(&origin)?;
-    let mut stream = api.snapshot_stream()?;
+    let mut stream = api.resilient_stream("/api/stream")?;
     for seconds in [2, 4] {
         assert_eq!(
             stream.next_event().await,
@@ -269,13 +269,13 @@ async fn persistence_cookie_scope_and_redaction() -> TestResult {
     ])
     .await?;
     let persistence = Arc::new(Persistence::default());
-    let api = HabblaudApi::with_persistence(&origin, persistence.clone())?;
+    let api = HabblaudApi::with_persistence(&origin, persistence.clone()).await?;
     api.login("android-test", "android-test").await?;
     let cookie = persistence.load(&origin).ok_or("cookie não salvo")?;
     assert!(cookie.contains("Expires="));
     assert!(!cookie.contains("Max-Age="));
     assert!(!format!("{api:?}").contains("fictional"));
-    let restored = HabblaudApi::with_persistence(&origin, persistence.clone())?;
+    let restored = HabblaudApi::with_persistence(&origin, persistence.clone()).await?;
     restored.access().await?;
     restored.logout().await?;
     assert!(persistence.load(&origin).is_none());
@@ -335,7 +335,7 @@ async fn bounded_http_sse_and_avatar_bodies() -> TestResult {
         api.request("/api/snapshot", None).await,
         Err(Error::ResponseTooLarge)
     ));
-    let mut stream = api.snapshot_stream()?;
+    let mut stream = api.resilient_stream("/api/stream")?;
     assert_eq!(stream.next_event().await, Some(StreamEvent::Connected));
     assert!(matches!(
         stream.next_event().await,

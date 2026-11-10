@@ -31,6 +31,11 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
     global.set_other_label(strings::PERMISSION_OTHER.into());
     global.set_reason_label(strings::PERMISSION_REASON.into());
     global.set_interrupt_label(strings::PERMISSION_INTERRUPT.into());
+    global.on_more_lines(|lines| {
+        crate::native_strings::PERMISSION_MORE_LINES
+            .replace("%1$d", &lines.to_string())
+            .into()
+    });
     let (sender, mut commands) = mpsc::unbounded_channel();
     let tx = sender.clone();
     global.on_open_session(move |key| {
@@ -49,15 +54,19 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
         let _ = tx.send(Command::Event(Event::Close));
     });
     let tx = sender.clone();
-    global.on_decide(move |behavior| {
+    global.on_decide(move |id, behavior| {
         let _ = tx.send(Command::Event(Event::Decide {
+            id: id.to_string(),
             behavior: behavior.to_string(),
             now: now_millis(),
         }));
     });
     let tx = sender.clone();
-    global.on_deny(move || {
-        let _ = tx.send(Command::Event(Event::Deny { now: now_millis() }));
+    global.on_deny(move |id| {
+        let _ = tx.send(Command::Event(Event::Deny {
+            id: id.to_string(),
+            now: now_millis(),
+        }));
     });
     let tx = sender.clone();
     global.on_select(move |question, option, multi, checked| {
@@ -180,6 +189,7 @@ fn publish(weak: &slint::Weak<AppWindow>, item: SessionItem, state: State) {
     update_ui(weak, move |window| {
         let ui = window.global::<PermissionState>();
         let detail = state.detail.as_ref();
+        ui.set_request_id(state.id.as_deref().unwrap_or_default().into());
         ui.set_title(
             if detail.is_some_and(|d| !d.questions.is_empty()) {
                 strings::QUESTION_PENDING

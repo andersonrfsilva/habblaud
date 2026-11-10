@@ -1,6 +1,9 @@
 use crate::{AppEvents, AppWindow, ListState, SettingsRow, SettingsState, strings, update_ui};
 use slint::{ComponentHandle, ModelRc, VecModel};
-use std::{collections::BTreeMap, time::Duration};
+use std::{
+    collections::{BTreeMap, HashSet},
+    time::Duration,
+};
 use tokio::sync::mpsc;
 use zaplaud_core::{
     api::HabblaudApi,
@@ -68,7 +71,7 @@ enum Command {
     Model(String),
     Thinking(String),
     Loaded(u64, Result<Loaded, zaplaud_core::Error>),
-    Saved(u64, Result<(), zaplaud_core::Error>),
+    Saved(String, Result<(), zaplaud_core::Error>),
 }
 struct Loaded {
     roles: Result<ModelRoles, zaplaud_core::Error>,
@@ -90,6 +93,7 @@ struct State {
     model: String,
     generation: u64,
     snapshot_at: Option<tokio::time::Instant>,
+    saving: HashSet<String>,
 }
 fn row(kind: &str, key: &str, text: &str) -> SettingsRow {
     SettingsRow {
@@ -144,6 +148,10 @@ fn unauthorized(error: &zaplaud_core::Error) -> bool {
     )
 }
 impl State {
+    fn finish_save(&mut self, origin: &str) -> bool {
+        self.saving.remove(origin);
+        origin == self.origin
+    }
     fn rows(&self) -> Vec<SettingsRow> {
         let mut rows = Vec::new();
         for (title, key, values, labels, current) in [
@@ -674,7 +682,7 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
                             }
                         }
                         Some(Command::Edit(role)) => {
-                            if state.roles.available && !state.roles.pending && state.status == "ready" {
+                            if state.roles.available && !state.roles.pending && !state.saving.contains(&state.origin) && state.status == "ready" {
                                 state.editing = role;
                                 state.model.clear();
                                 update_ui(&weak, |w| {
@@ -694,23 +702,26 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
                                 let api = api.clone();
                                 let roles = BTreeMap::from([(state.editing.clone(), join_role(&state.model, (!level.is_empty()).then_some(level.as_str())))]);
                                 let send = send.clone();
-                                let generation = state.generation;
+                                let origin = state.origin.clone();
+                                state.saving.insert(origin.clone());
                                 state.roles.pending = true;
                                 state.editing.clear();
-                                if let Some(task) = request.take() { task.abort(); }
-                                request = Some(runtime.spawn(async move {
+                                runtime.spawn(async move {
                                     let result = api.set_roles(&roles).await;
-                                    let _ = send.send(Command::Saved(generation, result));
-                                }));
+                                    let _ = send.send(Command::Saved(origin, result));
+                                });
                             }
                         }
-                        Some(Command::Saved(generation, result)) if generation == state.generation => {
+                        Some(Command::Saved(origin, result)) => {
+                            let current = state.finish_save(&origin);
                             match result {
-                                Ok(()) => reload = true,
+                                Ok(()) => reload = current,
                                 Err(error) => {
-                                    if unauthorized(&error) { let _ = commands.send(crate::state::Event::Unauthorized(state.origin.clone())); }
-                                    state.roles.pending = false;
-                                    state.error = Some(strings::ROLES_ERROR);
+                                    if unauthorized(&error) { let _ = commands.send(crate::state::Event::Unauthorized(origin)); }
+                                    if current {
+                                        state.roles.pending = false;
+                                        state.error = Some(strings::ROLES_ERROR);
+                                    }
                                 }
                             }
                         }
@@ -723,7 +734,10 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
                                         state.snapshot_at = Some(tokio::time::Instant::now());
                                     }
                                     match loaded.roles {
-                                        Ok(roles) => { state.roles = roles; state.status = "ready".into(); state.error = None; }
+                                        Ok(mut roles) => {
+                                            roles.pending |= state.saving.contains(&state.origin);
+                                            state.roles = roles; state.status = "ready".into(); state.error = None;
+                                        }
                                         Err(error) => {
                                             if unauthorized(&error) { let _ = commands.send(crate::state::Event::Unauthorized(state.origin.clone())); state.status = "unauthorized".into(); }
                                             else if matches!(error, zaplaud_core::Error::Api { status: 403, .. }) { state.status = "forbidden".into(); }
@@ -760,6 +774,38 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn role_save_survives_visibility_and_generation_changes() {
+        let mut state = State {
+            origin: "https://one.test".into(),
+            visible: true,
+            active: true,
+            ..Default::default()
+        };
+        state.saving.insert(state.origin.clone());
+        state.visible = false;
+        state.active = false;
+        state.generation += 1;
+        state.generation += 1;
+        state.visible = true;
+        assert!(state.saving.contains(&state.origin));
+        let origin = state.origin.clone();
+        assert!(state.finish_save(&origin));
+        assert!(!state.saving.contains(&origin));
+    }
+
+    #[test]
+    fn old_origin_save_does_not_refresh_or_clear_other_origin_save() {
+        let mut state = State {
+            origin: "https://two.test".into(),
+            ..Default::default()
+        };
+        state
+            .saving
+            .extend(["https://one.test".into(), state.origin.clone()]);
+        assert!(!state.finish_save("https://one.test"));
+        assert!(state.saving.contains(&state.origin));
+    }
     #[test]
     fn manual_model_requires_provider_and_no_reasoning_suffix() {
         for invalid in [

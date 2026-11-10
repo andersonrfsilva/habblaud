@@ -608,12 +608,21 @@ impl Access {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AttachmentIdentity {
+    pub modified_nanos: u128,
+    pub device: u64,
+    pub inode: u64,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Attachment {
     pub uri: String,
     pub name: String,
     pub mime: String,
     pub size: Option<i64>,
     pub persistent: bool,
+    #[serde(default)]
+    pub identity: Option<AttachmentIdentity>,
 }
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -863,7 +872,10 @@ impl Permission {
             expires_at: integer(o, "expiresAt").unwrap_or(0),
             tool: string(o, "tool"),
             description: string(o, "description"),
-            input: string(o, "input"),
+            input: o.get("input").map(|input| match input {
+                Value::String(text) => text.clone(),
+                value => value.to_string(),
+            }),
             questions: objects(o, "questions")
                 .map(|q| PermissionQuestion {
                     index: index(q),
@@ -1108,7 +1120,7 @@ mod tests {
         );
         assert_eq!(permission.provider, "claude");
         assert_eq!(permission.expires_at, 0);
-        assert!(permission.input.is_none());
+        assert_eq!(permission.input.as_deref(), Some(r#"{"ignored":true}"#));
         assert!(permission.questions[0].index.is_none());
         assert_eq!(permission.questions[0].options[0].index, Some(2));
         assert!(permission.questions[0].multi_select);

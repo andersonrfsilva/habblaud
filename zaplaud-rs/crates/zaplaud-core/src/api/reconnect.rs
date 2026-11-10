@@ -61,19 +61,8 @@ impl HabblaudApi {
             cancellation: self.cancellation.subscribe(),
         })
     }
-    pub fn snapshot_stream(&self) -> Result<ResilientStream, Error> {
-        self.resilient_stream("/api/stream")
-    }
-    /// A âncora é calculada uma vez; reconexões reutilizam a mesma URL, como ReadingController.
-    pub fn conversation_stream(
-        &self,
-        session: &SessionItem,
-        cached: &[TerminalEntry],
-    ) -> Result<ResilientStream, Error> {
-        let path = conversation_path(session, cached);
-        self.resilient_stream(&path)
-    }
 }
+/// A âncora é calculada uma vez; reconexões reutilizam a mesma URL, como ReadingController.
 pub fn conversation_path(session: &SessionItem, cached: &[TerminalEntry]) -> String {
     let mut path = match &session.agent_id {
         Some(id) => format!("/api/agents/{}/terminal", encode_segment(id)),
@@ -93,11 +82,6 @@ pub fn conversation_path(session: &SessionItem, cached: &[TerminalEntry]) -> Str
 }
 impl ResilientStream {
     /// Sem tarefa de fundo: descartar o fluxo cancela inclusive o handshake e o backoff.
-    pub fn into_stream(self) -> impl futures_util::Stream<Item = StreamEvent> + Send {
-        futures_util::stream::unfold(self, |mut stream| async move {
-            stream.next_event().await.map(|event| (event, stream))
-        })
-    }
     pub async fn next_event(&mut self) -> Option<StreamEvent> {
         loop {
             if let Some(event) = self.pending.pop_front() {
