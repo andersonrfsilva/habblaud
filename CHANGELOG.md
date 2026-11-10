@@ -13,7 +13,8 @@ do meio (0.**3**.0).
 ### Adicionado
 
 - **Zaplaud:** no desktop, ícone na bandeja (waybar, KDE, GNOME com extensão de indicadores): clique traz a janela, e
-  o menu tem "Abrir o Zaplaud" e "Fechar o Zaplaud".
+  o menu tem "Abrir o Zaplaud" e "Fechar o Zaplaud". A janela se identifica como `zaplaud` (`WM_CLASS`), e docks como
+  o wf-dock passam a mostrar o ícone do app.
 - **Zaplaud:** lista e conversa lado a lado em telas largas (desktop, iPad e tablet), com a sessão aberta destacada.
   Esc fecha a conversa e Ctrl+F (Cmd+F no macOS) abre a busca. No desktop, Enter envia e Shift+Enter quebra linha.
   No celular, a navegação continua em uma coluna e Enter continua quebrando linha.
