@@ -191,8 +191,8 @@ export component ConversationMenu inherits Sheet {
                 text: ConversationViewState.shake-label; enabled: ComposerState.can-shake;
                 clicked => { ComposerState.command("command", "shake"); ConversationViewState.menu-open = false; }
             }
-            if ComposerState.modes-visible: TextButton {
-                text: ConversationViewState.aside-label; enabled: ComposerState.can-shake;
+            if AsideState.available: TextButton {
+                text: ConversationViewState.aside-label; enabled: AsideState.enabled;
                 clicked => { ConversationViewState.menu-open = false; AsideState.open(); }
             }
             if CastState.dismiss-visible: TextButton {
