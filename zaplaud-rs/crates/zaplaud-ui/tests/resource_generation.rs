@@ -188,6 +188,11 @@ fn generation_returns_all_rerun_inputs() -> Result<(), Box<dyn std::error::Error
             .any(|path| path.ends_with("values/strings.xml"))
     );
     assert!(inputs.iter().any(|path| path.ends_with("ZaplaudApp.kt")));
+    assert!(
+        inputs
+            .iter()
+            .any(|path| path.ends_with("native-strings.xml"))
+    );
     assert!(inputs.iter().any(|path| path.ends_with("drawable")));
     let drawable_count = inputs
         .iter()
@@ -219,5 +224,30 @@ fn vector_alpha_and_fill_rule_survive_conversion() -> Result<(), Box<dyn std::er
     assert!(svg.contains("fill=\"#00FF00\""));
     assert!(svg.contains("fill-rule=\"evenodd\""));
     usvg::Tree::from_str(&svg, &usvg::Options::default())?;
+    Ok(())
+}
+
+#[test]
+fn extracted_material_icons_have_visible_paths_at_twenty_four_pixels()
+-> Result<(), Box<dyn std::error::Error>> {
+    let directory = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("ui/widgets/material-icons");
+    let mut count = 0;
+    for entry in fs::read_dir(directory)? {
+        let path = entry?.path();
+        if path.extension().is_none_or(|extension| extension != "svg") {
+            continue;
+        }
+        let svg = fs::read_to_string(&path)?;
+        let tree = usvg::Tree::from_str(&svg, &usvg::Options::default())?;
+        assert_eq!(tree.size().width(), 24.0);
+        assert_eq!(tree.size().height(), 24.0);
+        assert!(
+            !tree.root().children().is_empty(),
+            "{} sem desenho",
+            path.display()
+        );
+        count += 1;
+    }
+    assert_eq!(count, 18);
     Ok(())
 }

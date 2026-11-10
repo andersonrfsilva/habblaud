@@ -13,9 +13,12 @@ export { CastState, CastRow } from "cast.slint";
 export { AsideState, AsideTurnRow, AsideTopicRow } from "aside.slint";
 import { ComposerPane, ComposerDialogs, ComposerState } from "composer.slint";
 import { SettingsPane, SettingsState } from "settings.slint";
+import { PermissionBanner, PermissionSheet, PermissionState } from "permission.slint";
+export { PermissionState, PermissionChoice, PermissionQuestionRow, PermissionSuggestionRow } from "permission.slint";
 export { SettingsState, SettingsRow } from "settings.slint";
 export { Theme, Icons, AvatarColors } from "resources.slint";
 export { Labels } from "labels.slint";
+export { MaterialIcons } from "widgets/material-icons.slint";
 export { LoginState } from "login.slint";
 export { ListState, SessionRow, ServerRow } from "list.slint";
 export { ConversationState } from "conversation.slint";
@@ -35,6 +38,7 @@ export global ShellState {
 }
 export component AppWindow inherits Window {
     title: Labels.app-name; icon: Icons.ic-zaplaud;
+    default-font-size: 16px;
     preferred-width: 1100px; preferred-height: 760px; min-width: 320px; min-height: 400px; background: Theme.background;
     out property <bool> wide: root.width >= 840px;
     public function copy-conversation(text: string) { conversation-clipboard.text = text; conversation-clipboard.select-all(); conversation-clipboard.copy(); }
@@ -42,9 +46,11 @@ export component AppWindow inherits Window {
     forward-focus: keys;
     private property <bool> logout-open: ShellState.logout-origin != "";
     private property <bool> message-open: ShellState.message != "";
-    changed logout-open => { if !self.logout-open { keys.focus(); } }
-    changed message-open => { if !self.message-open { keys.focus(); } }
+    changed logout-open => { if !self.logout-open && !PermissionState.visible { keys.focus(); } }
+    changed message-open => { if !self.message-open && !PermissionState.visible { keys.focus(); } }
     keys := FocusScope {
+        enabled: !PermissionState.visible;
+        changed enabled => { if self.enabled { self.focus(); } }
         key-pressed(event) => {
             if root.wide && (event.modifiers.control || event.modifiers.meta) && (event.text == "f" || event.text == "F") && !LoginState.visible && !SettingsState.visible {
                 ListState.search-open = true; return accept;
@@ -67,7 +73,19 @@ export component AppWindow inherits Window {
             spacing: 0px;
             if root.wide || !ConversationState.selected: ListPane { width: root.wide ? 360px : parent.width; }
             if root.wide: Rectangle { width: 1px; background: Theme.outline-variant; }
-            if root.wide || ConversationState.selected: ConversationPane { narrow: !root.wide; VerticalLayout { spacing: 0px; ConversationView {} ConversationStatus {} ComposerPane {} } }
+            if root.wide || ConversationState.selected: ConversationPane {
+                narrow: !root.wide;
+                VerticalLayout {
+                    spacing: 0px;
+                    PermissionBanner {}
+                    ConversationView {}
+                    ConversationStatus {}
+                    HorizontalLayout {
+                        padding-left: 12px; padding-right: 12px; spacing: 0px;
+                        ComposerPane {}
+                    }
+                }
+            }
         }
         if !LoginState.visible && SettingsState.visible: SettingsPane {}
     }
@@ -76,6 +94,7 @@ export component AppWindow inherits Window {
     CastSheet {}
     AsideSheet {}
     ComposerDialogs {}
+    PermissionSheet { visible: PermissionState.visible; }
     if ShellState.logout-origin != "": Dialog {
         title: ShellState.logout-title; text: ShellState.logout-warning; confirm: Labels.confirm; cancel: Labels.cancel;
         confirmed => { if !ShellState.logout-busy { ShellState.logout-busy = true; ShellState.confirm-logout(); } }

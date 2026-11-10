@@ -10,6 +10,7 @@ pub struct ReadingController {
     pub repository: SessionCollection,
     pub seen: HashMap<String, i64>,
     pub needs_login: bool,
+    pub snapshot_revision: u64,
     restore: Option<SessionKey>,
     reading_visible: bool,
 }
@@ -21,6 +22,7 @@ impl ReadingController {
             repository: SessionCollection::default(),
             seen,
             needs_login: false,
+            snapshot_revision: 0,
             restore,
             reading_visible: true,
         }
@@ -65,6 +67,7 @@ impl ReadingController {
         Ok(())
     }
     fn update_sessions(&mut self, sessions: Vec<SessionItem>) {
+        self.snapshot_revision = self.snapshot_revision.wrapping_add(1).max(1);
         if let Some(selected) = &self.state.selected
             && selected.agent_id.is_some()
             && sessions

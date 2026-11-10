@@ -66,6 +66,12 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
     global.on_app_visibility(move |value| {
         visible.send_replace(value);
     });
+    let weak = window.as_weak();
+    crate::window_state::on_visibility(move |value| {
+        if let Some(window) = weak.upgrade() {
+            window.global::<AsideState>().invoke_app_visibility(value);
+        }
+    });
     let mut snapshots = context.snapshots.subscribe();
     let weak = window.as_weak();
     let commands = context.commands.clone();
@@ -101,6 +107,9 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                             runner = Some(tokio::spawn(aside::run(api, receive, out, unauth.clone(), visibility.clone())));
                             let _ = send.send(Event::Open(agent)); input = Some(send);
                         }
+                    } else if matches!(event, Event::Close) {
+                        if let Some(task) = runner.take() { task.abort(); }
+                        input = None; publish(&weak, State::default());
                     } else if let Some(send) = &input { let _ = send.send(event); }
                 }
                 changed = state.changed(), if runner.is_some() => { if changed.is_ok() { publish(&weak, state.borrow().clone()); } }

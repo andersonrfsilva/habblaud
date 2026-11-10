@@ -18,6 +18,7 @@ pub struct ServerSnapshot {
     pub api: HabblaudApi,
     pub reading: ReadingState,
     pub needs_login: bool,
+    pub snapshot_revision: u64,
 }
 #[derive(Clone)]
 pub struct AppSnapshot {
@@ -36,6 +37,7 @@ impl AppSnapshot {
                     api: server.api.clone(),
                     reading: server.reading.state.clone(),
                     needs_login: server.reading.needs_login,
+                    snapshot_revision: server.reading.snapshot_revision,
                 })
                 .collect(),
             selected: state

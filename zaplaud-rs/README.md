@@ -66,6 +66,8 @@ Os goldens em `crates/zaplaud-core/tests/golden/` foram produzidos executando as
 
 Não copie textos, cores ou paths vetoriais à mão para a UI. Preserve escapes XML e placeholders posicionais `%1$s`/`%1$d` na geração. A ausência de cores reconhecidas é erro de build, não motivo para uma paleta substituta silenciosa. Os testes comparam a quantidade de textos, as cores primárias conhecidas e a validade dos SVGs gerados.
 
+Os ícones `Icons.Default` não existem nos XML Kotlin. `scripts/DumpMaterialIcons.java` extrai os `ImageVector` da dependência Compose resolvida e gera `ui/widgets/material-icons.slint` (`MaterialIcons`) e seus SVGs. Não redesenhe paths: execute o extrator com o classpath `android/desktop/build/compose/binaries/main/app/Zaplaud/lib/app/*`, diretório de saída `zaplaud-rs/crates/zaplaud-ui/ui/widgets` e os nomes PascalCase dos ícones. Os vetores Material mantêm a licença Apache 2.0 em `material-icons/LICENSE.txt`.
+
 ## Dados locais e convenções
 
 `ZAPLAUD_DATA_DIR` força uma raiz com os filhos `data` e `cache`, útil para testes isolados. Sem override, Linux respeita `XDG_DATA_HOME`/`XDG_CACHE_HOME` (com os fallbacks de `DesktopDirs.kt`); macOS usa `~/Library/Application Support/Zaplaud` e `~/Library/Caches/Zaplaud`. Diretórios Unix são privados (`0700`). A resolução cria os diretórios e propaga erros de disco.
@@ -97,7 +99,7 @@ Premissa de trabalho, pendente de confirmação do proprietário: **quando o cli
 - Publique modelos Slint somente no event loop por `update_ui`. Não atravesse threads com `Image`, `VecModel` ou componentes fortes.
 - `AppState::new` recebe `LocalStateStore` como `Box<dyn AppPersistence>`. Métodos são síncronos e executam na thread de fundo. Não grave arquivos em callbacks da UI. `seen_id` é SHA-256 lowercase do JSON de `SessionKey`, igual ao JVM.
 - Avatares são solicitados ao instanciar linhas virtuais, com até quatro downloads simultâneos. O cache de imagens decodificadas limita-se a 4 MiB. `AvatarDiskCache` implementa `avatars::AvatarStorage::{read, save}` e preserva os PNG entre execuções.
-- `AppEvents.settings` é evento para a próxima etapa, não uma tela de configurações. `AppEvents.logout(origin)` abre a confirmação e remove somente aquela origem; `AppEvents.theme(dark)` persiste e altera o tema sem recriar a janela.
+- `AppEvents.settings` abre a tela de configurações. `AppEvents.logout(origin)` abre a confirmação e remove somente aquela origem; `AppEvents.theme(dark)` persiste e altera o tema sem recriar a janela.
 - O compositor usa o mesmo `local_state.json` dos clientes Kotlin; não execute os dois clientes como escritores simultâneos. Uploads leem os arquivos originais em blocos e nunca os removem ao liberar anexos.
 - Os callbacks `ComposerState.command(kind,value)` são exclusivos de `composer::setup`: menus de conversa devem invocá-los, não registrar um segundo handler. A confirmação do anel usa `ComposerDialogs` na raiz da janela, fora do slot inferior.
 - No Linux, o seletor tenta o portal XDG (`rfd`, recomendado em Wayland), depois `zenity`/`kdialog` em subprocesso, por fim o diálogo de caminhos completos, um por linha. Não há GTK ligado ao binário; portal e utilitários são opcionais. No macOS, `rfd` usa o seletor nativo.
@@ -120,6 +122,24 @@ aside e cast. A ação de envio pode incrementar `ConversationViewState.end-requ
 `ConversationViewState.copy(string)` preserva o Markdown original; links aceitam somente HTTP/HTTPS.
 O cache é salvo com `ConversationWrite` e epoch da origem; fechar/trocar a seleção também salva, sem esperar o debounce.
 
+### Permissões
+
+`permission::setup` registra o botão `ListState.permission(key)` e os callbacks do global `PermissionState`.
+`PermissionState.open-session(key)` recebe a serialização JSON de `SessionKey`, seleciona a conversa e abre
+somente a permissão ainda presente no snapshot daquela origem. Esse é também o evento de ativação de
+notificação «abrir sessão + permissão». `PermissionState.open-selected()` abre a permissão da conversa atual.
+O integrador monta `PermissionBanner` nos avisos e mantém `PermissionSheet { visible: PermissionState.visible; }`
+sobre a janela. A montagem persistente permite transferir o foco na abertura; a folha contém o ciclo Tab/Shift+Tab.
+O Esc da janela prioriza a permissão antes de fechar a conversa. Ativações anteriores ao primeiro snapshot
+aguardam a sessão correspondente sem polling.
+O shell integrado liga a notificação de permissão a `PermissionState.open-session`, monta o banner antes do transcript
+e mantém a folha na raiz. O compositor ocupa a base do mesmo host com 12 px de margem horizontal, aplicada uma vez.
+Um único hook winit distribui foco para leitura/alertas e visibilidade para lista, elenco e aside.
+As preferências de conversa são recarregadas pelo callback das configurações; alertas consultam as preferências
+salvas a cada snapshot real, sem listener vazio nem stream adicional.
+O executor `controller::permission::run(api, commands, updates)` possui os pedidos e o timer de prazo;
+fechar a folha, trocar de pedido ou abandonar o consumidor cancela essas tarefas, sem repetir decisões POST.
+
 
 ### Kit compartilhado
 
@@ -128,10 +148,11 @@ Importe componentes de `ui/widgets/kit.slint`; todas as cores vêm dos recursos 
 | Componente | Propriedades e callbacks próprios |
 | --- | --- |
 | `Avatar` | `source`, `initials`, `fallback-color`, `brand`, `brand-color`, `label`; aceita filhos para badges adicionais. Tamanho padrão 48 px. |
-| `TextButton`, `FilledButton` | `text`, `text-size` (14 px), `enabled`, `foreground`, callback `clicked`; mouse, Tab, espaço e Enter. |
+| `TextButton`, `FilledButton` | `text`, `text-size` (14 px), `horizontal-alignment` (center), `trailing-icon` opcional (18 px), `enabled`, `foreground`, callback `clicked`; mouse, Tab, espaço e Enter. |
 | `IconButton`, `Fab` | `icon`, `label`, `foreground`, `enabled`, callback `clicked`; tamanho 40/56 px. |
-| `TextField` | `text` bidirecional; `placeholder`, `multiline`, `password`, `enabled`, `outlined`, `autofocus`; `max-lines` (0 mantém altura multilinha padrão), `sends-on-enter` (Enter aceita, Shift+Enter insere linha); callbacks `edited(string)`, `accepted`; aceita filhos. Usa `TextInput` nativo para IME e teclas mortas. |
+| `TextField` | `text` bidirecional; `placeholder`, `multiline`, `password`, `enabled`, `outlined`, `autofocus`; `max-lines` (0 mantém altura multilinha padrão), `sends-on-enter` (Enter aceita, Shift+Enter insere linha); `leading-icon`, `trailing-icon`, `trailing-label`, callback `trailing-clicked()`; callbacks `edited(string)`, `accepted`; aceita filhos. Usa `TextInput` nativo para IME e teclas mortas. |
 | `Switch`, `RadioButton`, `CheckBox` | `checked` bidirecional, `text`, `enabled`, callback `toggled()`. Desenho Material com cores de `Theme`, sem animação periódica. |
+| `CheckBox.description` | Descrição opcional sob o rótulo; ambos quebram linha. Toda a linha alterna a seleção. |
 | `SegmentedControl` | `labels: [string]`, `selected: int` bidirecional, callback `chosen(int)`. |
 | `Chip` | API de `TextButton` mais `selected`. |
 | `Pill`, `Badge` | `text`, `text-size` (16/12 px), `foreground`; Badge aplica primary/onPrimary. |

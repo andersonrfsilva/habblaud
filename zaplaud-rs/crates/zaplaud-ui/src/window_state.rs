@@ -15,8 +15,12 @@ pub fn attributes(
 ) -> slint::winit_030::winit::window::WindowAttributes {
     #[cfg(target_os = "linux")]
     {
-        use slint::winit_030::winit::platform::x11::WindowAttributesExtX11;
-        attributes.with_name("zaplaud", "zaplaud")
+        let attributes = slint::winit_030::winit::platform::x11::WindowAttributesExtX11::with_name(
+            attributes, "zaplaud", "zaplaud",
+        );
+        slint::winit_030::winit::platform::wayland::WindowAttributesExtWayland::with_name(
+            attributes, "zaplaud", "zaplaud",
+        )
     }
     #[cfg(not(target_os = "linux"))]
     {

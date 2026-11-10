@@ -2,6 +2,7 @@ use slint::ComponentHandle;
 use tokio::sync::mpsc;
 use zaplaud_core::error::Error;
 
+pub mod alerts;
 mod app;
 mod aside;
 mod avatars;
@@ -10,10 +11,13 @@ mod composer;
 mod conversation;
 mod conversation_view;
 pub mod feature;
+mod instance;
 mod list;
 mod login;
+mod permission;
 mod settings;
 pub mod state;
+mod tray;
 pub mod window_state;
 
 slint::include_modules!();
@@ -33,6 +37,9 @@ const FEATURES: &[Feature] = &[
     cast::setup,
     aside::setup,
     composer::setup,
+    permission::setup,
+    alerts::setup,
+    tray::setup,
     window_state::setup,
     settings::setup,
 ];
@@ -95,12 +102,14 @@ fn labels(window: &AppWindow) {
     labels.set_menu(strings::MENU.into());
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(instance) = instance::Instance::acquire(&instance::Instance::runtime_path()?)? else {
+        return Ok(());
+    };
     slint::BackendSelector::new()
         .backend_name("winit".into())
         .renderer_name("software".into())
         .with_winit_window_attributes_hook(window_state::attributes)
         .select()?;
-    slint::set_xdg_app_id("zaplaud")?;
     let window = AppWindow::new()?;
     labels(&window);
     let store = zaplaud_store::LocalStateStore::new()?;
@@ -121,9 +130,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         snapshots: snapshots.clone(),
         runtime: runtime.handle().clone(),
     };
+    instance.listener.set_nonblocking(true)?;
+    let listener = instance.listener.try_clone()?;
+    let weak = window.as_weak();
+    context.runtime.spawn(async move {
+        let listener = match tokio::net::UnixListener::from_std(listener) {
+            Ok(listener) => listener,
+            Err(error) => {
+                eprintln!("instância: {error}");
+                return;
+            }
+        };
+        while let Ok((_, _)) = listener.accept().await {
+            update_ui(&weak, |window| alerts::raise(&window));
+        }
+    });
     for setup in FEATURES {
         setup(&window, &context);
     }
+    let weak = window.as_weak();
+    window_state::on_visibility(move |visible| {
+        if let Some(window) = weak.upgrade() {
+            window.global::<ListState>().set_app_visible(visible);
+        }
+    });
+    let weak = window.as_weak();
+    alerts::on_permission_open(move |key| {
+        if let Some(window) = weak.upgrade() {
+            window
+                .global::<PermissionState>()
+                .invoke_open_session(key.into());
+        }
+    });
     let weak = window.as_weak();
     window.global::<AppEvents>().on_logout(move |origin| {
         if let Some(window) = weak.upgrade() {

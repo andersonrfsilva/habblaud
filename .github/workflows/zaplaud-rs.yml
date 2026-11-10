@@ -58,3 +58,48 @@ jobs:
       - name: Testar workspace e contrato real
         working-directory: zaplaud-rs
         run: xvfb-run -a cargo test --workspace -j 4
+
+  empacotar-linux:
+    needs: verificar
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Instalar ferramentas de empacotamento
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y librsvg2-bin desktop-file-utils pkg-config libfontconfig1-dev libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libxcb1-dev
+          cargo install cargo-deb --locked
+          cargo install cargo-generate-rpm --locked
+      - name: Construir release e gerar ícones canônicos
+        working-directory: zaplaud-rs
+        run: |
+          cargo build --release --locked -p zaplaud-ui --bin zaplaud -j 4
+          svg=$(find target/release/build -path '*/zaplaud-ui-*/out/ic_zaplaud.svg' -print -quit)
+          test -n "$svg"
+          bash packaging/generate-icons.sh "$svg"
+          desktop-file-validate packaging/zaplaud.desktop
+      - name: Exercitar instalação isolada
+        run: python3 zaplaud-rs/packaging/test-install.py
+      - name: Gerar DEB, RPM e pacote de usuário
+        working-directory: zaplaud-rs
+        run: |
+          cargo deb -p zaplaud-ui --no-build
+          cargo generate-rpm -p crates/zaplaud-ui
+          mkdir -p dist/zaplaud-linux-x86_64/packaging
+          cp target/release/zaplaud scripts/install-linux.sh dist/zaplaud-linux-x86_64/
+          cp packaging/zaplaud.desktop packaging/README.md dist/zaplaud-linux-x86_64/packaging/
+          cp -R packaging/icons dist/zaplaud-linux-x86_64/packaging/
+          tar -C dist -czf dist/zaplaud-linux-x86_64.tar.gz zaplaud-linux-x86_64
+          sha256sum dist/*.tar.gz target/debian/*.deb target/generate-rpm/*.rpm > dist/SHA256SUMS
+      - name: Publicar artefatos de release
+        uses: actions/upload-artifact@v4
+        with:
+          name: zaplaud-linux-x86_64
+          if-no-files-found: error
+          path: |
+            zaplaud-rs/dist/*.tar.gz
+            zaplaud-rs/dist/SHA256SUMS
+            zaplaud-rs/target/debian/*.deb
+            zaplaud-rs/target/generate-rpm/*.rpm

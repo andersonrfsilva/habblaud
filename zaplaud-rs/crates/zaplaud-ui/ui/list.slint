@@ -1,12 +1,13 @@
 import { Theme, StatusColors } from "resources.slint";
 import { Labels } from "labels.slint";
-import { TextField, TextButton, SegmentedControl, Chip, Banner, Avatar, Badge, ScrollList, ScrollContainer, Menu, ProgressRing, Tooltip, Fab } from "widgets/kit.slint";
+import { TextField, TextButton, SegmentedControl, Chip, Banner, Avatar, Badge, ScrollList, ScrollContainer, Menu, ProgressRing, Tooltip, Fab, IconButton } from "widgets/kit.slint";
+import { MaterialIcons } from "widgets/material-icons.slint";
 export struct SessionRow {
     key: string, title: string, subtitle: string, activity: string, time: string, unread: string,
     initials: string, avatar: image, brand: image, brand-color: color, fallback-color: color,
-    selected: bool, sub: bool, permission: string,
+    selected: bool, sub: bool, sub-last: bool, permission: string,
     working: bool, since: string, activity-text: string,
-    avatar-key: string,
+    avatar-key: string, unread-label: string,
 }
 export struct ServerRow { origin: string, label: string, connection: string, needs-login: bool, error: string }
 export global ListState {
@@ -20,6 +21,7 @@ export global ListState {
     in-out property <bool> menu-open;
     in property <bool> loading;
     in property <bool> app-visible: true;
+    in property <bool> server-notices;
     in property <bool> terminal-allowed;
     in property <string> terminal-blocked-label;
     in property <bool> cast-visible;
@@ -52,13 +54,17 @@ export component ListPane inherits Rectangle {
     VerticalLayout { padding: 12px; spacing: 8px;
         HorizontalLayout { height: 48px; spacing: 8px;
             Text { text: Labels.app-name; color: Theme.on-surface; font-size: 22px; vertical-alignment: center; horizontal-stretch: 0; }
-            Rectangle { width: 10px; height: 10px; border-radius: 5px; background: ListState.connection == "connected" ? Theme.primary : ListState.connection == "connecting" ? StatusColors.warning : Theme.error; accessible-role: text; accessible-label: ListState.connection == "connected" ? Labels.reading-connected : ListState.connection == "connecting" ? Labels.reading-connecting : Labels.reading-offline; }
+            Rectangle { width: 10px;
+                Rectangle { y: (parent.height - self.height) / 2; width: 10px; height: 10px; border-radius: 5px; background: ListState.connection == "connected" ? Theme.primary : ListState.connection == "connecting" ? StatusColors.warning : Theme.error; accessible-role: text; accessible-label: ListState.connection == "connected" ? Labels.reading-connected : ListState.connection == "connecting" ? Labels.reading-connecting : Labels.reading-offline; }
+            }
             Rectangle { horizontal-stretch: 1; }
-            TextButton { text: "⋮"; min-width: 40px; clicked => { ListState.menu-open = true; menu.show(); } accessible-label: Labels.menu; }
+            IconButton { icon: MaterialIcons.more-vert; label: Labels.menu; clicked => { ListState.menu-open = true; menu.show(); } }
         }
-        for server in ListState.servers: VerticalLayout {
-            if server.needs-login: HorizontalLayout { Text { text: server.label; color: Theme.on-surface; vertical-alignment: center; } TextButton { text: Labels.relogin; clicked => { ListState.relogin(server.origin); } } }
-            if server.error != "": Text { text: server.error; color: Theme.error; wrap: word-wrap; }
+        if ListState.server-notices: VerticalLayout {
+            for server in ListState.servers: VerticalLayout {
+                if server.needs-login: HorizontalLayout { Text { text: server.label; color: Theme.on-surface; vertical-alignment: center; } TextButton { text: Labels.relogin; clicked => { ListState.relogin(server.origin); } } }
+                if server.error != "": Text { text: server.error; color: Theme.error; wrap: word-wrap; }
+            }
         }
         if ListState.servers.length > 1: ScrollContainer {
             height: 40px;
@@ -73,9 +79,11 @@ export component ListPane inherits Rectangle {
             }
         }
         SegmentedControl { labels: [Labels.open-sessions, Labels.recent-sessions]; selected <=> ListState.tab; chosen(index) => { if ListState.query == "" { ListState.search-open = false; } ListState.changed(); } }
-        if ListState.search-open: HorizontalLayout {
-            TextField { text <=> ListState.query; placeholder: Labels.search-sessions; autofocus: ListState.query == ""; edited(value) => { ListState.changed(); } }
-            TextButton { text: "×"; accessible-label: Labels.search-close; min-width: 40px; clicked => { ListState.query = ""; ListState.search-open = false; ListState.changed(); } }
+        if ListState.search-open: TextField {
+            text <=> ListState.query; placeholder: Labels.search-sessions; autofocus: ListState.query == "";
+            leading-icon: MaterialIcons.search; trailing-icon: MaterialIcons.close; trailing-label: Labels.search-close;
+            edited(value) => { ListState.changed(); }
+            trailing-clicked => { ListState.query = ""; ListState.search-open = false; ListState.changed(); }
         }
         if ListState.loading: ProgressRing { height: 24px; }
         if !ListState.loading && !ListState.terminal-allowed: Text { text: ListState.terminal-blocked-label; color: Theme.on-surface-variant; wrap: word-wrap; }
@@ -90,15 +98,18 @@ export component ListPane inherits Rectangle {
                 height: row.sub ? 36px : max(68px, content.preferred-height + 12px);
                 border-radius: 12px; background: row.selected ? Theme.secondary-container : row-touch.pressed ? Theme.on-surface.with-alpha(0.12) : row-touch.has-hover ? Theme.on-surface.with-alpha(0.08) : transparent;
                 border-width: root.keyboard-index == index && list-focus.has-focus ? 2px : 0px; border-color: Theme.primary;
-                accessible-role: button; accessible-label: row.title + ", " + row.subtitle + (row.activity == "" ? "" : ", " + row.activity) + (row.permission == "" ? "" : ", " + row.permission);
+                accessible-role: list-item; accessible-label: row.title + ", " + row.subtitle + (row.activity == "" ? "" : ", " + row.activity) + (row.permission == "" ? "" : ", " + row.permission) + (row.unread-label == "" ? "" : ", " + row.unread-label);
                 row-touch := TouchArea { clicked => { root.keyboard-index = index; list-focus.focus(); ListState.open(row.key); } }
-                content := HorizontalLayout { padding-top: 6px; padding-bottom: 6px; spacing: 12px;
-                    if row.sub: Text { text: "└"; color: Theme.outline-variant; width: 36px; horizontal-alignment: right; }
-                    Avatar { width: row.sub ? 24px : 48px; height: self.width; source: row.avatar; initials: row.initials; brand: row.brand; brand-color: row.brand-color; fallback-color: row.fallback-color; }
-                    VerticalLayout { spacing: 2px;
+                content := HorizontalLayout { padding-top: row.sub ? 0px : 6px; padding-bottom: row.sub ? 0px : 6px; spacing: row.sub ? 0px : 12px;
+                    if row.sub: Rectangle { width: 40px;
+                        Rectangle { x: 23.25px; width: 1.5px; height: row.sub-last ? parent.height / 2 : parent.height; background: Theme.outline-variant; }
+                        Rectangle { x: 24px; y: parent.height / 2 - 0.75px; width: 16px; height: 1.5px; background: Theme.outline-variant; }
+                    }
+                    Avatar { width: row.sub ? 24px : 48px; height: self.width; source: row.avatar; initials: row.initials; brand: row.brand; brand-color: row.brand-color; fallback-color: row.fallback-color; label: row.title; }
+                    VerticalLayout { padding-left: row.sub ? 8px : 0px; spacing: 0px; horizontal-stretch: 1;
                         Tooltip { text: row.title; height: min(title.preferred-height, row.sub ? 20px : 44px);
                             clicked => { root.keyboard-index = index; list-focus.focus(); ListState.open(row.key); }
-                            title := Text { text: row.title; color: Theme.on-surface; font-size: row.sub ? 14px : 16px; font-weight: row.unread != "" ? 700 : 500; wrap: word-wrap; overflow: elide; }
+                            title := Text { x: 0px; y: 0px; width: parent.width; height: parent.height; text: row.title; color: Theme.on-surface; font-size: row.sub ? 14px : 16px; font-weight: row.unread != "" ? 700 : 500; wrap: word-wrap; overflow: elide; }
                         }
                         Text { text: row.subtitle; color: Theme.on-surface-variant; font-size: row.sub ? 12px : 14px; overflow: elide; font-weight: row.unread != "" ? 700 : 400; }
                         if row.activity != "": Text { text: "✻ " + row.activity; color: Theme.primary; font-size: 12px; overflow: elide; }

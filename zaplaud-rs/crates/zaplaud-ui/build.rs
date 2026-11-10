@@ -20,6 +20,23 @@ fn main() -> Result<(), Box<dyn Error>> {
     for input in resource_gen::generate(&source, &output)? {
         println!("cargo:rerun-if-changed={}", input.display());
     }
+    let svg = std::fs::read(output.join("ic_zaplaud.svg"))?;
+    let tree = resvg::usvg::Tree::from_data(&svg, &resvg::usvg::Options::default())?;
+    let mut icon = resvg::tiny_skia::Pixmap::new(64, 64).ok_or("Ícone inválido")?;
+    resvg::render(
+        &tree,
+        resvg::tiny_skia::Transform::from_scale(
+            64.0 / tree.size().width(),
+            64.0 / tree.size().height(),
+        ),
+        &mut icon.as_mut(),
+    );
+    let argb: Vec<u8> = icon
+        .data()
+        .chunks_exact(4)
+        .flat_map(|pixel| [pixel[3], pixel[0], pixel[1], pixel[2]])
+        .collect();
+    std::fs::write(output.join("tray.argb"), argb)?;
     slint_build::compile_with_config(
         "ui/markdown/markdown.slint",
         slint_build::CompilerConfiguration::new().with_include_paths(vec![output.clone()]),

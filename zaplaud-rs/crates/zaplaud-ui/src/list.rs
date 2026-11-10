@@ -138,17 +138,17 @@ fn activity(item: &SessionItem, now: i64) -> String {
 }
 fn activity_text(activity: Option<&str>, since: Option<i64>, now: i64) -> String {
     let text = zaplaud_core::rules::time::status_line_text(activity)
-        .unwrap_or_else(|| strings::STATUS_WORKING.into());
+        .unwrap_or_else(|| strings::STATUS_LINE_WORKING.into());
     match since {
         Some(since) => {
             let timer = zaplaud_core::rules::time::stopwatch(now.saturating_sub(since));
             if text.is_empty() {
                 timer
             } else {
-                format!("{text} · {timer}")
+                format!("{text}… ({timer})")
             }
         }
-        None => text,
+        None => format!("{text}…"),
     }
 }
 #[derive(Clone)]
@@ -156,6 +156,7 @@ struct Row {
     item: SessionItem,
     unread: usize,
     selected: bool,
+    sub_last: bool,
     subtitle: String,
     activity: String,
     time: String,
@@ -185,13 +186,18 @@ pub fn publish(state: &AppState, weak: &slint::Weak<AppWindow>) {
             .and_then(|s| s.reading.state.unread.get(&item.key))
             .copied()
             .unwrap_or(0);
-        for (session, is_sub) in std::iter::once((item.clone(), false)).chain(
-            item.subagents
-                .iter()
-                .map(|sub| (sub_session(&item, sub), true)),
+        for (session, is_sub, sub_last) in std::iter::once((item.clone(), false, false)).chain(
+            item.subagents.iter().enumerate().map(|(index, sub)| {
+                let mut session = sub_session(&item, sub);
+                if sub.advisor {
+                    session.title = formatted("advisor_name", &[&sub.name]);
+                }
+                (session, true, index + 1 == item.subagents.len())
+            }),
         ) {
             rows.push(Row {
                 selected: selected.as_ref().is_some_and(|s| s.key == session.key),
+                sub_last,
                 unread: if is_sub { 0 } else { unread },
                 subtitle: if is_sub {
                     session.activity.clone().unwrap_or_default()
@@ -242,10 +248,14 @@ pub fn publish(state: &AppState, weak: &slint::Weak<AppWindow>) {
         .servers
         .iter()
         .any(|s| s.reading.state.terminal_allowed);
+    let server_notices = servers
+        .iter()
+        .any(|(_, _, needs_login, error)| *needs_login || error.is_some());
     update_ui(weak, move |window| {
         let list = window.global::<ListState>();
         list.set_connection(connection.into());
         list.set_loading(loading);
+        list.set_server_notices(server_notices);
         list.set_terminal_allowed(terminal_allowed);
         list.set_terminal_blocked_label(strings::TERMINAL_BLOCKED.into());
         let models = rows
@@ -332,6 +342,17 @@ fn row_model(window: &AppWindow, row: Row) -> SessionRow {
             row.unread.to_string()
         }
         .into(),
+        unread_label: if row.unread == 0 {
+            String::new()
+        } else {
+            strings::format_plural(
+                "unread_replies",
+                row.unread as i64,
+                &[&row.unread.to_string()],
+            )
+            .unwrap_or_default()
+        }
+        .into(),
         initials: initials.into(),
         avatar,
         avatar_key: avatar_key.into(),
@@ -340,6 +361,7 @@ fn row_model(window: &AppWindow, row: Row) -> SessionRow {
         fallback_color: fallback,
         selected: row.selected,
         sub: item.sub,
+        sub_last: row.sub_last,
         permission: if item.permission {
             strings::PERMISSION_PENDING
         } else {
@@ -377,5 +399,23 @@ pub fn apply_avatar(window: &AppWindow, key: &str, cache_key: String, rgba: Vec<
         window
             .global::<ConversationState>()
             .set_avatar(avatars::get(&cache_key));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::activity_text;
+
+    #[test]
+    fn working_line_normalizes_ellipsis_and_clamps_elapsed_time() {
+        assert_eq!(
+            activity_text(Some(" Analisando... "), Some(1_000), 2_000),
+            "Analisando… (0:01)"
+        );
+        assert_eq!(
+            activity_text(Some("Analisando"), Some(2_000), 1_000),
+            "Analisando… (0:00)"
+        );
+        assert_eq!(activity_text(Some("Analisando…"), None, 0), "Analisando…");
     }
 }

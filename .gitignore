@@ -29,3 +29,4 @@ ios/**/xcuserdata/
 
 # Artefatos do cliente Rust desktop
 zaplaud-rs/target/
+zaplaud-rs/scripts/__pycache__/

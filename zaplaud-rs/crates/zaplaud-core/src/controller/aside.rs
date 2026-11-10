@@ -248,4 +248,40 @@ mod tests {
         assert_eq!(notice.recv().await, Some(()));
         runner.abort();
     }
+    #[tokio::test]
+    async fn close_aborts_inflight_get() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        struct Active(Arc<AtomicUsize>);
+        impl Drop for Active {
+            fn drop(&mut self) {
+                self.0.fetch_sub(1, Ordering::SeqCst);
+            }
+        }
+        let active = Arc::new(AtomicUsize::new(0));
+        let count = active.clone();
+        let dispatch: Dispatch = Arc::new(move |_| {
+            let count = count.clone();
+            Box::pin(async move {
+                count.fetch_add(1, Ordering::SeqCst);
+                let _active = Active(count);
+                std::future::pending::<Event>().await
+            })
+        });
+        let (send, receive) = mpsc::unbounded_channel();
+        let (out, _) = watch::channel(State::default());
+        let (unauth, _) = mpsc::unbounded_channel();
+        let (_visible, visibility) = watch::channel(true);
+        let runner = tokio::spawn(drive(receive, out, unauth, dispatch, visibility));
+        send.send(Event::Open("agent".into())).unwrap();
+        for _ in 0..10 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(active.load(Ordering::SeqCst), 1);
+        send.send(Event::Close).unwrap();
+        for _ in 0..10 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(active.load(Ordering::SeqCst), 0);
+        runner.abort();
+    }
 }

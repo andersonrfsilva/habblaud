@@ -8,6 +8,8 @@ export global CastState {
     in property <bool> resume-visible;
     in property <bool> dismiss-visible;
     in property <bool> enabled: true;
+    in property <bool> dismiss-enabled: true;
+    in property <bool> choosing-folder;
     in property <string> status;
     in property <string> title;
     in property <string> warning;
@@ -29,9 +31,9 @@ export component CastSheet inherits Rectangle {
                 height: min(360px, CastState.rows.length * 64px);
                 for row in CastState.rows: Rectangle { height: 64px;
                     HorizontalLayout { padding: 12px; spacing: 12px;
-                        if row.id != "": Avatar { width: 40px; height: 40px; initials: row.initials; source: row.avatar; }
+                        if row.id != "" && !CastState.choosing-folder: Avatar { width: 40px; height: 40px; initials: row.initials; source: row.avatar; }
                         if row.id == "": Image { width: 40px; height: 40px; source: Icons.ic-person-add; colorize: Theme.on-surface; image-fit: contain; }
-                        TextButton { text: row.name; enabled: CastState.enabled; clicked => { CastState.choose(row.id); } }
+                        TextButton { text: row.name; foreground: Theme.on-surface; horizontal-alignment: left; enabled: CastState.enabled; clicked => { CastState.choose(row.id); } }
                     }
                 }
             }

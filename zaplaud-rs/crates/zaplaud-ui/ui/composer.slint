@@ -1,10 +1,13 @@
 import { Theme, StatusColors } from "resources.slint";
-import { TextField, TextButton, FilledButton, Chip, Banner, SegmentedControl, Dialog, ScrollContainer } from "widgets/kit.slint";
+import { TextField, IconButton, Chip, Banner, Dialog, ScrollContainer, ProgressRing } from "widgets/kit.slint";
 import { ListState } from "list.slint";
+import { MaterialIcons } from "widgets/material-icons.slint";
 export struct ComposerAttachment { uri: string, name: string, error: bool, label: string }
 export global ComposerState {
     in-out property <bool> visible;
     in-out property <string> text;
+    in-out property <string> draft-key;
+    in-out property <int> input-revision;
     in-out property <string> placeholder;
     in-out property <bool> loading;
     in-out property <bool> sending;
@@ -65,6 +68,7 @@ export component ComposerPane inherits Rectangle {
     visible: ComposerState.visible;
     vertical-stretch: 0;
     preferred-height: ComposerState.visible ? content.preferred-height : 0px;
+    min-height: ComposerState.visible ? content.preferred-height : 0px;
     content := VerticalLayout {
         padding-top: 4px; padding-bottom: 8px; spacing: 4px;
         if ComposerState.progress != "": Text { text: ComposerState.progress; color: Theme.on-surface-variant; font-size: 12px; }
@@ -73,12 +77,12 @@ export component ComposerPane inherits Rectangle {
         if ComposerState.status != "": Banner { accessible-role: text; accessible-label: ComposerState.status-id; text: ComposerState.status; }
         if ComposerState.command-status != "": Banner { text: ComposerState.command-status; }
         if ComposerState.error != "": Banner { text: ComposerState.error; severity: "error"; action: ComposerState.retry-label; activated => { ComposerState.send(); } }
-        if ComposerState.modes-visible: SegmentedControl { labels: ComposerState.mode-labels; selected: ComposerState.mode-index; chosen(index) => { ComposerState.mode(index); } }
         if ComposerState.attachments.length > 0: ScrollContainer {
             height: 36px;
             HorizontalLayout { spacing: 6px;
                 for item in ComposerState.attachments: Chip {
                     text: item.name; foreground: item.error ? Theme.error : Theme.on-surface;
+                    trailing-icon: MaterialIcons.close;
                     accessible-label: item.label + " " + item.name;
                     clicked => { ComposerState.remove(item.uri); }
                 }
@@ -90,14 +94,15 @@ export component ComposerPane inherits Rectangle {
                 background: Theme.surface-container-high; border-radius: 24px;
                 horizontal-stretch: 1;
                 preferred-height: field.preferred-height;
+                min-height: field.preferred-height;
                 HorizontalLayout { spacing: 0px;
-                    TextButton { text: ComposerState.attach-label; enabled: ComposerState.attach-enabled; clicked => { ComposerState.attach(); } }
+                    IconButton { icon: MaterialIcons.attach-file; label: ComposerState.attach-label; enabled: ComposerState.attach-enabled; clicked => { ComposerState.attach(); } }
                     field := TextField {
                         min-width: 80px; horizontal-stretch: 1;
                         text <=> ComposerState.text; placeholder: ComposerState.placeholder;
                         multiline: true; max-lines: 6; sends-on-enter: true;
                         enabled: !ComposerState.loading;
-                        edited(value) => { ComposerState.edited(value); }
+                        edited(value) => { ComposerState.input-revision += 1; ComposerState.edited(value); }
                         accepted => { if ComposerState.send-enabled { ComposerState.send(); } }
                         accessible-role: text-input; accessible-label: "message-input";
                     }
@@ -120,8 +125,9 @@ export component ComposerPane inherits Rectangle {
                     }
                 }
             }
-            if ComposerState.stop-visible: FilledButton { text: ComposerState.stop-label; background: Theme.error; foreground: Theme.on-error; enabled: ComposerState.stop-enabled; clicked => { ComposerState.stop(); } }
-            FilledButton { text: ComposerState.send-label; enabled: ComposerState.send-enabled; accessible-label: "message-send"; clicked => { ComposerState.send(); } }
+            if ComposerState.stop-visible: IconButton { icon: MaterialIcons.stop; label: ComposerState.stop-label; background: ComposerState.stop-enabled ? Theme.error : Theme.surface-variant; foreground: ComposerState.stop-enabled ? Theme.on-error : Theme.on-surface-variant; enabled: ComposerState.stop-enabled; clicked => { ComposerState.stop(); } }
+            if ComposerState.sending: ProgressRing { width: 40px; height: 40px; }
+            if !ComposerState.sending: IconButton { icon: MaterialIcons.send; label: ComposerState.send-label; background: ComposerState.send-enabled ? Theme.primary : Theme.surface-variant; foreground: ComposerState.send-enabled ? Theme.on-primary : Theme.on-surface-variant; enabled: ComposerState.send-enabled; clicked => { ComposerState.send(); } }
         }
         if ComposerState.character-count != "": Text { text: ComposerState.character-count; color: Theme.on-surface-variant; font-size: 12px; }
     }

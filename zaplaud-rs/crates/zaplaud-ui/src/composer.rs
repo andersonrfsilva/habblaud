@@ -548,7 +548,23 @@ fn publish(
         let global = window.global::<ComposerState>();
         global.set_visible(selected.is_some());
         global.set_blocked(blocked.into());
-        global.set_text(composer.draft.text.clone().into());
+        let key = composer
+            .key
+            .as_ref()
+            .and_then(|key| key.serialize().ok())
+            .unwrap_or_default();
+        let revision = composer.draft.revision as i32;
+        // Uma resposta de disco anterior não pode reposicionar o cursor nem apagar teclas recém-digitadas.
+        if global.get_draft_key().as_str() != key
+            || revision_is_current(revision, global.get_input_revision())
+            || global.get_text().as_str().encode_utf16().count() > 20000
+        {
+            global.set_draft_key(key.into());
+            global.set_input_revision(revision);
+            if global.get_text().as_str() != composer.draft.text {
+                global.set_text(composer.draft.text.clone().into());
+            }
+        }
         global.set_loading(composer.loading);
         global.set_sending(composer.sending);
         global.set_send_enabled(
@@ -656,6 +672,13 @@ fn publish(
                     "attachments_expired" => strings::ATTACHMENTS_EXPIRED,
                     _ => strings::MESSAGE_SEND_ERROR,
                 })
+                .or_else(|| {
+                    composer.control_error.as_deref().map(|error| match error {
+                        "confirm" | "unknown" => "",
+                        "failed" => strings::STOP_FAILED,
+                        other => other,
+                    })
+                })
                 .unwrap_or("")
                 .into(),
         );
@@ -750,4 +773,17 @@ mod tests {
                 .is_err()
         );
     }
+}
+
+fn revision_is_current(remote: i32, local: i32) -> bool {
+    remote.wrapping_sub(local) >= 0
+}
+
+#[test]
+fn stale_draft_updates_do_not_overwrite_newer_keystrokes() {
+    assert!(!revision_is_current(9, 10));
+    assert!(revision_is_current(10, 10));
+    assert!(revision_is_current(11, 10));
+    assert!(revision_is_current(i32::MIN, i32::MAX));
+    assert!(!revision_is_current(i32::MAX, i32::MIN));
 }

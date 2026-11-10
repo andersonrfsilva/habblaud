@@ -325,6 +325,12 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
       const [command, agentId, kind] = line.trim().split(/\s+/);
       let result: unknown;
       if (command === 'stats') result = { sse: hub.size, terminal: terminals.size, posts, messageRequests, lastHeaders, permissionResults, localAcks, castJobs: launcher.jobs() };
+      else if (command === 'roles-seed') {
+        const roles: unknown = JSON.parse(line.trim().slice(command.length).trim());
+        if (!roles || typeof roles !== 'object' || Array.isArray(roles)) throw new Error('Expected roles-seed <JSON object>');
+        launcher.poll({ roles });
+        result = { ok: true, ...launcher.roles() };
+      }
       else if (command === 'cast-consume') {
         const jobs = launcher.poll();
         launcher.ack({ results: jobs.map(job => ({ id: job.id, ok: true })) });

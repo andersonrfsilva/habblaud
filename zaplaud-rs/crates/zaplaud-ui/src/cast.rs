@@ -64,6 +64,12 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
     global.on_app_visibility(move |value| {
         visible.send_replace(value);
     });
+    let weak = window.as_weak();
+    crate::window_state::on_visibility(move |value| {
+        if let Some(window) = weak.upgrade() {
+            window.global::<CastState>().invoke_app_visibility(value);
+        }
+    });
     let mut snapshots = context.snapshots.subscribe();
     let weak = window.as_weak();
     let commands = context.commands.clone();
@@ -98,21 +104,15 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                             if dialog.choice.is_none() {
                                 dialog.choice = if id.is_empty() { Some(CastChoice { id, name: strings::CAST_NEW.into(), rooms: Vec::new(), avatar: None }) } else { state.free(&server.reading.sessions, if dialog.mode == "resume" { selected } else { None }).into_iter().find(|c| c.id == id) };
                                 dialog.confirming = dialog.mode == "resume" && dialog.choice.is_some();
-                            } else if dialog.mode == "start" {
-                                if let Some(choice) = &dialog.choice && folders(&state, choice).contains(&id) {
-                                    if let Err(error) = state.submit(&server.api, &choice.id, &id, None, None).await { unauthorized(&commands, &origin, &error); }
-                                    dialog = Dialog::default(); refresh = true; loaded = false;
-                                }
+                            } else if dialog.mode == "start" && let Some(choice) = &dialog.choice && folders(&state, choice).contains(&id) {
+                                if let Err(error) = state.submit(&server.api, &choice.id, &id, None, None).await { unauthorized(&commands, &origin, &error); }
+                                dialog = Dialog::default(); refresh = true; loaded = false;
                             }
                         }
                         Command::Confirm if dialog.confirming => {
                             if dialog.mode == "dismiss" {
-                                if let Some(s) = selected && state.can_dismiss(s) && !s.cast.as_ref().is_some_and(|id| state.active_job(id)) && let Some(id) = s.agent_id.as_deref() {
-                                    if let Err(error) = state.submit(&server.api, "", "", None, Some(id)).await { unauthorized(&commands, &origin, &error); }
-                                }
-                            } else if let (Some(choice), Some(s)) = (&dialog.choice, selected) && State::can_resume(s) {
-                                if let Err(error) = state.submit(&server.api, &choice.id, s.project.as_deref().unwrap_or_default(), Some(s), None).await { unauthorized(&commands, &origin, &error); }
-                            }
+                                if let Some(s) = selected && state.can_dismiss(s) && !s.cast.as_ref().is_some_and(|id| state.active_job(id)) && let Some(id) = s.agent_id.as_deref() && let Err(error) = state.submit(&server.api, "", "", None, Some(id)).await { unauthorized(&commands, &origin, &error); }
+                            } else if let (Some(choice), Some(s)) = (&dialog.choice, selected) && State::can_resume(s) && let Err(error) = state.submit(&server.api, &choice.id, s.project.as_deref().unwrap_or_default(), Some(s), None).await { unauthorized(&commands, &origin, &error); }
                             dialog = Dialog::default(); refresh = true; loaded = false;
                         }
                         _ => {}
@@ -178,8 +178,11 @@ fn publish(
 ) {
     let selected = snapshot.selected.as_ref();
     let server = snapshot.servers.iter().find(|s| s.api.origin() == origin);
-    let rows: Vec<_> = if dialog.mode == "start" && dialog.choice.is_some() {
-        folders(&state, dialog.choice.as_ref().unwrap())
+    let choosing_folder = dialog.mode == "start" && dialog.choice.is_some();
+    let rows: Vec<_> = if dialog.mode == "start"
+        && let Some(choice) = &dialog.choice
+    {
+        folders(&state, choice)
             .into_iter()
             .map(|folder| (folder.clone(), folder, None))
             .collect()
@@ -263,7 +266,8 @@ fn publish(
                     .as_ref()
                     .is_some_and(|s| state.can_dismiss(s)),
         );
-        global.set_enabled(
+        global.set_enabled(!state.sending);
+        global.set_dismiss_enabled(
             !state.sending
                 && !snapshot
                     .selected
@@ -272,6 +276,7 @@ fn publish(
                     .is_some_and(|id| state.active_job(id)),
         );
         global.set_status(status.into());
+        global.set_choosing_folder(choosing_folder);
         global.set_visible(visible);
         global.set_confirming(confirming);
         global.set_title(title.into());
