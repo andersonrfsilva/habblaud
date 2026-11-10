@@ -15,6 +15,10 @@ thiserror.workspace = true
 uuid = { version = "1", features = ["v4"] }
 zaplaud-core = { path = "../zaplaud-core" }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# Mesma versão e recursos que o keyring já usa; serve só para escolher uma coleção destrancada.
+secret-service = { version = "4", default-features = false, features = ["crypto-rust"] }
+
 [dev-dependencies]
 tempfile = "3"
 

@@ -185,8 +185,8 @@ export component ConversationView inherits Rectangle {
     property <int> end-request: ConversationViewState.end-request;
     changed end-request => { root.jump-to-end(); }
     VerticalLayout {
-        padding-left: max(12px, (root.width - 840px) / 2 + 12px);
-        padding-right: max(12px, (root.width - 840px) / 2 + 12px);
+        padding-left: 16px;
+        padding-right: 16px;
         spacing: 0px;
         if ConversationViewState.notice != "": Banner { text: ConversationViewState.notice; severity: "warn"; }
         if ConversationViewState.reduced != "": Banner { text: ConversationViewState.reduced; }

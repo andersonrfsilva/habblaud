@@ -25,7 +25,7 @@ export component ConversationPane inherits Rectangle {
     if !ConversationState.selected: Pill { text: Labels.select-conversation; x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; width: self.preferred-width; height: 36px; }
     Rectangle {
         visible: ConversationState.selected;
-        x: (parent.width - self.width) / 2; width: min(840px, parent.width); height: parent.height;
+        width: parent.width; height: parent.height;
         VerticalLayout { spacing: 0px;
             Rectangle { height: 0px; Rectangle { x: 0px; y: 0px; width: parent.width; height: 64px; background: Theme.surface; } }
             HorizontalLayout { height: 64px; padding-left: 16px; padding-right: 8px; spacing: 8px;

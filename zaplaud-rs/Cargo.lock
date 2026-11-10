@@ -6879,6 +6879,7 @@ dependencies = [
  "keyring",
  "png 0.18.1",
  "roxmltree 0.21.2",
+ "secret-service",
  "serde_json",
  "sha2",
  "tempfile",

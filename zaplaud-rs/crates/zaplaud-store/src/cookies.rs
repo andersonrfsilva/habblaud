@@ -11,6 +11,52 @@ pub use zaplaud_core::api::SessionPersistence;
 static MEMORY: LazyLock<Mutex<BTreeMap<String, String>>> = LazyLock::new(Default::default);
 static KEYRING_LOCK: Mutex<()> = Mutex::new(());
 static UNAVAILABLE: AtomicBool = AtomicBool::new(false);
+static TARGET: LazyLock<Option<String>> = LazyLock::new(keyring_target);
+
+/// Coleção onde o cookie fica. A padrão pode ter senha própria e ficar trancada depois do login
+/// (no miranote, "Chaveiro padrão"); gravar nela pede senha ou falha e o login vira só memória.
+/// Preferimos uma coleção persistente já destrancada (a "Login", que o PAM abre na entrada).
+#[cfg(target_os = "linux")]
+fn keyring_target() -> Option<String> {
+    use secret_service::{EncryptionType, blocking::SecretService};
+    let ss = SecretService::connect(EncryptionType::Plain).ok()?;
+    if let Ok(default) = ss.get_default_collection()
+        && matches!(default.is_locked(), Ok(false))
+    {
+        return None;
+    }
+    let collections = ss.get_all_collections().ok()?;
+    let labels = collections.iter().filter_map(|c| {
+        let path = c.collection_path.as_str();
+        let unlocked = matches!(c.is_locked(), Ok(false));
+        Some((path.to_owned(), c.get_label().ok()?, unlocked))
+    });
+    choose_unlocked(labels)
+}
+#[cfg(not(target_os = "linux"))]
+fn keyring_target() -> Option<String> {
+    None
+}
+
+/// Primeira coleção destrancada e persistente com rótulo único; a de sessão some ao sair.
+fn choose_unlocked(collections: impl Iterator<Item = (String, String, bool)>) -> Option<String> {
+    let collections: Vec<_> = collections.collect();
+    collections
+        .iter()
+        .filter(|(path, label, unlocked)| {
+            *unlocked
+                && !label.is_empty()
+                && !path.ends_with("/collection/session")
+                && label != "default"
+                && collections
+                    .iter()
+                    .filter(|(_, other, _)| other == label)
+                    .count()
+                    == 1
+        })
+        .map(|(_, label, _)| label.clone())
+        .next()
+}
 
 fn decode_cookies(value: &str) -> Result<BTreeMap<String, String>, ()> {
     let value: Value = serde_json::from_str(value).map_err(|_| ())?;
@@ -51,7 +97,11 @@ impl SecureSessionStorage {
         if self.memory_only || UNAVAILABLE.load(Ordering::Relaxed) {
             None
         } else {
-            match keyring::Entry::new("br.com.xlinx.zaplaud", "remote-session") {
+            match keyring::Entry::new_with_target(
+                TARGET.as_deref().unwrap_or("default"),
+                "br.com.xlinx.zaplaud",
+                "remote-session",
+            ) {
                 Ok(entry) => Some(entry),
                 Err(_) => {
                     UNAVAILABLE.store(true, Ordering::Relaxed);
@@ -132,6 +182,36 @@ mod tests {
         ] {
             assert!(decode_cookies(value).is_err(), "{value}");
         }
+    }
+
+    #[test]
+    fn locked_default_falls_back_to_persistent_unlocked_collection() {
+        let c = |path: &str, label: &str, unlocked| {
+            (
+                format!("/org/freedesktop/secrets/collection/{path}"),
+                label.to_owned(),
+                unlocked,
+            )
+        };
+        let miranote = [
+            c("Chaveiro_5fpadr_c3_a3o", "Chaveiro padrão", false),
+            c("session", "", true),
+            c("login", "Login", true),
+        ];
+        assert_eq!(
+            choose_unlocked(miranote.into_iter()).as_deref(),
+            Some("Login")
+        );
+        // Sem coleção persistente destrancada, fica na padrão (o sistema pede a senha).
+        assert_eq!(
+            choose_unlocked([c("session", "sessão", true), c("x", "Trancada", false)].into_iter()),
+            None
+        );
+        // Rótulo repetido seria ambíguo para o keyring, que localiza a coleção pelo rótulo.
+        assert_eq!(
+            choose_unlocked([c("a", "Login", true), c("b", "Login", true)].into_iter()),
+            None
+        );
     }
 
     #[test]
