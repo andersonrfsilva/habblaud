@@ -7,12 +7,7 @@ use std::{
     },
 };
 
-/// Contrato idêntico ao de zaplaud-core::api; não expõe erros nem segredos em logs.
-pub trait SessionPersistence: Send + Sync {
-    fn load(&self, origin: &str) -> Option<String>;
-    fn save(&self, origin: &str, cookie: &str);
-    fn clear(&self, origin: &str);
-}
+pub use zaplaud_core::api::SessionPersistence;
 static MEMORY: LazyLock<Mutex<BTreeMap<String, String>>> = LazyLock::new(Default::default);
 static KEYRING_LOCK: Mutex<()> = Mutex::new(());
 static UNAVAILABLE: AtomicBool = AtomicBool::new(false);

@@ -27,19 +27,20 @@ O servidor local de desenvolvimento pode ser iniciado da raiz:
 node --import tsx scripts/android-smoke.ts --port 14780 --allow terminal,messages,permissions
 ```
 
-Use usuário e senha fictícios `android-test`. HTTP exige confirmação na tela; HTTPS não. O cliente não segue redirecionamentos. Cookies ficam somente em memória nesta fase.
+Use usuário e senha fictícios `android-test`. HTTP exige confirmação na tela; HTTPS não. O cliente não segue redirecionamentos. A API aceita persistência de cookies pelo contrato `SessionPersistence`; `SecureSessionStorage` usa o chaveiro do sistema, com fallback em memória quando indisponível. `ZAPLAUD_KEYRING=memory` força o modo sem persistência entre processos.
 
 ## Arquitetura e propriedade dos módulos
 
 | Arquivo ou módulo | Responsabilidade e limite de alteração |
 | --- | --- |
 | `crates/zaplaud-core/src/model.rs` | Modelo compartilhado, tipos de eventos e conversão do contrato Kotlin/servidor. Não deve depender de Slint. |
-| `crates/zaplaud-core/src/api.rs` | HTTP, política de origem, autenticação e leitura de SSE. Não deve tocar widgets nem disco. |
+| `crates/zaplaud-core/src/api.rs` | HTTP, política de origem, autenticação, SSE e contrato `SessionPersistence`. Recebe a persistência por injeção; não toca widgets nem disco diretamente. |
 | `crates/zaplaud-core/src/error.rs` | Erro compartilhado do núcleo. |
-| `crates/zaplaud-core/src/rules/` | Regras puras Kotlin e redutores do compositor, asides e permissões; `list.rs` pertence ao controlador da lista. |
+| `crates/zaplaud-core/src/rules/` | Regras puras Kotlin, redutores e efeitos tipados do compositor, asides e permissões; `list.rs` exporta ordenação e marcadores de leitura para o controlador da lista. |
 | `crates/zaplaud-core/tests/` | Contrato com servidor real e payloads capturados sem segredos. |
-| `crates/zaplaud-store/src/lib.rs` | Diretórios privados de dados/cache. Persistência será implementada pelo responsável pelo armazenamento. |
+| `crates/zaplaud-store/src/` | `LocalStateStore` persiste servidores, sessões, mensagens e preferências; `SecureSessionStorage` implementa `SessionPersistence`; `AvatarDiskCache` limita o cache de avatares. Veja [o contrato de armazenamento](crates/zaplaud-store/README.md). |
 | `crates/zaplaud-ui/src/` e `ui/` | Janela, apresentação e ponte assíncrona; dependem dos contratos de core, não dos detalhes do servidor. |
+| `crates/zaplaud-ui/src/markdown/` e `ui/markdown/` | Parser e componente Slint de Markdown nativo, sem WebView. |
 | `crates/zaplaud-ui/build.rs` e `resource_gen.rs` | Geração de recursos Kotlin; não edite os resultados em `OUT_DIR`. |
 | `.github/workflows/zaplaud-rs.yml` | Gates de formatação, clippy e testes de contrato. |
 
