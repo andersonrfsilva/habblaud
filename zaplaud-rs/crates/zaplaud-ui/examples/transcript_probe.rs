@@ -201,17 +201,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 rows.sort_by(|a,b|a.0.total_cmp(&b.0));
                 if rows.is_empty() { return Err("nenhuma geometria de linha foi observada".into()); }
                 for (id, y, height, required, width) in text_geometry.borrow().iter() {
-                    if height + 0.5 < *required {
+                    if height + 0.01 < *required {
                         return Err(format!("texto excede bloco: altura={height}, necessário={required}, largura={width}").into());
                     }
                     let &(row_y, row_height, _) = geometry.borrow().get(id).ok_or("bloco sem linha correspondente")?;
-                    if *y < row_y - 0.5 || y + height > row_y + row_height + 0.5 {
+                    if *y < row_y - 0.01 || y + height > row_y + row_height + 0.01 {
                         return Err(format!("bloco excede linha: início={y}, fim={}, linha={row_y}..{}", y + height, row_y + row_height).into());
                     }
                 }
                 for (index, &(y,h,content)) in rows.iter().enumerate() {
-                    if h + 0.5 < content { return Err(format!("conteúdo excede linha {index}: altura={h}, conteúdo={content}").into()); }
-                    if let Some(next) = rows.get(index+1) && y + h > next.0 + 0.5 { return Err(format!("sobreposição entre linhas {index}/{}: fim={}, próximo={}",index+1,y+h,next.0).into()); }
+                    if h + 0.01 < content { return Err(format!("conteúdo excede linha {index}: altura={h}, conteúdo={content}").into()); }
+                    if let Some(next) = rows.get(index+1) && y + h > next.0 { return Err(format!("sobreposição entre linhas {index}/{}: fim={}, próximo={}",index+1,y+h,next.0).into()); }
                 }
                 println!("position={} instantiated={} overlap=0",step/3,rows.len());
                 Ok(())
