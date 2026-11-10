@@ -119,7 +119,11 @@ mod tests {
         assert_eq!(bytes[3], 0);
         assert_eq!(bytes[(30 * 60 + 30) * 4 + 3], 255);
         assert_eq!(bytes[(59 * 60 + 59) * 4 + 3], 0);
-        assert!(bytes.chunks_exact(4).any(|pixel| pixel[3] > 0 && pixel[3] < 255));
+        assert!(
+            bytes
+                .chunks_exact(4)
+                .any(|pixel| pixel[3] > 0 && pixel[3] < 255)
+        );
     }
     #[test]
     fn decoded_cache_evicts_within_four_mebibytes() {

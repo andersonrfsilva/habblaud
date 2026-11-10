@@ -22,7 +22,6 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 httpdate = "1"
 rfd = "0.17"
 futures-util.workspace = true
-url.workspace = true
 
 [build-dependencies]
 slint-build.workspace = true

@@ -7,11 +7,7 @@ use crate::{
 use slint::{ComponentHandle, ModelRc, VecModel};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::mpsc;
-use zaplaud_core::{
-    Error,
-    controller::cast::State,
-    model::CastChoice,
-};
+use zaplaud_core::{Error, controller::cast::State, model::CastChoice};
 #[derive(Clone)]
 enum Command {
     Start,

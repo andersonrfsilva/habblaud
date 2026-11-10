@@ -155,7 +155,8 @@ fn publish(weak: &slint::Weak<AppWindow>, state: State) {
                                 .collect::<Vec<_>>()
                                 .join(" "))
                             .unwrap_or_default(),
-                        zaplaud_core::rules::time::entry_time(topic.created_at, now()).unwrap_or_default()
+                        zaplaud_core::rules::time::entry_time(topic.created_at, now())
+                            .unwrap_or_default()
                     )
                     .into(),
                 })

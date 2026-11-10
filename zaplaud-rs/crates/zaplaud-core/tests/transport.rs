@@ -498,3 +498,19 @@ async fn summaries_accept_all_kotlin_primitives_without_http_fallback() -> TestR
     server.await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn summaries_preserve_utf16_boundary_including_unpaired_surrogate() -> TestResult {
+    let (origin, task) = server(vec![response(
+        200,
+        "Content-Type: application/json\r\n",
+        r#"{"summary":"resumo"}"#,
+    )])
+    .await?;
+    let api = HabblaudApi::new(&origin)?;
+    assert_eq!(api.summary_utf16(&[0x61, 0xd83d]).await?, "resumo");
+    let requests = task.await?;
+    assert!(requests[0].starts_with("POST /api/summaries "));
+    assert!(requests[0].ends_with(r#"{"text":"\u0061\ud83d"}"#));
+    Ok(())
+}

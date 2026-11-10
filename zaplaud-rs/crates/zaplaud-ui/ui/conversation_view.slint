@@ -8,7 +8,7 @@ import { AsideState } from "aside.slint";
 export { MdBlock, MdCell, MdSpan } from "markdown/markdown.slint";
 
 export struct ConversationRow {
-    id: string, kind: string, source: string, blocks: [MdBlock],
+    id: string, kind: string, source: string, display: string, blocks: [MdBlock],
     label: string, time: string, expanded: bool, summarized: bool,
 }
 export struct InfoRow { label: string, value: string }
@@ -47,6 +47,7 @@ export global ConversationViewState {
     in property <float> context-fraction: -1;
     in-out property <bool> info-open;
     in-out property <bool> menu-open;
+    in-out property <bool> window-focused;
     in-out property <bool> details-open;
     in-out property <bool> view-menu;
     in-out property <bool> following: true;
@@ -102,7 +103,10 @@ component EntryBubble inherits Rectangle {
             }
             if !root.group && root.entry.kind != "system": VerticalLayout {
                 if root.entry.summarized: TextButton { text: root.entry.label; clicked => { ConversationViewState.toggle(root.entry.id); } }
-                MarkdownView {
+                if root.entry.summarized && !root.entry.expanded: TextInput {
+                    text: root.entry.display; read-only: true; wrap: word-wrap; color: Theme.on-surface; font-size: 16px;
+                }
+                if !root.entry.summarized || root.entry.expanded: MarkdownView {
                     foreground: root.entry.kind == "user" ? Theme.on-primary-container : Theme.on-surface;
                     blocks: root.entry.blocks; source-markdown: root.entry.source;
                     copy(text) => { ConversationViewState.copy(text); }
@@ -118,6 +122,7 @@ export component ConversationView inherits Rectangle {
     vertical-stretch: 1;
     forward-focus: scroll-keys;
     public function jump-to-end() {
+        scroll-keys.focus();
         ConversationViewState.following = true;
         messages.content-y = min(0px, messages.height - messages.content-height);
         ConversationViewState.position(true);
@@ -153,12 +158,11 @@ export component ConversationView inherits Rectangle {
     }
     if !ConversationViewState.following && ConversationViewState.rows.length > 0: TextButton {
         x: parent.width - self.width - 12px; y: parent.height - self.height - 8px;
+        width: 56px; height: 48px; background: Theme.secondary-container; border-radius: 24px;
         text: "↓" + (ConversationViewState.new-count > 0 ? "  " + ConversationViewState.new-count : "");
         accessible-label: ConversationViewState.go-to-end;
         clicked => { scroll-keys.focus(); root.jump-to-end(); }
     }
-    clipboard := TextInput { width: 0px; height: 0px; opacity: 0; }
-    public function copy-text(text: string) { clipboard.text = text; clipboard.select-all(); clipboard.copy(); }
 }
 
 export component ConversationMenu inherits Sheet {
@@ -259,6 +263,7 @@ export component SessionInfoSheet inherits Sheet {
 }
 
 export component ConversationStatus inherits Rectangle {
+    visible: ConversationViewState.working || CastState.status != "";
     preferred-height: ConversationViewState.working || CastState.status != "" ? 32px : 0px;
     vertical-stretch: 0;
     Timer { interval: 1s; running: root.visible && ConversationState.selected && ConversationViewState.working; triggered => { ConversationViewState.tick(); } }
