@@ -177,6 +177,13 @@ impl HabblaudApi {
             cast: value.get("job").and_then(|job| model::string(job, "cast")),
         })
     }
+    pub async fn cast_runtime(&self) -> Result<Option<String>, Error> {
+        let value = self.json("/api/cast/models", None).await?;
+        Ok(model::catalog_runtime(&value).map(str::to_owned))
+    }
+    pub async fn summary_http(&self) -> Result<bool, Error> {
+        Ok(self.json("/api/health", None).await?.get("summaryHttp") == Some(&Value::Bool(true)))
+    }
     pub async fn new_cast(
         &self,
         room: &str,

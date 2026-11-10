@@ -3,11 +3,51 @@ use crate::model::*;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 
+pub fn supports_session_control(provider: &str) -> bool {
+    matches!(provider, "omp" | "zeroclaw")
+}
+pub fn delivery_modes(provider: &str) -> &'static [&'static str] {
+    match provider {
+        "omp" => &["aside", "followUp", "steer"],
+        "zeroclaw" => &["followUp", "steer"],
+        _ => &[],
+    }
+}
+pub fn reliable_context(provider: &str) -> bool {
+    matches!(provider, "omp" | "claude" | "codex")
+}
 pub fn deliver_modes_available(session: &SessionItem) -> bool {
-    session.key.provider == "omp" && session.agent_id.is_some() && !session.sub
+    supports_session_control(&session.key.provider) && session.agent_id.is_some() && !session.sub
 }
 pub fn deliver_as<'a>(provider: &str, mode: &'a str) -> Option<&'a str> {
-    (provider == "omp").then_some(mode)
+    match provider {
+        "omp" => Some(mode),
+        "zeroclaw" => Some(if mode == "steer" { "steer" } else { "followUp" }),
+        _ => None,
+    }
+}
+pub fn new_session_target<'a>(
+    sessions: &'a [SessionItem],
+    previous: &SessionKey,
+    agent_id: &str,
+) -> Option<&'a SessionItem> {
+    sessions.iter().find(|item| {
+        item.key.origin == previous.origin
+            && item.key.provider == previous.provider
+            && item.key.account == previous.account
+            && item.agent_id.as_deref() == Some(agent_id)
+            && item.key.session_id != previous.session_id
+    })
+}
+pub fn session_controls_available(selected: &SessionItem, state: &ReadingState) -> bool {
+    deliver_modes_available(selected)
+        && can_send(
+            state,
+            true,
+            true,
+            &selected.key,
+            selected.agent_id.as_deref().unwrap_or(""),
+        )
 }
 pub fn stop_visible(status: Option<&str>) -> bool {
     matches!(status, Some("working" | "busy" | "shell"))
@@ -400,6 +440,7 @@ struct PendingControl {
     token: u64,
     key: SessionKey,
     agent_id: String,
+    new_session: bool,
     previous: Option<MessageOperation>,
     dispatched: bool,
     accepting: bool,
@@ -528,6 +569,11 @@ pub enum Event {
         confirmed: bool,
         eligible: bool,
     },
+    NewSession {
+        agent_id: String,
+        confirmed: bool,
+        eligible: bool,
+    },
     ControlAccepted {
         token: u64,
         id: String,
@@ -637,6 +683,7 @@ fn fail_send(state: &mut State, token: u64, failure: Failure, effects: &mut Vec<
 }
 pub fn reduce(mut state: State, event: Event) -> (State, Vec<Effect>) {
     let mut effects = Vec::new();
+    let new_session = matches!(&event, Event::NewSession { .. });
     match event {
         Event::Start => {
             if !state.visible {
@@ -1018,7 +1065,13 @@ pub fn reduce(mut state: State, event: Event) -> (State, Vec<Effect>) {
                         state.composer.control = Some(MessageOperation::default());
                         state.composer.control_error = None;
                     }
-                    effects.push(Effect::Interrupt { token, body: json!({ "agentId": control.agent_id, "stop": true, "expectedSessionId": control.key.session_id }) });
+                    let mut body = json!({ "agentId": control.agent_id, "expectedSessionId": control.key.session_id });
+                    if control.new_session {
+                        body["command"] = json!("new");
+                    } else {
+                        body["stop"] = json!(true);
+                    }
+                    effects.push(Effect::Interrupt { token, body });
                 } else {
                     let control = state.controls.remove(&token);
                     if let Some(control) = control {
@@ -1095,11 +1148,17 @@ pub fn reduce(mut state: State, event: Event) -> (State, Vec<Effect>) {
             agent_id,
             confirmed,
             eligible,
+        }
+        | Event::NewSession {
+            agent_id,
+            confirmed,
+            eligible,
         } => {
             if let Some(key) = state.composer.key.clone()
-                && key.provider == "omp"
+                && supports_session_control(&key.provider)
                 && state.visible
                 && !state.composer.loading
+                && !state.composer.sending
                 && eligible
                 && !state.controls.values().any(|control| control.key == key)
                 && !state
@@ -1124,6 +1183,7 @@ pub fn reduce(mut state: State, event: Event) -> (State, Vec<Effect>) {
                             token,
                             key: key.clone(),
                             agent_id,
+                            new_session,
                             previous: state.composer.control.clone(),
                             dispatched: false,
                             accepting: false,
@@ -1245,6 +1305,8 @@ pub fn reduce(mut state: State, event: Event) -> (State, Vec<Effect>) {
             if let Some(key) = state.composer.key.clone()
                 && key.provider == "omp"
                 && state.visible
+                && !state.composer.loading
+                && !state.composer.sending
                 && eligible
             {
                 let token = state.token();
@@ -1416,11 +1478,25 @@ pub struct CastAvailability {
     pub free: Vec<CastChoice>,
     pub resume_choices: Vec<CastChoice>,
 }
+pub fn can_resume_cast(selected: &SessionItem, runtime: Option<&str>) -> bool {
+    let id = selected.key.session_id.as_bytes();
+    selected.agent_id.is_none()
+        && supports_session_control(&selected.key.provider)
+        && runtime == Some(selected.key.provider.as_str())
+        && selected
+            .project
+            .as_deref()
+            .is_some_and(|p| p.starts_with('/'))
+        && (8..=200).contains(&id.len())
+        && id.first().is_some_and(u8::is_ascii_hexdigit)
+        && id.iter().all(|b| b.is_ascii_hexdigit() || *b == b'-')
+}
 pub fn cast_availability(
     selected: Option<&SessionItem>,
     characters: &[CastChoice],
     open_cast: &HashSet<String>,
     jobs: &HashMap<String, String>,
+    runtime: Option<&str>,
 ) -> CastAvailability {
     let current = selected.and_then(|selected| {
         characters
@@ -1456,17 +1532,7 @@ pub fn cast_availability(
         .cloned()
         .collect();
     resume_choices.sort_by_key(|character| std::cmp::Reverse(Some(character) == current));
-    let resume = selected.is_some_and(|selected| {
-        let id = selected.key.session_id.as_bytes();
-        selected.agent_id.is_none()
-            && selected.key.provider == "omp"
-            && project.is_some()
-            && (8..=200).contains(&id.len())
-            && id[0].is_ascii_hexdigit()
-            && id[1..]
-                .iter()
-                .all(|byte| byte.is_ascii_hexdigit() || *byte == b'-')
-    });
+    let resume = selected.is_some_and(|selected| can_resume_cast(selected, runtime));
     let dismiss = selected.is_some_and(|selected| {
         selected.agent_id.is_some() && selected.cast_opened && (current.is_some() || new_agent)
     });

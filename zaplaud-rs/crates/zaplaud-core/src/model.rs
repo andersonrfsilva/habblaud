@@ -423,7 +423,8 @@ impl SessionCollection {
                         .cast
                         .iter()
                         .filter(|v| {
-                            item.key.provider == "omp"
+                            matches!(item.key.provider.as_str(), "omp" | "zeroclaw")
+                                && string(v, "provider").is_none_or(|p| p == item.key.provider)
                                 && string(v, "account").is_none_or(|a| a == item.key.account)
                                 && v.get("last")
                                     .and_then(Value::as_object)
@@ -1092,6 +1093,17 @@ impl AccountQuota {
             fetched_at: usage.and_then(|u| integer(u, "fetchedAt")),
         })
     }
+}
+
+/// O runtime vem do catálogo, nunca das sessões abertas ou do nome da conta.
+pub fn catalog_runtime(value: &Value) -> Option<&str> {
+    value
+        .get("provider")
+        .and_then(Value::as_str)
+        .filter(|p| matches!(*p, "omp" | "zeroclaw"))
+}
+pub fn summary_available(summary_http: bool, roles: Option<&BTreeMap<String, String>>) -> bool {
+    summary_http || roles.is_some_and(|roles| roles.contains_key("tiny"))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

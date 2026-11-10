@@ -257,6 +257,8 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
     global.set_attach_label(strings::ATTACH_FILES.into());
     global.set_send_label(strings::SEND_MESSAGE.into());
     global.set_stop_label(strings::STOP_AGENT.into());
+    global.set_new_label(strings::SESSION_NEW.into());
+    global.set_new_text(strings::SESSION_NEW_CONFIRM.into());
     global.set_retry_label(strings::CONFIRM.into());
     global.set_confirm_label(strings::CONFIRM.into());
     global.set_cancel_label(strings::CANCEL.into());
@@ -356,11 +358,21 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
         let mut command_dismiss = None::<tokio::task::JoinHandle<()>>;
         let mut last_command = None;
         let mut picker = None::<tokio::task::JoinHandle<()>>;
+        let mut new_target: Option<(SessionKey, String)> = None;
         if app_visible { let _ = controller.events.send(Event::Start); }
         loop {
             tokio::select! {
                 result = snapshots.recv() => match result {
                     Ok(value) => {
+                        if new_target.as_ref().is_some_and(|(previous, _)| !value.servers.iter().any(|s| s.api.origin() == previous.origin && !s.needs_login)) {
+                            new_target = None;
+                        }
+                        if let Some((previous, agent)) = &new_target
+                            && let Some(target) = value.servers.iter().find(|s| s.api.origin() == previous.origin)
+                                .and_then(|s| composer::new_session_target(&s.reading.sessions, previous, agent)) {
+                            let _ = context.commands.send(state::Event::Open(target.key.serialize().unwrap_or_default()));
+                            new_target = None;
+                        }
                         let next = value.selected.clone().filter(|s| s.agent_id.is_some() && !s.sub);
                         if next.as_ref().map(|s| &s.key) != selected.as_ref().map(|s| &s.key) {
                             let _ = controller.events.send(Event::Stop);
@@ -370,6 +382,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                                 let global = window.global::<ComposerState>();
                                 global.set_picker_visible(false);
                                 global.set_shake_confirm(false);
+                                global.set_new_confirm(false);
                             });
                             if let Some(item) = &next {
                                 if app_visible { let _ = controller.events.send(Event::Start); }
@@ -392,6 +405,10 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                 result = controller.states.changed() => {
                     if result.is_err() { break; }
                     let state = controller.states.borrow_and_update().clone();
+                    if new_target.as_ref().is_some_and(|(previous, _)| state.composer.key.as_ref() == Some(previous))
+                        && (state.composer.control_error.is_some() || state.composer.control.as_ref().is_some_and(|c| c.status == "failed")) {
+                        new_target = None;
+                    }
                     if state.composer.command_result != last_command {
                         if let Some(job) = command_dismiss.take() { job.abort(); }
                         last_command = state.composer.command_result.clone();
@@ -426,10 +443,16 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                         Action::Flush(_) => unreachable!(),
                         Action::Send(confirmed) => Some(Event::Send { agent_id, confirmed, eligible }),
                         Action::Stop(confirmed) => Some(Event::Interrupt { agent_id, confirmed, eligible }),
+                        Action::Command(kind, _) if kind == "new" && eligible && composer::deliver_modes_available(item)
+                            && !state.composer.loading && !state.composer.sending
+                            && !state.composer.control.as_ref().is_some_and(|c| matches!(c.status.as_str(), "queued" | "sent")) => {
+                            new_target = Some((item.key.clone(), agent_id.clone()));
+                            Some(Event::NewSession { agent_id, confirmed: true, eligible })
+                        }
                         Action::Command(kind,value) => Some(Event::Command { agent_id, kind, value, eligible }),
                         Action::Remove(uri) => state.composer.draft.attachments.iter().find(|a| a.uri == uri).cloned().map(Event::Remove),
                         Action::Mode(index) => {
-                            let mode = ["aside", "followUp", "steer"].get(index as usize).copied();
+                            let mode = composer::delivery_modes(&item.key.provider).get(index as usize).copied();
                             if let Some(mode) = mode {
                                 let store = store.clone();
                                 let key = item.key.clone();
@@ -443,7 +466,9 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                             let _ = controller.events.send(Event::DismissControlConfirmation);
                             Some(Event::DismissConfirmation)
                         }
-                        Action::Confirm => if state.composer.control_error.as_deref() == Some("confirm") { Some(Event::Interrupt { agent_id, confirmed: true, eligible }) } else { Some(Event::Send { agent_id, confirmed: true, eligible }) },
+                        Action::Confirm => if state.composer.control_error.as_deref() == Some("confirm") {
+                            Some(if new_target.is_some() { Event::NewSession { agent_id, confirmed: true, eligible } } else { Event::Interrupt { agent_id, confirmed: true, eligible } })
+                        } else { Some(Event::Send { agent_id, confirmed: true, eligible }) },
                         Action::Attach => {
                             if picker.as_ref().is_some_and(|job| !job.is_finished()) { continue; }
                             let sender = controller.events.clone(); let key = item.key.clone(); let before = state.composer.draft.attachments.clone(); let weak = weak.clone();
@@ -609,10 +634,20 @@ fn publish(
     let enabled = selected.as_ref().is_some_and(|item| {
         backend.eligible(&item.key, item.agent_id.as_deref().unwrap_or_default())
     });
-    let mode = ["aside", "followUp", "steer"]
+    let provider = selected.as_ref().map_or("", |s| s.key.provider.as_str());
+    let modes = composer::delivery_modes(provider);
+    let mode = modes
         .iter()
-        .position(|mode| *mode == state.deliver_as)
+        .position(|mode| Some(*mode) == composer::deliver_as(provider, &state.deliver_as))
         .unwrap_or(0) as i32;
+    let mode_labels = modes
+        .iter()
+        .map(|mode| match *mode {
+            "aside" => strings::DELIVER_ASIDE.into(),
+            "steer" => strings::DELIVER_STEER.into(),
+            _ => strings::DELIVER_FOLLOW_UP.into(),
+        })
+        .collect::<Vec<slint::SharedString>>();
     let blocked = backend
         .snapshot
         .read()
@@ -670,13 +705,25 @@ fn publish(
             !composer.loading && composer.draft.attachments.len() < MAX_ATTACHMENTS,
         );
         global.set_mode_index(mode);
+        global.set_mode_labels(ModelRc::new(VecModel::from(mode_labels)));
+        global.set_omp_tools(
+            selected
+                .as_ref()
+                .is_some_and(|s| s.key.provider == "omp" && s.agent_id.is_some() && !s.sub),
+        );
+        global.set_new_visible(
+            selected
+                .as_ref()
+                .is_some_and(composer::deliver_modes_available),
+        );
         global.set_modes_visible(
             selected
                 .as_ref()
                 .is_some_and(composer::deliver_modes_available),
         );
         global.set_stop_visible(selected.as_ref().is_some_and(|s| {
-            s.key.provider == "omp" && composer::stop_visible(s.status.as_deref())
+            composer::supports_session_control(&s.key.provider)
+                && (composer::stop_visible(s.status.as_deref()) || s.permission)
         }));
         global.set_stop_enabled(
             enabled
@@ -690,6 +737,7 @@ fn publish(
         global.set_can_shake(enabled && selected.as_ref().is_some_and(|s| s.key.provider == "omp"));
         let ring = selected
             .as_ref()
+            .filter(|s| composer::reliable_context(&s.key.provider))
             .and_then(|s| composer::context_ring(s.context_tokens?, s.context_window?));
         global.set_context_visible(ring.is_some());
         if let Some(ring) = ring {

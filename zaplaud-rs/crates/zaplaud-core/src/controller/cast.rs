@@ -9,6 +9,7 @@ use std::collections::HashSet;
 #[derive(Clone, Debug, Default)]
 pub struct State {
     pub availability: String,
+    pub runtime: Option<String>,
     pub characters: Vec<CastChoice>,
     pub folders: Vec<String>,
     pub jobs: CastJobs,
@@ -42,6 +43,7 @@ impl State {
                 Ok(())
             }
             Err(error) => {
+                self.runtime = None;
                 self.availability = if matches!(error, Error::Api { status: 403, .. }) {
                     "forbidden"
                 } else {
@@ -53,6 +55,8 @@ impl State {
         }
     }
     pub async fn load(&mut self, api: &HabblaudApi) -> Result<(), Error> {
+        self.runtime = None;
+        self.runtime = api.cast_runtime().await?;
         self.characters = api
             .cast()
             .await?
@@ -96,17 +100,8 @@ impl State {
         }
         choices
     }
-    pub fn can_resume(selected: &SessionItem) -> bool {
-        let id = selected.key.session_id.as_bytes();
-        selected.agent_id.is_none()
-            && selected.key.provider == "omp"
-            && (8..=200).contains(&id.len())
-            && id.first().is_some_and(u8::is_ascii_hexdigit)
-            && id.iter().all(|b| b.is_ascii_hexdigit() || *b == b'-')
-            && selected
-                .project
-                .as_ref()
-                .is_some_and(|p| p.starts_with('/'))
+    pub fn can_resume(&self, selected: &SessionItem) -> bool {
+        crate::rules::composer::can_resume_cast(selected, self.runtime.as_deref())
     }
     pub fn can_dismiss(&self, selected: &SessionItem) -> bool {
         selected.agent_id.is_some()
@@ -123,6 +118,9 @@ impl State {
         resume: Option<&SessionItem>,
         dismiss: Option<&str>,
     ) -> Result<(), Error> {
+        if resume.is_some_and(|session| !self.can_resume(session)) {
+            return Err(Error::InvalidResponse("runtime da sessão"));
+        }
         if self.sending {
             return Ok(());
         }
@@ -166,17 +164,21 @@ impl State {
 mod tests {
     use super::*;
     #[test]
-    fn resume_requires_closed_omp_absolute_project_and_valid_id() {
+    fn resume_requires_matching_runtime_absolute_project_and_valid_id() {
         let mut item = SessionItem::default();
         item.key.provider = "omp".into();
         item.key.session_id = "abcde123-1234".into();
         item.project = Some("/project".into());
-        assert!(State::can_resume(&item));
+        let state = State {
+            runtime: Some("omp".into()),
+            ..State::default()
+        };
+        assert!(state.can_resume(&item));
         item.agent_id = Some("live".into());
-        assert!(!State::can_resume(&item));
+        assert!(!state.can_resume(&item));
         item.agent_id = None;
         item.key.session_id = "invalid-session".into();
-        assert!(!State::can_resume(&item));
+        assert!(!state.can_resume(&item));
     }
     #[test]
     fn choices_exclude_open_jobs_and_wrong_rooms_and_prioritize_owner() {

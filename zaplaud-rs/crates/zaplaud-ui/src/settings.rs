@@ -76,6 +76,8 @@ enum Command {
 struct Loaded {
     roles: Result<ModelRoles, zaplaud_core::Error>,
     snapshot: Option<(Vec<String>, Vec<AccountQuota>)>,
+    runtime: Option<String>,
+    summary_http: bool,
 }
 #[derive(Default)]
 struct State {
@@ -85,6 +87,8 @@ struct State {
     servers: Vec<(HabblaudApi, bool)>,
     preferences: Preferences,
     roles: ModelRoles,
+    runtime: Option<String>,
+    summary_http: bool,
     models: Vec<String>,
     quotas: Option<Vec<AccountQuota>>,
     status: String,
@@ -191,19 +195,36 @@ impl State {
         ] {
             rows.push(row("section", "", title));
             for (value, label) in values.into_iter().zip(labels) {
+                if key == "deliver"
+                    && !zaplaud_core::rules::composer::delivery_modes(
+                        self.runtime.as_deref().unwrap_or(""),
+                    )
+                    .contains(&value)
+                {
+                    continue;
+                }
                 let mut r = row("radio", key, label);
                 r.value = value.into();
-                r.checked = current == value;
+                r.checked = if key == "deliver" {
+                    zaplaud_core::rules::composer::deliver_as(
+                        self.runtime.as_deref().unwrap_or(""),
+                        current,
+                    ) == Some(value)
+                } else {
+                    current == value
+                };
                 rows.push(r);
             }
         }
         rows.push(row("hint", "", strings::SETTINGS_PER_SESSION));
         rows.push(row("section", "", strings::SETTINGS_SUMMARIES));
-        let tiny = self
-            .roles
-            .roles
-            .as_ref()
-            .is_some_and(|r| r.contains_key("tiny"));
+        let tiny = zaplaud_core::model::summary_available(
+            self.summary_http,
+            self.roles
+                .roles
+                .as_ref()
+                .filter(|_| self.runtime.as_deref() == Some("omp")),
+        );
         let mut summarize = row("switch", "summarize", strings::SETTINGS_SUMMARIZE);
         summarize.checked = tiny && self.preferences.summarize;
         summarize.enabled = tiny;
@@ -214,47 +235,49 @@ impl State {
             if tiny {
                 strings::SETTINGS_SUMMARIZE_HINT
             } else {
-                strings::SETTINGS_SUMMARIZE_NEEDS_TINY
+                strings::SETTINGS_SUMMARIZE_UNAVAILABLE
             },
         ));
-        rows.push(row("section", "", strings::SETTINGS_ROLES));
-        match self.status.as_str() {
-            "loading" => rows.push(row("hint", "", strings::QUOTA_LOADING)),
-            "forbidden" => rows.push(row("hint", "", strings::CAST_FORBIDDEN)),
-            "error" => rows.push(row("hint", "", strings::ROLES_LOAD_ERROR)),
-            _ => {
-                for role in ["task", "plan", "advisor", "tiny"] {
-                    let mut r = row("role", role, role_label(role));
-                    r.enabled =
-                        self.roles.available && !self.roles.pending && self.status == "ready";
-                    r.detail = self
-                        .roles
-                        .roles
-                        .as_ref()
-                        .and_then(|m| m.get(role))
-                        .map(|v| {
-                            let (model, level) = split_role(v);
-                            let label = model.split_once('/').map_or_else(
-                                || model.to_owned(),
-                                |(provider, model)| {
-                                    format!("{} · {model}", provider_label(provider))
-                                },
-                            );
-                            level.map_or(label.clone(), |l| {
-                                format!("{label} · {}", thinking_label(l))
+        if self.runtime.as_deref() == Some("omp") {
+            rows.push(row("section", "", strings::SETTINGS_ROLES));
+            match self.status.as_str() {
+                "loading" => rows.push(row("hint", "", strings::QUOTA_LOADING)),
+                "forbidden" => rows.push(row("hint", "", strings::CAST_FORBIDDEN)),
+                "error" => rows.push(row("hint", "", strings::ROLES_LOAD_ERROR)),
+                _ => {
+                    for role in ["task", "plan", "advisor", "tiny"] {
+                        let mut r = row("role", role, role_label(role));
+                        r.enabled =
+                            self.roles.available && !self.roles.pending && self.status == "ready";
+                        r.detail = self
+                            .roles
+                            .roles
+                            .as_ref()
+                            .and_then(|m| m.get(role))
+                            .map(|v| {
+                                let (model, level) = split_role(v);
+                                let label = model.split_once('/').map_or_else(
+                                    || model.to_owned(),
+                                    |(provider, model)| {
+                                        format!("{} · {model}", provider_label(provider))
+                                    },
+                                );
+                                level.map_or(label.clone(), |l| {
+                                    format!("{label} · {}", thinking_label(l))
+                                })
                             })
-                        })
-                        .unwrap_or_else(|| strings::ROLE_DEFAULT.into())
-                        .into();
-                    rows.push(r);
+                            .unwrap_or_else(|| strings::ROLE_DEFAULT.into())
+                            .into();
+                        rows.push(r);
+                    }
+                    if !self.roles.available {
+                        rows.push(row("hint", "", strings::CAST_UNAVAILABLE));
+                    }
+                    if self.roles.pending {
+                        rows.push(row("hint", "", strings::ROLES_SAVING));
+                    }
+                    rows.push(row("hint", "", strings::ROLES_HINT));
                 }
-                if !self.roles.available {
-                    rows.push(row("hint", "", strings::CAST_UNAVAILABLE));
-                }
-                if self.roles.pending {
-                    rows.push(row("hint", "", strings::ROLES_SAVING));
-                }
-                rows.push(row("hint", "", strings::ROLES_HINT));
             }
         }
         rows.push(row("section", "", strings::NOTIFICATIONS));
@@ -517,8 +540,19 @@ fn refresh(
             } else {
                 None
             };
-            let roles = api.roles().await;
-            Ok(Loaded { roles, snapshot })
+            let runtime = api.cast_runtime().await?;
+            let summary_http = api.summary_http().await?;
+            let roles = if runtime.as_deref() == Some("omp") {
+                api.roles().await
+            } else {
+                Ok(ModelRoles::default())
+            };
+            Ok(Loaded {
+                roles,
+                snapshot,
+                runtime,
+                summary_http,
+            })
         }
         .await;
         let _ = send.send(Command::Loaded(generation, result));
@@ -626,10 +660,16 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
                         Ok(snapshot) => {
                             if state.servers.len() == snapshot.servers.len() && state.servers.iter().zip(&snapshot.servers).all(|((api, login), server)| api.origin() == server.api.origin() && *login == server.needs_login) { continue; }
                             state.servers = snapshot.servers.iter().map(|s| (s.api.clone(), s.needs_login)).collect();
+                            if state.servers.iter().any(|(api, login)| api.origin() == state.origin && *login) {
+                                state.runtime = None; state.summary_http = false; state.roles = ModelRoles::default(); state.editing.clear();
+                                state.generation += 1;
+                            }
                             if !state.servers.iter().any(|(api, _)| api.origin() == state.origin) {
                                 state.origin = state.servers.first().map_or_else(String::new, |(api, _)| api.origin().to_owned());
                                 state.generation += 1;
                                 state.roles = ModelRoles::default();
+                                state.runtime = None;
+                                state.summary_http = false;
                                 state.quotas = None;
                                 state.status = "loading".into();
                                 reload = state.visible;
@@ -648,6 +688,8 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
                             state.generation += 1;
                             state.editing.clear();
                             state.roles = ModelRoles::default();
+                            state.runtime = None;
+                            state.summary_http = false;
                             state.quotas = None;
                             state.models.clear();
                             state.error = None;
@@ -667,6 +709,8 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
                             state.origin = origin;
                             state.generation += 1;
                             state.roles = ModelRoles::default();
+                            state.runtime = None;
+                            state.summary_http = false;
                             state.quotas = None;
                             state.status = "loading".into();
                             state.editing.clear();
@@ -685,7 +729,7 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
                             }
                         }
                         Some(Command::Edit(role)) => {
-                            if state.roles.available && !state.roles.pending && !state.saving.contains(&state.origin) && state.status == "ready" {
+                            if state.runtime.as_deref() == Some("omp") && state.roles.available && !state.roles.pending && !state.saving.contains(&state.origin) && state.status == "ready" {
                                 state.editing = role;
                                 state.model.clear();
                                 update_ui(&weak, |w| {
@@ -699,7 +743,7 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
                             if typed_model_valid(&model) { state.model = model.trim().into(); }
                         }
                         Some(Command::Thinking(level)) => {
-                            if !state.model.is_empty() && (level.is_empty() || THINKING_LEVELS.contains(&level.as_str()))
+                            if state.runtime.as_deref() == Some("omp") && !state.model.is_empty() && (level.is_empty() || THINKING_LEVELS.contains(&level.as_str()))
                                 && let Some((api, _)) = state.servers.iter().find(|(a, _)| a.origin() == state.origin)
                             {
                                 let api = api.clone();
@@ -731,6 +775,9 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
                         Some(Command::Loaded(generation, result)) if generation == state.generation => {
                             match result {
                                 Ok(loaded) => {
+                                    state.runtime = loaded.runtime;
+                                    state.summary_http = loaded.summary_http;
+                                    if state.runtime.as_deref() != Some("omp") { state.editing.clear(); }
                                     if let Some((models, quotas)) = loaded.snapshot {
                                         state.models = models;
                                         state.quotas = Some(quotas);
@@ -749,6 +796,10 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
                                     }
                                 }
                                 Err(error) => {
+                                    state.runtime = None;
+                                    state.summary_http = false;
+                                    state.roles = ModelRoles::default();
+                                    state.editing.clear();
                                     state.error = Some(strings::QUOTA_ERROR);
                                     if unauthorized(&error) { let _ = commands.send(crate::state::Event::Unauthorized(state.origin.clone())); state.status = "unauthorized".into(); }
                                     else if state.roles.roles.is_none() { state.status = "error".into(); }
@@ -867,6 +918,7 @@ mod tests {
             .unwrap();
         assert!(!summary.enabled);
         assert!(!summary.checked);
+        state.runtime = Some("omp".into());
         state.roles.roles = Some(BTreeMap::from([("tiny".into(), "p/model".into())]));
         let rows = state.rows();
         let summary = rows.iter().find(|r| r.key == "summarize").unwrap();
@@ -883,6 +935,28 @@ mod tests {
                 .into_iter()
                 .filter(|r| r.key == "permission" || r.key == "done")
                 .all(|r| r.enabled)
+        );
+        state.runtime = Some("zeroclaw".into());
+        state.summary_http = true;
+        let rows = state.rows();
+        assert!(
+            rows.iter()
+                .any(|row| row.key == "summarize" && row.enabled && row.checked)
+        );
+        assert!(!rows.iter().any(|row| row.kind == "role"));
+        assert_eq!(
+            rows.iter()
+                .filter(|row| row.key == "deliver")
+                .map(|row| row.value.as_str())
+                .collect::<Vec<_>>(),
+            ["followUp", "steer"]
+        );
+        state.summary_http = false;
+        assert!(
+            state
+                .rows()
+                .iter()
+                .any(|row| row.key == "summarize" && !row.enabled)
         );
     }
     #[test]

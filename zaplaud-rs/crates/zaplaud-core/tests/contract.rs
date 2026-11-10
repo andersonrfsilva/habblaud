@@ -501,3 +501,120 @@ async fn closed_omp_resume_subagents_and_usage_contract() -> TestResult {
     );
     fixture.finish().await
 }
+
+#[tokio::test]
+async fn zeroclaw_runtime_messages_controls_cast_and_summary_contract() -> TestResult {
+    let mut fixture = Fixture::start()
+        .await?
+        .ok_or("Node.js obrigatório para contrato ZeroClaw")?;
+    let api = HabblaudApi::new(required(&fixture.ready, "url")?)?;
+    api.login("android-test", "android-test").await?;
+    fixture.command("runtime zeroclaw").await?;
+    fixture.command("zc-reset").await?;
+    assert_eq!(api.cast_runtime().await?.as_deref(), Some("zeroclaw"));
+    assert!(api.summary_http().await?);
+    assert!(
+        !api.summary("Resposta fictícia para resumir.")
+            .await?
+            .is_empty()
+    );
+    fixture.command("catalog empty").await?;
+    assert_eq!(api.cast_runtime().await?.as_deref(), Some("zeroclaw"));
+    fixture.command("catalog error").await?;
+    assert!(api.cast_runtime().await.is_err());
+    fixture.command("catalog normal").await?;
+    fixture.command("brand neutral").await?;
+    assert_eq!(api.cast_runtime().await?.as_deref(), Some("zeroclaw"));
+    fixture.command("brand normal").await?;
+    let snapshot = api.snapshot().await?;
+    let session = snapshot
+        .sessions
+        .iter()
+        .find(|s| s.key.provider == "zeroclaw" && s.agent_id.as_deref() == Some("fixture:zeroclaw"))
+        .ok_or("sessão ZeroClaw ausente")?;
+    for mode in [SendMode::Steer, SendMode::FollowUp] {
+        let receipt = api
+            .send_message(&SendMessage {
+                agent_id: "fixture:zeroclaw",
+                text: "Mensagem fictícia",
+                expected_session_id: &session.key.session_id,
+                deliver_as: Some(mode),
+                attachments: vec![],
+            })
+            .await?;
+        if mode == SendMode::FollowUp {
+            fixture.command("zc-done").await?;
+        }
+        timeout(Duration::from_secs(10), async {
+            loop {
+                let status = api.message_status(&receipt.id).await?;
+                if status.status.as_deref() == Some("delivered") {
+                    return Ok::<_, Box<dyn std::error::Error>>(());
+                }
+                if status.status.as_deref() == Some("failed") {
+                    return Err("entrega ZeroClaw falhou".into());
+                }
+                tokio::time::sleep(Duration::from_millis(30)).await;
+            }
+        })
+        .await??;
+    }
+    for command in ["zc-working", "zc-no-active"] {
+        fixture.command(command).await?;
+        let receipt = api
+            .control_message(&ControlMessage {
+                agent_id: "fixture:zeroclaw",
+                expected_session_id: &session.key.session_id,
+                control: Control::Stop { stop: true },
+            })
+            .await?;
+        timeout(Duration::from_secs(10), async {
+            loop {
+                if api.message_status(&receipt.id).await?.status.as_deref() == Some("delivered") {
+                    return Ok::<_, Box<dyn std::error::Error>>(());
+                }
+                tokio::time::sleep(Duration::from_millis(30)).await;
+            }
+        })
+        .await??;
+    }
+    let control: Value = serde_json::from_str(&api.request("/api/messages/control", Some(&serde_json::json!({"agentId":"fixture:zeroclaw","command":"new","expectedSessionId":session.key.session_id}))).await?)?;
+    let id = required(&control, "id")?;
+    timeout(Duration::from_secs(10), async {
+        loop {
+            if api.message_status(id).await?.status.as_deref() == Some("delivered") {
+                return Ok::<_, Box<dyn std::error::Error>>(());
+            }
+            tokio::time::sleep(Duration::from_millis(30)).await;
+        }
+    })
+    .await??;
+    let next = api.snapshot().await?;
+    assert!(
+        next.sessions
+            .iter()
+            .any(|s| s.agent_id.as_deref() == Some("fixture:zeroclaw")
+                && s.key.session_id != session.key.session_id)
+    );
+    let job = api.new_cast("/fixture/projeto", None).await?;
+    assert!(job.cast.is_some());
+    let stats = fixture.command("stats").await?;
+    assert_eq!(stats["runtime"], "zeroclaw");
+    assert!(
+        !stats["castRequests"]
+            .as_array()
+            .ok_or("requisições de elenco ausentes")?
+            .is_empty()
+    );
+    assert!(
+        stats["messageRequests"]
+            .as_array()
+            .ok_or("mensagens ausentes")?
+            .iter()
+            .all(|request| request["expectedSessionId"] == session.key.session_id)
+    );
+    fixture.command("runtime omp").await?;
+    assert_eq!(api.cast_runtime().await?.as_deref(), Some("omp"));
+    assert!(!api.summary_http().await?);
+    fixture.finish().await
+}

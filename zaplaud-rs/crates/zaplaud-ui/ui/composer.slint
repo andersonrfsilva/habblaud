@@ -20,6 +20,11 @@ export global ComposerState {
     in-out property <bool> stop-visible;
     in-out property <bool> stop-enabled;
     in-out property <bool> modes-visible;
+    in-out property <bool> omp-tools;
+    in-out property <bool> new-visible;
+    in-out property <bool> new-confirm;
+    in-out property <string> new-label;
+    in-out property <string> new-text;
     in-out property <[string]> mode-labels;
     in-out property <int> mode-index;
     in-out property <[ComposerAttachment]> attachments;
@@ -134,7 +139,7 @@ export component ComposerPane inherits Rectangle {
     }
 }
 export component ComposerDialogs inherits Rectangle {
-    visible: ComposerState.confirm-visible || ComposerState.shake-confirm || ComposerState.picker-visible;
+    visible: ComposerState.confirm-visible || ComposerState.shake-confirm || ComposerState.new-confirm || ComposerState.picker-visible;
     if ComposerState.confirm-visible: Dialog {
         title: ComposerState.confirm-title; text: ComposerState.confirm-text; confirm: ComposerState.confirm-label; cancel: ComposerState.cancel-label;
         confirmed => { ComposerState.confirm(); } dismissed => { ComposerState.dismiss(); }
@@ -143,6 +148,11 @@ export component ComposerDialogs inherits Rectangle {
         title: ComposerState.shake-title; text: ComposerState.shake-text; confirm: ComposerState.confirm-label; cancel: ComposerState.cancel-label;
         confirmed => { ComposerState.shake-confirm = false; ComposerState.command("shake", ""); }
         dismissed => { ComposerState.shake-confirm = false; }
+    }
+    if ComposerState.new-confirm: Dialog {
+        title: ComposerState.new-label; text: ComposerState.new-text; confirm: ComposerState.confirm-label; cancel: ComposerState.cancel-label;
+        confirmed => { ComposerState.new-confirm = false; ComposerState.command("new", ""); }
+        dismissed => { ComposerState.new-confirm = false; }
     }
     if ComposerState.picker-visible: Dialog {
         title: ComposerState.attach-label; text: ComposerState.picker-hint;
