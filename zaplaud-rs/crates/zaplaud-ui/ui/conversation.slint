@@ -1,7 +1,9 @@
-import { Theme } from "resources.slint";
+import { Theme, Icons, PermissionColors } from "resources.slint";
 import { Labels } from "labels.slint";
-import { Avatar, TextButton, Pill } from "widgets/kit.slint";
+import { Avatar, Pill, IconButton } from "widgets/kit.slint";
 import { CastState } from "cast.slint";
+import { PermissionState } from "permission.slint";
+import { MaterialIcons } from "widgets/material-icons.slint";
 export global ConversationState {
     in property <bool> selected;
     in property <string> key;
@@ -14,6 +16,7 @@ export global ConversationState {
     callback menu();
 }
 export component ConversationPane inherits Rectangle {
+    in property <string> info-label;
     in property <bool> narrow;
     background: Theme.dark ? Theme.surface-container-lowest : Theme.surface-container-low;
     forward-focus: conversation-focus;
@@ -24,15 +27,24 @@ export component ConversationPane inherits Rectangle {
         visible: ConversationState.selected;
         x: (parent.width - self.width) / 2; width: min(840px, parent.width); height: parent.height;
         VerticalLayout { spacing: 0px;
-            HorizontalLayout { height: 64px; padding: 12px; spacing: 8px;
-                if root.narrow: TextButton { text: "‹"; min-width: 32px; accessible-label: Labels.back-sessions; clicked => { ConversationState.close(); } }
-                Avatar { width: 36px; height: 36px; source: ConversationState.avatar; initials: ConversationState.initials; }
+            Rectangle { height: 0px; Rectangle { x: 0px; y: 0px; width: parent.width; height: 64px; background: Theme.surface; } }
+            HorizontalLayout { height: 64px; padding-left: 16px; padding-right: 8px; spacing: 8px;
+                if root.narrow: VerticalLayout { width: 40px; alignment: center; IconButton { icon: MaterialIcons.arrow-back; label: Labels.back-sessions; clicked => { ConversationState.close(); } } }
+                VerticalLayout { width: 36px; alignment: center; Avatar { width: 36px; height: 36px; source: ConversationState.avatar; initials: ConversationState.initials; } }
                 Rectangle { horizontal-stretch: 1;
-                    VerticalLayout { Text { text: ConversationState.title; color: Theme.on-surface; font-size: 18px; overflow: elide; } Text { text: ConversationState.subtitle; color: Theme.on-surface-variant; font-size: 12px; overflow: elide; } }
+                    accessible-role: button; accessible-label: root.info-label;
+                    accessible-action-default => { ConversationState.info(); }
+                    forward-focus: info-keys;
+                    border-width: info-keys.has-focus ? 1px : 0px; border-color: Theme.primary;
+                    info-keys := FocusScope {
+                        key-pressed(event) => { if event.text == Key.Return || event.text == Key.Space { ConversationState.info(); return accept; } return reject; }
+                    }
+                    VerticalLayout { alignment: center; spacing: 0px; Text { text: ConversationState.title; color: Theme.on-surface; font-size: 22px; overflow: elide; } Text { text: ConversationState.subtitle; color: Theme.on-surface-variant; font-size: 12px; overflow: elide; } }
                     TouchArea { clicked => { ConversationState.info(); } }
                 }
-                if CastState.resume-visible: TextButton { text: "▶"; width: 40px; height: 40px; accessible-label: CastState.resume-label; enabled: CastState.enabled; clicked => { CastState.resume(); } }
-                TextButton { text: "⋮"; min-width: 40px; accessible-label: Labels.menu; clicked => { ConversationState.menu(); } }
+                if PermissionState.pending: VerticalLayout { width: 40px; alignment: center; IconButton { icon: PermissionState.action-label == PermissionState.answer-label ? Icons.ic-help : Icons.ic-verified-user; label: PermissionState.action-label; background: PermissionColors.attention; foreground: PermissionColors.on-attention; clicked => { PermissionState.open-selected(); } } }
+                if CastState.resume-visible: VerticalLayout { width: 40px; alignment: center; IconButton { icon: MaterialIcons.play-arrow; label: CastState.resume-label; enabled: CastState.enabled; clicked => { CastState.resume(); } } }
+                VerticalLayout { width: 40px; alignment: center; IconButton { icon: MaterialIcons.more-vert; label: Labels.menu; clicked => { ConversationState.menu(); } } }
             }
             // Próxima etapa monta transcript, avisos e compositor neste host nomeado.
             conversation-content := Rectangle { vertical-stretch: 1; @children }

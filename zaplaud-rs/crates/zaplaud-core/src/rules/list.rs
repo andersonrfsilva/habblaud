@@ -13,6 +13,10 @@ pub fn unread_count(replies: &[i64], seen_at: Option<i64>) -> usize {
     seen_at.map_or(0, |seen| replies.iter().filter(|at| **at > seen).count())
 }
 
+pub fn is_loading(state: &ReadingState, needs_login: bool) -> bool {
+    !needs_login && state.connection == "connecting" && state.sessions.is_empty()
+}
+
 pub fn updated_seen(
     seen: &HashMap<String, i64>,
     ids: &[String],
@@ -107,6 +111,20 @@ mod tests {
             replies: replies.into(),
             ..Default::default()
         }
+    }
+    #[test]
+    fn loading_requires_an_authenticated_empty_connection() {
+        let mut state = ReadingState {
+            connection: "connecting".into(),
+            ..Default::default()
+        };
+        assert!(is_loading(&state, false));
+        assert!(!is_loading(&state, true));
+        state.sessions.push(session("cached", None, &[]));
+        assert!(!is_loading(&state, false));
+        state.sessions.clear();
+        state.connection = "offline".into();
+        assert!(!is_loading(&state, false));
     }
     #[test]
     fn unread_is_strict_and_keeps_duplicates() {

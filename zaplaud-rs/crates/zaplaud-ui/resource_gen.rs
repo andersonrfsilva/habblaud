@@ -35,6 +35,17 @@ pub fn generate(source: &Path, output: &Path) -> Result<Vec<PathBuf>> {
         "export global StatusColors {{ out property <color> warning: Theme.dark ? {} : {}; }}",
         warnings[0], warnings[1]
     )?;
+    let cast = source.join("kotlin/br/com/xlinx/habblaud/CastActions.kt");
+    let cast_source = fs::read_to_string(&cast)?;
+    let attention = color_literals(&cast_source)?;
+    if attention.len() != 3 || !cast_source.contains("contentColor = Color.White") {
+        return Err("Cores de permissão Kotlin não reconhecidas".into());
+    }
+    writeln!(
+        slint,
+        "export global PermissionColors {{ out property <color> attention: {}; out property <color> on-attention: white; }}",
+        attention[0]
+    )?;
     slint.push_str("\nexport global Icons {\n");
     let mut inputs = vec![
         strings,
@@ -42,6 +53,7 @@ pub fn generate(source: &Path, output: &Path) -> Result<Vec<PathBuf>> {
         theme,
         avatar,
         status,
+        cast,
         drawables.clone(),
     ];
     let mut icons = fs::read_dir(drawables)?

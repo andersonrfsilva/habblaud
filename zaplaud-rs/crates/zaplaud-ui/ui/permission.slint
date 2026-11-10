@@ -1,5 +1,5 @@
 import { Theme } from "resources.slint";
-import { Sheet, Banner, TextButton, FilledButton, TextField, ScrollContainer, Avatar, ProgressRing, CheckBox } from "widgets/kit.slint";
+import { Sheet, TextButton, FilledButton, TextField, ScrollContainer, Avatar, ProgressRing, CheckBox } from "widgets/kit.slint";
 export struct PermissionChoice { question: int, index: int, multi: bool, label: string, description: string, checked: bool }
 export struct PermissionQuestionRow { index: int, multi: bool, text: string, other: string, options: [PermissionChoice] }
 export struct PermissionSuggestionRow { index: int, text: string, checked: bool }
@@ -55,11 +55,6 @@ export global PermissionState {
     callback suggestion(int, bool);
     callback set-interrupt(bool);
     callback set-reason(string);
-}
-export component PermissionBanner inherits Rectangle {
-    visible: PermissionState.pending;
-    height: self.visible ? 48px : 0px;
-    Banner { text: PermissionState.pending-label; action: PermissionState.action-label; severity: "warn"; activated => { PermissionState.open-selected(); } }
 }
 export component PermissionSheet inherits Sheet {
     dismissed => { PermissionState.close(); }

@@ -307,18 +307,21 @@ impl State {
                             .collect::<Vec<_>>()
                             .join(" · "),
                     );
-                    let mut detail = Vec::new();
-                    if account.status == "stale" {
-                        detail.push(strings::QUOTA_STALE.to_owned());
+                    card.detail = if account.status == "stale" {
+                        card.severity = 1;
+                        strings::QUOTA_STALE
                     } else if account.status == "disabled" {
-                        detail.push(strings::QUOTA_DISABLED.to_owned());
+                        strings::QUOTA_DISABLED
+                    } else {
+                        ""
                     }
-                    if account.no_quota {
-                        detail.push(strings::QUOTA_NO_QUOTA.into());
-                        card.severity = 2;
-                    }
-                    card.detail = detail.join(" · ").into();
+                    .into();
                     rows.push(card);
+                    if account.no_quota {
+                        let mut note = row("hint", "no-quota", strings::QUOTA_NO_QUOTA);
+                        note.severity = 2;
+                        rows.push(note);
+                    }
                     for group in &account.groups {
                         if let Some(provider) = &group.provider {
                             rows.push(row(
@@ -448,7 +451,7 @@ impl State {
                 }
             }
             if self.models.is_empty() {
-                choices.push(row("section", "", strings::ROLE_NO_MODELS));
+                choices.push(row("hint", "", strings::ROLE_NO_MODELS));
             }
         } else {
             for level in std::iter::once("").chain(THINKING_LEVELS) {
@@ -910,5 +913,23 @@ mod tests {
         assert_eq!(limit.severity, 2);
         assert!((limit.fraction - 0.905).abs() < 0.0001);
         assert!(rows.iter().any(|r| r.kind == "quota-end" && r.card));
+    }
+    #[test]
+    fn quota_status_is_separate_from_the_no_quota_note() {
+        let mut account = AccountQuota::parse(&serde_json::json!({"id": "test"})).unwrap();
+        account.status = "disabled".into();
+        account.no_quota = true;
+        let state = State {
+            quotas: Some(vec![account]),
+            ..Default::default()
+        };
+        let rows = state.rows();
+        let header = rows.iter().find(|row| row.kind == "quota").unwrap();
+        assert_eq!(header.detail, strings::QUOTA_DISABLED);
+        assert_eq!(header.severity, 0);
+        let note = rows.iter().find(|row| row.key == "no-quota").unwrap();
+        assert_eq!(note.text, strings::QUOTA_NO_QUOTA);
+        assert_eq!(note.severity, 2);
+        assert!(note.card);
     }
 }

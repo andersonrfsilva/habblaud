@@ -8,7 +8,9 @@ use slint::{ComponentHandle, Model, ModelRc, VecModel};
 use zaplaud_core::{
     model::{SessionItem, sub_session},
     rules::composer::model_brand,
-    rules::list::{combined_connection, merge_sessions, server_label, visible_sessions},
+    rules::list::{
+        combined_connection, is_loading, merge_sessions, server_label, visible_sessions,
+    },
 };
 
 pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
@@ -221,7 +223,7 @@ pub fn publish(state: &AppState, weak: &slint::Weak<AppWindow>) {
     let loading = state
         .servers
         .iter()
-        .any(|s| s.reading.state.connection == "connecting" && s.reading.state.sessions.is_empty());
+        .any(|s| is_loading(&s.reading.state, s.reading.needs_login));
     let terminal_allowed = state
         .servers
         .iter()

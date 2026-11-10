@@ -16,7 +16,7 @@ spec = importlib.util.spec_from_file_location('shell_smoke', Path(__file__).with
 smoke = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(smoke)
 ROOT = smoke.ROOT
-SCREENS = ('login', 'http-warning', 'list', 'search', 'two-servers', 'narrow', 'relogin')
+SCREENS = ('login', 'http-warning', 'list', 'list-unread', 'search', 'two-servers', 'narrow', 'relogin')
 
 
 class Desktop(smoke.Desktop):
@@ -117,17 +117,22 @@ def capture(args, desktop, kind, theme):
                 smoke.wait_for(lambda: len(set(desktop.image().crop((12, 140, 65, 600)).getdata())) > 30, f'{kind}: lista sem avatares', seconds=args.timeout)
 
             try:
-                fixtures = [smoke.Fixture(args.port), smoke.Fixture(args.port + 1)]
+                fixtures = [smoke.Fixture(args.port, allow='terminal,messages,permissions,spawn'), smoke.Fixture(args.port + 1, allow='terminal,messages,permissions,spawn')]
                 launch()
                 save('login')
                 login(args.port, warning=True)
                 save('list')
+                fixtures[0].process.stdin.write('reply fixture:claude\n')
+                fixtures[0].process.stdin.flush()
+                assert json.loads(fixtures[0].process.stdout.readline())['ok']
+                time.sleep(1)
+                save('list-unread')
                 desktop.key('f', ('Control_L',))
                 save('search')
                 desktop.key('Escape')
                 time.sleep(.5)
                 desktop.click(328, 36)
-                desktop.click(380 if kind == 'compose' else 260, 136 if kind == 'compose' else 124)
+                desktop.click(380, 136)
                 smoke.wait_for(lambda: desktop.image().getpixel((360, 700)) != smoke.palette(theme)['outlineVariant'], 'Adicionar servidor não abriu formulário', seconds=args.timeout)
                 login(args.port + 1)
                 save('two-servers')

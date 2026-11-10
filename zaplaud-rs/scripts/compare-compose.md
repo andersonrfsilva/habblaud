@@ -178,3 +178,113 @@ emoji colorido/ZWJ correto e uma estratégia final de fallback portátil.
 - O build experimental anterior encontrou dependências incompletas do grupo de correção; os commits dependentes foram integrados depois.
 - `ProgressRing` continua estático; emoji completo e suporte macOS não estão certificados.
 
+
+## Certificação integrada — fin-certify
+
+O inventário final contém **29 estados × 2 temas = 58 pares**, em
+`/tmp/zaplaud-rs-certify-<tela>-<tema>.png`: Compose à esquerda, Rust à direita,
+sem redimensionamento. `list-unread` acrescenta uma resposta real pela fixture.
+Os oito estados básicos foram recapturados no executável Compose; os demais usam
+as referências reais já existentes. O resultado desta seção substitui as pendências
+históricas acima. Esta rodada usa o renderer software desta branch; a mudança de
+renderer/fontes de `FinEmoji` exige repetir as capturas depois da integração.
+
+### Correções e evidência
+
+- O shell desabilita `keys.enabled` durante overlays e restaura o foco em `changed enabled`.
+- Lista e configurações recuperam foco ao fechar conversa, busca, menu ou diálogo.
+- Mudanças internas de página também restauram foco: menu, papéis e pastas de elenco.
+- A ação de permissão fica na barra, conforme `CastActions.kt:139,234-244`, não no transcript.
+- Barras têm 64 px; lista usa slots Material de 48 px e espaço de 8 px entre grupos.
+- O selo de não lidas usa diâmetro mínimo de 16 px, largura pelo texto e alinhamento à direita.
+- Seleção usa `secondaryContainer` com camada separada de hover/pressão.
+- Código não mostra linguagem; copiar aparece somente em hover; marcadores não reservam 28 px fixos.
+- Menus usam ícones vetoriais Material; diálogos usam scrim de 0,6, painéis usam 0,32.
+- Quotas usam cartões de 56 px, nome e estado na mesma linha; “sem dados” não é erro.
+- Relogin não deixa um spinner de conexão ativo quando falta autenticação.
+- A altura forçada de `StyledText` foi removida: ela quebrava o acompanhamento do fim do transcript.
+- A fixture aceita `reply <agentId>` sem alterar o comportamento dos comandos anteriores.
+
+Os runners rejeitam estados incorretos: verificam o scrim, a dispensa consumida
+pela fixture e a mudança real entre seletor e confirmação. Não substituem imagens
+nem enfraquecem as assertivas originais de `conversation-smoke.py`.
+
+### Execução reproduzível
+
+```sh
+for theme in light dark; do
+  python3 zaplaud-rs/scripts/conversation-smoke.py --binary /caminho/zaplaud --display localhost:89 --port 14789 --theme "$theme"
+  python3 zaplaud-rs/scripts/keyboard-smoke.py --binary /caminho/zaplaud --display localhost:89 --port 14789 --theme "$theme"
+  python3 zaplaud-rs/scripts/accessibility-smoke.py --binary /caminho/zaplaud --display localhost:89 --port 14789 --theme "$theme"
+done
+python3 zaplaud-rs/scripts/certify-compose.py \
+  --rust-binary /caminho/zaplaud --display localhost:89 --port 14789 --theme both
+```
+
+AT-SPI usa sessão D-Bus privada e árvore real: linhas com título/estado/não lidas,
+bolhas, campo do compositor, botões, painéis e configurações. O texto do comando
+é lido pela interface Text, além do nome acessível do campo. Não há marcador
+fictício de leitura: a resposta opcional da fixture produz a atividade não lida.
+O workflow Linux executa os três scripts nos dois temas. Requer `at-spi2-core`,
+`libatspi2.0-0`, `dbus-x11`, `xvfb`, `libxtst6` e `python3-pil`.
+
+Teclado cobre login por Tab, todos os overlays, Esc seguido de Esc, Ctrl+F,
+Up/Down/Enter na lista, Enter para enviar e Shift+Enter para nova linha.
+
+O Kotlin oculta o FAB de elenco com conversa selecionada (`CastActions.kt:157-163`).
+Os testes de elenco começam pela lista. Não foi necessário alterar guardas do controller.
+
+### Diferenças residuais por tela, nos dois temas
+
+**F**: rasterização de fonte. **M**: `StyledText` do Slint 1.18.1 não expõe
+`letter-spacing` nem `line-height-factor`, ao contrário de `Text`
+(`i-slint-compiler-1.18.1/builtin_elements.rs:1190-1215`).
+**A**: fundo vazio temático no Rust; o cinza `#eee` do Compose é o fundo AWT
+não pintado, inclusive no tema escuro, e foi aceito como defeito do desktop Compose.
+**P**: painel lateral em vez de bottom sheet, adaptação aceita.
+**H**: ações de mensagem no hover, adaptação aceita.
+Horários relativos, IDs e portas da fixture variam entre execuções; não são desenho.
+
+| Tela | Resíduo |
+| --- | --- |
+| login | F |
+| http-warning | F |
+| list | F, A |
+| list-unread | F, A |
+| search | F, A |
+| two-servers | F, A |
+| narrow | F, M, H |
+| relogin | F, A |
+| conversation-idle | F, M, H |
+| conversation-working | F, M, H |
+| conversation-attachments | F, M, H |
+| conversation-status-banner | F, M, H |
+| conversation-menu | F |
+| list-menu | F, A |
+| permission-bash | F, P |
+| permission-question-single | F, P |
+| permission-question-multi | F, P |
+| permission-question-omp | F, P |
+| settings-appearance | F |
+| settings-roles | F |
+| settings-role-dialog | F |
+| settings-quotas | F |
+| aside | F, M, P |
+| session-info | F, P |
+| cast-picker | F, A |
+| cast-folders | F, A |
+| cast-dismiss | F |
+| cast-resume-picker | F, A |
+| cast-resume | F, A |
+
+### Checks desta worktree
+
+- Build release, `cargo fmt --check`, clippy com `-D warnings` e testes workspace.
+- 195 testes Rust; um ignorado e 35 filtrados pelo runner.
+- Os três smokes passaram em claro e escuro; 58 pares foram produzidos.
+- `npm test -- server`: 1.271 testes passaram, dois ignorados.
+- Logs: `/tmp/zaplaud-rs-certify-final-*.log`; resumo dos smokes:
+  `/tmp/zaplaud-rs-certify-final-checks.json`; inventário dos pares:
+  `/tmp/zaplaud-rs-certify.json`.
+- Binário: `/home/anderson/dados/zaplaud-rs-target/fin-certify/release/zaplaud`.
+- Não houve execução remota do workflow, certificação macOS/Wayland ou nova medição de memória/CPU.

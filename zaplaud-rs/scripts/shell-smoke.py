@@ -102,10 +102,10 @@ def palette(theme):
     return {role:tuple(bytes.fromhex(value[3:9])) for role,value in baseline.items()}
 
 class Fixture:
-    def __init__(self,port):
-        self.port=port; self.start()
+    def __init__(self,port,allow='terminal,messages,permissions'):
+        self.port=port; self.allow=allow; self.start()
     def start(self):
-        self.process=subprocess.Popen(['node','--import','tsx','scripts/android-smoke.ts','--port',str(self.port),'--allow','terminal,messages,permissions'],cwd=ROOT,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        self.process=subprocess.Popen(['node','--import','tsx','scripts/android-smoke.ts','--port',str(self.port),'--allow',self.allow],cwd=ROOT,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
         line=self.process.stdout.readline(); self.ready=json.loads(line); assert self.ready['ready']
     def stop(self):
         self.process.terminate(); self.process.wait(timeout=10)
