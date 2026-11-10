@@ -54,7 +54,8 @@ component RootPicker inherits TextButton {
 }
 
 component FilesPanel inherits FocusScope {
-    init => { self.focus(); }
+    private property <bool> loading: FilesState.loading;
+    changed loading => { if !self.loading { self.focus(); } }
     private property <int> selected: FilesState.selected-index;
     changed selected => {
         if self.selected >= 0 {
@@ -67,7 +68,6 @@ component FilesPanel inherits FocusScope {
         } else { entries.content-y = 0px; }
     }
     key-pressed(event) => {
-        if event.text == Key.Escape { FilesState.close(); return accept; }
         if event.text == Key.Backspace {
             if !FilesState.loading && FilesState.crumbs.length > 1 { FilesState.parent(); }
             return accept;
@@ -187,10 +187,12 @@ component FilesPanel inherits FocusScope {
     }
 }
 
-export component FilesSheet inherits Rectangle {
-    if FilesState.visible: Sheet {
-        title: FilesState.title;
-        dismissed => { FilesState.close(); }
-        FilesPanel {}
-    }
+export component FilesSheet inherits Sheet {
+    visible: FilesState.visible;
+    title: FilesState.title;
+    dismissed => { FilesState.close(); }
+    forward-focus: panel;
+    private property <bool> active: FilesState.visible;
+    changed active => { if self.active { panel.focus(); } }
+    panel := FilesPanel { enabled: FilesState.visible; }
 }
