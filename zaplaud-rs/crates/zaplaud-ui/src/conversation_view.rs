@@ -640,6 +640,14 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
     let state = window.global::<ConversationViewState>();
     state.set_go_to_end(strings::GO_TO_END.into());
     state.set_view_label(strings::VIEW_MENU.into());
+    let weak = window.as_weak();
+    crate::window_state::on_focus(move |focused| {
+        if let Some(window) = weak.upgrade() {
+            let state = window.global::<ConversationViewState>();
+            state.set_window_focused(focused);
+            state.invoke_position(state.get_following());
+        }
+    });
     state.set_back(strings::BACK.into());
     state.set_view_labels(ModelRc::new(VecModel::from(vec![
         strings::VIEW_ALL.into(),

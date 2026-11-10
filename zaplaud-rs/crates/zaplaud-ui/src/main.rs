@@ -13,6 +13,7 @@ pub mod feature;
 mod list;
 mod login;
 pub mod state;
+pub mod window_state;
 
 slint::include_modules!();
 pub mod strings {
@@ -31,6 +32,7 @@ const FEATURES: &[Feature] = &[
     cast::setup,
     aside::setup,
     composer::setup,
+    window_state::setup,
 ];
 
 fn formatted(key: &str, args: &[&str]) -> String {
@@ -94,6 +96,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     slint::BackendSelector::new()
         .backend_name("winit".into())
         .renderer_name("software".into())
+        .with_winit_window_attributes_hook(window_state::attributes)
         .select()?;
     slint::set_xdg_app_id("zaplaud")?;
     let window = AppWindow::new()?;
