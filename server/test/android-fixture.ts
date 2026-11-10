@@ -400,6 +400,11 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
         office.switchSession(agentId, sessionId);
         messages.inbox({ session: sessionId, account: agent.account });
         result = { ok: true, sessionId };
+      } else if (command === 'reply') {
+        const agent = office.get(agentId);
+        if (!agent || agent.kind !== 'main' || kind) throw new Error('Expected reply <mainAgentId>');
+        office.addActivity(agentId, { id: randomUUID(), kind: 'respond', icon: '', text: 'Resposta fictícia', at: Date.now() }, false);
+        result = { ok: true };
       } else if (command === 'append') {
         const agent = office.get(agentId);
         const path = paths.get(agentId);
