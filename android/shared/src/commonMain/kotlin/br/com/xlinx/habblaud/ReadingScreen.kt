@@ -454,25 +454,31 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
             // Puxar para cima além da mensagem mais nova abre o bate-papo paralelo (agente do omp que aceita mensagens).
             val canAside = selected.agentId != null && !selected.sub && selected.key.provider == "omp" && selected.canMessage && state.messagesAllowed && state.messageGuard && state.connection == "connected"
             val asideAgent by rememberUpdatedState(if (canAside) selected.agentId else null)
-            val asidePx = with(LocalDensity.current) { REVEAL_PULL.toPx() }
+            val asidePx = with(LocalDensity.current) { ASIDE_PULL.toPx() }
             val asideHaptics = LocalHapticFeedback.current
             val asideSwipe = remember(asidePx) {
                 object : NestedScrollConnection {
                     var pulled = 0f
+                    /** null até o gesto andar; true se ele já começou no fim da conversa. */
+                    var startedAtEnd: Boolean? = null
                     override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                        if (source != NestedScrollSource.UserInput) return Offset.Zero
                         // Lista invertida: no fim da conversa, o dedo subindo sobra como rolagem negativa não consumida.
+                        // Só conta o gesto que começou no fim: a sobra de uma rolagem que chega ao fim não abre nada.
+                        if (startedAtEnd == null && (consumed.y != 0f || available.y != 0f)) startedAtEnd = consumed.y == 0f && available.y < 0f
                         val agent = asideAgent
-                        if (source == NestedScrollSource.UserInput && available.y < 0f && agent != null && !asideOpen) {
+                        if (startedAtEnd == true && available.y < 0f && consumed.y == 0f && agent != null && !asideOpen) {
                             pulled -= available.y
-                            if (pulled >= asidePx) { pulled = 0f; controller.asides.open(agent); asideOpen = true; asideHaptics.performHapticFeedback(HapticFeedbackType.LongPress) }
+                            if (pulled >= asidePx) { pulled = 0f; startedAtEnd = false; controller.asides.open(agent); asideOpen = true; asideHaptics.performHapticFeedback(HapticFeedbackType.LongPress) }
                         } else if (available.y > 0f || consumed.y != 0f) pulled = 0f
                         return Offset.Zero
                     }
-                    override suspend fun onPreFling(available: Velocity): Velocity { pulled = 0f; return Velocity.Zero }
+                    override suspend fun onPreFling(available: Velocity): Velocity { pulled = 0f; startedAtEnd = null; return Velocity.Zero }
                 }
             }
             Box(Modifier.weight(1f).fillMaxWidth()) {
-                LazyColumn(Modifier.fillMaxSize().nestedScroll(asideSwipe).testTag("conversation-list"), state = listState, reverseLayout = true, contentPadding = PaddingValues(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom)) {
+                // No desktop a roda do mouse não termina gesto: sem puxada, o bate-papo paralelo fica só no menu.
+                LazyColumn(Modifier.fillMaxSize().then(if (platformPullGestures()) Modifier.nestedScroll(asideSwipe) else Modifier).testTag("conversation-list"), state = listState, reverseLayout = true, contentPadding = PaddingValues(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom)) {
                     // Lista invertida: o primeiro item fica no pé da conversa, logo abaixo da última mensagem.
                     items(rows.asReversed(), key = { it.entry.id }) { row ->
                         val entry = row.entry
@@ -773,8 +779,10 @@ private fun ChatBanner(message: String, modifier: Modifier = Modifier) {
 
 /** O servidor guarda até 99 respostas por agente (REPLIES_LIMIT): daí para cima o balão mostra "99+". */
 private const val REPLIES_SHOWN = 99
-/** Quanto puxar além do fim da lista para revelar algo (busca, bate-papo paralelo): grande o bastante para não acontecer por acidente. */
+/** Quanto puxar além do topo da lista para revelar a busca: grande o bastante para não acontecer por acidente. */
 private val REVEAL_PULL = 120.dp
+/** Puxada para abrir o bate-papo paralelo: maior que a da busca, porque o fim da conversa é onde mais se rola. */
+private val ASIDE_PULL = 180.dp
 /** Respostas até este tamanho já cabem em poucas frases: ficam inteiras, sem pedir resumo. */
 private const val SUMMARY_MIN_CHARS = 500
 /** O servidor aceita até 32 Ki caracteres; o resumo de uma resposta maior olha só o começo dela. */

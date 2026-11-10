@@ -80,6 +80,10 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Zaplaud:** o bate-papo paralelo não abre mais sem querer. A puxada para cima só conta se o gesto começar já no fim
+  da conversa (a sobra de uma rolagem que volta do histórico não abre nada) e precisa ser mais longa (180 dp). No
+  desktop a puxada saiu, porque a roda do mouse acumulava sem fim de gesto; lá o bate-papo abre pelo menu da conversa.
+
 - **Zaplaud:** com agentes trabalhando, a lista não refaz a tela várias vezes por segundo: o spinner e o cronômetro
   mudam juntos uma vez por segundo. Na conversa, o avatar do contato fica parado na linha de estado, no lugar do avatar
   pulando com pontos "digitando" no pé, que redesenhava a tela a 60 qps. Com o app em segundo plano ou a

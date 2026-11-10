@@ -341,6 +341,25 @@ class FixtureUiInstrumentedTest {
         compose.waitUntil(15_000) { compose.onAllNodesWithTag("aside-input").fetchSemanticsNodes().isNotEmpty() }
     }
 
+    @Test fun swipeThatReturnsToConversationEndDoesNotOpenParallelChat() {
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        await(R.string.message_text)
+        compose.onNodeWithContentDescription(text(R.string.back_sessions)).performClick()
+        compose.waitUntil(15_000) { compose.onAllNodes(hasText("caderno · trabalhando")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("caderno · trabalhando").performClick()
+        compose.waitUntil(15_000) { compose.onAllNodesWithTag("conversation-list").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitForIdle()
+        // Um só gesto: desce no histórico, volta ao fim e segue além dele. A sobra não abre o bate-papo paralelo.
+        compose.onNodeWithTag("conversation-list").performTouchInput {
+            down(center)
+            repeat(10) { moveBy(androidx.compose.ui.geometry.Offset(0f, 30.dp.toPx())) }
+            repeat(30) { moveBy(androidx.compose.ui.geometry.Offset(0f, -30.dp.toPx())) }
+            up()
+        }
+        compose.waitForIdle()
+        compose.onAllNodesWithTag("aside-input").assertCountEquals(0)
+    }
+
     @Test fun deliveryBannerDisappearsOnlyAfterDelivery() {
         val statuses = listOf(
             "queued" to R.string.message_queued,

@@ -33,6 +33,7 @@ private val searchStack = mutableListOf<SearchEntry>()
 /** Chamada pelo host em Ctrl+F/Cmd+F; true se algum handler consumiu. */
 fun dispatchDesktopSearch(): Boolean = searchStack.lastOrNull { it.enabled }?.let { it.onSearch(); true } ?: false
 actual fun platformSendsOnEnter(): Boolean = true
+actual fun platformPullGestures(): Boolean = false
 @Composable actual fun rememberAttachmentPicker(onResult: (List<String>) -> Unit): () -> Unit {
     val callback by rememberUpdatedState(onResult)
     val title = stringResource(Res.string.attach_files)
