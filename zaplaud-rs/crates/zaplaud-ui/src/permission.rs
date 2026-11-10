@@ -303,6 +303,7 @@ fn publish(weak: &slint::Weak<AppWindow>, item: SessionItem, state: State) {
                 .into(),
         );
         ui.set_summary(detail.map_or("", permission_summary).into());
+        ui.set_summary_label(strings::PERMISSION_SUMMARY.into());
         ui.set_input(
             detail
                 .and_then(|d| d.input.clone())

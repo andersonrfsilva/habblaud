@@ -22,6 +22,7 @@ export global PermissionState {
     in-out property <string> initials;
     in-out property <string> tool;
     in-out property <string> summary;
+    in property <string> summary-label;
     in-out property <string> input;
     in-out property <string> input-label;
     in-out property <string> deadline;
@@ -92,7 +93,10 @@ export component PermissionSheet inherits Sheet {
                 Text { text: PermissionState.tool-label; font-size: 12px; color: Theme.on-surface-variant; }
                 Text { text: PermissionState.tool; font-size: 16px; color: Theme.on-surface; wrap: char-wrap; }
             }
-            if PermissionState.has-detail && PermissionState.summary != "": Text { text: PermissionState.summary; font-size: 14px; color: Theme.on-surface-variant; wrap: word-wrap; accessible-role: text; accessible-label: PermissionState.summary; }
+            if PermissionState.has-detail && PermissionState.summary != "": VerticalLayout {
+                Text { text: PermissionState.summary-label; font-size: 12px; color: Theme.on-surface-variant; }
+                Text { text: PermissionState.summary; font-size: 14px; color: Theme.on-surface-variant; wrap: word-wrap; accessible-role: text; accessible-label: PermissionState.summary; }
+            }
             if PermissionState.has-detail && PermissionState.questions.length == 0: VerticalLayout { width: min(480px, root.width) - 40px;
                 Text { text: PermissionState.input-label; font-size: 12px; color: Theme.on-surface-variant; }
                 Rectangle { width: min(480px, root.width) - 40px; background: Theme.surface-container-highest; border-radius: 8px; height: min(220px, command-metrics.preferred-height + 24px);

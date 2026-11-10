@@ -138,7 +138,10 @@ internal fun PermissionSheet(api: HabblaudApi, session: SessionItem, allowed: Bo
                     Text(stringResource(Res.string.permission_tool), style = MaterialTheme.typography.labelMedium)
                     Text(request.string("tool").orEmpty(), style = MaterialTheme.typography.titleMedium)
                 }
-                request.string("text")?.takeIf { it.isNotBlank() }?.let { Text(it) }
+                request.string("text")?.takeIf { it.isNotBlank() }?.let {
+                    Text(stringResource(Res.string.permission_summary), style = MaterialTheme.typography.labelMedium)
+                    Text(it)
+                }
                 if (questions.isEmpty()) {
                     Text(stringResource(if (request.string("tool")?.equals("bash", true) == true) Res.string.permission_command else Res.string.permission_input), style = MaterialTheme.typography.labelMedium)
                     SelectionContainer {

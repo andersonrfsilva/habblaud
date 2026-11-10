@@ -12,6 +12,10 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Zaplaud desktop:** O desktop Rust agora reconhece os controles disponíveis no ZeroClaw, permite interromper e iniciar conversas sem misturar rascunhos e esconde indicadores de contexto não confiáveis. Resumos HTTP funcionam sem Tiny. Aprovações e perguntas também mostram o resumo enviado pelo servidor.
+- **Zaplaud desktop:** no cliente Rust, navegador de arquivos com download, chamada de personagens com conversa aberta,
+  conversa em largura total, login salvo em coleção desbloqueada do chaveiro, quebra de linha no campo de mensagem
+  e rolagem do bate-papo paralelo que preserva a leitura. O envio paralelo ignora texto vazio e indica turnos em execução.
 - **Zaplaud:** navegador de arquivos nas pastas de trabalho no Android, iOS e desktop Compose, com navegação por
   pastas, download em fluxo com progresso e cancelamento e abertura do arquivo salvo, como no desktop Rust.
 - **Zaplaud:** novo cliente desktop nativo em Rust, com lista e conversa, Markdown, mensagens e anexos,

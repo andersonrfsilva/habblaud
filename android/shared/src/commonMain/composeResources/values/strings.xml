@@ -88,6 +88,7 @@
     <string name="attachment_error">Não foi possível selecionar ou enviar os arquivos. Verifique acesso, nome e limite de 1 byte a 15 MiB por arquivo; máximo de 5.</string>
     <string name="attachments_expired">Os anexos podem ter expirado. Prepare novamente com um novo envio explícito.</string>
     <string name="permissions_blocked">Respostas a pedidos bloqueadas pelo servidor.</string>
+    <string name="permission_summary">Resumo</string>
     <string name="permission_deadline">Prazo: %1$s</string>
     <string name="permission_other">Outra resposta</string>
     <string name="permission_interrupt">Interromper o agente ao recusar</string>
