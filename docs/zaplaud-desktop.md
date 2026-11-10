@@ -58,11 +58,16 @@ Propriedades de sistema usadas pelos testes: `zaplaud.dataDir`, `zaplaud.prefsNo
 
 ### Host (`android/desktop`)
 
-- `Main.kt`: janela 1100×760, ícone, Esc e Ctrl/Cmd+F no `onKeyEvent` da janela.
+- `Main.kt`: janela 1100×760, ícone, Esc e Ctrl/Cmd+F no `onKeyEvent` da janela. Ícone na bandeja pela biblioteca
+  `dev.nucleusframework:composenativetray` (StatusNotifierItem via DBus, o que waybar e KDE mostram; a bandeja do AWT
+  usa XEmbed e não aparece neles): clique traz a janela; menu com "Abrir o Zaplaud" e "Fechar o Zaplaud". Fechar a
+  janela continua encerrando o app. No Linux, `main()` troca o `WM_CLASS` do XToolkit para `zaplaud` (reflexão, com
+  `--add-opens=java.desktop/sun.awt.X11` nas flags do pacote): no Xwayland o `app_id` vem do `WM_CLASS`, e assim
+  docks (wf-dock) acham `zaplaud.desktop` (`StartupWMClass=zaplaud`) e o ícone.
 - `DesktopAlerts.kt`: avisos de aprovação, pergunta e fim de turno **enquanto o app está aberto e a janela não está
   em foco**. Usa o mesmo laço do Android (`data/AlertWatcher.kt`, `watchAlerts`). Linux: `notify-send` com ação
-  "Abrir", que traz a janela e abre a sessão. macOS: `osascript`, sem clique para abrir. Sem ícone na bandeja e sem
-  rodar com a janela fechada (decisão do dono, 2026-11-09).
+  "Abrir", que traz a janela e abre a sessão. macOS: `osascript`, sem clique para abrir. Não roda com a janela
+  fechada (decisão do dono, 2026-11-09).
 - `build.gradle.kts`: pacotes com `-XX:+UseSerialGC -Xmx256m`. ProGuard desligado (falha com 50 referências opcionais
   do OkHttp).
 

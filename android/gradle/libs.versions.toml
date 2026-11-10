@@ -24,6 +24,7 @@ compose-multiplatform = { id = "org.jetbrains.compose", version.ref = "composeMu
 
 [libraries]
 java-keyring = { module = "com.github.javakeyring:java-keyring", version = "1.0.4" }
+composenativetray = { module = "dev.nucleusframework:composenativetray", version = "2.1.7" }
 compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeBom" }
 compose-ui = { module = "androidx.compose.ui:ui" }
 compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4" }
