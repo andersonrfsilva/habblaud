@@ -12,6 +12,7 @@ mod conversation_view;
 pub mod feature;
 mod list;
 mod login;
+mod settings;
 pub mod state;
 pub mod window_state;
 
@@ -33,6 +34,7 @@ const FEATURES: &[Feature] = &[
     aside::setup,
     composer::setup,
     window_state::setup,
+    settings::setup,
 ];
 
 fn formatted(key: &str, args: &[&str]) -> String {

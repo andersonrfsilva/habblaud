@@ -72,6 +72,12 @@ Não copie textos, cores ou paths vetoriais à mão para a UI. Preserve escapes 
 
 O shell usa `LocalStateStore` pelo adaptador `AppPersistence`: servidores, última sessão, marcadores de leitura, bloqueio de tentativas, tema e preferências de visualização compartilham o formato desktop. Clientes HTTP restauram e atualizam cookies com `SecureSessionStorage`. O cache `AvatarDiskCache` alimenta o LRU de imagens decodificadas do shell (4 MiB); imagens permanecem fora dos snapshots. O tema salvo é aplicado na abertura; `ZAPLAUD_THEME` pode sobrescrevê-lo nesta execução.
 
+Configurações substituem a lista pelo evento `AppEvents.settings`. O recurso `SettingsState` mantém tema, visualização e envio padrão, resumos, notificações, papéis e cotas por servidor. O tema `system` acompanha `Palette.color-scheme` do Slint; quando o backend não informa o esquema, a paleta padrão é clara. As gravações usam `LocalStateStore` fora do event loop. Papéis consultam a API a cada 10 s (1,5 s enquanto pendentes), cotas e modelos a cada 60 s, somente com a tela aberta e `ListState.app-visible`. Fechar cancela a tarefa HTTP; logout e adicionar/reautenticar servidor reutilizam o shell.
+
+Após salvar preferências, `SettingsState.preferences-changed()` avisa o recurso de conversa. Alterações de notificações também emitem `SettingsState.notification-preferences-changed()`, reservado ao recurso de sistema. Cada callback tem um único consumidor; nenhum exige polling do arquivo de preferências.
+
+Para exercitar papéis na fixture real, envie `roles-seed {"tiny":"anthropic/claude-haiku-4-5","task":"openai-codex/gpt-5"}` ao stdin. O comando só semeia o snapshot do auxiliar; `cast-consume` confirma os trabalhos reais criados por `POST /api/cast/roles`. Sem esses comandos, o comportamento anterior da fixture permanece intacto.
+
 Identificadores permanecem em inglês; portas de regras preservam o nome Kotlin convertido para snake_case. Comentários e documentação ficam em português. Não use `unwrap()`/`expect()` em caminhos de rede, disco ou entrada do usuário. Testes devem cobrir comportamento e erros, não detalhes textuais da implementação. Novos recursos devem reutilizar o modelo e as regras existentes, sem introduzir um segundo contrato.
 
 O lint compartilhado usa `unsafe_code = "deny"`, não `forbid`: o Rust gerado pelo Slint contém `unsafe` autorizado internamente. Lints adicionais contra macros de código incompleto também precisam distinguir código próprio do gerado pelo Slint; não altere os arquivos em `OUT_DIR`.
