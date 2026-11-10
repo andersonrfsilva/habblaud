@@ -59,16 +59,16 @@ struct Browser {
 pub fn setup(window: &AppWindow, context: &FeatureContext) {
     let (send, receive) = mpsc::unbounded_channel();
     let global = window.global::<FilesState>();
-    global.set_title(crate::native_strings::FILES_TITLE.into());
-    global.set_root_label(crate::native_strings::FILES_ROOT.into());
-    global.set_loading_label(crate::native_strings::FILES_LOADING.into());
-    global.set_empty_label(crate::native_strings::FILES_EMPTY.into());
-    global.set_close_label(crate::native_strings::FILES_CLOSE.into());
-    global.set_parent_label(crate::native_strings::FILES_PARENT.into());
-    global.set_download_label(crate::native_strings::FILES_DOWNLOAD.into());
-    global.set_downloads_label(crate::native_strings::FILES_DOWNLOADS.into());
-    global.set_open_label(crate::native_strings::FILES_OPEN.into());
-    global.set_show_folder_label(crate::native_strings::FILES_SHOW_FOLDER.into());
+    global.set_title(crate::strings::FILES_TITLE.into());
+    global.set_root_label(crate::strings::FILES_ROOT.into());
+    global.set_loading_label(crate::strings::FILES_LOADING.into());
+    global.set_empty_label(crate::strings::FILES_EMPTY.into());
+    global.set_close_label(crate::strings::FILES_CLOSE.into());
+    global.set_parent_label(crate::strings::FILES_PARENT.into());
+    global.set_download_label(crate::strings::FILES_DOWNLOAD.into());
+    global.set_downloads_label(crate::strings::FILES_DOWNLOADS.into());
+    global.set_open_label(crate::strings::FILES_OPEN.into());
+    global.set_show_folder_label(crate::strings::FILES_SHOW_FOLDER.into());
     let sender = send.clone();
     global.on_open(move |session| {
         let _ = sender.send(Command::Open(session));
@@ -196,7 +196,7 @@ async fn run(
                                 .unwrap_or_else(|| root.path.clone());
                             let _ = send.send(Command::Navigate(path));
                         } else {
-                            browser.error = crate::native_strings::FILES_NO_ROOTS.into();
+                            browser.error = crate::strings::FILES_NO_ROOTS.into();
                         }
                     }
                     Err(error) => {
@@ -300,7 +300,7 @@ async fn run(
                     id,
                     path,
                     name: safe_name(&entry.name),
-                    status: crate::native_strings::FILES_DOWNLOADING.into(),
+                    status: crate::strings::FILES_DOWNLOADING.into(),
                     progress: 0.,
                     running: true,
                     done: false,
@@ -326,7 +326,7 @@ async fn run(
                         Ok(()) => {
                             download.done = true;
                             download.progress = 1.;
-                            download.status = crate::native_strings::FILES_COMPLETED.into();
+                            download.status = crate::strings::FILES_COMPLETED.into();
                         }
                         Err(error) => {
                             if matches!(error, Error::Unauthorized | Error::Api { status: 401, .. })
@@ -342,7 +342,7 @@ async fn run(
                 if let Some(download) = downloads.iter_mut().find(|d| d.id == id && d.running) {
                     download.task.abort();
                     download.running = false;
-                    download.status = crate::native_strings::FILES_CANCELLED.into();
+                    download.status = crate::strings::FILES_CANCELLED.into();
                 }
             }
             Command::OpenDownload(id, folder) => {
@@ -385,14 +385,14 @@ fn error_text(error: &Error) -> String {
             ..
         } => {
             if detail.is_empty() {
-                crate::native_strings::FILES_DISABLED.into()
+                crate::strings::FILES_DISABLED.into()
             } else {
                 detail.clone()
             }
         }
         _ => crate::error_message(error),
     };
-    crate::native_strings::FILES_ERROR.replace("%1$s", &detail)
+    crate::strings::FILES_ERROR.replace("%1$s", &detail)
 }
 fn within(root: &str, path: &str) -> bool {
     path == root
@@ -513,9 +513,7 @@ fn publish(weak: &slint::Weak<AppWindow>, browser: &Browser, downloads: &[Downlo
         .listing
         .as_ref()
         .filter(|l| l.truncated)
-        .map(|l| {
-            crate::native_strings::FILES_TRUNCATED.replace("%1$d", &l.entries.len().to_string())
-        })
+        .map(|l| crate::strings::FILES_TRUNCATED.replace("%1$d", &l.entries.len().to_string()))
         .unwrap_or_default();
     update_ui(weak, move |window| {
         let state = window.global::<FilesState>();
@@ -565,7 +563,7 @@ fn safe_name(name: &str) -> String {
         .trim()
         .trim_start_matches(|character: char| character == '.' || character.is_whitespace());
     if name.is_empty() {
-        crate::native_strings::FILES_FALLBACK_NAME.into()
+        crate::strings::FILES_FALLBACK_NAME.into()
     } else {
         name.into()
     }

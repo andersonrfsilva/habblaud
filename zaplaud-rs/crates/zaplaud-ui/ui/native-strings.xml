@@ -3,22 +3,4 @@
     <string name="picker_paths">Caminhos dos arquivos</string>
     <string name="picker_paths_hint">Digite ou cole um caminho completo por linha, até 5 arquivos.</string>
     <string name="permission_more_lines">mais %1$d linhas</string>
-    <string name="files_title">Arquivos</string>
-    <string name="files_root">Pasta de trabalho</string>
-    <string name="files_loading">Carregando…</string>
-    <string name="files_empty">Pasta vazia.</string>
-    <string name="files_no_roots">Nenhuma pasta de trabalho por aqui ainda.</string>
-    <string name="files_close">Fechar</string>
-    <string name="files_parent">Pasta anterior</string>
-    <string name="files_download">Baixar</string>
-    <string name="files_downloads">Downloads</string>
-    <string name="files_open">Abrir</string>
-    <string name="files_show_folder">Mostrar na pasta</string>
-    <string name="files_truncated">Mostrando os primeiros %1$d itens desta pasta.</string>
-    <string name="files_disabled">arquivos desligados</string>
-    <string name="files_error">Não deu para abrir: %1$s</string>
-    <string name="files_downloading">Baixando…</string>
-    <string name="files_completed">Download concluído.</string>
-    <string name="files_cancelled">Download cancelado.</string>
-    <string name="files_fallback_name">arquivo</string>
 </resources>
