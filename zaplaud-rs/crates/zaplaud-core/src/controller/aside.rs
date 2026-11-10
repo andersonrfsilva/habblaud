@@ -205,13 +205,17 @@ mod tests {
         }
         assert!(seen.lock().unwrap().len() > before);
         visible.send_replace(false);
-        for _ in 0..10 { tokio::task::yield_now().await; }
+        for _ in 0..10 {
+            tokio::task::yield_now().await;
+        }
         let before = seen.lock().unwrap().len();
         tokio::time::advance(Duration::from_secs(10)).await;
         tokio::task::yield_now().await;
         assert_eq!(seen.lock().unwrap().len(), before);
         visible.send_replace(true);
-        for _ in 0..10 { tokio::task::yield_now().await; }
+        for _ in 0..10 {
+            tokio::task::yield_now().await;
+        }
         assert!(seen.lock().unwrap().len() > before);
         send.send(Event::Close).unwrap();
         for _ in 0..10 {

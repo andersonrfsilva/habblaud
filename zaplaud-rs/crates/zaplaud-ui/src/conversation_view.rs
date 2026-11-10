@@ -30,6 +30,7 @@ enum Command {
     Observe(String),
     Position(bool),
     Metadata(Box<SessionItem>),
+    Preferences,
 }
 #[derive(Clone, PartialEq)]
 struct RenderRow {
@@ -579,6 +580,12 @@ async fn run_session(
                         }
                     }
                     Some(Command::Position(following)) => { run.following = following; if following && run.new_count != 0 { run.new_count = 0; run.render(&weak,false); } }
+                    Some(Command::Preferences) => {
+                        run.enabled = run.store.summarize().unwrap_or(false);
+                        run.view = run.store.session_view(&item.key).unwrap_or_else(|_| "all".into());
+                        run.last_visible = None;
+                        run.render(&weak,false);
+                    }
                     Some(Command::Metadata(item)) => {
                         let changed = run.controller.selected.as_ref() != Some(item.as_ref());
                         run.controller.selected = Some(*item);
@@ -681,6 +688,21 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
         }
     });
     let (sender, mut receiver) = mpsc::unbounded_channel();
+    let send = sender.clone();
+    window
+        .global::<crate::SettingsState>()
+        .on_preferences_changed(move || {
+            let _ = send.send(Command::Preferences);
+        });
+    let weak = window.as_weak();
+    window
+        .global::<crate::ComposerState>()
+        .on_scroll_to_end(move || {
+            if let Some(window) = weak.upgrade() {
+                let state = window.global::<ConversationViewState>();
+                state.set_end_request(state.get_end_request().wrapping_add(1));
+            }
+        });
     let weak = window.as_weak();
     state.on_tick(move || {
         if let Some(window) = weak.upgrade() {

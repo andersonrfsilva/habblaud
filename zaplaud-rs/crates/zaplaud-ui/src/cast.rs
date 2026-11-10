@@ -61,7 +61,9 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
         let _ = send.send(Command::Close);
     });
     let (visible, mut visibility) = watch::channel(true);
-    global.on_app_visibility(move |value| { visible.send_replace(value); });
+    global.on_app_visibility(move |value| {
+        visible.send_replace(value);
+    });
     let mut snapshots = context.snapshots.subscribe();
     let weak = window.as_weak();
     let commands = context.commands.clone();

@@ -180,12 +180,38 @@ mod tests {
     }
     #[test]
     fn choices_exclude_open_jobs_and_wrong_rooms_and_prioritize_owner() {
-        let member = |id: &str, rooms: &[&str]| CastChoice { id: id.into(), name: id.into(), rooms: rooms.iter().map(|room| (*room).into()).collect(), avatar: None };
-        let mut state = State { characters: vec![member("open", &[]), member("busy", &[]), member("wrong", &["/elsewhere"]), member("free", &[]), member("owner", &["/project"])], ..State::default() };
+        let member = |id: &str, rooms: &[&str]| CastChoice {
+            id: id.into(),
+            name: id.into(),
+            rooms: rooms.iter().map(|room| (*room).into()).collect(),
+            avatar: None,
+        };
+        let mut state = State {
+            characters: vec![
+                member("open", &[]),
+                member("busy", &[]),
+                member("wrong", &["/elsewhere"]),
+                member("free", &[]),
+                member("owner", &["/project"]),
+            ],
+            ..State::default()
+        };
         state.jobs.jobs.insert("busy".into(), "waiting".into());
-        let open = SessionItem { agent_id: Some("agent".into()), cast: Some("open".into()), ..SessionItem::default() };
-        let selected = SessionItem { cast: Some("owner".into()), project: Some("/project".into()), ..SessionItem::default() };
-        let ids: Vec<_> = state.free(&[open], Some(&selected)).into_iter().map(|choice| choice.id).collect();
+        let open = SessionItem {
+            agent_id: Some("agent".into()),
+            cast: Some("open".into()),
+            ..SessionItem::default()
+        };
+        let selected = SessionItem {
+            cast: Some("owner".into()),
+            project: Some("/project".into()),
+            ..SessionItem::default()
+        };
+        let ids: Vec<_> = state
+            .free(&[open], Some(&selected))
+            .into_iter()
+            .map(|choice| choice.id)
+            .collect();
         assert_eq!(ids, ["owner", "free"]);
     }
 }
