@@ -359,6 +359,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                         Action::PickerDismiss => { update_ui(&weak, |window| window.global::<ComposerState>().set_picker_visible(false)); None }
                         Action::Visibility(visible) => Some(if visible { Event::Start } else { Event::Stop }),
                     };
+                    if matches!(&event, Some(Event::Send { .. })) { update_ui(&weak, |window| window.global::<ComposerState>().invoke_scroll_to_end()); }
                     if let Some(event) = event { let _ = controller.events.send(event); }
                 }
             }
