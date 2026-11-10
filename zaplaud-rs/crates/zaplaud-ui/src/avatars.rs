@@ -3,18 +3,19 @@ use std::{cell::RefCell, collections::VecDeque};
 use zaplaud_core::model::Avatar;
 
 pub const MAX_DECODED_BYTES: usize = 4 * 1024 * 1024;
-/// A integração com zaplaud-store fornece bytes PNG; nenhuma escrita em disco nesta fase.
+/// Cache de PNG em disco, compartilhado pelas tarefas de avatar.
 pub trait AvatarStorage: Send + Sync {
     fn read(&self, key: &str) -> Result<Option<Vec<u8>>, String>;
     fn save(&self, key: &str, png: &[u8]) -> Result<(), String>;
 }
-pub struct MemoryOnly;
-impl AvatarStorage for MemoryOnly {
-    fn read(&self, _: &str) -> Result<Option<Vec<u8>>, String> {
-        Ok(None)
+impl AvatarStorage for zaplaud_store::AvatarDiskCache {
+    fn read(&self, key: &str) -> Result<Option<Vec<u8>>, String> {
+        self.read(key).map_err(|error| error.to_string())
     }
-    fn save(&self, _: &str, _: &[u8]) -> Result<(), String> {
-        Ok(())
+    fn save(&self, key: &str, png: &[u8]) -> Result<(), String> {
+        zaplaud_store::AvatarDiskCache::save(self, key, png)
+            .map(|_| ())
+            .map_err(|error| error.to_string())
     }
 }
 struct Entry {

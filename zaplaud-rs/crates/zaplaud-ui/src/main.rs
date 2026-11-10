@@ -83,20 +83,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     slint::set_xdg_app_id("zaplaud")?;
     let window = AppWindow::new()?;
     labels(&window);
-    window
-        .global::<Theme>()
-        .set_dark(std::env::var("ZAPLAUD_THEME").is_ok_and(|v| v == "dark"));
-    let weak = window.as_weak();
-    window.global::<AppEvents>().on_theme(move |dark| {
-        if let Some(window) = weak.upgrade() {
-            window.global::<Theme>().set_dark(dark);
-        }
-    });
+    let store = zaplaud_store::LocalStateStore::new()?;
+    let avatar_storage = zaplaud_store::AvatarDiskCache::new(store.directories())?;
+    let theme = std::env::var("ZAPLAUD_THEME").unwrap_or(store.theme()?);
+    window.global::<Theme>().set_dark(theme == "dark");
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
     let (sender, receiver) = mpsc::unbounded_channel();
     let (snapshots, _) = tokio::sync::broadcast::channel(16);
+    let theme_sender = sender.clone();
+    window.global::<AppEvents>().on_theme(move |dark| {
+        let _ = theme_sender.send(state::Event::Theme(dark));
+    });
     let context = feature::FeatureContext {
         commands: sender.clone(),
         snapshots: snapshots.clone(),
@@ -138,11 +137,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .name("zaplaud-network".into())
         .spawn(move || {
             runtime.block_on(app::run(
-                state::AppState::new(Box::<state::MemoryPersistence>::default()),
+                state::AppState::new(Box::new(store)),
                 receiver,
                 network_sender,
                 weak,
-                std::sync::Arc::new(avatars::MemoryOnly),
+                std::sync::Arc::new(avatar_storage),
                 snapshots,
             ));
         })?;

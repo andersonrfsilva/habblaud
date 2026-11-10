@@ -132,7 +132,10 @@ pub async fn run(
     match state.persistence.servers() {
         Ok(servers) => {
             for origin in servers {
-                if let Ok(api) = HabblaudApi::new(&origin) {
+                if let Ok(api) = HabblaudApi::with_persistence(
+                    &origin,
+                    Arc::new(zaplaud_store::SecureSessionStorage::new()),
+                ) {
                     let _ = sender.send(Event::LoginFinished {
                         api,
                         result: Ok(()),
@@ -154,11 +157,38 @@ pub async fn run(
         let Some(event) = event else { break };
         match event {
             Event::Shutdown => break,
+            Event::Theme(dark) => {
+                if state
+                    .persistence
+                    .set_theme(if dark { "dark" } else { "light" })
+                    .is_ok()
+                {
+                    update_ui(&weak, move |window| {
+                        window.global::<crate::Theme>().set_dark(dark)
+                    });
+                } else {
+                    update_ui(&weak, |window| {
+                        window
+                            .global::<crate::ShellState>()
+                            .set_message(strings::STORAGE_ERROR.into());
+                    });
+                }
+            }
             Event::Login {
-                api,
+                origin,
                 user,
                 password,
             } => {
+                let api = match HabblaudApi::with_persistence(
+                    &origin,
+                    Arc::new(zaplaud_store::SecureSessionStorage::new()),
+                ) {
+                    Ok(api) => api,
+                    Err(error) => {
+                        login_error(&weak, error_message(&error));
+                        continue;
+                    }
+                };
                 if let Some(task) = login_task.take() {
                     task.abort();
                 }

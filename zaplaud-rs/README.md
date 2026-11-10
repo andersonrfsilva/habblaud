@@ -70,6 +70,8 @@ Não copie textos, cores ou paths vetoriais à mão para a UI. Preserve escapes 
 
 `ZAPLAUD_DATA_DIR` força uma raiz com os filhos `data` e `cache`, útil para testes isolados. Sem override, Linux respeita `XDG_DATA_HOME`/`XDG_CACHE_HOME` (com os fallbacks de `DesktopDirs.kt`); macOS usa `~/Library/Application Support/Zaplaud` e `~/Library/Caches/Zaplaud`. Diretórios Unix são privados (`0700`). A resolução cria os diretórios e propaga erros de disco.
 
+O shell usa `LocalStateStore` pelo adaptador `AppPersistence`: servidores, última sessão, marcadores de leitura, bloqueio de tentativas, tema e preferências de visualização compartilham o formato desktop. Clientes HTTP restauram e atualizam cookies com `SecureSessionStorage`. O cache `AvatarDiskCache` alimenta o LRU de imagens decodificadas do shell (4 MiB); imagens permanecem fora dos snapshots. O tema salvo é aplicado na abertura; `ZAPLAUD_THEME` pode sobrescrevê-lo nesta execução.
+
 Identificadores permanecem em inglês; portas de regras preservam o nome Kotlin convertido para snake_case. Comentários e documentação ficam em português. Não use `unwrap()`/`expect()` em caminhos de rede, disco ou entrada do usuário. Testes devem cobrir comportamento e erros, não detalhes textuais da implementação. Novos recursos devem reutilizar o modelo e as regras existentes, sem introduzir um segundo contrato.
 
 O lint compartilhado usa `unsafe_code = "deny"`, não `forbid`: o Rust gerado pelo Slint contém `unsafe` autorizado internamente. Lints adicionais contra macros de código incompleto também precisam distinguir código próprio do gerado pelo Slint; não altere os arquivos em `OUT_DIR`.
