@@ -31,6 +31,11 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
     global.set_other_label(strings::PERMISSION_OTHER.into());
     global.set_reason_label(strings::PERMISSION_REASON.into());
     global.set_interrupt_label(strings::PERMISSION_INTERRUPT.into());
+    global.on_more_lines(|lines| {
+        crate::native_strings::PERMISSION_MORE_LINES
+            .replace("%1$d", &lines.to_string())
+            .into()
+    });
     let (sender, mut commands) = mpsc::unbounded_channel();
     let tx = sender.clone();
     global.on_open_session(move |key| {

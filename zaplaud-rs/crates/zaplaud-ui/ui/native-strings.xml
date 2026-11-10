@@ -2,4 +2,5 @@
 <resources>
     <string name="picker_paths">Caminhos dos arquivos</string>
     <string name="picker_paths_hint">Digite ou cole um caminho completo por linha, até 5 arquivos.</string>
+    <string name="permission_more_lines">mais %1$d linhas</string>
 </resources>
