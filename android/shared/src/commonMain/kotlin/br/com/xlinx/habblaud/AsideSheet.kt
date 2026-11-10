@@ -40,8 +40,23 @@ internal fun AsideSheet(asides: AsideController, onClose: () -> Unit) {
     val topic = state.topic
     val turns = topic?.turns.orEmpty()
     val list = rememberLazyListState()
-    // Pergunta nova ou resposta crescendo: mostra o fim.
-    LaunchedEffect(topic?.id, turns.size, turns.lastOrNull()?.answer?.length) { if (turns.isNotEmpty()) list.animateScrollToItem(turns.lastIndex) }
+    var following by remember(topic?.id) { mutableStateOf(true) }
+    var autoScrolling by remember { mutableStateOf(false) }
+    LaunchedEffect(list, topic?.id) {
+        var wasScrolling = false
+        snapshotFlow { Triple(list.isScrollInProgress, autoScrolling, list.canScrollForward) }.collect { (scrolling, automatic, canScroll) ->
+            if (!automatic && (scrolling || wasScrolling)) following = !canScroll
+            wasScrolling = scrolling && !automatic
+        }
+    }
+    // Pergunta nova ou resposta crescendo: mostra o fim só enquanto o usuário o acompanha.
+    LaunchedEffect(topic?.id, turns.size, turns.lastOrNull()?.answer?.length) {
+        if (following && !list.isScrollInProgress && turns.isNotEmpty()) {
+            autoScrolling = true
+            try { list.animateScrollToItem(turns.lastIndex, Int.MAX_VALUE) }
+            finally { autoScrolling = false }
+        }
+    }
     var draft by remember { mutableStateOf("") }
     ModalBottomSheet(onDismissRequest = onClose, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(0.9f).navigationBarsPadding().imePadding().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

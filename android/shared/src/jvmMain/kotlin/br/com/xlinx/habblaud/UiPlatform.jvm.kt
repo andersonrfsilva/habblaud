@@ -55,7 +55,8 @@ actual fun platformEntryTime(at: Long, now: Long): String {
 }
 actual fun platformDeadline(at: Long): String = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT, Locale.forLanguageTag("pt-BR")).format(Date(at))
 actual fun retryAfterDeadline(value: String?, now: Long): Long {
-    val seconds = value?.toLongOrNull()?.coerceIn(0, Long.MAX_VALUE / 1000)
-    return if (seconds != null) now + (seconds * 1000).coerceAtMost(Long.MAX_VALUE - now)
-    else runCatching { ZonedDateTime.parse(value, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toEpochMilli().coerceAtLeast(now) }.getOrDefault(now + 60_000)
+    val maximum = now + 86_400_000L
+    val seconds = value?.toLongOrNull()?.coerceIn(0, 86_400)
+    return if (seconds != null) now + seconds * 1000
+    else runCatching { ZonedDateTime.parse(value, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toEpochMilli().coerceIn(now, maximum) }.getOrDefault(now + 60_000)
 }

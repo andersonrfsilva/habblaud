@@ -14,6 +14,11 @@ import org.junit.Assume
 import org.junit.BeforeClass
 import org.junit.Test
 import kotlin.test.assertTrue
+import androidx.compose.ui.graphics.toAwtImage
+import br.com.xlinx.habblaud.data.LocalStateStore
+import kotlinx.coroutines.runBlocking
+import javax.imageio.ImageIO
+import org.junit.Before
 
 @OptIn(ExperimentalTestApi::class)
 class TwoPaneWideUiTest {
@@ -22,6 +27,8 @@ class TwoPaneWideUiTest {
         @BeforeClass @JvmStatic fun start() = fixture.start()
         @AfterClass @JvmStatic fun stop() = fixture.close()
     }
+
+    @Before fun resetLogin() = runBlocking { LocalStateStore().clear() }
 
     @Test fun listRemainsBesideConversationAndEscapeClosesIt() = runDesktopComposeUiTest(width = 1280, height = 800) {
         setContent {
@@ -37,6 +44,22 @@ class TwoPaneWideUiTest {
         runOnIdle { assertTrue(dispatchDesktopBack()) }
         onNodeWithTag("conversation-list").assertDoesNotExist()
         onNodeWithText("Selecione uma conversa").assertExists()
+    }
+
+    @Test fun openConversationKeepsCastAndFillsRightPane() = runDesktopComposeUiTest(width = 1800, height = 1000) {
+        setContent {
+            CompositionLocalProvider(LocalNotificationPlatform provides NotificationPlatform(false, {}, {}, { _, result -> result(false) })) { ZaplaudApp() }
+        }
+        loginToFixture(14760)
+        onAllNodes(sessionRow).onFirst().performClick()
+        waitUntil(timeoutMillis = 15_000) { onAllNodesWithTag("conversation-list").fetchSemanticsNodes().isNotEmpty() && onAllNodesWithContentDescription("Chamar contato").fetchSemanticsNodes().isNotEmpty() }
+        onNodeWithContentDescription("Chamar contato").assertIsDisplayed()
+        assertTrue(onNodeWithTag("conversation-list").fetchSemanticsNode().boundsInRoot.width > 1000f)
+        for (theme in listOf("light", "dark")) {
+            runBlocking { LocalStateStore().setTheme(theme) }
+            waitForIdle()
+            ImageIO.write(onRoot().captureToImage().toAwtImage(), "png", File("/tmp/zaplaud-align-kotlin-desktop-$theme.png"))
+        }
     }
 }
 
