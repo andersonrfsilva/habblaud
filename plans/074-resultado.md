@@ -94,7 +94,7 @@ dois modos de desenho (12 de 12).
   numa sessão de verdade, seletor de arquivos nativo, leitor de tela real. Tudo foi exercitado por protocolo em
   serviços DBus falsos ou não pôde ser exercitado nesta máquina (sem tela, sem chaveiro).
 - Instalação no miranote: a máquina estava desligada. Pacote pronto em
-  `~/dados/zaplaud-rs-dist/final/zaplaud-linux-x86_64.tar.gz` (instala sem `sudo`; exige glibc 2.44, ok no CachyOS).
+  `~/dados/zaplaud-rs-dist/final/zaplaud-linux-x86_64.tar.gz` (instala sem `sudo`; o pacote leve exige glibc 2.43).
 - `.deb`/`.rpm` gerados só para inspeção; o CI gera os de distribuição numa base Ubuntu 24.04. O workflow não foi disparado.
 - Uso real do dono (fase 6 do plano).
 

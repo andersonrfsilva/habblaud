@@ -36,7 +36,7 @@ Respostas `429` bloqueiam novas tentativas por no máximo 24 h, tanto para segun
 
 O pacote de usuário `zaplaud-linux-x86_64.tar.gz` contém o executável release, o instalador, os ícones hicolor gerados do SVG canônico e as licenças de Noto Sans Mono, Noto Emoji e DejaVu. Extraia e execute `bash install-linux.sh`, sem `sudo`. Consulte [distribuição desktop](packaging/README.md) para instalação, remoção e bibliotecas de execução.
 
-O pacote usa `software` do Slint e não inclui Skia. Para emoji colorido, compile com `--features skia` e execute com `ZAPLAUD_RENDERER=skia-software`; a cor exige fonte emoji do sistema. O tarball final local requer glibc 2.44 ou posterior; isso difere da base Ubuntu 24.04 do CI.
+O pacote usa `software` do Slint e não inclui Skia. Para emoji colorido, compile com `--features skia` e execute com `ZAPLAUD_RENDERER=skia-software`; a cor exige fonte emoji do sistema. O tarball final local requer glibc 2.43 ou posterior; isso difere da base Ubuntu 24.04 do CI.
 
 
 ## Arquitetura e propriedade dos módulos
@@ -183,6 +183,7 @@ Importe componentes de `ui/widgets/kit.slint`; todas as cores vêm dos recursos 
 Os campos de `Theme` incluem os 48 papéis Material 3 em claro e escuro. O [baseline real](scripts/dump-m3-baseline.md) é sobrescrito ao vivo pelo Kotlin. `AvatarColors` e `StatusColors` também são extraídos dos arquivos Kotlin, sem paletas substitutas.
 
 - `ListState.app-visible` começa `true`; o adaptador de janela deve atualizá-lo ao ocultar/restaurar. `clock.rs` possui o único timer de cronômetros, a 1 Hz, ativo somente com texto de tempo decorrido visível. A lista informa geometria das linhas virtuais, sem publicar outro modelo a cada segundo. Login, configurações, layout estreito e janela oculta suspendem consumidores fora da tela. O spinner usa o mesmo tick e fica estático sem foco; o anel de contexto e `ProgressRing` não animam continuamente. Foco e visibilidade chegam pelo mesmo hook winit de `window_state`, sem instalar outro hook.
+  No macOS, sem foco, o cronômetro atualiza a cada 15 s; em foco mantém segundos e spinner a 1 Hz. Oculta/minimizada, a janela suspende o timer. O foco reinicia a cadência sem registrar outro timer.
 - O renderer software não recorta imagens pelo raio do pai. `avatars::decode` aplica máscara circular no RGBA antes de entrar no cache; preserve essa etapa.
 - `Sheet` e `Dialog` contêm os filhos no `FocusScope` de Esc. Formulários dinâmicos devem cercar sua ordem Tab com sentinelas de foco; o kit não inventa travessia entre descendentes.
 
@@ -219,6 +220,12 @@ São cinco aberturas isoladas; a última mede lista, conversa com pelo menos 200
 
 `--renderer software --profile-render` salva a saída `refresh_lazy,console` do renderer software em `/tmp`, incluindo regiões sujas. Sem `--renderer`, o script mede o padrão do aplicativo e remove um `SLINT_BACKEND` herdado. `--strace /caminho/strace` salva um perfil de syscalls, separado das medições normais: tracing e o contador de FPS alteram os despertares e não devem contaminar a comparação de CPU. `--fixture-url` aceita uma fixture externa, mas não semeia nem certifica 200 entradas.
 
+`--size 1920x1080` define o tamanho lógico após o login; `--scale 2 --size 1440x900`
+mede 2880×1800 pixels físicos. A tela Xvfb deve comportar o tamanho físico.
+Use socket X11 local e MIT-SHM em resoluções grandes: o transporte TCP sem SHM
+excede o tamanho máximo de request ao apresentar um buffer de 2880×1800.
+Cada execução preserva o log do cliente em `/tmp/zaplaud-rs-fin-perf-*-render-*.log`, inclusive em erro.
+
 ### Renderer e emoji
 
 O padrão em Linux e macOS é `software` do Slint: prioriza memória, mantendo sequências emoji
@@ -236,13 +243,27 @@ Slint/winit 1.18.1 pode guardar o erro em `event_loop.rs:242-244` sem sair do lo
 Essa verificação não cria polling periódico nem mantém um timer de idle.
 O caminho OpenGL opcional requer libEGL/libGL e um driver Mesa ou do fabricante.
 
-Textos permanecem na primeira fonte sans-serif do sistema. O fallback emoji vem
+No macOS, ambos os renderizadores CPU terminam no mesmo `softbuffer 0.4.8`:
+`CGImage` em `DeviceRGB` atribuído a `CALayer.contents`. O backend aloca buffer novo
+e retorna idade zero a cada frame; Slint precisa redesenhar tudo. `present_with_damage`
+ignora os retângulos no backend CoreGraphics. Não há configuração pública de cor,
+idade do buffer ou apresentação parcial acessível pelo aplicativo. Metal evita esse
+caminho, mas a medição real do dono chegou a 363 MB; não é o padrão de um cliente leve.
+Não foi feito fork de Slint/softbuffer. Em segundo plano, a cadência macOS reduz
+apresentações sem perder segundos ou animação enquanto a janela está em foco.
+
+No macOS, a família primária é a fonte de interface (`System Font`/SF), não a Helvetica
+que o Fontique 0.11.1 escolhe originalmente para sans-serif. `AppWindow` fixa peso regular 400;
+o kit preserva 500 para rótulos e 700 para negrito. `cargo run -p zaplaud-ui --example font_probe`
+registra as famílias/pesos antes e depois da política. O probe `emoji_probe` aceita
+`ZAPLAUD_PROBE_SNAPSHOT=/tmp/fontes.png` e mostra 400/500/700 junto aos controles emoji.
+Em Linux, permanece a primeira fonte sans-serif do sistema. O fallback emoji vem
 antes dos fallbacks adicionais de símbolos: sem essa ordem, DejaVu pode capturar
 `✅`, `⚠️` e partes de `1️⃣` antes da fonte colorida. Fontes monoespaçadas explícitas
 do Markdown não mudam. Em Linux, a fonte colorida deste ensaio foi
 `/usr/share/fonts/noto/NotoColorEmoji.ttf` (`fc-list :lang=und-zsye` e `fc-match emoji`).
 Sem fonte colorida instalada, a Noto Emoji de contorno embutida mantém glifos legíveis.
-Os pacotes DEB/RPM declaram a dependência da fonte colorida.
+A fonte colorida do sistema é opcional e usada somente pelo build com Skia.
 
 `ui/fonts/NotoEmoji.ttf` é a variável oficial do
 [Google Fonts](https://github.com/google/fonts/tree/main/ofl/notoemoji), sem mescla
@@ -280,6 +301,11 @@ Parley 0.11.1/Swash do renderer. Rejeita `.notdef`, glifo sem bitmap/contorno e
 decomposição das sequências do probe. Roda em `cargo test --workspace`, inclusive CI;
 não precisa de display nem de FontTools. Não substitui a inspeção dos PNGs coloridos.
 
+#### Histórico: ensaios anteriores em janela 1×
+
+Os números desta subseção são do build anterior, não do pacote leve atual.
+A conclusão anterior sobre Skia foi revogada após o primeiro uso Retina real.
+
 Os candidatos exploratórios foram compilados juntos com
 `--features slint/renderer-femtovg,slint/renderer-skia-vulkan`.
 O build release completo levou 246 s e produziu um binário comum de 28.505.552 bytes.
@@ -297,7 +323,7 @@ CPU percentual de um núcleo, estados lista / conversa com 252 entradas / trabal
 | Skia CPU | 94,63 | 56.248 / 56.993 / 58.893 | 0,67 / 0,77 / 0,37 | 6 / 7 / 7 | 23,50 | Atende PSS < 100 MiB e abertura < 300 ms |
 | FemtoVG OpenGL | 363,56 | 149.899 / 158.514 / 159.928 | 4,07 / 5,80 / 8,50 | 39 / 40 / 40 | 25,37 | Reprovado nas duas metas |
 | Skia OpenGL | 271,46 | 155.500 / 160.804 / 196.302 | 0 / 0 / 8,97 | 39 / 40 / 40 | 22,64 | Reprovado em PSS |
-| Skia CPU final, sem override | 126,93 | 56.817 / 59.581 / 61.725 | 0,63 / 0,63 / 0,87 | 6 / 7 / 7 | 23,10 | Selecionado; binário 30.124.544 bytes |
+| Skia CPU anterior, sem override | 126,93 | 56.817 / 59.581 / 61.725 | 0,63 / 0,63 / 0,87 | 6 / 7 / 7 | 23,10 | Escolha anterior, revogada após uso Retina; binário 30.124.544 bytes |
 
 Esses três candidatos pintaram o probe colorido com a prioridade emoji corrigida.
 O binário experimental comum evita atribuir diferenças de código compilado ao renderer
@@ -313,13 +339,13 @@ Evidências locais: `/tmp/zaplaud-rs-emoji-<candidato>.png` e
 `/tmp/zaplaud-rs-emoji-<candidato>-metrics.json`.
 Os resultados não garantem o mesmo consumo em GPU real, outro driver ou macOS.
 
-O build final habilita somente Skia e software, com Noto Emoji embutida. A rodada
-final mediu o padrão real, sem `SLINT_BACKEND`/`SLINT_FONT_PATH`/`SLINT_DEFAULT_FONT`.
+O build daquele ensaio habilitava Skia e software, com Noto Emoji embutida. A rodada
+mediu o padrão anterior, sem `SLINT_BACKEND`/`SLINT_FONT_PATH`/`SLINT_DEFAULT_FONT`.
 O PSS após vinte ciclos foi 59.653 KiB; CPU 0,37%, nove threads. CPU não foi zero:
 os estados medidos ficaram entre 0,37% e 0,87% de um núcleo.
 O JSON integral está em `/tmp/zaplaud-rs-emoji-final-metrics.json`.
 
-Na lista final e nas duas conversas, os arquivos de fonte mapeados somaram
+Na lista e nas duas conversas daquele ensaio, os arquivos de fonte mapeados somaram
 12.488 KiB PSS em `/proc/<pid>/smaps`:
 
 | Arquivo mapeado | PSS (KiB) |

@@ -216,16 +216,20 @@ def sample(process, desktop, helpers, seconds, capture_damage=False):
 
 def scroll_probe(desktop):
     desktop.x.XSetInputFocus(desktop.d, desktop.mapped()[0], 1, 0)
-    desktop.x.XWarpPointer(desktop.d, 0, desktop.mapped()[0], 0, 0, 0, 0, 800, 400)
+    _, physical_width, physical_height = desktop.mapped()
+    desktop.x.XWarpPointer(desktop.d, 0, desktop.mapped()[0], 0, 0, 0, 0,
+                          round((physical_width + 360 * desktop.scale) / 2), physical_height // 2)
     desktop.x.XSync(desktop.d, 0)
-    before = desktop.image().crop((370, 80, 1050, 650)).tobytes()
+    image = desktop.image()
+    viewport = (370, 80, image.width - 50, image.height - 110)
+    before = image.crop(viewport).tobytes()
     started = time.perf_counter()
     for _ in range(20):
         for pressed in (1, 0):
             desktop.xt.XTestFakeButtonEvent(desktop.d, 4, pressed, 0)
     desktop.x.XSync(desktop.d, 0)
     while time.perf_counter() - started < 5:
-        if desktop.image().crop((370, 80, 1050, 650)).tobytes() != before:
+        if desktop.image().crop(viewport).tobytes() != before:
             elapsed = (time.perf_counter() - started) * 1000
             for _ in range(20):
                 for pressed in (1, 0):
@@ -238,7 +242,19 @@ def scroll_probe(desktop):
 
 
 class ScaledDesktop:
-    """Mantém a automação em coordenadas lógicas, sem esconder o tamanho físico."""
+    """Mantém a automação em coordenadas lógicas, sem esconder o tamanho físico.
+
+    >>> from types import SimpleNamespace
+    >>> from PIL import Image
+    >>> physical = SimpleNamespace(click=lambda x, y: (x, y), image=lambda: Image.new('RGB', (2880, 1800)))
+    >>> desktop = ScaledDesktop(physical, 2)
+    >>> desktop.click(140, 167)
+    (280, 334)
+    >>> desktop.image().size
+    (1440, 900)
+    >>> ScaledDesktop(physical, 1).image().size
+    (2880, 1800)
+    """
     def __init__(self, desktop, scale):
         self.desktop, self.scale = desktop, scale
 
@@ -385,8 +401,7 @@ def measure_run(args, helpers, desktop, index):
                 }
             finally:
                 stop(process)
-                if args.profile_render:
-                    Path(f'/tmp/zaplaud-rs-fin-perf-{args.label}-render-{index}.log').write_text((root / 'client.log').read_text())
+                Path(f'/tmp/zaplaud-rs-fin-perf-{args.label}-render-{index}.log').write_text((root / 'client.log').read_text())
 
 
 def main():

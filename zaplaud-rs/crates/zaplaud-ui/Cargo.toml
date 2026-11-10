@@ -62,7 +62,7 @@ copyright = "XLINX"
 extended-description = "Cliente desktop nativo de mensagens Zaplaud."
 section = "net"
 priority = "optional"
-depends = "$auto, fonts-noto-color-emoji, libxkbcommon0, libwayland-client0, libx11-6, libx11-xcb1, libxcursor1, libxrandr2, libxi6, libxcb1, libxcb-render0, libxcb-shm0, libxkbcommon-x11-0"
+depends = "$auto, libxkbcommon0, libwayland-client0, libx11-6, libx11-xcb1, libxcursor1, libxrandr2, libxi6, libxcb1, libxcb-render0, libxcb-shm0, libxkbcommon-x11-0"
 assets = [
     ["target/release/zaplaud", "usr/bin/zaplaud", "755"],
     ["../../packaging/zaplaud.desktop", "usr/share/applications/zaplaud.desktop", "644"],
@@ -110,8 +110,6 @@ libxcb = "*"
 wayland-libs = "*"
 fontconfig = "*"
 freetype = "*"
-"libstdc++" = "*"
-google-noto-color-emoji-fonts = "*"
 
 [package.metadata.bundle]
 name = "Zaplaud"

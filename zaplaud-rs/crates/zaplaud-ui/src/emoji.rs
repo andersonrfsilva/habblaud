@@ -38,8 +38,10 @@ pub fn setup(software: bool) -> Result<(), Box<dyn std::error::Error>> {
             .generic_families(fontique::GenericFamily::SystemUi)
             .collect();
         if !system.is_empty() {
-            collection.set_generic_families(fontique::GenericFamily::SansSerif, system.iter().copied());
-            collection.set_generic_families(fontique::GenericFamily::UiSansSerif, system.iter().copied());
+            collection
+                .set_generic_families(fontique::GenericFamily::SansSerif, system.iter().copied());
+            collection
+                .set_generic_families(fontique::GenericFamily::UiSansSerif, system.iter().copied());
         }
     }
     for generic in [

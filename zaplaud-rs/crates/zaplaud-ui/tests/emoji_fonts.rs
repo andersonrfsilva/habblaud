@@ -17,6 +17,16 @@ fn probe_has_no_notdef_and_paints_with_the_app_font_stack() -> Result<(), Box<dy
     slint::platform::set_platform(Box::new(FontOnlyPlatform))?;
     for software in [false, true] {
         zaplaud_ui::emoji::setup(software)?;
+        #[cfg(target_os = "macos")]
+        {
+            use slint::fontique_011::fontique::GenericFamily;
+            let collection = shared_collection();
+            assert_eq!(
+                collection.generic_families(GenericFamily::SansSerif).next(),
+                collection.generic_families(GenericFamily::SystemUi).next(),
+                "sans-serif deve preservar a fonte de interface nativa do macOS",
+            );
+        }
         let mut fonts = parley::FontContext {
             collection: shared_collection(),
             source_cache: parley::fontique::SourceCache::new_shared(),

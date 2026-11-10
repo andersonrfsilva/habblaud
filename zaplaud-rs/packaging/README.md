@@ -12,7 +12,7 @@ O artefato `zaplaud-linux-x86_64.tar.gz` inclui o binário, os ícones, `install
 
 ## Bibliotecas de execução
 
-O pacote portátil não inclui glibc ou bibliotecas gráficas. O CI usa Ubuntu 24.04 x86_64: o artefato produzido nessa base requer **glibc 2.39 ou posterior**. O tarball final construído localmente em Arch Linux requer **glibc 2.44 ou posterior**, conforme os símbolos ELF, além de `GLIBCXX_3.4.26` e `CXXABI_1.3.9`. Não use esse tarball local em Ubuntu 24.04, Ubuntu 22.04 ou Debian 12; construa na própria distribuição ou em uma base compatível. Não é um executável musl.
+O pacote portátil não inclui glibc ou bibliotecas gráficas. O CI usa Ubuntu 24.04 x86_64: o artefato produzido nessa base requer **glibc 2.39 ou posterior**. O tarball leve construído localmente em Arch Linux requer **glibc 2.43 ou posterior**, conforme `readelf --version-info`, sem símbolos `GLIBCXX`/`CXXABI`. Não use esse tarball local em Ubuntu 24.04, Ubuntu 22.04 ou Debian 12; construa na própria distribuição ou em uma base compatível. Não é um executável musl.
 
 O padrão é `software` do Slint, com emoji de contorno embutido e sem Skia, OpenGL, GTK, Qt, JVM ou OpenSSL. Skia é opt-in de compilação (`--features skia`) e execução (`ZAPLAUD_RENDERER=skia-software` para CPU, `ZAPLAUD_RENDERER=skia` para Metal no macOS). `SLINT_BACKEND=winit-software` continua funcionando e tem precedência. Winit/softbuffer carregam bibliotecas X11/Wayland em execução: `ldd` sozinho não lista todos esses requisitos.
 
@@ -22,11 +22,11 @@ Instale os pacotes abaixo com o gerenciador da distribuição. São nomes de run
 
 | Distribuição | Pacotes |
 | --- | --- |
-| Ubuntu 24.04 / Debian 13 | `libc6 libgcc-s1 libstdc++6 libfreetype6 libfontconfig1 libx11-6 libx11-xcb1 libxcursor1 libxrandr2 libxi6 libxcb1 libxcb-render0 libxcb-shm0 libxkbcommon0 libxkbcommon-x11-0 libwayland-client0 fonts-dejavu-core fonts-noto-color-emoji` |
-| Fedora | `glibc libgcc libstdc++ freetype fontconfig libX11 libXcursor libXrandr libXi libxcb libxkbcommon libxkbcommon-x11 wayland-libs dejavu-sans-fonts google-noto-color-emoji-fonts` |
-| Arch Linux / CachyOS | `glibc gcc-libs freetype2 fontconfig libx11 libxcursor libxrandr libxi libxcb libxkbcommon libxkbcommon-x11 wayland ttf-dejavu noto-fonts-emoji` |
+| Ubuntu 24.04 / Debian 13 | `libc6 libgcc-s1 libfreetype6 libfontconfig1 libx11-6 libx11-xcb1 libxcursor1 libxrandr2 libxi6 libxcb1 libxcb-render0 libxcb-shm0 libxkbcommon0 libxkbcommon-x11-0 libwayland-client0 fonts-dejavu-core` |
+| Fedora | `glibc libgcc freetype fontconfig libX11 libXcursor libXrandr libXi libxcb libxkbcommon libxkbcommon-x11 wayland-libs dejavu-sans-fonts` |
+| Arch Linux / CachyOS | `glibc gcc-libs freetype2 fontconfig libx11 libxcursor libxrandr libxi libxcb libxkbcommon libxkbcommon-x11 wayland ttf-dejavu` |
 
-A tabela identifica os pacotes de runtime, não garante compatibilidade ABI com o tarball local. A fonte colorida permite emoji colorido no Skia; sem ela, a fonte Noto Emoji embutida mantém glifos de contorno.
+A tabela cobre o build leve e não garante compatibilidade ABI com o tarball local. No build Skia opcional, acrescente libstdc++ e fonte colorida: `fonts-noto-color-emoji` (Debian/Ubuntu), `google-noto-color-emoji-fonts` (Fedora) ou `noto-fonts-emoji` (Arch). Sem ela, Noto Emoji embutida mantém contornos.
 
 Uma sessão gráfica X11 ou Wayland é necessária. D-Bus de sessão, um serviço `org.freedesktop.Notifications` e um observador StatusNotifier habilitam notificações e bandeja; sua ausência não impede abrir o aplicativo. Nenhum `notify-send` ou `libdbus` C é exigido. Para manter cookies entre execuções no Linux, disponibilize um provedor Secret Service desbloqueado, como GNOME Keyring ou KeePassXC com essa integração ativada. Sem ele, a sessão fica apenas em memória. No macOS, usa-se o Keychain nativo.
 
