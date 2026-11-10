@@ -49,15 +49,19 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
         let _ = tx.send(Command::Event(Event::Close));
     });
     let tx = sender.clone();
-    global.on_decide(move |behavior| {
+    global.on_decide(move |id, behavior| {
         let _ = tx.send(Command::Event(Event::Decide {
+            id: id.to_string(),
             behavior: behavior.to_string(),
             now: now_millis(),
         }));
     });
     let tx = sender.clone();
-    global.on_deny(move || {
-        let _ = tx.send(Command::Event(Event::Deny { now: now_millis() }));
+    global.on_deny(move |id| {
+        let _ = tx.send(Command::Event(Event::Deny {
+            id: id.to_string(),
+            now: now_millis(),
+        }));
     });
     let tx = sender.clone();
     global.on_select(move |question, option, multi, checked| {
@@ -180,6 +184,7 @@ fn publish(weak: &slint::Weak<AppWindow>, item: SessionItem, state: State) {
     update_ui(weak, move |window| {
         let ui = window.global::<PermissionState>();
         let detail = state.detail.as_ref();
+        ui.set_request_id(state.id.as_deref().unwrap_or_default().into());
         ui.set_title(
             if detail.is_some_and(|d| !d.questions.is_empty()) {
                 strings::QUESTION_PENDING

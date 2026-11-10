@@ -94,6 +94,8 @@ pub struct State {
     pub decision: Decision,
     pub show_deny: bool,
     generation: u64,
+    // A decisão pertence ao pedido, não à conexão que recarrega seus detalhes.
+    decision_generation: u64,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Event {
@@ -129,9 +131,11 @@ pub enum Event {
     Interrupt(bool),
     Message(String),
     Deny {
+        id: String,
         now: i64,
     },
     Decide {
+        id: String,
         behavior: String,
         now: i64,
     },
@@ -174,6 +178,7 @@ pub fn reduce(mut state: State, event: Event) -> (State, Vec<Effect>) {
                 let generation = state.generation.wrapping_add(1);
                 if state.id.as_ref() != Some(&id) {
                     state = State::default();
+                    state.decision_generation = generation;
                 }
                 state.generation = generation;
                 state.id = Some(id.clone());
@@ -232,11 +237,12 @@ pub fn reduce(mut state: State, event: Event) -> (State, Vec<Effect>) {
         Event::Suggestion(value) => state.decision.suggestion = value,
         Event::Interrupt(value) => state.decision.interrupt = value,
         Event::Message(value) => state.decision.message = value,
-        Event::Deny { now } => {
+        Event::Deny { id, now } if state.id.as_ref() == Some(&id) => {
             if state.show_deny {
                 return reduce(
                     state,
                     Event::Decide {
+                        id,
                         behavior: "deny".into(),
                         now,
                     },
@@ -244,8 +250,9 @@ pub fn reduce(mut state: State, event: Event) -> (State, Vec<Effect>) {
             }
             state.show_deny = true;
         }
-        Event::Decide { behavior, now } => {
-            if state.allowed
+        Event::Decide { id, behavior, now } => {
+            if state.id.as_ref() == Some(&id)
+                && state.allowed
                 && state.connected
                 && !state.busy
                 && !state.expired
@@ -264,7 +271,7 @@ pub fn reduce(mut state: State, event: Event) -> (State, Vec<Effect>) {
                         if let Some(id) = &state.id {
                             state.busy = true;
                             effects.push(Effect::DecidePermission {
-                                token: state.generation,
+                                token: state.decision_generation,
                                 id: id.clone(),
                                 body,
                             });
@@ -274,7 +281,7 @@ pub fn reduce(mut state: State, event: Event) -> (State, Vec<Effect>) {
                 }
             }
         }
-        Event::Decided { token } if token == state.generation => {
+        Event::Decided { token } if token == state.decision_generation => {
             state.busy = false;
             effects.push(Effect::Close);
         }
@@ -282,7 +289,7 @@ pub fn reduce(mut state: State, event: Event) -> (State, Vec<Effect>) {
             token,
             status,
             cancelled,
-        } if token == state.generation => {
+        } if token == state.decision_generation => {
             state.busy = false;
             if cancelled {
                 state.ambiguous = true;

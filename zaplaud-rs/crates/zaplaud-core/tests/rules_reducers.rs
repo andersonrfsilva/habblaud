@@ -19,6 +19,7 @@ fn file(uri: &str) -> Attachment {
         mime: "text/plain".into(),
         size: Some(1),
         persistent: true,
+        identity: None,
     }
 }
 #[derive(Default)]
@@ -763,6 +764,7 @@ fn permission_guard_rechecks_deadline_and_ambiguity_blocks_resend() {
     let (_, effects) = p::reduce(
         state.clone(),
         p::Event::Decide {
+            id: "p".into(),
             behavior: "allow".into(),
             now: 100,
         },
@@ -771,6 +773,7 @@ fn permission_guard_rechecks_deadline_and_ambiguity_blocks_resend() {
     let (state, effects) = p::reduce(
         state,
         p::Event::Decide {
+            id: "p".into(),
             behavior: "allow".into(),
             now: 99,
         },
@@ -793,6 +796,7 @@ fn permission_guard_rechecks_deadline_and_ambiguity_blocks_resend() {
     let (_, effects) = p::reduce(
         state,
         p::Event::Decide {
+            id: "p".into(),
             behavior: "allow".into(),
             now: 99,
         },
@@ -828,7 +832,21 @@ fn permission_choice_controls_and_error_classes() {
         },
     );
     assert!(state.decision.selections[&2].is_empty());
-    let (state, _) = p::reduce(state, p::Event::Deny { now: 0 });
+    let (state, _) = p::reduce(
+        state,
+        p::Event::Observe {
+            id: "p".into(),
+            allowed: true,
+            connected: true,
+        },
+    );
+    let (state, _) = p::reduce(
+        state,
+        p::Event::Deny {
+            id: "p".into(),
+            now: 0,
+        },
+    );
     assert!(state.show_deny);
     for (status, expected) in [
         (Some(400), "decision"),
@@ -872,6 +890,168 @@ fn permission_choice_controls_and_error_classes() {
         },
     );
     assert!(effects.contains(&p::Effect::Close));
+}
+
+#[test]
+fn permission_input_preserves_strings_and_compact_json_without_truncation() {
+    let command = format!("echo início\n{}fim", "x".repeat(32_768));
+    for input in [
+        json!(command),
+        json!({"command": command, "args": ["a", 2], "nested": {"allow": false}}),
+        json!([true, "texto", 3]),
+        json!(42),
+        json!(false),
+        Value::Null,
+    ] {
+        let detail = Permission::parse(&json!({"input": input, "description": "Detalhes completos"}));
+        let expected = input.as_str().map(str::to_owned).unwrap_or_else(|| input.to_string());
+        assert_eq!(detail.input.as_deref(), Some(expected.as_str()));
+        assert_eq!(detail.raw["input"], input);
+        assert_eq!(detail.description.as_deref(), Some("Detalhes completos"));
+    }
+    assert_eq!(Permission::parse(&json!({})).input, None);
+}
+
+fn deciding_permission() -> (p::State, u64) {
+    let (state, effects) = p::reduce(
+        p::State::default(),
+        p::Event::Observe {
+            id: "p".into(),
+            allowed: true,
+            connected: true,
+        },
+    );
+    let token = effects
+        .into_iter()
+        .find_map(|effect| match effect {
+            p::Effect::GetPermission { token, .. } => Some(token),
+            _ => None,
+        })
+        .unwrap();
+    let (state, _) = p::reduce(
+        state,
+        p::Event::Loaded {
+            token,
+            detail: permission(100),
+            now: 0,
+        },
+    );
+    let (state, effects) = p::reduce(
+        state,
+        p::Event::Decide {
+            id: "p".into(),
+            behavior: "allow".into(),
+            now: 1,
+        },
+    );
+    assert!(state.busy);
+    assert!(effects.iter().any(|effect| matches!(
+        effect,
+        p::Effect::DecidePermission { token: actual, .. } if *actual == token
+    )));
+    (state, token)
+}
+
+#[test]
+fn permission_decided_survives_stream_flap_and_releases_busy() {
+    let (mut state, token) = deciding_permission();
+    for connected in [false, true] {
+        (state, _) = p::reduce(
+            state,
+            p::Event::Observe {
+                id: "p".into(),
+                allowed: true,
+                connected,
+            },
+        );
+        assert!(state.busy);
+    }
+    let (state, effects) = p::reduce(state, p::Event::Decided { token });
+    assert!(!state.busy);
+    assert_eq!(effects, vec![p::Effect::Close]);
+}
+
+#[test]
+fn permission_decision_failure_survives_stream_flap_and_releases_busy() {
+    for (status, cancelled, error, ambiguous, effect) in [
+        (Some(400), false, Some("decision"), false, None),
+        (Some(503), false, Some("unknown"), true, None),
+        (None, false, Some("unknown"), true, None),
+        (Some(401), false, None, false, Some(p::Effect::Unauthorized)),
+        (Some(409), false, None, false, Some(p::Effect::Close)),
+        (None, true, None, true, Some(p::Effect::PropagateCancellation)),
+    ] {
+        let (mut state, token) = deciding_permission();
+        for connected in [false, true] {
+            (state, _) = p::reduce(
+                state,
+                p::Event::Observe {
+                    id: "p".into(),
+                    allowed: true,
+                    connected,
+                },
+            );
+        }
+        let (state, effects) = p::reduce(
+            state,
+            p::Event::DecisionFailed { token, status, cancelled },
+        );
+        assert!(!state.busy);
+        assert_eq!(state.error.as_deref(), error);
+        assert_eq!(state.ambiguous, ambiguous);
+        assert_eq!(effects, effect.into_iter().collect::<Vec<_>>());
+    }
+}
+
+#[test]
+fn permission_replacement_drops_old_decision_completions_and_displayed_id_actions() {
+    let (state, token) = deciding_permission();
+    let (state, effects) = p::reduce(
+        state,
+        p::Event::Observe {
+            id: "replacement".into(),
+            allowed: true,
+            connected: true,
+        },
+    );
+    let load_token = effects
+        .into_iter()
+        .find_map(|effect| match effect {
+            p::Effect::GetPermission { token, .. } => Some(token),
+            _ => None,
+        })
+        .unwrap();
+    let (state, _) = p::reduce(
+        state,
+        p::Event::Loaded {
+            token: load_token,
+            detail: permission(100),
+            now: 0,
+        },
+    );
+    for event in [
+        p::Event::Decided { token },
+        p::Event::DecisionFailed { token, status: Some(503), cancelled: false },
+        p::Event::Decide { id: "p".into(), behavior: "allow".into(), now: 1 },
+        p::Event::Deny { id: "p".into(), now: 1 },
+    ] {
+        let (next, effects) = p::reduce(state.clone(), event);
+        assert_eq!(next, state);
+        assert!(effects.is_empty());
+    }
+    let (state, effects) = p::reduce(
+        state,
+        p::Event::Decide {
+            id: "replacement".into(),
+            behavior: "allow".into(),
+            now: 1,
+        },
+    );
+    assert!(state.busy);
+    assert!(effects.iter().any(|effect| matches!(
+        effect,
+        p::Effect::DecidePermission { id, .. } if id == "replacement"
+    )));
 }
 
 #[test]

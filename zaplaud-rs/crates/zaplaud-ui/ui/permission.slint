@@ -15,6 +15,7 @@ export global PermissionState {
     in-out property <bool> has-detail;
     in-out property <bool> expired;
     in-out property <string> expired-label;
+    in-out property <string> request-id;
     in-out property <string> title;
     in-out property <string> subtitle;
     in-out property <string> character;
@@ -46,8 +47,8 @@ export global PermissionState {
     callback open-session(string);
     callback open-selected();
     callback close();
-    callback decide(string);
-    callback deny();
+    callback decide(string, string);
+    callback deny(string);
     callback select(int, int, bool, bool);
     callback other(int, bool, string);
     callback suggestion(int, bool);
@@ -61,6 +62,8 @@ export component PermissionBanner inherits Rectangle {
 }
 export component PermissionSheet inherits Sheet {
     dismissed => { PermissionState.close(); }
+    title: PermissionState.title;
+    private property <string> displayed-id: PermissionState.request-id;
     forward-focus: first;
     private property <bool> active: PermissionState.visible;
     changed active => { if self.active { first.focus(); } }
@@ -90,12 +93,10 @@ export component PermissionSheet inherits Sheet {
             if PermissionState.loading || PermissionState.busy: ProgressRing { width: 24px; height: 24px; }
             if PermissionState.has-detail && PermissionState.questions.length == 0: VerticalLayout {
                 Text { text: PermissionState.tool-label; font-size: 12px; color: Theme.on-surface-variant; }
-                Text { text: PermissionState.tool; font-size: 16px; color: Theme.on-surface; }
+                Text { text: PermissionState.tool; font-size: 16px; color: Theme.on-surface; wrap: char-wrap; }
                 Text { text: PermissionState.input-label; font-size: 12px; color: Theme.on-surface-variant; }
-                Rectangle { background: Theme.surface-container-highest; border-radius: 8px; height: min(220px, command.preferred-height + 24px);
-                    ScrollContainer { x: 12px; y: 12px; width: parent.width - 24px; height: parent.height - 24px;
-                        command := TextInput { text: PermissionState.input; read-only: true; font-family: "monospace"; color: Theme.on-surface; }
-                    }
+                Rectangle { background: Theme.surface-container-highest; border-radius: 8px; height: command.preferred-height + 24px;
+                    command := TextInput { x: 12px; y: 12px; width: parent.width - 24px; text: PermissionState.input; read-only: true; wrap: char-wrap; font-size: 16px; font-family: "monospace"; color: Theme.on-surface; accessible-label: PermissionState.input-label; }
                 }
             }
             if PermissionState.deadline != "": Text { text: PermissionState.deadline; font-size: 12px; color: Theme.on-surface-variant; wrap: word-wrap; }
@@ -112,10 +113,10 @@ export component PermissionSheet inherits Sheet {
             if PermissionState.expired: Text { text: PermissionState.expired-label; color: Theme.on-surface; wrap: word-wrap; }
             if PermissionState.error != "": Text { text: PermissionState.error; color: Theme.error; wrap: word-wrap; }
             HorizontalLayout {
-                if PermissionState.questions.length > 0: TextButton { text: PermissionState.answer-label; enabled: PermissionState.enabled; clicked => { PermissionState.decide("answer"); } }
-                if PermissionState.questions.length == 0: FilledButton { text: PermissionState.allow-label; enabled: PermissionState.enabled; clicked => { PermissionState.decide("allow"); } }
-                if PermissionState.questions.length == 0: TextButton { text: PermissionState.deny-label; enabled: PermissionState.enabled; clicked => { PermissionState.deny(); } }
-                TextButton { text: PermissionState.terminal-label; enabled: PermissionState.enabled; clicked => { PermissionState.decide("terminal"); } }
+                if PermissionState.questions.length > 0: TextButton { text: PermissionState.answer-label; enabled: PermissionState.enabled; clicked => { PermissionState.decide(root.displayed-id, "answer"); } }
+                if PermissionState.questions.length == 0: FilledButton { text: PermissionState.allow-label; enabled: PermissionState.enabled; clicked => { PermissionState.decide(root.displayed-id, "allow"); } }
+                if PermissionState.questions.length == 0: TextButton { text: PermissionState.deny-label; enabled: PermissionState.enabled; clicked => { PermissionState.deny(root.displayed-id); } }
+                TextButton { text: PermissionState.terminal-label; enabled: PermissionState.enabled; clicked => { PermissionState.decide(root.displayed-id, "terminal"); } }
             }
             FocusScope {
                 height: 40px;

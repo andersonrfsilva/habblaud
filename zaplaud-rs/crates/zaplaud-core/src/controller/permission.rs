@@ -245,6 +245,7 @@ mod tests {
             tx.send(observe()).unwrap();
             loaded(&mut states).await;
             tx.send(Event::Decide {
+                id: "permission".into(),
                 behavior: behavior.into(),
                 now: now_millis(),
             })
@@ -282,6 +283,7 @@ mod tests {
             }
         }
         tx.send(Event::Decide {
+            id: "permission".into(),
             behavior: "allow".into(),
             now: now_millis(),
         })
