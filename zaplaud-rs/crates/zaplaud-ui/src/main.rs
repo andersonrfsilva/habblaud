@@ -3,7 +3,9 @@ use tokio::sync::mpsc;
 use zaplaud_core::error::Error;
 
 mod app;
+mod aside;
 mod avatars;
+mod cast;
 mod conversation;
 mod conversation_view;
 pub mod feature;
@@ -17,7 +19,14 @@ pub mod strings {
 }
 
 type Feature = fn(&AppWindow, &feature::FeatureContext);
-const FEATURES: &[Feature] = &[login::setup, list::setup, conversation::setup, conversation_view::setup];
+const FEATURES: &[Feature] = &[
+    login::setup,
+    list::setup,
+    conversation::setup,
+    conversation_view::setup,
+    cast::setup,
+    aside::setup,
+];
 
 fn formatted(key: &str, args: &[&str]) -> String {
     strings::format(key, args).unwrap_or_else(|| strings::NETWORK_ERROR.into())

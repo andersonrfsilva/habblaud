@@ -23,10 +23,12 @@ pub struct ServerSnapshot {
 pub struct AppSnapshot {
     pub servers: Vec<ServerSnapshot>,
     pub selected: Option<SessionItem>,
+    pub filter: Option<String>,
 }
 impl AppSnapshot {
     pub fn from_state(state: &AppState) -> Self {
         Self {
+            filter: state.filter.clone(),
             servers: state
                 .servers
                 .iter()

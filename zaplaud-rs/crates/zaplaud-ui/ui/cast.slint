@@ -1,0 +1,44 @@
+import { Theme, Icons } from "resources.slint";
+import { Labels } from "labels.slint";
+import { Dialog, TextButton, Avatar, ScrollList } from "widgets/kit.slint";
+export struct CastRow { id: string, name: string, initials: string, avatar: image }
+export global CastState {
+    in-out property <bool> visible;
+    in-out property <bool> confirming;
+    in property <bool> resume-visible;
+    in property <bool> dismiss-visible;
+    in property <bool> enabled: true;
+    in property <string> status;
+    in property <string> title;
+    in property <string> warning;
+    in property <string> resume-label;
+    in property <string> dismiss-label;
+    in property <string> confirm-label;
+    in property <string> empty-label;
+    in property <[CastRow]> rows;
+    callback start(); callback resume(); callback dismiss(); callback choose(string); callback confirm(); callback close();
+}
+export component CastSheet inherits Rectangle {
+    if CastState.visible: Dialog {
+        title: CastState.title; cancel: Labels.cancel;
+        dismissed => { CastState.close(); }
+        VerticalLayout {
+            if CastState.rows.length == 0: Text { text: CastState.empty-label; color: Theme.on-surface; }
+            ScrollList {
+                height: min(360px, CastState.rows.length * 64px);
+                for row in CastState.rows: Rectangle { height: 64px;
+                    HorizontalLayout { padding: 12px; spacing: 12px;
+                        if row.id != "": Avatar { width: 40px; height: 40px; initials: row.initials; source: row.avatar; }
+                        if row.id == "": Image { width: 40px; height: 40px; source: Icons.ic-person-add; colorize: Theme.on-surface; image-fit: contain; }
+                        TextButton { text: row.name; enabled: CastState.enabled; clicked => { CastState.choose(row.id); } }
+                    }
+                }
+            }
+        }
+    }
+    if CastState.confirming: Dialog {
+        title: CastState.title; text: CastState.warning; confirm: CastState.confirm-label; cancel: Labels.cancel;
+        confirmed => { if CastState.enabled { CastState.confirm(); } }
+        dismissed => { CastState.close(); }
+    }
+}

@@ -6,6 +6,10 @@ import { ConversationPane, ConversationState } from "conversation.slint";
 import { ConversationView, ConversationViewState, ConversationMenu, SessionInfoSheet } from "conversation_view.slint";
 export { ConversationViewState, ConversationRow, InfoRow, MdBlock, MdCell, MdSpan } from "conversation_view.slint";
 import { Dialog } from "widgets/kit.slint";
+import { CastSheet, CastState } from "cast.slint";
+import { AsideSheet, AsideState } from "aside.slint";
+export { CastState, CastRow } from "cast.slint";
+export { AsideState, AsideTurnRow, AsideTopicRow } from "aside.slint";
 export { Theme, Icons, AvatarColors } from "resources.slint";
 export { Labels } from "labels.slint";
 export { LoginState } from "login.slint";
@@ -59,6 +63,8 @@ export component AppWindow inherits Window {
     }
     if ConversationViewState.menu-open: ConversationMenu {}
     if ConversationViewState.info-open: SessionInfoSheet {}
+    CastSheet {}
+    AsideSheet {}
     if ShellState.logout-origin != "": Dialog {
         title: ShellState.logout-title; text: ShellState.logout-warning; confirm: Labels.confirm; cancel: Labels.cancel;
         confirmed => { if !ShellState.logout-busy { ShellState.logout-busy = true; ShellState.confirm-logout(); } }
