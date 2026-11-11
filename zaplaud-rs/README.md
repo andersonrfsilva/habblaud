@@ -140,6 +140,26 @@ aside e cast. A ação de envio pode incrementar `ConversationViewState.end-requ
 `ConversationViewState.copy(string)` preserva o Markdown original; links aceitam somente HTTP/HTTPS.
 O cache é salvo com `ConversationWrite` e epoch da origem; fechar/trocar a seleção também salva, sem esperar o debounce.
 
+O renderizador por software do Slint 1.18.1 usa coordenadas físicas `i16`.
+`transcript::transcript_pieces` divide mensagens em linhas virtuais consecutivas antes da conversão Slint;
+o mesmo limite vale para ferramentas, pensamento e perguntas/respostas do painel paralelo.
+O orçamento soma uma unidade por quebra e uma por quatro caracteres, limitado a 160 unidades
+de conteúdo; cabeçalhos repetidos de tabelas acrescentam no máximo 40 unidades.
+Mesmo com linhas de 40 px e margens, cada item fica abaixo de 10.000 px lógicos (escala até 3).
+Os limites preferem blocos CommonMark/GFM; cercas de código são reabertas somente na apresentação.
+Os bytes originais continuam disponíveis para copiar mensagens e o código completo.
+`ConversationRow.id` identifica o fragmento; `entry-id` conserva a identidade original para observar e expandir.
+Contagem de novas mensagens e marcação de leitura continuam baseadas nas entradas, não nos fragmentos.
+`scripts/conversation-smoke.py --probe <transcript_probe> --probe-only --probe-output <diretório>`
+mede sobreposição e alturas em ambos os renderizadores, escalas 1/2/3, larguras 420/1440,
+grupos expandidos/recolhidos e posições início/meio/fim/PageUp.
+Compile o probe com `cargo build --release --locked -p zaplaud-ui --features skia --example transcript_probe`
+para exercitar os dois renderizadores: sem `skia`, o probe rejeita a execução em vez de aceitar fallback silencioso.
+Na matriz alta de 96 configurações (240 capturas), a maior linha mediu 922 px lógicos,
+ou 2.766 px físicos na escala 3; o maior texto mediu 898 px lógicos, sem sobreposição.
+O orçamento deixa margem para métricas maiores, títulos e células estreitas; as cercas sintéticas
+não são pintadas, e os cabeçalhos de tabela têm reserva própria.
+
 ### Permissões
 
 `permission::setup` registra o botão `ListState.permission(key)` e os callbacks do global `PermissionState`.

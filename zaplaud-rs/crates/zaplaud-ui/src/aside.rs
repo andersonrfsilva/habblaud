@@ -187,38 +187,67 @@ fn publish(weak: &slint::Weak<AppWindow>, state: State) {
         global.set_turns(ModelRc::new(VecModel::from(
             aside
                 .topic()
-                .map(|topic| {
-                    topic
-                        .turns
-                        .iter()
-                        .map(|turn| AsideTurnRow {
-                            question: turn.question.clone().into(),
-                            answer: turn.answer.clone().into(),
-                            blocks: crate::conversation_view::markdown(&turn.answer),
-                            status: match turn.status.as_str() {
-                                "queued" => strings::ASIDE_QUEUED.into(),
-                                "running" if turn.answer.is_empty() => {
-                                    strings::ASIDE_THINKING.into()
-                                }
-                                "cancelled" => strings::ASIDE_CANCELLED.into(),
-                                "failed" => crate::formatted(
-                                    "aside_failed",
-                                    &[turn.error.as_deref().unwrap_or_default()],
-                                ),
-                                _ => String::new(),
-                            }
-                            .into(),
-                            failed: turn.status == "failed",
-                            running: matches!(turn.status.as_str(), "queued" | "running"),
-                        })
-                        .collect::<Vec<_>>()
-                })
+                .map(|topic| topic.turns.iter().flat_map(turn_rows).collect::<Vec<_>>())
                 .unwrap_or_default(),
         )));
         if aside.agent_id.is_none() {
             global.set_draft("".into());
         }
     });
+}
+
+fn turn_rows(turn: &zaplaud_core::model::AsideTurn) -> Vec<AsideTurnRow> {
+    use zaplaud_ui::conversation_rows::{MarkdownSource, transcript_pieces};
+
+    let mut rows = Vec::new();
+    let question = transcript_pieces(&turn.question);
+    let question_count = question.len();
+    for (index, piece) in question.into_iter().enumerate() {
+        rows.push(AsideTurnRow {
+            question: piece.source.into(),
+            first: index == 0,
+            last: index + 1 == question_count,
+            ..Default::default()
+        });
+    }
+    // Cada fragmento compartilha a mensagem original para copiar sem cercas sintéticas.
+    let source: slint::SharedString = turn.answer.as_str().into();
+    let answer = transcript_pieces(&turn.answer);
+    let markdown = MarkdownSource::new(&turn.answer);
+    let answer_count = answer.len();
+    for (index, piece) in answer.into_iter().enumerate() {
+        rows.push(AsideTurnRow {
+            answer: source.clone(),
+            blocks: markdown.model(&piece.display, piece.range),
+            first: index == 0,
+            last: index + 1 == answer_count,
+            ..Default::default()
+        });
+    }
+    let status = match turn.status.as_str() {
+        "queued" => strings::ASIDE_QUEUED.into(),
+        "running" if turn.answer.is_empty() => strings::ASIDE_THINKING.into(),
+        "cancelled" => strings::ASIDE_CANCELLED.into(),
+        "failed" => crate::formatted("aside_failed", &[turn.error.as_deref().unwrap_or_default()]),
+        _ => String::new(),
+    };
+    for piece in transcript_pieces(&status) {
+        rows.push(AsideTurnRow {
+            status: piece.source.into(),
+            failed: turn.status == "failed",
+            ..Default::default()
+        });
+    }
+    if turn.running() {
+        rows.push(AsideTurnRow {
+            running: true,
+            ..Default::default()
+        });
+    }
+    if let Some(last) = rows.last_mut() {
+        last.end = true;
+    }
+    rows
 }
 fn now() -> i64 {
     std::time::SystemTime::now()
@@ -247,7 +276,7 @@ fn should_clear_draft(
 
 #[cfg(test)]
 mod tests {
-    use super::{nonblank_draft, should_clear_draft, valid_draft};
+    use super::{nonblank_draft, should_clear_draft, turn_rows, valid_draft};
 
     #[test]
     fn aside_send_requires_nonblank_text() {
@@ -265,6 +294,46 @@ mod tests {
         assert!(!valid_draft(&"a".repeat(20_001)));
         assert!(valid_draft(&"🚀".repeat(10_000)));
         assert!(!valid_draft(&"🚀".repeat(10_001)));
+    }
+
+    #[test]
+    fn aside_transcript_rows_bound_large_questions_answers_and_errors() {
+        use slint::Model;
+        use zaplaud_core::model::AsideTurn;
+
+        let turn = AsideTurn {
+            id: "large".into(),
+            question: "pergunta\n".repeat(8_000),
+            answer: format!("```rust\n{}```\n", "println!(\"ok\");\n".repeat(8_000)),
+            status: "failed".into(),
+            error: Some("erro\n".repeat(8_000)),
+        };
+        let rows = turn_rows(&turn);
+        let questions: Vec<_> = rows.iter().filter(|row| !row.question.is_empty()).collect();
+        assert!(questions.len() > 1);
+        assert!(questions[0].first);
+        assert!(questions.last().is_some_and(|row| row.last));
+        assert_eq!(
+            questions
+                .iter()
+                .map(|row| row.question.as_str())
+                .collect::<String>(),
+            turn.question
+        );
+        assert_eq!(questions.iter().filter(|row| row.first).count(), 1);
+        assert_eq!(questions.iter().filter(|row| row.last).count(), 1);
+        let answers: Vec<_> = rows.iter().filter(|row| !row.answer.is_empty()).collect();
+        assert!(answers.len() > 1);
+        assert!(answers.iter().all(|row| row.answer == turn.answer.as_str()));
+        for row in &rows {
+            assert!(row.question.chars().count() < 1_000);
+            assert!(row.status.chars().count() < 1_000);
+            for block in row.blocks.iter() {
+                assert!(block.text.lines().count() < 200);
+            }
+        }
+        assert_eq!(rows.iter().filter(|row| row.end).count(), 1);
+        assert!(rows.last().is_some_and(|row| row.end));
     }
 
     #[test]

@@ -21,7 +21,6 @@ use zaplaud_core::{
 };
 use zaplaud_store::LocalStateStore;
 
-pub(crate) use zaplaud_ui::conversation_rows::markdown;
 use zaplaud_ui::conversation_rows::{RenderRow, build_rows};
 enum Command {
     View(usize),

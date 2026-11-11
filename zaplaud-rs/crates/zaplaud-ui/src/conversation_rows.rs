@@ -1,6 +1,8 @@
 //! Construção compartilhada das linhas do transcript e dos modelos Slint.
+pub use crate::transcript::{split_transcript, transcript_pieces};
 use slint::{Model, ModelRc, VecModel};
 use std::collections::{BTreeMap, HashSet};
+use std::{ops::Range, sync::Arc};
 use zaplaud_core::{
     model::TerminalEntry,
     rules::{
@@ -15,8 +17,14 @@ pub mod strings {
 #[derive(Clone, PartialEq)]
 pub struct RenderRow {
     id: String,
+    entry_id: String,
+    first: bool,
+    last: bool,
+    fragment: String,
+    range: Range<usize>,
+    markdown_source: MarkdownSource,
     kind: String,
-    source: String,
+    source: slint::SharedString,
     display: String,
     label: String,
     time: String,
@@ -24,48 +32,96 @@ pub struct RenderRow {
     summarized: bool,
     tools: Vec<(String, String)>,
 }
-pub fn markdown(source: &str) -> ModelRc<MdBlock> {
-    let blocks = crate::markdown::parse(source)
-        .into_iter()
-        .map(|b| MdBlock {
-            kind: b.kind,
-            rich: b.rich,
-            links: b.links,
-            link_labels: b.link_labels,
-            text: b.text,
-            level: b.level,
-            depth: b.depth,
-            marker: b.marker,
-            language: b.language,
-            code_lines: b.code_lines,
-            columns: b.columns,
-            spans: ModelRc::new(VecModel::from(
-                b.spans
-                    .iter()
-                    .map(|s| MdSpan {
-                        text: s.text,
-                        bold: s.bold,
-                        italic: s.italic,
-                        strike: s.strike,
-                        code: s.code,
-                        link: s.link,
-                    })
-                    .collect::<Vec<_>>(),
-            )),
-            cells: ModelRc::new(VecModel::from(
-                b.cells
-                    .iter()
-                    .map(|c| MdCell {
-                        rich: c.rich,
-                        text: c.text,
-                        alignment: c.alignment,
-                        header: c.header,
-                    })
-                    .collect::<Vec<_>>(),
-            )),
-        })
-        .collect::<Vec<_>>();
-    ModelRc::new(VecModel::from(blocks))
+#[derive(Clone, Default, PartialEq)]
+pub struct MarkdownSource {
+    codes: Arc<Vec<(Range<usize>, slint::SharedString)>>,
+}
+impl MarkdownSource {
+    pub fn new(source: &str) -> Self {
+        use pulldown_cmark::{Event, Parser, Tag, TagEnd};
+        let mut codes = Vec::new();
+        let mut code = None;
+        for (event, range) in Parser::new(source).into_offset_iter() {
+            match event {
+                Event::Start(Tag::CodeBlock(_)) => code = Some((range, String::new())),
+                Event::Text(text) => {
+                    if let Some((_, content)) = &mut code {
+                        content.push_str(&text);
+                    }
+                }
+                Event::End(TagEnd::CodeBlock) => {
+                    if let Some((range, content)) = code.take() {
+                        codes.push((range, content.into()));
+                    }
+                }
+                _ => {}
+            }
+        }
+        Self {
+            codes: Arc::new(codes),
+        }
+    }
+    pub fn model(&self, display: &str, range: Range<usize>) -> ModelRc<MdBlock> {
+        let mut originals = self
+            .codes
+            .iter()
+            .filter(|(code, _)| code.start < range.end && range.start < code.end);
+        let blocks = crate::markdown::parse(display)
+            .into_iter()
+            .map(|mut b| {
+                let original = if b.kind == "code" {
+                    originals.next()
+                } else {
+                    None
+                };
+                let continued_after = original.is_some_and(|(code, _)| code.end > range.end);
+                if continued_after && let Some(text) = b.text.strip_suffix('\n') {
+                    b.text = text.into();
+                }
+                MdBlock {
+                    kind: b.kind.clone(),
+                    rich: b.rich,
+                    copy_text: original.map_or_else(|| b.text.clone(), |(_, text)| text.clone()),
+                    continued_before: original.is_some_and(|(code, _)| code.start < range.start),
+                    continued_after,
+                    links: b.links,
+                    link_labels: b.link_labels,
+                    text: b.text,
+                    level: b.level,
+                    depth: b.depth,
+                    marker: b.marker,
+                    language: b.language,
+                    code_lines: b.code_lines,
+                    columns: b.columns,
+                    spans: ModelRc::new(VecModel::from(
+                        b.spans
+                            .iter()
+                            .map(|s| MdSpan {
+                                text: s.text,
+                                bold: s.bold,
+                                italic: s.italic,
+                                strike: s.strike,
+                                code: s.code,
+                                link: s.link,
+                            })
+                            .collect::<Vec<_>>(),
+                    )),
+                    cells: ModelRc::new(VecModel::from(
+                        b.cells
+                            .iter()
+                            .map(|c| MdCell {
+                                rich: c.rich,
+                                text: c.text,
+                                alignment: c.alignment,
+                                header: c.header,
+                            })
+                            .collect::<Vec<_>>(),
+                    )),
+                }
+            })
+            .collect::<Vec<_>>();
+        ModelRc::new(VecModel::from(blocks))
+    }
 }
 pub fn build_rows(
     entries: &[TerminalEntry],
@@ -141,8 +197,14 @@ pub fn build_rows(
             };
             RenderRow {
                 id: entry.id.clone(),
+                entry_id: entry.id.clone(),
+                first: true,
+                last: true,
+                fragment: source.clone(),
+                range: 0..0,
+                markdown_source: MarkdownSource::default(),
                 kind: entry.kind.clone(),
-                source,
+                source: source.into(),
                 display,
                 label,
                 time: at
@@ -160,6 +222,12 @@ pub fn build_rows(
             RenderRow {
                 id: "local:window-truncated".into(),
                 kind: "system".into(),
+                entry_id: "local:window-truncated".into(),
+                first: true,
+                last: true,
+                fragment: strings::WINDOW_TRUNCATED.into(),
+                range: 0..0,
+                markdown_source: MarkdownSource::default(),
                 source: strings::WINDOW_TRUNCATED.into(),
                 display: String::new(),
                 label: String::new(),
@@ -170,20 +238,79 @@ pub fn build_rows(
             },
         );
     }
-    rows
+    rows.into_iter().flat_map(RenderRow::split).collect()
 }
 impl RenderRow {
+    fn split(mut self) -> Vec<Self> {
+        let mut parts = Vec::new();
+        self.fragment.clear();
+        if !matches!(self.kind.as_str(), "tool" | "thinking" | "system")
+            && (!self.summarized || self.expanded)
+        {
+            self.markdown_source = MarkdownSource::new(&self.source);
+        }
+        if self.kind == "tool" && self.expanded {
+            self.display.clear();
+            for (title, text) in std::mem::take(&mut self.tools) {
+                for piece in transcript_pieces(&text) {
+                    let mut row = self.clone();
+                    row.tools = vec![(title.clone(), piece.source)];
+                    parts.push(row);
+                }
+            }
+        } else if !matches!(self.kind.as_str(), "tool" | "thinking") || self.expanded {
+            let display = std::mem::take(&mut self.display);
+            let text = if matches!(self.kind.as_str(), "thinking" | "system") {
+                self.source.as_str()
+            } else {
+                &display
+            };
+            for piece in transcript_pieces(text) {
+                let mut row = self.clone();
+                row.fragment = piece.source;
+                row.range = piece.range;
+                row.display = if row.summarized && !row.expanded {
+                    row.fragment.clone()
+                } else {
+                    piece.display
+                };
+                parts.push(row);
+            }
+        }
+        if parts.is_empty() {
+            parts.push(self);
+        }
+        let count = parts.len();
+        for (index, row) in parts.iter_mut().enumerate() {
+            row.first = index == 0;
+            row.last = index + 1 == count;
+            if index > 0 {
+                row.id = format!("{}:piece:{index}", row.entry_id);
+            }
+            if !row.last {
+                row.time.clear();
+            }
+        }
+        parts
+    }
     pub fn into_ui(self) -> ConversationRow {
         let row = self;
+        let blocks = if row.summarized && !row.expanded
+            || matches!(row.kind.as_str(), "tool" | "thinking" | "system")
+        {
+            ModelRc::default()
+        } else {
+            row.markdown_source.model(&row.display, row.range)
+        };
         ConversationRow {
             id: row.id.into(),
+            entry_id: row.entry_id.into(),
+            first: row.first,
+            last: row.last,
+            fragment: row.fragment.into(),
             kind: row.kind.into(),
-            source: row.source.into(),
-            blocks: if row.summarized && !row.expanded {
-                ModelRc::default()
-            } else {
-                markdown(&row.display)
-            },
+            source: row.source,
+            blocks,
             display: row.display.into(),
             label: row.label.into(),
             time: row.time.into(),
@@ -199,5 +326,73 @@ impl RenderRow {
                     .collect::<Vec<_>>(),
             )),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn continued_rows_keep_entry_identity_source_and_last_time() {
+        let text = "linha de uma resposta extensa\n".repeat(2000);
+        let entry = TerminalEntry {
+            id: "original".into(),
+            kind: "assistant".into(),
+            text: text.clone(),
+            at: Some(1_000),
+            ..Default::default()
+        };
+        let rows = build_rows(
+            &[entry],
+            "all",
+            &HashSet::new(),
+            &BTreeMap::new(),
+            false,
+            false,
+            2_000,
+        );
+        assert!(rows.len() > 1);
+        assert!(
+            rows.first()
+                .is_some_and(|row| row.first && row.id == "original")
+        );
+        assert!(
+            rows.last()
+                .is_some_and(|row| row.last && !row.time.is_empty())
+        );
+        let mut ids = HashSet::new();
+        for (index, row) in rows.iter().enumerate() {
+            assert!(ids.insert(&row.id));
+            assert_eq!(row.entry_id, "original");
+            assert_eq!(row.source, text);
+            assert_eq!(row.last, index + 1 == rows.len());
+            if !row.last {
+                assert!(row.time.is_empty());
+            }
+        }
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.fragment.as_str())
+                .collect::<String>(),
+            text
+        );
+    }
+
+    #[test]
+    fn copy_code_uses_original_block_position_not_matching_text() {
+        let code = "igual\n".repeat(2000);
+        let source = format!("```text\nigual\n```\n\n```rust\n{code}```\n");
+        let markdown = MarkdownSource::new(&source);
+        let mut copied_large = 0;
+        for piece in transcript_pieces(&source) {
+            for block in markdown.model(&piece.display, piece.range).iter() {
+                if block.kind == "code" && block.language == "rust" {
+                    assert_eq!(block.copy_text, code);
+                    copied_large += 1;
+                }
+            }
+        }
+        assert!(copied_large > 1);
     }
 }

@@ -12,6 +12,8 @@ export struct MdCell {
 }
 export struct MdBlock {
     kind: string, rich: styled-text, text: string, spans: [MdSpan],
+    copy-text: string,
+    continued-before: bool, continued-after: bool,
     level: int, depth: int, marker: string, language: string,
     links: [string],
     link-labels: [string],
@@ -160,7 +162,7 @@ export component MarkdownView inherits Rectangle {
     content := VerticalLayout {
     spacing: 8px;
     for block in root.blocks: VerticalLayout {
-        padding-left: block.depth * 20px;
+        padding-left: min(block.depth, 4) * 20px;
         if block.kind == "rule": Rectangle { height: 1px; background: Theme.outline-variant; }
         if block.kind == "text": SelectableBlock {
             block: block;
@@ -179,17 +181,22 @@ export component MarkdownView inherits Rectangle {
         }
         if block.kind == "code": code-box := Rectangle {
             background: Theme.on-background.with-alpha(0.1);
-            border-radius: 8px;
+            border-top-left-radius: block.continued-before ? 0px : 8px;
+            border-top-right-radius: self.border-top-left-radius;
+            border-bottom-left-radius: block.continued-after ? 0px : 8px;
+            border-bottom-right-radius: self.border-bottom-left-radius;
             preferred-height: code-content.preferred-height;
             code-metrics := Text { visible: false; text: block.text; font-family: "Noto Sans Mono"; font-size: 14px; wrap: no-wrap; }
             ContextMenuArea {
                 Menu {
                     MenuItem { title: "Copiar mensagem"; activated => { root.copy(root.source-markdown); } }
                     MenuItem { title: "Selecionar texto"; activated => { root.selecting = true; } }
-                    MenuItem { title: "Copiar código"; activated => { root.copy(block.text); } }
+                    MenuItem { title: "Copiar código"; activated => { root.copy(block.copy-text == "" ? block.text : block.copy-text); } }
                 }
             code-content := VerticalLayout {
                 padding: 8px;
+                padding-top: block.continued-before ? 0px : 8px;
+                padding-bottom: block.continued-after ? 0px : 8px;
                 spacing: 4px;
                 ScrollView {
                     min-height: 0px;
@@ -218,7 +225,7 @@ export component MarkdownView inherits Rectangle {
             if hover.has-hover: IconButton {
                 x: parent.width - 32px; y: 8px;
                 width: 24px; height: 24px; icon: MaterialIcons.content-copy; label: "Copiar código";
-                clicked => { root.copy(block.text); }
+                clicked => { root.copy(block.copy-text == "" ? block.text : block.copy-text); }
             }
         }
         if block.kind == "table": ScrollView {
