@@ -4,6 +4,7 @@ package br.com.xlinx.habblaud
 import androidx.compose.runtime.Composable
 import kotlinx.cinterop.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.ensureActive
