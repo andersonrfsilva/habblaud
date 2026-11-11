@@ -108,9 +108,18 @@ jobs:
             export ZAPLAUD_CI_THEME="$theme"
             for script in conversation-smoke keyboard-smoke accessibility-smoke; do
               export ZAPLAUD_CI_SCRIPT="$script"
-              xvfb-run -a sh -c 'python3 "zaplaud-rs/scripts/$ZAPLAUD_CI_SCRIPT.py" --binary "$ZAPLAUD_CI_BINARY" --display "$DISPLAY" --port 14789 --theme "$ZAPLAUD_CI_THEME"'
+              xvfb-run -a -s '-screen 0 1280x1024x24' sh -c 'python3 "zaplaud-rs/scripts/$ZAPLAUD_CI_SCRIPT.py" --binary "$ZAPLAUD_CI_BINARY" --display "$DISPLAY" --port 14789 --theme "$ZAPLAUD_CI_THEME"'
             done
           done
+      - name: Guardar capturas e logs dos smokes
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: zaplaud-rs-smokes-${{ github.sha }}
+          if-no-files-found: ignore
+          path: |
+            /tmp/zaplaud-rs-*.png
+            /tmp/zaplaud-rs-*.log
 
   empacotar-linux:
     needs: verificar
