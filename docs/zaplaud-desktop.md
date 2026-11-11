@@ -8,13 +8,14 @@ Há dois clientes desktop no repositório, com as mesmas telas e o mesmo estado 
 | Abrir a janela | ~0,1 s | ~1 s |
 | Memória parada | 37 MiB (29 MiB no modo leve) | 339 MiB no teste; 418–490 MiB no uso real |
 | Tamanho | 31 MiB | 192 MiB |
-| Estado | fases 0–5 do plano 074 feitas; falta verificar Wayland, macOS, chaveiro e uso real | em uso; sai quando o nativo for aprovado no dia a dia |
+| Estado | é o cliente desktop; falta verificar Wayland, macOS, chaveiro e uso real | **obsoleto** desde 2026-11-10: não recebe mudanças |
 
 O cliente nativo gera textos, cores e ícones a partir do Kotlin na compilação, então continua igual ao celular.
 Como compilar, instalar, arquitetura e limitações dele: [`zaplaud-rs/README.md`](../zaplaud-rs/README.md) e
-[plans/074-resultado.md](../plans/074-resultado.md). O resto deste documento descreve o cliente Compose.
+[plans/074-resultado.md](../plans/074-resultado.md). O resto deste documento descreve o cliente Compose, que fica só
+como registro.
 
-## Cliente Compose
+## Cliente Compose (obsoleto)
 
 O Zaplaud desktop Compose é o mesmo app do celular rodando numa janela. Telas, regras, API, tema e textos vêm do módulo
 Kotlin Multiplatform `android/shared` (`commonMain`); o desktop só acrescenta o que depende do sistema. Por isso

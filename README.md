@@ -245,8 +245,8 @@ The extension applies to omp sessions opened **after** the installation. See [om
 
 ### Desktop (Linux and macOS)
 
-Zaplaud runs in a native window with the shared client screens and remote login. Building requires JDK 17 or
-newer; the distribution includes its own Java runtime.
+The Zaplaud desktop client is the native Rust client in [`zaplaud-rs/`](zaplaud-rs/README.md). The Compose desktop
+client described below is **obsolete**: it gets no updates and should not be used.
 
 ```bash
 cd android

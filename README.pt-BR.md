@@ -391,8 +391,8 @@ conversas permanecem no servidor.
 
 ### Desktop (Linux e macOS)
 
-O Zaplaud também abre numa janela nativa, com as mesmas telas e o mesmo login remoto. Requer JDK 17 ou
-superior para compilar; a distribuição inclui seu próprio runtime Java.
+O desktop do Zaplaud é o cliente nativo em Rust, em [`zaplaud-rs/`](zaplaud-rs/README.md). O cliente desktop
+Compose descrito abaixo está **obsoleto**: não recebe atualizações e não deve ser usado.
 
 ```bash
 cd android
