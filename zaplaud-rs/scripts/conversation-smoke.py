@@ -155,7 +155,13 @@ def main():
                         return clipboard.text()
 
                     desktop.image().save(f'/tmp/zaplaud-rs-fin-conversation-regression-initial-{args.theme}.png')
-                    copied = copy_last()
+                    # Runner lento (build debug, 2 núcleos): a lista segue o fim, mas pode levar alguns segundos.
+                    copied = ''
+                    deadline = time.monotonic() + 20
+                    while copied != latest and time.monotonic() < deadline:
+                        copied = copy_last()
+                        if copied != latest:
+                            time.sleep(1)
                     assert copied == latest, f'A primeira carga não acompanhou o fim: {copied!r}'
                     # Reabrir cache grande provoca estimativas intermediárias do ListView. Elas não são gestos do leitor.
                     for _ in range(3):
