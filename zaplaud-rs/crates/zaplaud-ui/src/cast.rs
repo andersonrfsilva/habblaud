@@ -23,6 +23,18 @@ struct Dialog {
     choice: Option<CastChoice>,
     confirming: bool,
 }
+impl Dialog {
+    fn picking_model(&self, state: &State) -> bool {
+        self.mode == "start" && self.choice.is_some() && state.picks_model()
+    }
+    fn close(&mut self, state: &State) {
+        if self.picking_model(state) {
+            self.choice = None;
+        } else {
+            *self = Self::default();
+        }
+    }
+}
 pub fn setup(window: &AppWindow, context: &FeatureContext) {
     let global = window.global::<CastState>();
     global.set_resume_label(strings::CAST_RESUME.into());
@@ -99,21 +111,26 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                         Command::Start => { dialog = Dialog { mode: "start".into(), ..Dialog::default() }; if let Err(error) = state.load(&server.api).await { unauthorized(&commands, &origin, &error); } }
                         Command::Resume if selected.is_some_and(|s| state.can_resume(s)) => { dialog = Dialog { mode: "resume".into(), ..Dialog::default() }; if let Err(error) = state.load(&server.api).await { unauthorized(&commands, &origin, &error); } }
                         Command::Dismiss if selected.is_some_and(|s| state.can_dismiss(s)) => { dialog = Dialog { mode: "dismiss".into(), confirming: true, ..Dialog::default() }; }
-                        Command::Close => { dialog = Dialog::default(); }
+                        Command::Close => { dialog.close(&state); }
                         Command::Choose(id) if !dialog.mode.is_empty() => {
                             if dialog.choice.is_none() {
-                                dialog.choice = if id.is_empty() { Some(CastChoice { id, name: strings::CAST_NEW.into(), avatar: None }) } else { state.free(&server.reading.sessions, if dialog.mode == "resume" { selected } else { None }).into_iter().find(|c| c.id == id) };
+                                dialog.choice = if id.is_empty() { Some(CastChoice { id, name: strings::CAST_NEW.into(), avatar: None, model: None }) } else { state.free(&server.reading.sessions, if dialog.mode == "resume" { selected } else { None }).into_iter().find(|c| c.id == id) };
                                 dialog.confirming = dialog.mode == "resume" && dialog.choice.is_some();
-                                if dialog.mode == "start" && let Some(choice) = &dialog.choice {
-                                    if let Err(error) = state.submit(&server.api, &choice.id, None, None).await { unauthorized(&commands, &origin, &error); }
+                                if dialog.mode == "start" && !state.picks_model() && let Some(choice) = &dialog.choice {
+                                    if let Err(error) = state.submit(&server.api, &choice.id, None, None, None).await { unauthorized(&commands, &origin, &error); }
                                     dialog = Dialog::default(); refresh = true; loaded = false;
                                 }
+                            } else if dialog.picking_model(&state)
+                                && state.catalog.models.iter().any(|m| m.alias == id)
+                                && let Some(choice) = &dialog.choice {
+                                if let Err(error) = state.submit(&server.api, &choice.id, None, None, Some(&id)).await { unauthorized(&commands, &origin, &error); }
+                                dialog = Dialog::default(); refresh = true; loaded = false;
                             }
                         }
                         Command::Confirm if dialog.confirming => {
                             if dialog.mode == "dismiss" {
-                                if let Some(s) = selected && state.can_dismiss(s) && !s.cast.as_ref().is_some_and(|id| state.active_job(id)) && let Some(id) = s.agent_id.as_deref() && let Err(error) = state.submit(&server.api, "", None, Some(id)).await { unauthorized(&commands, &origin, &error); }
-                            } else if let (Some(choice), Some(s)) = (&dialog.choice, selected) && state.can_resume(s) && let Err(error) = state.submit(&server.api, &choice.id, Some(s), None).await { unauthorized(&commands, &origin, &error); }
+                                if let Some(s) = selected && state.can_dismiss(s) && !s.cast.as_ref().is_some_and(|id| state.active_job(id)) && let Some(id) = s.agent_id.as_deref() && let Err(error) = state.submit(&server.api, "", None, Some(id), None).await { unauthorized(&commands, &origin, &error); }
+                            } else if let (Some(choice), Some(s)) = (&dialog.choice, selected) && state.can_resume(s) && let Err(error) = state.submit(&server.api, &choice.id, Some(s), None, None).await { unauthorized(&commands, &origin, &error); }
                             dialog = Dialog::default(); refresh = true; loaded = false;
                         }
                         _ => {}
@@ -170,24 +187,47 @@ fn publish(
 ) {
     let selected = snapshot.selected.as_ref();
     let server = snapshot.servers.iter().find(|s| s.api.origin() == origin);
-    let rows: Vec<_> = std::iter::once((String::new(), strings::CAST_NEW.into(), None))
-        .chain(
-            state
-                .free(
-                    server
-                        .map(|s| s.reading.sessions.as_slice())
-                        .unwrap_or_default(),
-                    if dialog.mode == "resume" {
-                        selected
-                    } else {
-                        None
-                    },
+    let picking_model = dialog.picking_model(&state);
+    let default_model = dialog
+        .choice
+        .as_ref()
+        .and_then(|choice| state.default_model(choice));
+    let rows: Vec<_> = if picking_model {
+        state
+            .catalog
+            .models
+            .iter()
+            .map(|model| {
+                (
+                    model.alias.clone(),
+                    model.model.clone(),
+                    None,
+                    default_model == Some(model.alias.as_str()),
                 )
-                .into_iter()
-                .map(|c| (c.id, c.name, c.avatar)),
-        )
-        .collect();
-    let title = if dialog.confirming {
+            })
+            .collect()
+    } else {
+        std::iter::once((String::new(), strings::CAST_NEW.into(), None, false))
+            .chain(
+                state
+                    .free(
+                        server
+                            .map(|s| s.reading.sessions.as_slice())
+                            .unwrap_or_default(),
+                        if dialog.mode == "resume" {
+                            selected
+                        } else {
+                            None
+                        },
+                    )
+                    .into_iter()
+                    .map(|c| (c.id, c.name, c.avatar, false)),
+            )
+            .collect()
+    };
+    let title = if picking_model {
+        strings::ROLE_PICK_MODEL
+    } else if dialog.confirming {
         if dialog.mode == "dismiss" {
             strings::CAST_DISMISS
         } else {
@@ -260,12 +300,14 @@ fn publish(
         global.set_status(status.into());
         global.set_visible(visible);
         global.set_confirming(confirming);
+        global.set_picking_model(picking_model);
         global.set_title(title.into());
         global.set_warning(warning.into());
         global.set_rows(ModelRc::new(VecModel::from(
             rows.into_iter()
-                .map(|(id, name, avatar)| CastRow {
+                .map(|(id, name, avatar, selected)| CastRow {
                     id: id.into(),
+                    selected,
                     initials: name
                         .chars()
                         .next()
@@ -280,4 +322,74 @@ fn publish(
                 .collect::<Vec<_>>(),
         )));
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zaplaud_core::model::CastCatalog;
+
+    #[test]
+    fn model_step_only_for_new_zeroclaw_and_cancel_returns_to_contacts() {
+        let mut state = State {
+            runtime: Some("zeroclaw".into()),
+            catalog: CastCatalog::parse(&serde_json::json!({
+                "provider": "zeroclaw",
+                "defaultModel": "m_default",
+                "models": [
+                    {"alias": "m_default", "model": "provider/default"},
+                    {"alias": "m_other", "model": "provider/other"}
+                ]
+            })),
+            ..State::default()
+        };
+        let mut dialog = Dialog {
+            mode: "start".into(),
+            ..Dialog::default()
+        };
+        assert!(!dialog.picking_model(&state));
+        dialog.choice = Some(CastChoice {
+            id: "contact".into(),
+            name: "Contact".into(),
+            avatar: None,
+            model: Some("provider/other".into()),
+        });
+        assert!(dialog.picking_model(&state));
+        assert_eq!(
+            state.default_model(dialog.choice.as_ref().unwrap()),
+            Some("m_other")
+        );
+        dialog.choice.as_mut().unwrap().model = Some("m_other".into());
+        assert_eq!(
+            state.default_model(dialog.choice.as_ref().unwrap()),
+            Some("m_other")
+        );
+        dialog.choice.as_mut().unwrap().model = Some("unknown".into());
+        assert_eq!(
+            state.default_model(dialog.choice.as_ref().unwrap()),
+            Some("m_default")
+        );
+        dialog.choice.as_mut().unwrap().model = None;
+        assert_eq!(
+            state.default_model(dialog.choice.as_ref().unwrap()),
+            Some("m_default")
+        );
+        dialog.mode = "resume".into();
+        assert!(!dialog.picking_model(&state));
+        dialog.mode = "start".into();
+        state.runtime = Some("omp".into());
+        assert!(!dialog.picking_model(&state));
+        state.runtime = Some("zeroclaw".into());
+        let models = state.catalog.models.clone();
+        state.catalog.models.truncate(1);
+        assert!(!dialog.picking_model(&state));
+        state.catalog.models.clear();
+        assert!(!dialog.picking_model(&state));
+        state.catalog.models = models;
+        dialog.close(&state);
+        assert_eq!(dialog.mode, "start");
+        assert!(dialog.choice.is_none());
+        dialog.close(&state);
+        assert!(dialog.mode.is_empty());
+    }
 }

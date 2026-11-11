@@ -200,10 +200,10 @@ O auxiliar no host (`npm run codex:bridge`) abre sessões omp em `tmux` como `hb
 | `DELETE /api/cast/:id` | Apaga membro e vínculos; agentes voltam ao sorteio; mesma trava do terminal |
 | `PUT /api/agents/:id/cast` | `{cast}` veste um principal; 409 ocupado; mesma trava do terminal |
 | `DELETE /api/agents/:id/cast` | Remove o vínculo e volta ao sorteio; mesma trava do terminal |
-| `POST /api/cast/:id/start` | `{mode: 'new' \| 'resume', prompt?}`: enfileira uma chamada. Nova sessão abre na pasta pessoal do host; `resume` sem `session` retoma a conversa mais recente do personagem; com `{session, room, account}` retoma a conversa do histórico na pasta dela. 202, 409 (ocupado ou limite de `HABBLAUD_CAST_MAX` personagens abertos), 422 ou 503; mesma trava do terminal |
+| `POST /api/cast/:id/start` | `{mode: 'new' \| 'resume', prompt?, model?}`: enfileira uma chamada. Nova sessão abre na pasta pessoal do host; `resume` sem `session` retoma a conversa mais recente do personagem; com `{session, room, account}` retoma a conversa do histórico na pasta dela. `model` (só ZeroClaw, só conversa nova): alias ou modelo do catálogo, vale para esta conversa no lugar do modelo do personagem; retomar usa o modelo em que a conversa começou. 202, 409 (ocupado ou limite de `HABBLAUD_CAST_MAX` personagens abertos), 422 ou 503; mesma trava do terminal |
 | `POST /api/agents/:id/dismiss` | Enfileira a dispensa de uma sessão aberta pelo Habblaud; mesma trava do terminal |
 | `GET /api/cast/jobs` | `{jobs, available}`: estado das chamadas e disponibilidade do runtime (auxiliar no OMP, conector no ZeroClaw); mesma trava do terminal |
-| `POST /api/cast/new` | `{prompt?}`: agente fora do elenco na pasta pessoal; `{room, session, account}` retoma a conversa do histórico; mesmas respostas do start |
+| `POST /api/cast/new` | `{prompt?, model?}`: agente fora do elenco na pasta pessoal (`model` como no start); `{room, session, account}` retoma a conversa do histórico; mesmas respostas do start |
 | `POST /api/host/cast/poll`, `/api/host/cast/ack` | Auxiliar busca e confirma chamadas e dispensas; somente acesso local |
 | `GET /api/sessions/recent` | `RecentSessionsResponse`: sessões dos últimos 7 dias de todas as contas (até 150); mesma trava do terminal |
 | `GET /api/sessions/:conta/:sessionId/terminal` | SSE da conversa de uma sessão do histórico (mesmo protocolo do terminal); mesma trava |

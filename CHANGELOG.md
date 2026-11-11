@@ -108,6 +108,9 @@ do meio (0.**3**.0).
   papéis; o item do menu mostra o provedor do modelo atual.
 - **Zaplaud (Android e desktop):** Configurações também trocam o modelo e o raciocínio do papel `default` do omp
   (agente principal), além de `task`, `plan`, `advisor` e `tiny`.
+- **Zaplaud (Android e desktop):** em tenants ZeroClaw com mais de um modelo, chamar um personagem ou "Novo" pede o
+  modelo da conversa nova (`model` em `POST /api/cast/new` e `/api/cast/:id/start`). Retomar uma conversa segue no
+  modelo em que ela começou, mesmo que o personagem tenha trocado de modelo depois.
 
 ### Alterado
 

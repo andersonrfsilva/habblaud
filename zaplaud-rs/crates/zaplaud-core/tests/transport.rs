@@ -60,10 +60,10 @@ async fn cast_new_uses_host_workspace_and_resume_keeps_history_folder() -> TestR
     use serde_json::{Value, json};
     use zaplaud_core::api::ResumeSession;
 
-    let (origin, task) = server(vec![response(202, "", "{}"); 4]).await?;
+    let (origin, task) = server(vec![response(202, "", "{}"); 6]).await?;
     let api = HabblaudApi::new(&origin)?;
-    api.new_cast(None).await?;
-    api.start_cast("free contact", None).await?;
+    api.new_cast(None, None).await?;
+    api.start_cast("free contact", None, None).await?;
     let resume = || {
         Some(ResumeSession {
             room: "/history/project",
@@ -71,8 +71,12 @@ async fn cast_new_uses_host_workspace_and_resume_keeps_history_folder() -> TestR
             account: ".omp",
         })
     };
-    api.new_cast(resume()).await?;
-    api.start_cast("free contact", resume()).await?;
+    api.new_cast(resume(), Some("must-not-send")).await?;
+    api.start_cast("free contact", resume(), Some("must-not-send"))
+        .await?;
+    api.new_cast(None, Some("m_123456abcdef")).await?;
+    api.start_cast("free contact", None, Some("m_abcdef123456"))
+        .await?;
     let requests = task.await?;
     let expected = [
         ("/api/cast/new", json!({})),
@@ -84,6 +88,11 @@ async fn cast_new_uses_host_workspace_and_resume_keeps_history_folder() -> TestR
         (
             "/api/cast/free%20contact/start",
             json!({"mode":"resume","room":"/history/project","session":"abcd1234-5678","account":".omp"}),
+        ),
+        ("/api/cast/new", json!({"model":"m_123456abcdef"})),
+        (
+            "/api/cast/free%20contact/start",
+            json!({"mode":"new","model":"m_abcdef123456"}),
         ),
     ];
     for (request, (path, body)) in requests.iter().zip(expected) {
@@ -761,5 +770,46 @@ async fn files_download_unauthorized_clears_shared_session() -> TestResult {
     let requests = task.await?;
     assert!(requests[1].to_ascii_lowercase().contains("cookie:"));
     assert!(!requests[2].to_ascii_lowercase().contains("cookie:"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn cast_controller_sends_selected_alias_only_for_new_zeroclaw() -> TestResult {
+    use serde_json::{Value, json};
+    use zaplaud_core::{controller::cast::State, model::CastCatalog};
+    let (origin, task) = server(vec![response(202, "", "{}"); 4]).await?;
+    let api = HabblaudApi::new(&origin)?;
+    let mut state = State {
+        runtime: Some("zeroclaw".into()),
+        catalog: CastCatalog::parse(&json!({
+            "provider": "zeroclaw",
+            "models": [
+                {"alias": "m_one", "model": "fixture/one"},
+                {"alias": "m_two", "model": "fixture/two"}
+            ],
+            "defaultModel": "m_one"
+        })),
+        ..State::default()
+    };
+    state.submit(&api, "", None, None, Some("m_two")).await?;
+    state
+        .submit(&api, "free contact", None, None, Some("m_two"))
+        .await?;
+    state.runtime = Some("omp".into());
+    state.submit(&api, "", None, None, Some("m_two")).await?;
+    state
+        .submit(&api, "free contact", None, None, Some("m_two"))
+        .await?;
+    let requests = task.await?;
+    for (request, expected) in requests.iter().zip([
+        json!({"model":"m_two"}),
+        json!({"mode":"new","model":"m_two"}),
+        json!({}),
+        json!({"mode":"new"}),
+    ]) {
+        let body: Value =
+            serde_json::from_str(request.split_once("\r\n\r\n").ok_or("corpo ausente")?.1)?;
+        assert_eq!(body, expected);
+    }
     Ok(())
 }

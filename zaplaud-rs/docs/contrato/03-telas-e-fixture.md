@@ -271,17 +271,18 @@ GET `/api/cast/jobs` a cada 5 s enquanto STARTED, available decide availability.
 | Menu conversa | `menu` | — | selected != null |
 | Dispensar no menu | `cast_dismiss` | — | available, agente aberto, castOpened, cast conhecido ou prefixo novo-; enabled !sending&&!activeJob; abre confirmação |
 | Escolher Novo | `cast_new` | — | Primeira linha de start/resume-select; contato fora do elenco |
-| Escolher contato | nome dinâmico | — | Apenas free, dono primeiro na retomada; start envia imediatamente |
+| Escolher contato | nome dinâmico | — | Apenas free, dono primeiro na retomada; start abre Modelo em ZeroClaw com 2+ modelos; demais enviam imediatamente |
+| Escolher modelo | `role_pick_model` | — | Apenas start ZeroClaw com 2+ modelos; rótulo id completo; destaca modelo do contato ou defaultModel; toque envia alias |
 | Confirmar dismiss/resume | `cast_confirm` | — | !sending; envia pedido |
-| Cancelar diálogos | `cancel` | — | Fecha diálogo |
+| Cancelar diálogos | `cancel` | — | Na etapa Modelo retorna aos contatos; demais fecham diálogo |
 
 Fontes: `CastActions.kt:124-220`. Regex de sessão retomável `^[0-9a-fA-F][0-9a-fA-F-]{7,199}$`. Retomar **não depende de haver contato livre**, pois Novo sempre existe. (`CastActions.kt:37-38`, `CastActions.kt:130-138`.)
 
-Diálogos start/resume-select: título `cast_select_character`, lista rolável maxHeight360; linhas padding12, spacing12, avatar40, Novo com caixa40+ic_person_add. Start envia ao escolher, sem etapa de pasta. Confirmação dismiss: título `cast_dismiss`, corpo `cast_dismiss_confirm`; resume: título `cast_resume`, corpo nome e projeto separados por newline.
+Diálogos start/resume-select: título `cast_select_character`, lista rolável maxHeight360; linhas padding12, spacing12, avatar40, Novo com caixa40+ic_person_add. Start ZeroClaw com 2+ modelos abre segunda etapa `role_pick_model`, lista rolável do catálogo e modelo padrão destacado. Retomada mantém modelo original sem seletor. Start OMP ou com 0–1 modelos envia ao escolher, sem model. Nenhum start escolhe pasta. Confirmação dismiss: título `cast_dismiss`, corpo `cast_dismiss_confirm`; resume: título `cast_resume`, corpo nome e projeto separados por newline.
 
 Rotas:
-- Novo: POST `/api/cast/new` `{}`; o host resolve `~` como pasta padrão.
-- Contato existente novo: POST `/api/cast/<id>/start` `{mode:"new"}`; mesma pasta padrão.
+- Novo: POST `/api/cast/new` `{model?}`; alias só para nova conversa ZeroClaw com seleção explícita; o host resolve `~` como pasta padrão.
+- Contato existente novo: POST `/api/cast/<id>/start` `{mode:"new",model?}`; mesma regra de model e pasta padrão.
 - Novo retomando: POST `/api/cast/new` `{room,session,account}`.
 - Contato existente retomando: POST `/api/cast/<id>/start` `{mode:"resume",room,session,account}`.
 - Dispensar: POST `/api/agents/<agentId>/dismiss` `{}`.

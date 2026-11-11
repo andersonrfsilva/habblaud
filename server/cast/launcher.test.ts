@@ -54,6 +54,9 @@ describe('CastLauncher', () => {
     expect(launcher.startNew({})).toMatchObject({ status: 503 });
     launcher.poll();
     expect(launcher.startNew({ prompt: '--x' })).toMatchObject({ status: 422 });
+    // omp: o modelo vem do personagem ou do padrão; o pedido não escolhe.
+    expect(launcher.startNew({ model: 'anthropic/opus' })).toMatchObject({ status: 422 });
+    expect(launcher.start('ana', { mode: 'new', model: 'anthropic/opus' })).toMatchObject({ status: 422 });
     const submitted = launcher.startNew({ room: '/ignorada' });
     if (!('job' in submitted)) throw new Error('start failed');
     const [job] = launcher.poll();

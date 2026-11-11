@@ -941,6 +941,7 @@ pub struct CastChoice {
     pub id: String,
     pub name: String,
     pub avatar: Option<Avatar>,
+    pub model: Option<String>,
 }
 impl CastChoice {
     pub fn parse(o: &Value) -> Option<Self> {
@@ -951,6 +952,7 @@ impl CastChoice {
             id: string(o, "id")?,
             name: string(o, "name")?,
             avatar: Avatar::parse(o),
+            model: string(o, "model"),
         })
     }
 }
@@ -1084,6 +1086,34 @@ impl AccountQuota {
             groups,
             fetched_at: usage.and_then(|u| integer(u, "fetchedAt")),
         })
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CastCatalog {
+    pub runtime: Option<String>,
+    pub models: Vec<CastModel>,
+    pub default_model: Option<String>,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CastModel {
+    pub alias: String,
+    pub model: String,
+}
+impl CastCatalog {
+    pub fn parse(value: &Value) -> Self {
+        Self {
+            runtime: catalog_runtime(value).map(str::to_owned),
+            models: objects(value, "models")
+                .filter_map(|m| {
+                    Some(CastModel {
+                        alias: string(m, "alias")?,
+                        model: string(m, "model")?,
+                    })
+                })
+                .collect(),
+            default_model: string(value, "defaultModel"),
+        }
     }
 }
 
