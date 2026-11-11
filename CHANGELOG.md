@@ -119,6 +119,8 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Zaplaud:** tocar num resumo abre a resposta completa sem perder o cabeçalho de vista, tanto na última resposta
+  quanto no histórico. A posição acompanha a medida do texto, inclusive quando o Markdown demora a ficar pronto.
 - **Zaplaud desktop:** respostas e saídas de ferramenta muito longas não fecham mais o app. Em telas de alta
   resolução, uma mensagem mais alta que cerca de 16 mil pixels estourava o limite do desenho por software; agora ela
   é exibida em pedaços que continuam parecendo uma única mensagem.

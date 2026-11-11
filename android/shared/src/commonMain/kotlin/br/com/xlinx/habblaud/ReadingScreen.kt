@@ -82,6 +82,8 @@ import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.takeWhile
 
 internal fun readingErrorResource(error: String): StringResource = when (error) {
     "changed" -> Res.string.session_changed
@@ -478,6 +480,18 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
             // Lista invertida: o índice 0 é a entrada mais nova. A conversa já abre no fim, sem rolar por todo o histórico.
             val listState = remember(selected.key) { LazyListState() }
             val following by remember(listState) { derivedStateOf { listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0 } }
+            var readingAnchor by remember(selected.key) { mutableStateOf<Pair<Float, () -> Float>?>(null) }
+            LaunchedEffect(readingAnchor) {
+                val (before, now) = readingAnchor ?: return@LaunchedEffect
+                // Aguarda a posição medida, não um número de quadros: o markdown pode terminar depois deles.
+                snapshotFlow { now() to listState.isScrollInProgress }
+                    .takeWhile { (_, scrolling) -> !scrolling }
+                    .collect { (position, _) ->
+                        val delta = before - position
+                        if (kotlin.math.abs(delta) >= 1f) listState.scrollBy(delta)
+                    }
+                readingAnchor = null
+            }
             var unread by remember(selected.key) { mutableIntStateOf(0) }
             var previousLastId by remember(selected.key) { mutableStateOf<String?>(null) }
             val shown = visibleEntries(state.entries, view)
@@ -495,6 +509,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
             val bottomSeen = remember(selected.key) { arrayOfNulls<String>(1) }
             val wasFollowing = following
             if (bottom != bottomSeen[0]) {
+                readingAnchor = null
                 if (wasFollowing) listState.requestScrollToItem(0)
                 bottomSeen[0] = bottom
             }
@@ -537,17 +552,9 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                     items(rows.asReversed(), key = { it.entry.id }) { row ->
                         val entry = row.entry
                         EntryView(entry, results, row.count, row.tools, recovered = entry.id in recovered, cachedSummary = controller.summary(entry), summarize = if (summarizeReplies) { text -> controller.summarize(entry, text) } else null) { before, now ->
-                            // A lista é invertida: o item cresce para cima. Rola o quanto o cabeçalho tocado andou, para ele
-                            // voltar ao lugar; repete por alguns quadros porque o markdown e o texto longo crescem depois do
-                            // primeiro quadro. Para se a pessoa rolar.
-                            scope.launch {
-                                repeat(20) {
-                                    withFrameNanos { }
-                                    if (listState.isScrollInProgress) return@launch
-                                    val delta = before - now()
-                                    if (kotlin.math.abs(delta) >= 1f) listState.scrollBy(delta)
-                                }
-                            }
+                            // A lista é invertida: o item cresce para cima. Acompanha a posição medida do cabeçalho
+                            // até a pessoa rolar ou tocar noutro cabeçalho, inclusive nas medidas tardias do markdown.
+                            readingAnchor = before to now
                         }
                     }
                     if (state.truncated) item {
