@@ -109,6 +109,10 @@ do meio (0.**3**.0).
 
 ### Alterado
 
+- **Elenco:** chamar um personagem ou "Novo" não pede mais pasta: a sessão nova abre sempre na pasta pessoal (`~`) do
+  host. "Continuar" retoma a conversa mais recente do personagem; retomar pelo histórico mantém a pasta da conversa.
+  Saíram as "Salas permitidas" e a "Sala principal" dos personagens, o navegador de pastas (`GET /api/cast/dirs`,
+  `HABBLAUD_CAST_ROOTS`) e `GET /api/cast/folders`, na web, no Android e no desktop Rust.
 - **Zaplaud:** botões e indicadores usam ícones Material no lugar de caracteres de texto.
 - **Zaplaud:** "Abertas" e "Recentes" usam um botão segmentado no lugar das abas.
 - **Zaplaud:** pontos de conexão e alertas de contexto e cota usam as cores do tema claro ou escuro.

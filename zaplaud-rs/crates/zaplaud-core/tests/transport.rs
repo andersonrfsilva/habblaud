@@ -56,6 +56,49 @@ fn response(status: u16, headers: &str, body: &str) -> String {
 }
 
 #[tokio::test]
+async fn cast_new_uses_host_workspace_and_resume_keeps_history_folder() -> TestResult {
+    use serde_json::{Value, json};
+    use zaplaud_core::api::ResumeSession;
+
+    let (origin, task) = server(vec![response(202, "", "{}"); 4]).await?;
+    let api = HabblaudApi::new(&origin)?;
+    api.new_cast(None).await?;
+    api.start_cast("free contact", None).await?;
+    let resume = || {
+        Some(ResumeSession {
+            room: "/history/project",
+            session: "abcd1234-5678",
+            account: ".omp",
+        })
+    };
+    api.new_cast(resume()).await?;
+    api.start_cast("free contact", resume()).await?;
+    let requests = task.await?;
+    let expected = [
+        ("/api/cast/new", json!({})),
+        ("/api/cast/free%20contact/start", json!({"mode":"new"})),
+        (
+            "/api/cast/new",
+            json!({"room":"/history/project","session":"abcd1234-5678","account":".omp"}),
+        ),
+        (
+            "/api/cast/free%20contact/start",
+            json!({"mode":"resume","room":"/history/project","session":"abcd1234-5678","account":".omp"}),
+        ),
+    ];
+    for (request, (path, body)) in requests.iter().zip(expected) {
+        assert!(request.starts_with(&format!("POST {path} ")));
+        assert_eq!(
+            serde_json::from_str::<Value>(
+                request.split_once("\r\n\r\n").ok_or("corpo ausente")?.1
+            )?,
+            body
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn status_mapping_and_redirect_refusal() -> TestResult {
     for status in [302, 401, 403, 404, 409, 413, 429, 500] {
         let (origin, task) = server(vec![response(

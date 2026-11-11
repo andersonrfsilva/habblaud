@@ -73,20 +73,18 @@ describe('grupos e rótulos do editor', () => {
 
 describe('regras do elenco', () => {
   const agent = { id: 'a', roomId: '/a', kind: 'main', status: 'working' } as AgentInfo;
-  const member: CastMember = { id: 'ana', name: 'Ana', look: 'f', seed: 1, kind: 'main', rooms: ['/a'] };
-  it('explica membro ocupado ou fora da sala', () => {
+  const member: CastMember = { id: 'ana', name: 'Ana', look: 'f', seed: 1, kind: 'main' };
+  it('explica membro ocupado', () => {
     expect(castUnavailable(member, agent, [])).toBeUndefined();
-    expect(castUnavailable(member, { ...agent, roomId: '/b' }, [])).toMatch(/sala/);
     expect(castUnavailable(member, agent, [{ ...agent, id: 'b', cast: 'ana' }])).toMatch(/Ocupado/);
   });
-  it('valida nome, limite de tipos e sala principal', () => {
-    expect(validateCast('Ana', ['/a'], '/a', ['reviewer'])).toBeUndefined();
-    expect(validateCast('', [], '', [])).toBeDefined();
-    expect(validateCast('Ana', ['/a'], '/b', [])).toBeDefined();
-    expect(validateCast('Ana', [], '', Array(21).fill('task'))).toBeDefined();
+  it('valida nome e limite de tipos', () => {
+    expect(validateCast('Ana', ['reviewer'])).toBeUndefined();
+    expect(validateCast('', [])).toBeDefined();
+    expect(validateCast('Ana', Array(21).fill('task'))).toBeDefined();
   });
   it('agrupa por tipo (principais, advisors, subagentes) e ordena por nome; grupo vazio some', () => {
-    const m = (name: string, kind: CastMember['kind']): CastMember => ({ id: name, name, look: 'f', seed: 1, kind, rooms: [] });
+    const m = (name: string, kind: CastMember['kind']): CastMember => ({ id: name, name, look: 'f', seed: 1, kind });
     const groups = castGroups([m('Zeca', 'sub'), m('Gandalf', 'advisor'), m('Pedro', 'main'), m('Ana', 'main'), m('Bill', 'sub')]);
     expect(groups.map((g) => [g.kind, g.members.map((x) => x.name)])).toEqual([['main', ['Ana', 'Pedro']], ['advisor', ['Gandalf']], ['sub', ['Bill', 'Zeca']]]);
     expect(castGroups([m('Ana', 'main')]).map((g) => g.kind)).toEqual(['main']);

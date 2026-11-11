@@ -7,7 +7,7 @@ import { CastStore, parseCastMember } from './cast';
 const dirs: string[] = [];
 function folder(): string { const dir = mkdtempSync(join(tmpdir(), 'habblaud-cast-')); dirs.push(dir); return dir; }
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
-const ana = { id: 'ana', name: 'Ana', look: 'f' as const, seed: 1, kind: 'main' as const, rooms: ['/a'], home: '/a' };
+const ana = { id: 'ana', name: 'Ana', look: 'f' as const, seed: 1, kind: 'main' as const };
 
 describe('CastStore', () => {
   it('persists main profiles and rejects invalid fields', () => {
@@ -22,7 +22,7 @@ describe('CastStore', () => {
     for (const fields of [
       { model: 'bad model' }, { model: '--no-session' }, { model: 'x'.repeat(201) }, { instructions: 'x'.repeat(8001) },
       { idleMinutes: 4 }, { idleMinutes: 1441 }, { idleMinutes: 5.5 }, { account: '' },
-      { last: { '/a': '' } }, { kind: 'sub', home: undefined, model: 'model' },
+      { last: { '/a': '' } }, { kind: 'sub', model: 'model' },
     ]) expect(parseCastMember({ ...ana, ...fields })).toBeNull();
     expect(parseCastMember({ ...ana, idleMinutes: 0 })).not.toBeNull();
   });
@@ -61,12 +61,11 @@ describe('CastStore', () => {
     store.flush();
     expect(readFileSync(file, 'utf8')).toBe('{');
   });
-  it('rejects duplicate names and invalid home and limits', () => {
+  it('rejects duplicate names and limits; drops legacy rooms and home', () => {
     const store = new CastStore(null);
     expect(store.put(ana)).toBe(true);
     expect(store.put({ ...ana, id: 'other', name: 'ana' })).toBe(false);
-    expect(parseCastMember({ ...ana, home: '/b' })).toBeNull();
-    expect(parseCastMember({ ...ana, rooms: Array(51).fill('/a') })).toBeNull();
+    expect(parseCastMember({ ...ana, rooms: ['/b'], home: '/b' })).toEqual(ana);
     expect(parseCastMember({ ...ana, match: Array(21).fill('task') })).toBeNull();
     for (let i = 1; i < 200; i++) expect(store.put({ ...ana, id: `n-${i}`, name: `N${i}` })).toBe(true);
     expect(store.put({ ...ana, id: 'overflow', name: 'Overflow' })).toBe(false);

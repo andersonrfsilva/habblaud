@@ -8,8 +8,7 @@ import type { UiContext } from './context';
 import { h, iconButton } from './dom';
 import { ICONS } from './icons';
 import { createAvatar } from './avatar';
-import { FolderPicker, folderOptions } from './folder-picker';
-import { shortPath, spawnFolders, type FolderOption } from './spawn';
+import { shortPath } from './spawn';
 import { modelGroups } from './format';
 import { castDefaultModel, castModelOptions, parseCastModelCatalog, validCastModel, type CastModelCatalog } from './provider';
 
@@ -21,8 +20,6 @@ export class CastScreen {
   readonly el: HTMLDialogElement;
   private readonly content: HTMLElement;
   private members: CastMember[] = [];
-  /** Pastas que o escritório conhece (histórico de sessões + salas), da mais recente para a mais antiga. */
-  private folders: FolderOption[] = [];
   private readonly recentTypes = new Set<string>();
   /** Modelos do omp vistos nas sessões (a extensão manda a lista no início e no batimento); ficam para a ficha. */
   private readonly knownModels = new Set<string>();
@@ -44,14 +41,6 @@ export class CastScreen {
     });
   }
 
-  private async loadFolders(): Promise<void> {
-    this.folders = folderOptions([], spawnFolders(this.ctx.store.snapshot));
-    try {
-      const response = await fetch('/api/cast/folders');
-      if (response.ok) this.folders = folderOptions(((await response.json()) as { folders?: FolderOption[] }).folders ?? [], this.folders.map((f) => f.path));
-    } catch { /* As salas abertas continuam disponíveis. */ }
-  }
-
   private async loadCatalog(): Promise<void> {
     this.catalog = undefined;
     try {
@@ -63,7 +52,7 @@ export class CastScreen {
   async open(agent?: AgentInfo): Promise<void> {
     if (!this.el.open) this.el.showModal();
     this.content.replaceChildren(h('p', { text: tr('Carregando…') }));
-    const [result] = await Promise.all([this.ctx.store.castList(), this.loadFolders(), this.loadCatalog()]);
+    const [result] = await Promise.all([this.ctx.store.castList(), this.loadCatalog()]);
     if ('error' in result) { this.content.replaceChildren(h('p', { role: 'alert', text: result.error })); return; }
     this.members = result.members;
     if (!this.catalog) { this.content.replaceChildren(h('p', { role: 'alert', text: tr('Erro ao carregar o elenco.') })); return; }
@@ -82,7 +71,6 @@ export class CastScreen {
     for (const member of groups.flatMap((g) => g.members)) {
       const group = groups.find((g) => g.members[0] === member);
       if (group) list.append(h('h3', { class: 'ui-cast__group', text: `${heading[group.kind]} · ${group.members.length}` }));
-      const where = member.rooms.length ? member.rooms.map((p) => shortPath(p)).join(', ') : tr('qualquer sala');
       const edit = h('button', { class: 'ui-btn ui-btn--sm', type: 'button', text: tr('Editar'), on: { click: () => this.edit(member) } });
       // Na reserva: Chamar. Trabalhando numa sessão que o Habblaud abriu: Dispensar (a mesma ação da gaveta).
       const call = member.kind === 'main' ? h('button', { class: 'ui-btn ui-btn--sm ui-btn--primary', type: 'button', text: tr('Chamar'), on: { click: () => {
@@ -97,7 +85,7 @@ export class CastScreen {
       calls.push({ member, button: call, status });
       const del = h('button', { class: 'ui-btn ui-btn--sm', type: 'button', text: tr('Apagar'), on: { click: () => void this.remove(member) } });
       list.append(h('div', { class: 'ui-cast__row' }, createAvatar({ ...member, kind: member.kind === 'sub' ? 'sub' : 'main' }, 'sm'),
-        h('div', { class: 'ui-cast__who' }, h('strong', { text: member.name }), h('small', { text: member.kind === 'sub' && member.match?.length ? `${member.match.join(', ')} · ${where}` : where }), status),
+        h('div', { class: 'ui-cast__who' }, h('strong', { text: member.name }), member.kind === 'sub' && member.match?.length ? h('small', { text: member.match.join(', ') }) : null, status),
         h('div', { class: 'ui-cast__row-actions' }, call, edit, del)));
     }
     this.content.replaceChildren(add, reason, list);
@@ -128,35 +116,22 @@ export class CastScreen {
   async call(id: string): Promise<void> {
     if (!this.el.open) this.el.showModal();
     this.content.replaceChildren(h('p', { text: tr('Carregando…') }));
-    const [list, jobs] = await Promise.all([this.ctx.store.castList(), this.ctx.store.castJobs(), this.loadFolders(), this.loadCatalog()]);
+    const [list, jobs] = await Promise.all([this.ctx.store.castList(), this.ctx.store.castJobs(), this.loadCatalog()]);
     if ('error' in list) { this.content.replaceChildren(h('p', { role: 'alert', text: list.error })); return; }
     if (!this.catalog) { this.content.replaceChildren(h('p', { role: 'alert', text: tr('Erro ao carregar o elenco.') })); return; }
     const member = list.members.find((m) => m.id === id && m.kind === 'main');
     if (!member) return;
-    const restricted = member.rooms.length > 0;
-    const previous = Object.keys(member.last ?? {});
-    const first = [...(member.home ? [member.home] : []), ...previous];
-    // Com salas, só elas (mesmo fechadas); sem salas, as conhecidas, as que já tiveram sessão dele e qualquer outra digitada.
-    const options = restricted
-      ? folderOptions(this.folders.filter((f) => member.rooms.includes(f.path)), member.rooms, first)
-      : folderOptions(this.folders, previous, first);
-    let mode: 'new' | 'resume' = 'new';
+    // Nova: sempre na pasta pessoal. Continuar: a conversa mais recente do personagem, na pasta dela.
+    const canResume = Object.keys(member.last ?? {}).length > 0;
+    let mode: 'new' | 'resume' = canResume ? 'resume' : 'new';
     let sent = false;
-    const picker = new FolderPicker({
-      multi: false,
-      free: !restricted,
-      label: tr('Sala'),
-      badge: (path) => (path === member.home ? tr('casa') : member.last?.[path] ? tr('tem sessão') : undefined),
-      onChange: () => sync(),
-      lockedHint: tr('Só as salas permitidas deste personagem. Para outra pasta, edite o personagem.'),
-    });
     const segResume = h('button', { class: 'ui-seg__opt', type: 'button', role: 'radio', text: tr('Continuar'), on: { click: () => { mode = 'resume'; sync(); } } });
     const segNew = h('button', { class: 'ui-seg__opt', type: 'button', role: 'radio', text: tr('Nova'), on: { click: () => { mode = 'new'; sync(); } } });
     const prompt = h('textarea', { class: 'ui-rename__input ui-spawn__prompt', attrs: { id: 'ui-cast-prompt', maxlength: '8000', placeholder: tr('O que ele deve fazer ao chegar (opcional)') } });
     const status = h('p', { class: 'ui-rename__hint', role: 'status' });
     const start = h('button', { class: 'ui-btn ui-btn--primary', type: 'button', text: tr('Chamar'), on: { click: () => void (async () => {
       start.disabled = true;
-      const failure = await this.ctx.store.startCast(id, picker.value(), mode, prompt.value);
+      const failure = await this.ctx.store.startCast(id, mode, prompt.value);
       if (failure) { status.textContent = failure; start.disabled = false; return; }
       sent = true;
       start.textContent = tr('chamando…');
@@ -166,22 +141,17 @@ export class CastScreen {
     let available = jobs.available;
     let calling = !!active(jobs.jobs, id);
     const sync = () => {
-      const canResume = !!member.last?.[picker.value()];
-      if (!canResume) mode = 'new';
       segResume.disabled = !canResume;
-      segResume.title = canResume ? '' : tr('Sem sessão anterior nesta sala');
+      segResume.title = canResume ? '' : tr('Sem sessão anterior');
       segResume.setAttribute('aria-checked', String(mode === 'resume'));
       segNew.setAttribute('aria-checked', String(mode === 'new'));
-      start.disabled = !available || calling || !picker.value();
+      start.disabled = !available || calling;
     };
-    picker.set(options, first.length ? [first[0]] : []);
-    if (member.last?.[picker.value()]) mode = 'resume';
     sync();
     if (!available) status.textContent = this.catalog.provider === 'omp' ? HOST_OFF() : tr('Sem conexão com o Habblaud.');
     else if (!calling) status.textContent = jobs.jobs.filter((job) => job.cast === id && job.status === 'failed').at(-1)?.error ?? '';
     this.content.replaceChildren(h('div', { class: 'ui-cast__call' },
       h('div', { class: 'ui-cast__identity' }, createAvatar({ ...member, kind: 'main' }, 'sm'), h('h3', { class: 'ui-cast__title', text: tr('Chamar {0}', [member.name]) })),
-      h('p', { class: 'ui-set__label', text: tr('Sala') }), picker.el,
       h('p', { class: 'ui-set__label', text: tr('Sessão') }),
       h('div', { class: 'ui-seg', role: 'radiogroup', attrs: { 'aria-label': tr('Sessão') } }, segResume, segNew),
       h('label', { class: 'ui-set__label', attrs: { for: 'ui-cast-prompt' }, text: tr('Pedido') }), prompt,
@@ -229,18 +199,6 @@ export class CastScreen {
     match.value = member?.match?.join(', ') ?? '';
     const suggestions = h('datalist', { attrs: { id: 'ui-cast-types' } });
     for (const type of this.recentTypes) suggestions.append(h('option', { attrs: { value: type } }));
-    const initialRooms = member?.rooms ?? (agent ? [agent.roomId] : []);
-    const home = h('select', { class: 'ui-rename__input' });
-    const syncHome = () => {
-      const keep = home.value;
-      const chosen = rooms.values();
-      home.replaceChildren(h('option', { text: tr('Nenhuma'), attrs: { value: '' } }), ...chosen.map((p) => h('option', { text: shortPath(p), attrs: { value: p } })));
-      home.value = chosen.includes(keep) ? keep : '';
-    };
-    const rooms = new FolderPicker({ multi: true, free: true, label: tr('Salas permitidas'), onChange: () => syncHome() });
-    rooms.set(folderOptions(this.folders, initialRooms, initialRooms), initialRooms);
-    syncHome();
-    home.value = member?.home ?? '';
     // Com a lista de modelos do omp: seletor agrupado como o da gaveta; sem ela (nenhuma sessão com a extensão), texto.
     const current = member?.model ?? '';
     const known = [...this.knownModels];
@@ -280,13 +238,11 @@ export class CastScreen {
     lookSelect.value = look;
     lookSelect.addEventListener('change', () => { look = lookSelect.value === 'm' ? 'm' : 'f'; base = appearanceFromSeed(seed, { look }); fields.set({ ...base }); });
     const save = h('button', { class: 'ui-btn ui-btn--primary', type: 'button', text: tr('Salvar'), on: { click: () => void (async () => {
-      const allowed = rooms.values();
       const types = match.value.split(',').map((v) => v.trim()).filter(Boolean);
-      const homeValue = kind.value === 'main' ? home.value : '';
-      const problem = validateCast(name.value, allowed, homeValue, types);
+      const problem = validateCast(name.value, types);
       if (problem || !fields.value) { error.textContent = problem ?? tr('Aparência inválida.'); return; }
       if (zeroclaw && !validCastModel(this.catalog, model.value)) { error.textContent = tr('Escolha o modelo'); return; }
-      const body: Omit<CastMember, 'id'> = { name: name.value.trim(), look, seed, kind: kind.value as CastMember['kind'], rooms: allowed, parts: changedParts(base, fields.value), ...(kind.value === 'sub' ? { match: types } : {}), ...(homeValue ? { home: homeValue } : {}), ...(kind.value === 'main' ? { ...(model.value ? { model: model.value } : {}), ...(instructions.value ? { instructions: instructions.value } : {}), idleMinutes: Number(idle.value), ...(!zeroclaw && account.value ? { account: account.value } : {}) } : {}) };
+      const body: Omit<CastMember, 'id'> = { name: name.value.trim(), look, seed, kind: kind.value as CastMember['kind'], parts: changedParts(base, fields.value), ...(kind.value === 'sub' ? { match: types } : {}), ...(kind.value === 'main' ? { ...(model.value ? { model: model.value } : {}), ...(instructions.value ? { instructions: instructions.value } : {}), idleMinutes: Number(idle.value), ...(!zeroclaw && account.value ? { account: account.value } : {}) } : {}) };
       save.disabled = true;
       const failure = await this.ctx.store.saveCast(member ? { ...body, id: member.id } : body, member ? undefined : agent?.id);
       save.disabled = false;
@@ -298,10 +254,8 @@ export class CastScreen {
     const execution = group(tr('Execução'), field(tr('Modelo'), model), field(tr('Instruções'), instructions),
       field(tr('Ociosidade em minutos (0 = nunca)'), idle), ...(!zeroclaw ? [field(tr('Conta'), account)] : []));
     const sub = group(tr('Subagente'), field(tr('Tipos de subagente (separados por vírgula; vazio = qualquer)'), match), suggestions);
-    const mainHome = field(tr('Sala principal'), home);
     const syncKind = () => {
       execution.hidden = kind.value !== 'main';
-      mainHome.hidden = kind.value !== 'main';
       sub.hidden = kind.value !== 'sub';
     };
     kind.addEventListener('change', syncKind);
@@ -309,8 +263,6 @@ export class CastScreen {
     this.content.replaceChildren(h('div', { class: 'ui-cast__form' },
       group(tr('Identidade'), field(tr('Nome'), name), field(tr('Tipo'), kind),
         field(tr('Aparência'), lookSelect), fields.preview, roll, fields.groups),
-      group(tr('Salas'), h('div', { class: 'ui-cast__field' }, h('p', { class: 'ui-set__label', text: tr('Salas permitidas') }), rooms.el,
-        h('p', { class: 'ui-rename__hint', text: tr('Nenhuma marcada = trabalha em qualquer sala.') })), mainHome),
       execution, sub, error, h('div', { class: 'ui-cast__actions' }, cancel, save)));
   }
 }

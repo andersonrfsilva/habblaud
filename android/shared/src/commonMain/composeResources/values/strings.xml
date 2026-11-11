@@ -138,14 +138,12 @@
     <string name="cast_unavailable">O auxiliar do servidor não está disponível.</string>
     <string name="cast_forbidden">O servidor não permite gerenciar contatos.</string>
     <string name="cast_select_character">Escolha um contato</string>
-    <string name="cast_select_folder">Escolha a pasta do projeto</string>
     <string name="cast_busy">Este contato está ocupado.</string>
     <string name="cast_pending">Pedido enviado. Aguardando o servidor.</string>
     <string name="cast_confirm">Confirmar</string>
     <string name="cast_done">Pedido concluído.</string>
     <string name="cast_unknown">Não foi possível confirmar o pedido. Confira o estado antes de tentar novamente.</string>
     <string name="cast_failed">O servidor não concluiu o pedido.</string>
-    <string name="cast_no_folders">Nenhuma pasta disponível para este contato.</string>
     <string name="notifications">Notificações</string>
     <string name="background_settings">Liberar uso em segundo plano</string>
     <string name="notifications_running">Zaplaud conectado</string>

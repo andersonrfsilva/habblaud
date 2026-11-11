@@ -17,18 +17,15 @@ export function parseCastMember(raw: unknown): CastMember | null {
   const seed = parseSeed(v.seed);
   const parts = v.parts === undefined ? undefined : parseAppearanceParts(v.parts);
   if (typeof v.id !== 'string' || !ID.test(v.id) || !name || seed === null || parts === null || (v.look !== 'f' && v.look !== 'm') || (v.kind !== 'main' && v.kind !== 'advisor' && v.kind !== 'sub')) return null;
-  if (!Array.isArray(v.rooms) || v.rooms.length > 50 || v.rooms.some((r) => typeof r !== 'string' || !normalizeCwd(r) || r.length > 1024)) return null;
-  const rooms = [...new Set((v.rooms as string[]).map(normalizeCwd))];
+  // `rooms`/`home` de versões antigas são ignorados: todo personagem trabalha em qualquer sala.
   if (v.match !== undefined && (!Array.isArray(v.match) || v.match.length > 20 || v.match.some((m) => typeof m !== 'string' || !m.trim() || m.length > 60))) return null;
-  const home = typeof v.home === 'string' ? normalizeCwd(v.home) : undefined;
-  if (v.home !== undefined && (v.kind !== 'main' || !home || (v.home as string).length > 1024 || !rooms.includes(home))) return null;
   if (v.kind !== 'main' && [v.model, v.instructions, v.idleMinutes, v.account, v.last].some((x) => x !== undefined)) return null;
   if (v.model !== undefined && (typeof v.model !== 'string' || v.model.startsWith('-') || !/^[^\s\x00-\x1f\x7f]{1,200}$/.test(v.model))) return null;
   if (v.instructions !== undefined && (typeof v.instructions !== 'string' || v.instructions.length > 8000)) return null;
   if (v.idleMinutes !== undefined && (typeof v.idleMinutes !== 'number' || !Number.isInteger(v.idleMinutes) || (v.idleMinutes !== 0 && (v.idleMinutes < 5 || v.idleMinutes > 1440)))) return null;
   if (v.account !== undefined && (typeof v.account !== 'string' || !v.account || v.account.length > 200)) return null;
   if (v.last !== undefined && (!v.last || typeof v.last !== 'object' || Array.isArray(v.last) || Object.entries(v.last).some(([room, session]) => !normalizeCwd(room) || room.length > 1024 || typeof session !== 'string' || !session || session.length > 200))) return null;
-  return { id: v.id, name, seed, look: v.look, kind: v.kind, rooms, ...(parts && Object.keys(parts).length ? { parts } : {}), ...(v.match !== undefined ? { match: [...v.match as string[]] } : {}), ...(home ? { home } : {}), ...(v.model !== undefined ? { model: v.model as string } : {}), ...(v.instructions !== undefined ? { instructions: v.instructions as string } : {}), ...(v.idleMinutes !== undefined ? { idleMinutes: v.idleMinutes as number } : {}), ...(v.account !== undefined ? { account: v.account as string } : {}), ...(v.last !== undefined ? { last: { ...v.last as Record<string, string> } } : {}) };
+  return { id: v.id, name, seed, look: v.look, kind: v.kind, ...(parts && Object.keys(parts).length ? { parts } : {}), ...(v.match !== undefined ? { match: [...v.match as string[]] } : {}), ...(v.model !== undefined ? { model: v.model as string } : {}), ...(v.instructions !== undefined ? { instructions: v.instructions as string } : {}), ...(v.idleMinutes !== undefined ? { idleMinutes: v.idleMinutes as number } : {}), ...(v.account !== undefined ? { account: v.account as string } : {}), ...(v.last !== undefined ? { last: { ...v.last as Record<string, string> } } : {}) };
 }
 
 export class CastStore {
@@ -79,10 +76,10 @@ export class CastStore {
     try {
       const data = JSON.parse(readFileSync(namesFile, 'utf8')) as { rooms?: unknown } | null;
       if (!data || !data.rooms || typeof data.rooms !== 'object' || Array.isArray(data.rooms)) return;
-      for (const [room, raw] of Object.entries(data.rooms)) {
+      for (const raw of Object.values(data.rooms)) {
         const old = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
         const id = this.nextId(typeof old.name === 'string' ? old.name : '');
-        const member = parseCastMember({ ...old, id, kind: 'main', home: room, rooms: [room] });
+        const member = parseCastMember({ ...old, id, kind: 'main' });
         if (!member || this.members.length >= 200 || this.members.some((m) => nameKey(m.name) === nameKey(member.name))) {
           log.warnOnce('cast-migrate-entry', tr('Personagem de sala inválido ou repetido na migração do elenco; entrada ignorada.'));
           continue;

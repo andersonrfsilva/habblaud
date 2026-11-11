@@ -19,7 +19,7 @@ FEATURES = ('conversation-idle', 'conversation-working', 'conversation-attachmen
             'permission-bash', 'permission-question-single', 'permission-question-multi',
             'permission-question-omp', 'settings-appearance', 'settings-roles',
             'settings-role-dialog', 'settings-quotas', 'aside', 'session-info',
-            'cast-picker', 'cast-folders', 'cast-dismiss', 'cast-resume-picker', 'cast-resume')
+            'cast-picker', 'cast-dismiss', 'cast-resume-picker', 'cast-resume')
 SCREENS = comparison.SCREENS + FEATURES
 
 
@@ -121,8 +121,6 @@ def capture_features(args, theme):
         time.sleep(.4)
         d.click(316, 717)
         save('cast-picker')
-        d.click(400, 304)
-        save('cast-folders')
         d.key('Escape')
         omp()
         menu()

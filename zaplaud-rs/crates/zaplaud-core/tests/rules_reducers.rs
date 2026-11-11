@@ -1281,17 +1281,16 @@ fn permission_uncovered_serialization_boundaries() {
 
 #[test]
 fn cast_resume_free_owner_and_identity_boundaries() {
-    let character = |id: &str, rooms: &[&str]| CastChoice {
+    let character = |id: &str| CastChoice {
         id: id.into(),
         name: id.into(),
-        rooms: rooms.iter().map(|s| (*s).into()).collect(),
         avatar: None,
     };
     let characters = vec![
-        character("livre", &[]),
-        character("dono", &["/p"]),
-        character("outra", &["/outro"]),
-        character("ocupado", &[]),
+        character("livre"),
+        character("dono"),
+        character("outra"),
+        character("ocupado"),
     ];
     let session = SessionItem {
         key: key("01a1-abcd"),
@@ -1313,7 +1312,7 @@ fn cast_resume_free_owner_and_identity_boundaries() {
             .iter()
             .map(|c| c.id.as_str())
             .collect::<Vec<_>>(),
-        ["dono", "livre"]
+        ["dono", "livre", "outra"]
     );
     assert!(!available.dismiss);
     let open = SessionItem {

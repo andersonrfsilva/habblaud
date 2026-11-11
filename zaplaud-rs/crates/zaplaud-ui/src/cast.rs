@@ -28,7 +28,6 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
     global.set_resume_label(strings::CAST_RESUME.into());
     global.set_dismiss_label(strings::CAST_DISMISS.into());
     global.set_confirm_label(strings::CAST_CONFIRM.into());
-    global.set_empty_label(strings::CAST_NO_FOLDERS.into());
     window
         .global::<ListState>()
         .set_cast_icon(window.global::<Icons>().get_ic_person_add());
@@ -103,17 +102,18 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                         Command::Close => { dialog = Dialog::default(); }
                         Command::Choose(id) if !dialog.mode.is_empty() => {
                             if dialog.choice.is_none() {
-                                dialog.choice = if id.is_empty() { Some(CastChoice { id, name: strings::CAST_NEW.into(), rooms: Vec::new(), avatar: None }) } else { state.free(&server.reading.sessions, if dialog.mode == "resume" { selected } else { None }).into_iter().find(|c| c.id == id) };
+                                dialog.choice = if id.is_empty() { Some(CastChoice { id, name: strings::CAST_NEW.into(), avatar: None }) } else { state.free(&server.reading.sessions, if dialog.mode == "resume" { selected } else { None }).into_iter().find(|c| c.id == id) };
                                 dialog.confirming = dialog.mode == "resume" && dialog.choice.is_some();
-                            } else if dialog.mode == "start" && let Some(choice) = &dialog.choice && folders(&state, choice, None).contains(&id) {
-                                if let Err(error) = state.submit(&server.api, &choice.id, &id, None, None).await { unauthorized(&commands, &origin, &error); }
-                                dialog = Dialog::default(); refresh = true; loaded = false;
+                                if dialog.mode == "start" && let Some(choice) = &dialog.choice {
+                                    if let Err(error) = state.submit(&server.api, &choice.id, None, None).await { unauthorized(&commands, &origin, &error); }
+                                    dialog = Dialog::default(); refresh = true; loaded = false;
+                                }
                             }
                         }
                         Command::Confirm if dialog.confirming => {
                             if dialog.mode == "dismiss" {
-                                if let Some(s) = selected && state.can_dismiss(s) && !s.cast.as_ref().is_some_and(|id| state.active_job(id)) && let Some(id) = s.agent_id.as_deref() && let Err(error) = state.submit(&server.api, "", "", None, Some(id)).await { unauthorized(&commands, &origin, &error); }
-                            } else if let (Some(choice), Some(s)) = (&dialog.choice, selected) && state.can_resume(s) && let Err(error) = state.submit(&server.api, &choice.id, s.project.as_deref().unwrap_or_default(), Some(s), None).await { unauthorized(&commands, &origin, &error); }
+                                if let Some(s) = selected && state.can_dismiss(s) && !s.cast.as_ref().is_some_and(|id| state.active_job(id)) && let Some(id) = s.agent_id.as_deref() && let Err(error) = state.submit(&server.api, "", None, Some(id)).await { unauthorized(&commands, &origin, &error); }
+                            } else if let (Some(choice), Some(s)) = (&dialog.choice, selected) && state.can_resume(s) && let Err(error) = state.submit(&server.api, &choice.id, Some(s), None).await { unauthorized(&commands, &origin, &error); }
                             dialog = Dialog::default(); refresh = true; loaded = false;
                         }
                         _ => {}
@@ -149,20 +149,6 @@ fn unauthorized(commands: &mpsc::UnboundedSender<Event>, origin: &str, error: &E
         let _ = commands.send(Event::Unauthorized(origin.into()));
     }
 }
-/// Pastas para chamar o personagem; a da conversa aberta vem primeiro.
-fn folders(state: &State, choice: &CastChoice, current: Option<&str>) -> Vec<String> {
-    let mut result = Vec::new();
-    for folder in state.folders.iter().chain(&choice.rooms) {
-        if !result.contains(folder) && (choice.rooms.is_empty() || choice.rooms.contains(folder)) {
-            result.push(folder.clone());
-        }
-    }
-    if let Some(index) = current.and_then(|c| result.iter().position(|f| f == c)) {
-        let folder = result.remove(index);
-        result.insert(0, folder);
-    }
-    result
-}
 fn status_text(value: &str) -> &'static str {
     match value {
         "pending" => strings::CAST_PENDING,
@@ -184,41 +170,29 @@ fn publish(
 ) {
     let selected = snapshot.selected.as_ref();
     let server = snapshot.servers.iter().find(|s| s.api.origin() == origin);
-    let choosing_folder = dialog.mode == "start" && dialog.choice.is_some();
-    let rows: Vec<_> = if dialog.mode == "start"
-        && let Some(choice) = &dialog.choice
-    {
-        folders(&state, choice, selected.and_then(|s| s.project.as_deref()))
-            .into_iter()
-            .map(|folder| (folder.clone(), folder, None))
-            .collect()
-    } else {
-        std::iter::once((String::new(), strings::CAST_NEW.into(), None))
-            .chain(
-                state
-                    .free(
-                        server
-                            .map(|s| s.reading.sessions.as_slice())
-                            .unwrap_or_default(),
-                        if dialog.mode == "resume" {
-                            selected
-                        } else {
-                            None
-                        },
-                    )
-                    .into_iter()
-                    .map(|c| (c.id, c.name, c.avatar)),
-            )
-            .collect()
-    };
+    let rows: Vec<_> = std::iter::once((String::new(), strings::CAST_NEW.into(), None))
+        .chain(
+            state
+                .free(
+                    server
+                        .map(|s| s.reading.sessions.as_slice())
+                        .unwrap_or_default(),
+                    if dialog.mode == "resume" {
+                        selected
+                    } else {
+                        None
+                    },
+                )
+                .into_iter()
+                .map(|c| (c.id, c.name, c.avatar)),
+        )
+        .collect();
     let title = if dialog.confirming {
         if dialog.mode == "dismiss" {
             strings::CAST_DISMISS
         } else {
             strings::CAST_RESUME
         }
-    } else if dialog.choice.is_some() {
-        strings::CAST_SELECT_FOLDER
     } else {
         strings::CAST_SELECT_CHARACTER
     };
@@ -284,7 +258,6 @@ fn publish(
                     .is_some_and(|id| state.active_job(id)),
         );
         global.set_status(status.into());
-        global.set_choosing_folder(choosing_folder);
         global.set_visible(visible);
         global.set_confirming(confirming);
         global.set_title(title.into());

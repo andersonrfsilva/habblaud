@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { AgentInfo, CastMember } from '../../shared/types';
 import { CastLauncher } from './launcher';
 
-const member: CastMember = { id: 'ana', name: 'Ana', kind: 'main', look: 'f', seed: 1, rooms: ['/a'], idleMinutes: 5 };
+const member: CastMember = { id: 'ana', name: 'Ana', kind: 'main', look: 'f', seed: 1, idleMinutes: 5 };
 const agent = { id: 'agent', cast: 'ana', kind: 'main', status: 'idle', statusSince: 0 } as AgentInfo;
 
 function setup() {
@@ -17,41 +17,48 @@ describe('CastLauncher', () => {
   it('rejects option-like prompts, models and invalid resume identifiers', () => {
     const { launcher, member: setMember } = setup();
     launcher.poll();
-    for (const prompt of ['-e x', ' --x']) expect(launcher.start('ana', { room: '/a', mode: 'new', prompt })).toMatchObject({ status: 422 });
+    for (const prompt of ['-e x', ' --x']) expect(launcher.start('ana', { mode: 'new', prompt })).toMatchObject({ status: 422 });
     setMember({ ...member, model: '--no-session' });
-    expect(launcher.start('ana', { room: '/a', mode: 'new' })).toMatchObject({ status: 422 });
+    expect(launcher.start('ana', { mode: 'new' })).toMatchObject({ status: 422 });
     setMember({ ...member, last: { '/a': '../../bad' } });
-    expect(launcher.start('ana', { room: '/a', mode: 'resume' })).toMatchObject({ status: 422 });
+    expect(launcher.start('ana', { mode: 'resume' })).toMatchObject({ status: 422 });
   });
-  it('requires host, room, previous session and a free member', () => {
+  it('requires host, previous session and a free member', () => {
     const { launcher, agents } = setup();
-    expect(launcher.start('ana', { room: '/a', mode: 'new' })).toMatchObject({ status: 503 });
+    expect(launcher.start('ana', { mode: 'new' })).toMatchObject({ status: 503 });
     launcher.poll();
-    expect(launcher.start('ana', { room: '/a', mode: 'resume' })).toMatchObject({ status: 422 });
-    expect(launcher.start('ana', { room: '/b', mode: 'new' })).toMatchObject({ status: 422 });
+    expect(launcher.start('ana', { mode: 'resume' })).toMatchObject({ status: 422 });
     agents.push(agent);
-    expect(launcher.start('ana', { room: '/a', mode: 'new' })).toMatchObject({ status: 409 });
+    expect(launcher.start('ana', { mode: 'new' })).toMatchObject({ status: 409 });
     agents.pop();
-    expect(launcher.start('ana', { room: '/a/', mode: 'new' })).toHaveProperty('job');
-    expect(launcher.start('ana', { room: '/a', mode: 'new' })).toMatchObject({ status: 409 });
+    expect(launcher.start('ana', { mode: 'new' })).toHaveProperty('job');
+    expect(launcher.start('ana', { mode: 'new' })).toMatchObject({ status: 409 });
   });
-  it('member without rooms accepts any absolute folder, even one not open in the office', () => {
-    const { launcher, member: setMember } = setup();
-    setMember({ ...member, rooms: [] });
+  it('nova sessão vai sem pasta (o auxiliar abre na pasta pessoal), mesmo se um cliente antigo mandar room', () => {
+    const { launcher } = setup();
     launcher.poll();
-    expect(launcher.start('ana', { room: 'relativa', mode: 'new' })).toMatchObject({ status: 422 });
-    expect(launcher.start('ana', { room: '/nunca/aberta//', mode: 'new' })).toHaveProperty('job');
-    expect(launcher.poll()).toContainEqual(expect.objectContaining({ op: 'start', folder: '/nunca/aberta' }));
+    expect(launcher.start('ana', { room: '/qualquer', mode: 'new' })).toHaveProperty('job');
+    const [job] = launcher.poll();
+    expect(job).toMatchObject({ op: 'start', cast: 'ana' });
+    expect(job).not.toHaveProperty('folder');
+  });
+  it('Continuar sem session retoma a conversa mais recente do personagem, na pasta dela', () => {
+    const { launcher, member: setMember } = setup();
+    launcher.poll();
+    setMember({ ...member, last: { '/velha': 'aaaaaaaa-1', '/nova': 'bbbbbbbb-2' } });
+    expect(launcher.start('ana', { mode: 'resume' })).toHaveProperty('job');
+    expect(launcher.poll()).toContainEqual(expect.objectContaining({ op: 'start', folder: '/nova', resume: 'bbbbbbbb-2' }));
   });
   it('"Novo": abre fora do elenco com id novo-…, conclui quando o agente aparece e pode ser dispensado', () => {
     const { launcher, agents } = setup();
-    expect(launcher.startNew({ room: '/x' })).toMatchObject({ status: 503 });
+    expect(launcher.startNew({})).toMatchObject({ status: 503 });
     launcher.poll();
-    for (const bad of [{ room: 'relativa' }, {}, { room: '/x', prompt: '--x' }]) expect(launcher.startNew(bad)).toMatchObject({ status: 422 });
-    const submitted = launcher.startNew({ room: '/x/' });
+    expect(launcher.startNew({ prompt: '--x' })).toMatchObject({ status: 422 });
+    const submitted = launcher.startNew({ room: '/ignorada' });
     if (!('job' in submitted)) throw new Error('start failed');
     const [job] = launcher.poll();
-    expect(job).toMatchObject({ op: 'start', folder: '/x', agentDir: '/tmp' });
+    expect(job).toMatchObject({ op: 'start', agentDir: '/tmp' });
+    expect(job).not.toHaveProperty('folder');
     expect(job.cast).toMatch(/^novo-[0-9a-f]{8}$/);
     expect(job).not.toHaveProperty('instructionsFile');
     launcher.ack({ results: [{ id: job.id, ok: true }] });
@@ -132,8 +139,8 @@ describe('CastLauncher', () => {
     const sid = '01a17ce2-c30b-7021-a3bf-8d10a45dc21b';
     expect(launcher.start('ana', { room: '/a', mode: 'new', session: sid })).toMatchObject({ status: 422 });
     expect(launcher.start('ana', { room: '/a', mode: 'resume', session: '../x' })).toMatchObject({ status: 422 });
-    expect(launcher.start('ana', { room: '/b', mode: 'resume', session: sid })).toMatchObject({ status: 422 });
-    expect(launcher.start('ana', { room: '/a', mode: 'resume', session: sid, account: '.omp' })).toHaveProperty('job');
+    expect(launcher.start('ana', { room: 'relativa', mode: 'resume', session: sid })).toMatchObject({ status: 422 });
+    expect(launcher.start('ana', { room: '/a/', mode: 'resume', session: sid, account: '.omp' })).toHaveProperty('job');
     expect(launcher.poll()).toContainEqual(expect.objectContaining({ op: 'start', cast: 'ana', folder: '/a', resume: sid }));
   });
   it('"Novo" retoma uma conversa do histórico (session) sem depender de personagem livre na pasta', () => {
@@ -142,6 +149,7 @@ describe('CastLauncher', () => {
     const sid = '01a17ce2-c30b-7021-a3bf-8d10a45dc21b';
     expect(launcher.startNew({ room: '/b', session: '../x' })).toMatchObject({ status: 422 });
     expect(launcher.startNew({ room: '/b', session: 7 })).toMatchObject({ status: 422 });
+    expect(launcher.startNew({ session: sid, account: '.omp' })).toMatchObject({ status: 422 });
     expect(launcher.startNew({ room: '/b', session: sid, account: '.omp' })).toHaveProperty('job');
     const [job] = launcher.poll();
     expect(job).toMatchObject({ op: 'start', folder: '/b', resume: sid });

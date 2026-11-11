@@ -261,7 +261,7 @@ Pergunta: bolha direita85%, raio16 primaryContainer, padding12, texto onPrimaryC
 
 Disponibilidade depende de origem sem login pendente, conexão connected e terminalAllowed ou selectedPermission. Com múltiplas origens sem filtro e sem seleção, FAB não aparece; é necessário selecionar origem/conversa. (`ReadingScreen.kt:94-95`, `ReadingScreen.kt:204`, `ReadingScreen.kt:621-622`, `ReadingScreen.kt:646`.)
 
-GET `/api/cast/jobs` a cada5s enquanto STARTED, available decide availability. Ao disponível carrega `/api/cast` (somente members kind=main) e `/api/cast/folders`; recarrega ao abrir escolha/após pedido. Jobs queued/sent/waiting tornam contato ocupado. Free exclui cast já aberto e jobs ativos. (`CastActions.kt:55-101`, `CastActions.kt:124-135`.)
+GET `/api/cast/jobs` a cada 5 s enquanto STARTED, available decide availability. Ao disponível carrega `/api/cast` (somente members kind=main); recarrega ao abrir escolha/após pedido. Jobs queued/sent/waiting tornam contato ocupado. Free exclui cast já aberto e jobs ativos.
 
 | Controle | Recurso | Tag | Visível / habilitado / ação |
 |---|---|---|---|
@@ -271,18 +271,17 @@ GET `/api/cast/jobs` a cada5s enquanto STARTED, available decide availability. A
 | Menu conversa | `menu` | — | selected != null |
 | Dispensar no menu | `cast_dismiss` | — | available, agente aberto, castOpened, cast conhecido ou prefixo novo-; enabled !sending&&!activeJob; abre confirmação |
 | Escolher Novo | `cast_new` | — | Primeira linha de start/resume-select; contato fora do elenco |
-| Escolher contato | nome dinâmico | — | Apenas free; resume restringe rooms vazia ou projeto exato, dono primeiro |
-| Escolher pasta | caminho dinâmico | — | Start após escolher contato; junta folders+rooms, distinct, respeita rooms se não vazia; envia pedido |
+| Escolher contato | nome dinâmico | — | Apenas free, dono primeiro na retomada; start envia imediatamente |
 | Confirmar dismiss/resume | `cast_confirm` | — | !sending; envia pedido |
 | Cancelar diálogos | `cancel` | — | Fecha diálogo |
 
 Fontes: `CastActions.kt:124-220`. Regex de sessão retomável `^[0-9a-fA-F][0-9a-fA-F-]{7,199}$`. Retomar **não depende de haver contato livre**, pois Novo sempre existe. (`CastActions.kt:37-38`, `CastActions.kt:130-138`.)
 
-Diálogos start/resume-select: títulos `cast_select_character` / `cast_select_folder`, lista rolável maxHeight360; linhas padding12, spacing12, avatar40, Novo com caixa40+ic_person_add. Sem pasta: `cast_no_folders`. Confirmação dismiss: título `cast_dismiss`, corpo `cast_dismiss_confirm`; resume: título `cast_resume`, corpo nome e projeto separados por newline. (`CastActions.kt:171-220`.)
+Diálogos start/resume-select: título `cast_select_character`, lista rolável maxHeight360; linhas padding12, spacing12, avatar40, Novo com caixa40+ic_person_add. Start envia ao escolher, sem etapa de pasta. Confirmação dismiss: título `cast_dismiss`, corpo `cast_dismiss_confirm`; resume: título `cast_resume`, corpo nome e projeto separados por newline.
 
 Rotas:
-- Novo em pasta: POST `/api/cast/new` `{room}`.
-- Contato existente novo: POST `/api/cast/<id>/start` `{mode:"new",room}`.
+- Novo: POST `/api/cast/new` `{}`; o host resolve `~` como pasta padrão.
+- Contato existente novo: POST `/api/cast/<id>/start` `{mode:"new"}`; mesma pasta padrão.
 - Novo retomando: POST `/api/cast/new` `{room,session,account}`.
 - Contato existente retomando: POST `/api/cast/<id>/start` `{mode:"resume",room,session,account}`.
 - Dispensar: POST `/api/agents/<agentId>/dismiss` `{}`.
@@ -485,7 +484,7 @@ Só fixture:claude inicial segura resultado final: primeiro GET `/api/agents/<id
 
 OMP: título `Conversa OMP fictícia`, registro session, prompt `Pedido OMP fictício`,60 etapas alternando user/assistant, resposta final. Não contém tools/thinking/tabela no seed OMP. Modelo explícito `claude-opus-5-5`, contexto120000/200000, anel60% warning e badge Claude. Não há thinking level nem lista de modelos explicitamente anunciados nessa configuração inicial. (`server/test/android-fixture.ts:64-76`, `server/test/android-fixture.ts:132-135`.)
 
-Cast inicial: ana ocupada/projeto; bia livre/projeto e last apontando histórico ...003; caio livre/rooms vazia; davi ocupado/caderno. O last ...003 é sessão **Claude**, portanto não confundir com cenário retomável OMP. Não há sessão OMP fechada semeada inicialmente. (`server/test/android-fixture.ts:136-142`; gate retomada `CastActions.kt:134-135`.)
+Cast inicial: ana ocupada; bia livre e last apontando histórico ...003; caio livre; davi ocupado. Personagens não restringem pastas. O last ...003 é sessão **Claude**, portanto não confundir com cenário retomável OMP. Não há sessão OMP fechada semeada inicialmente.
 
 **Subagentes/advisors: nenhum é criado pelo seed e não há comando stdin específico para criá-los.** Os seis agentes são principais. Não afirmar que screenshots de fixture cobrem galhos/subagentes sem injetar eventos adicionais pela API local adequada. (`server/test/android-fixture.ts:131`, `server/test/android-fixture.ts:325-393`.)
 

@@ -1519,18 +1519,7 @@ pub fn cast_availability(
         .filter(|character| !open_cast.contains(&character.id) && !job_active(&character.id))
         .cloned()
         .collect();
-    let project = selected
-        .and_then(|selected| selected.project.as_deref())
-        .filter(|project| project.starts_with('/'));
-    let mut resume_choices: Vec<_> = free
-        .iter()
-        .filter(|character| {
-            project.is_some_and(|project| {
-                character.rooms.is_empty() || character.rooms.iter().any(|room| room == project)
-            })
-        })
-        .cloned()
-        .collect();
+    let mut resume_choices = free.clone();
     resume_choices.sort_by_key(|character| std::cmp::Reverse(Some(character) == current));
     let resume = selected.is_some_and(|selected| can_resume_cast(selected, runtime));
     let dismiss = selected.is_some_and(|selected| {

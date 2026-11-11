@@ -213,7 +213,7 @@ describe('ClaudeWatcher', () => {
 
   it('subagente em primeiro plano: entra, trabalha e entrega ao concluir', () => {
     const mainId = bootWithSession();
-    c.office.cast.put({ id: 'explorer', name: 'Explorador', look: 'm', seed: 1, kind: 'sub', match: ['Explore'], rooms: [] });
+    c.office.cast.put({ id: 'explorer', name: 'Explorador', look: 'm', seed: 1, kind: 'sub', match: ['Explore'] });
     appendLines(c.transcript('sess-a'), [L.assistant([L.tool('toolu_f', 'Agent', { description: 'Mapear arquivos', subagent_type: 'Explore', prompt: 'x' })])]);
     c.subFile('sess-a', 'f1', { agentType: 'Explore', description: 'Mapear arquivos', toolUseId: 'toolu_f', spawnDepth: 1, requestShape: 'foreground' }, [
       L.prompt('Mapeie os arquivos do carrinho', { agentId: 'f1' }),

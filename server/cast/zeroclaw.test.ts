@@ -85,7 +85,7 @@ import { ZeroClawCast } from './zeroclaw';
 
 const historicalId = '10000000-0000-4000-8000-000000000001';
 const replacementId = '10000000-0000-4000-8000-000000000002';
-const runtimeMember: CastMember = { id: 'ana', name: 'Ana', kind: 'main', look: 'f', seed: 1, rooms: ['/a'] };
+const runtimeMember: CastMember = { id: 'ana', name: 'Ana', kind: 'main', look: 'f', seed: 1 };
 
 function deferred() {
   return Promise.withResolvers<void>();
@@ -181,7 +181,7 @@ function runtimeSetup(max?: number, dataDir = '/unused-zeroclaw-cast-test') {
   const idle = vi.fn();
   const changed = vi.fn();
   const runtime = new ZeroClawCast({
-    catalog: parseZeroClawCatalog(raw, second.alias), connector: () => connector, delivery: () => delivery,
+    catalog: parseZeroClawCatalog(raw, second.alias), home: '/a', connector: () => connector, delivery: () => delivery,
     messages: () => messages, account: () => 'zeroclaw', ready: () => controls.ready,
   });
   const launcher = new CastLauncher({
@@ -288,12 +288,10 @@ describe('elenco com runtime ZeroClaw', () => {
     expect(s.launcher.jobs()).toEqual([]);
   });
 
-  it('recusa membro, sala, prompt, instruções e modelo inválidos antes de conectar', () => {
+  it('recusa membro, prompt, instruções e modelo inválidos antes de conectar', () => {
     const s = runtimeSetup();
     for (const [id, body] of [
       ['missing', { mode: 'new', room: '/a' }],
-      ['ana', { mode: 'new', room: 'relative' }],
-      ['ana', { mode: 'new', room: '/other' }],
       ['ana', { mode: 'new', room: '/a', prompt: 'p'.repeat(8_001) }],
       ['ana', { mode: 'new', room: '/a', prompt: '--flag' }],
       ['ana', { mode: 'resume', room: '/a' }],

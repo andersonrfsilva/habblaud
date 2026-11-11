@@ -56,6 +56,7 @@ pub struct ControlMessage<'a> {
 }
 #[derive(Clone, Debug, Serialize)]
 pub struct ResumeSession<'a> {
+    pub room: &'a str,
     pub session: &'a str,
     pub account: &'a str,
 }
@@ -152,12 +153,6 @@ impl HabblaudApi {
             })
             .collect())
     }
-    pub async fn cast_folders(&self) -> Result<Vec<String>, Error> {
-        let value = self.json("/api/cast/folders", None).await?;
-        Ok(model::objects(&value, "folders")
-            .filter_map(|o| model::string(o, "path"))
-            .collect())
-    }
     pub async fn cast_jobs(&self) -> Result<CastJobs, Error> {
         Ok(CastJobs::parse(&self.json("/api/cast/jobs", None).await?))
     }
@@ -186,11 +181,11 @@ impl HabblaudApi {
     }
     pub async fn new_cast(
         &self,
-        room: &str,
         resume: Option<ResumeSession<'_>>,
     ) -> Result<CastSubmission, Error> {
-        let mut body = json!({"room":room});
+        let mut body = json!({});
         if let Some(resume) = resume {
+            body["room"] = json!(resume.room);
             body["session"] = json!(resume.session);
             body["account"] = json!(resume.account);
         }
@@ -199,11 +194,11 @@ impl HabblaudApi {
     pub async fn start_cast(
         &self,
         cast_id: &str,
-        room: &str,
         resume: Option<ResumeSession<'_>>,
     ) -> Result<CastSubmission, Error> {
-        let mut body = json!({"room":room,"mode":if resume.is_some() {"resume"} else {"new"}});
+        let mut body = json!({"mode":if resume.is_some() {"resume"} else {"new"}});
         if let Some(resume) = resume {
+            body["room"] = json!(resume.room);
             body["session"] = json!(resume.session);
             body["account"] = json!(resume.account);
         }

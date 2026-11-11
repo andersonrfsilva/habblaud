@@ -41,9 +41,9 @@ describe('ações do elenco', () => {
     try {
       const store = new OfficeStore();
       expect(await store.castJobs()).toEqual({ jobs: [], available: true });
-      expect(await store.startCast('ana', '/a', 'new', 'oi')).toBeUndefined();
+      expect(await store.startCast('ana', 'new', 'oi')).toBeUndefined();
       expect(await store.dismissCast('a:1')).toBeUndefined();
-      expect(fetcher).toHaveBeenCalledWith('/api/cast/ana/start', expect.objectContaining({ method: 'POST', body: JSON.stringify({ room: '/a', mode: 'new', prompt: 'oi' }) }));
+      expect(fetcher).toHaveBeenCalledWith('/api/cast/ana/start', expect.objectContaining({ method: 'POST', body: JSON.stringify({ mode: 'new', prompt: 'oi' }) }));
       expect(fetcher).toHaveBeenCalledWith('/api/agents/a%3A1/dismiss', expect.objectContaining({ method: 'POST' }));
     } finally { vi.unstubAllGlobals(); }
   });
