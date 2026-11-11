@@ -78,6 +78,11 @@ jobs:
           ZAPLAUD_JVM_INTEROP_DIR: ${{ runner.temp }}/zaplaud-jvm-interop
           ZAPLAUD_JVM_INTEROP_VERIFY: '1'
         run: bash zaplaud-rs/packaging/jvm-interop.sh
+      # Bibliotecas que o zaplaud-ui liga (fontconfig, xkbcommon, Wayland, X11) e o que os testes gráficos usam.
+      - name: Instalar bibliotecas do sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libfontconfig1-dev libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libxcb1-dev xvfb libxtst6 libatspi2.0-0 at-spi2-core dbus-x11 python3-pil
       - name: Instalar toolchain fixada
         working-directory: zaplaud-rs
         run: rustup show active-toolchain
@@ -95,10 +100,7 @@ jobs:
         run: cargo build --locked -p zaplaud-ui --features skia --bin zaplaud -j 4
       - name: Preparar smokes gráficos e AT-SPI
         working-directory: zaplaud-rs
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y xvfb libxtst6 libatspi2.0-0 at-spi2-core dbus-x11 python3-pil
-          cargo build --locked -p zaplaud-ui --bin zaplaud -j 4
+        run: cargo build --locked -p zaplaud-ui --bin zaplaud -j 4
       - name: Exercitar conversa, teclado e acessibilidade nos dois temas
         run: |
           export ZAPLAUD_CI_BINARY="$PWD/zaplaud-rs/target/debug/zaplaud"
