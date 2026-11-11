@@ -66,11 +66,13 @@ class Clipboard:
                 x.XFree(data)
 
 
-def probe_matrix(binary, display):
+def probe_matrix(binary, display, output=None):
     fixture = Path(__file__).resolve().parents[1] / 'crates/zaplaud-ui/tests/fixtures/transcript-layout.json'
     with tempfile.TemporaryDirectory(prefix='zaplaud-layout-matrix-') as directory:
         runtime = Path(directory) / 'runtime'
         runtime.mkdir(mode=0o700)
+        captures = Path(output).resolve() if output else Path(directory)
+        captures.mkdir(parents=True, exist_ok=True)
         for renderer in ('winit-software', 'winit-skia-software'):
             for scale in (1, 2):
                 for width in (420, 840, 1440):
@@ -81,11 +83,48 @@ def probe_matrix(binary, display):
                                    XDG_RUNTIME_DIR=str(runtime), ZAPLAUD_KEYRING='memory',
                                    ZAPLAUD_DATA_DIR=str(Path(directory) / 'state'))
                         command = [binary, str(fixture), '--size', f'{width}x900',
-                                   '--output', str(Path(directory) / label), '--page-up', '6']
+                                   '--output', str(captures / label), '--page-up', '6']
                         if expanded:
                             command.append('--expand-all')
                         subprocess.run(command, env=env, check=True, timeout=90)
                         print(f'layout: {label}: PASS', flush=True)
+        # Mensagens mais altas que 32767 px físicos abortavam o renderizador por software (coordenadas i16).
+        tall = captures / 'transcript-tall.json'
+        prose = '\n'.join(f'Linha {i} de uma resposta muito longa, com texto suficiente para quebrar.' for i in range(1500))
+        code = '```text\n' + '\n'.join(f'saida {i}' for i in range(2500)) + '\n```'
+        tall.write_text(json.dumps({'truncated': False, 'entries': [
+            {'id': 'u1', 'kind': 'user', 'text': 'Pedido curto.', 'at': 1_700_000_000_000},
+            {'id': 'a1', 'kind': 'assistant', 'text': prose, 'at': 1_700_000_001_000},
+            {'id': 'a2', 'kind': 'assistant', 'text': code, 'at': 1_700_000_002_000},
+            {'id': 'thinking1', 'kind': 'thinking', 'text': prose, 'at': 1_700_000_002_100},
+            {'id': 'tool1', 'kind': 'tool', 'title': 'Ferramenta longa', 'text': prose, 'at': 1_700_000_002_200},
+            {'id': 'result1', 'kind': 'result', 'toolUseId': 'tool1', 'text': code, 'at': 1_700_000_002_300},
+            {'id': 'u2', 'kind': 'user', 'text': 'Fim.', 'at': 1_700_000_003_000},
+        ]}))
+        for renderer in ('winit-software', 'winit-skia-software'):
+            for scale in (1, 2, 3):
+                for width in (420, 1440):
+                    for expanded in (False, True):
+                        for position, args in (
+                            ('top', ['--fraction', '0', '--page-up', '0']),
+                            ('end', ['--fraction', '1', '--page-up', '0']),
+                            ('middle', ['--fraction', '0.5', '--page-up', '0']),
+                            ('page-up', ['--fraction', '1', '--page-up', '6']),
+                        ):
+                            label = f'tall-{renderer}-{scale}-{width}-{"expanded" if expanded else "collapsed"}-{position}'
+                            env = dict(os.environ, DISPLAY=display, WINIT_UNIX_BACKEND='x11',
+                                       SLINT_BACKEND=renderer, SLINT_SCALE_FACTOR=str(scale),
+                                       XDG_RUNTIME_DIR=str(runtime), ZAPLAUD_KEYRING='memory',
+                                       ZAPLAUD_DATA_DIR=str(Path(directory) / 'state'))
+                            command = [binary, str(tall), '--size', f'{width}x900',
+                                       '--output', str(captures / label), '--snapshot-only', *args]
+                            if expanded:
+                                command.append('--expand-all')
+                            subprocess.run(command, env=env, check=True, timeout=90)
+                            print(f'layout: {label}: PASS', flush=True)
+        print('layout: tall matrix: PASS (96 configurations; 2 renderers; scales 1/2/3; widths 420/1440; expanded/collapsed; top/end/middle/page-up)', flush=True)
+        if output:
+            print(f'layout: capturas e fixture preservadas em {captures}', flush=True)
 
 
 def main():
@@ -93,13 +132,14 @@ def main():
     parser.add_argument('--binary')
     parser.add_argument('--probe', help='Executável transcript_probe: verifica a matriz de layout antes do smoke')
     parser.add_argument('--probe-only', action='store_true')
+    parser.add_argument('--probe-output', help='Diretório persistente para fixture alta, PNGs e geometria da matriz')
     parser.add_argument('--display', default='localhost:87')
     parser.add_argument('--port', type=int, default=14787)
     parser.add_argument('--theme', choices=['light', 'dark'], default='light')
     parser.add_argument('--switches', type=int, default=20)
     args = parser.parse_args()
     if args.probe:
-        probe_matrix(args.probe, args.display)
+        probe_matrix(args.probe, args.display, args.probe_output)
     if args.probe_only:
         if not args.probe:
             parser.error('--probe-only exige --probe')

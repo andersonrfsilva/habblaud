@@ -12,7 +12,7 @@ use zaplaud_ui::conversation_rows::{
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
-    let path = args.next().ok_or("uso: transcript_probe CACHE [--size WxH] [--output DIR] [--fraction N] [--page-up N] [--expand-all] [--hold SEGUNDOS]")?;
+    let path = args.next().ok_or("uso: transcript_probe CACHE [--size WxH] [--output DIR] [--fraction N] [--page-up N] [--expand-all] [--snapshot-only] [--hold SEGUNDOS]")?;
     let (mut width, mut height) = (1440_f32, 900_f32);
     let mut output = PathBuf::from("/tmp/zaplaud-transcript-probe");
     let mut fraction = 1.;
@@ -21,6 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut hold = 0u64;
     let mut working = false;
     let mut focused = false;
+    let mut snapshot_only = false;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--size" => {
@@ -40,6 +41,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--page-up" => pages = args.next().ok_or("--page-up sem valor")?.parse()?,
             "--hold" => hold = args.next().ok_or("--hold sem valor")?.parse()?,
             "--expand-all" => expanded = true,
+            "--snapshot-only" => snapshot_only = true,
             "--working" => working = true,
             "--focused" => focused = true,
             "--unfocused" => focused = false,
@@ -72,6 +74,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         0,
     );
     let renderer = std::env::var("SLINT_BACKEND").unwrap_or_else(|_| "winit-software".into());
+    if renderer.contains("skia") && !cfg!(feature = "skia") {
+        return Err(
+            "probe Skia exige cargo build --features skia; fallback não valida outro renderizador"
+                .into(),
+        );
+    }
     slint::BackendSelector::new()
         .backend_name("winit".into())
         .renderer_name(renderer.strip_prefix("winit-").unwrap_or(&renderer).into())
@@ -143,7 +151,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let result_timer = result.clone();
     timer.start(slint::TimerMode::Repeated, Duration::from_millis(250), move || {
         let Some(window) = weak.upgrade() else { return; };
-        let action_count = pages + 11;
+        let action_count = pages + if snapshot_only { 1 } else { 11 };
         if step.is_multiple_of(3) && step / 3 < action_count {
             let action = step / 3;
             match action {
@@ -183,6 +191,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         state.set_end_request(state.get_end_request().wrapping_add(1));
                     } else {
                         let old = model.row_count();
+                        while model.row_count() > rows.len() {
+                            model.remove(model.row_count() - 1);
+                        }
                         for (index, row) in rows.into_iter().enumerate() {
                             if index < old { model.set_row_data(index, row); } else { model.push(row); }
                         }
@@ -210,6 +221,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 rows.sort_by(|a,b|a.0.total_cmp(&b.0));
                 if rows.is_empty() { return Err("nenhuma geometria de linha foi observada".into()); }
                 for (id, y, height, required, width) in text_geometry.borrow().iter() {
+                    if !height.is_finite() || *height >= 10_000. {
+                        return Err(format!("bloco excede limite lógico: id={id}, altura={height}, físico={}", height * scale).into());
+                    }
                     if height + 0.01 < *required {
                         return Err(format!("texto excede bloco: altura={height}, necessário={required}, largura={width}").into());
                     }
@@ -219,10 +233,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 for (index, &(y,h,content)) in rows.iter().enumerate() {
+                    if !h.is_finite() || h >= 10_000. {
+                        return Err(format!("linha excede limite lógico: índice={index}, altura={h}, físico={}", h * scale).into());
+                    }
                     if h + 0.01 < content { return Err(format!("conteúdo excede linha {index}: altura={h}, conteúdo={content}").into()); }
                     if let Some(next) = rows.get(index+1) && y + h > next.0 { return Err(format!("sobreposição entre linhas {index}/{}: fim={}, próximo={}",index+1,y+h,next.0).into()); }
                 }
-                println!("position={} instantiated={} overlap=0",step/3,rows.len());
+                let max_row_height = rows.iter().map(|row| row.1).fold(0_f32, f32::max);
+                let max_text_height = text_geometry.borrow().iter().map(|text| text.2).fold(0_f32, f32::max);
+                let report = serde_json::json!({
+                    "position": step / 3,
+                    "scale": scale,
+                    "logical_width": window.get_requested_width(),
+                    "logical_height": window.get_requested_height(),
+                    "max_row_height": max_row_height,
+                    "max_text_height": max_text_height,
+                    "max_physical_row_height": max_row_height * scale,
+                    "overlap": 0,
+                    "rows": &*geometry.borrow(),
+                    "text": &*text_geometry.borrow(),
+                });
+                std::fs::write(output.join(format!("{:02}.json", step / 3)), serde_json::to_vec_pretty(&report)?)?;
+                println!("position={} instantiated={} overlap=0 max_row_height={max_row_height} max_text_height={max_text_height} max_physical_row_height={}",step/3,rows.len(),max_row_height * scale);
                 Ok(())
             };
             if let Err(error) = capture() { eprintln!("{error}"); failed = true; }

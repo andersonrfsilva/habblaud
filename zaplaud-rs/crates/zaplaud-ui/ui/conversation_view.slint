@@ -13,6 +13,7 @@ export { MdBlock, MdCell, MdSpan, MarkdownGeometry } from "markdown/markdown.sli
 export struct ToolDetail { title: string, text: string }
 export struct ConversationRow {
     id: string, kind: string, source: string, display: string, blocks: [MdBlock],
+    entry-id: string, first: bool, last: bool, fragment: string,
     label: string, time: string, expanded: bool, summarized: bool,
     tools: [ToolDetail],
 }
@@ -69,33 +70,36 @@ export global ConversationViewState {
 
 component EntryBubble inherits Rectangle {
     in property <ConversationRow> entry;
-    init => { ConversationViewState.observe(root.entry.id); }
-    changed entry => { ConversationViewState.observe(root.entry.id); }
+    init => { ConversationViewState.observe(root.entry.entry-id); }
+    changed entry => { ConversationViewState.observe(root.entry.entry-id); }
     property <int> geometry-request: ConversationViewState.geometry-request;
     changed geometry-request => {
-        ConversationViewState.geometry(root.entry.id, root.absolute-position.y / 1px, root.height / 1px, max(content.height, content.preferred-height) / 1px + 8);
+        ConversationViewState.geometry(root.entry.id, root.absolute-position.y / 1px, root.height / 1px, max(content.height, content.preferred-height) / 1px + (root.entry.last ? 8 : 0));
     }
     property <bool> group: entry.kind == "thinking" || entry.kind == "tool";
     function toggle-expanded() {
         ConversationViewState.following = false;
         ConversationViewState.position(false);
-        ConversationViewState.toggle(root.entry.id);
+        ConversationViewState.toggle(root.entry.entry-id);
     }
-    height: content.preferred-height + 8px;
+    height: content.preferred-height + (root.entry.last ? 8px : 0px);
     Rectangle {
         x: root.entry.kind == "user" ? parent.width * 0.15 : 0px;
         width: root.entry.kind == "system" ? parent.width : parent.width * 0.85;
         height: content.preferred-height;
-        border-radius: root.group ? 12px : 16px;
+        border-top-left-radius: root.entry.first ? (root.group ? 12px : 16px) : 0px;
+        border-top-right-radius: self.border-top-left-radius;
+        border-bottom-left-radius: root.entry.last ? (root.group ? 12px : 16px) : 0px;
+        border-bottom-right-radius: self.border-bottom-left-radius;
         border-width: root.group ? 1px : 0px;
         border-color: Theme.outline-variant;
         background: root.entry.kind == "system" || root.group ? transparent : root.entry.kind == "user" ? Theme.primary-container : Theme.surface;
         content := VerticalLayout {
             padding: root.entry.kind == "system" ? 8px : 12px;
-            padding-top: root.group ? 8px : root.entry.kind == "system" ? 8px : 12px;
-            padding-bottom: root.group ? 8px : root.entry.kind == "system" ? 8px : 12px;
+            padding-top: !root.entry.first ? 0px : root.group ? 8px : root.entry.kind == "system" ? 8px : 12px;
+            padding-bottom: !root.entry.last ? 0px : root.group ? 8px : root.entry.kind == "system" ? 8px : 12px;
             spacing: root.group ? 8px : 0px;
-            if root.group: Rectangle {
+            if root.group && root.entry.first: Rectangle {
                 height: 20px;
                 accessible-role: button;
                 accessible-label: root.entry.label + " · " + root.entry.time;
@@ -122,15 +126,15 @@ component EntryBubble inherits Rectangle {
             }
             if root.entry.kind == "system": MeasuredInput {
                 row-id: root.entry.id;
-                text: root.entry.source + (root.entry.time == "" ? "" : " · " + root.entry.time);
+                text: root.entry.fragment + (root.entry.time == "" ? "" : " · " + root.entry.time);
                 accessible-role: text; accessible-label: self.text;
                 read-only: true; wrap: word-wrap; color: Theme.on-surface;
                 font-size: 12px; horizontal-alignment: center;
             }
             if root.entry.kind == "thinking" && root.entry.expanded: MeasuredInput {
                 row-id: root.entry.id;
-                text: root.entry.source; read-only: true; wrap: word-wrap; color: Theme.on-surface-variant;
-                accessible-role: text; accessible-label: root.entry.source;
+                text: root.entry.fragment; read-only: true; wrap: word-wrap; color: Theme.on-surface-variant;
+                accessible-role: text; accessible-label: root.entry.fragment;
                 font-italic: true; font-size: 16px;
             }
             if root.entry.kind == "tool" && root.entry.expanded: ScrollContainer {
@@ -146,8 +150,12 @@ component EntryBubble inherits Rectangle {
                     }
                 }
             }
+            if root.group && root.entry.last && !root.entry.first: Text {
+                height: 16px; text: root.entry.time; horizontal-alignment: right;
+                color: Theme.on-surface-variant; font-size: 11px;
+            }
             if !root.group && root.entry.kind != "system": VerticalLayout {
-                if root.entry.summarized: TextButton { text: root.entry.label; clicked => { root.toggle-expanded(); } }
+                if root.entry.summarized && root.entry.first: TextButton { text: root.entry.label; clicked => { root.toggle-expanded(); } }
                 if root.entry.summarized && !root.entry.expanded: MeasuredInput {
                     row-id: root.entry.id;
                     text: root.entry.display; read-only: true; wrap: word-wrap; color: Theme.on-surface; font-size: 16px;
@@ -160,7 +168,7 @@ component EntryBubble inherits Rectangle {
                     copy(text) => { ConversationViewState.copy(text); }
                     link-clicked(url) => { ConversationViewState.open-link(url); }
                 }
-                Text { height: 16px; text: root.entry.time; horizontal-alignment: right; color: (root.entry.kind == "user" ? Theme.on-primary-container : Theme.on-surface-variant).with-alpha(0.7); font-size: 11px; letter-spacing: 0.5px; }
+                if root.entry.last: Text { height: 16px; text: root.entry.time; horizontal-alignment: right; color: (root.entry.kind == "user" ? Theme.on-primary-container : Theme.on-surface-variant).with-alpha(0.7); font-size: 11px; letter-spacing: 0.5px; }
             }
         }
     }

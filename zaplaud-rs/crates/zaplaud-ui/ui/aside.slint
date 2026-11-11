@@ -3,7 +3,7 @@ import { Labels } from "labels.slint";
 import { Sheet, TextButton, IconButton, TextField, ScrollList, ProgressRing, Menu, RadioButton, Badge } from "widgets/kit.slint";
 import { MarkdownView, MdBlock } from "markdown/markdown.slint";
 import { MaterialIcons } from "widgets/material-icons.slint";
-export struct AsideTurnRow { question: string, answer: string, blocks: [MdBlock], status: string, failed: bool, running: bool }
+export struct AsideTurnRow { question: string, answer: string, blocks: [MdBlock], status: string, failed: bool, running: bool, first: bool, last: bool, end: bool }
 export struct AsideTopicRow { id: string, title: string, selected: bool }
 export global AsideState {
     in-out property <bool> visible;
@@ -63,15 +63,29 @@ export component AsideSheet inherits Rectangle {
                     property <bool> following: true;
                     changed content-height => { if self.following { self.content-y = min(0px, self.height - self.content-height); } }
                     scrolled => { self.following = self.content-height <= self.height || self.content-y <= self.height - self.content-height + 2px; }
-                for turn in AsideState.turns: VerticalLayout { spacing: 6px; padding-bottom: 12px;
-                    HorizontalLayout { Rectangle { horizontal-stretch: 15; } Rectangle {
-                        horizontal-stretch: 85; border-radius: 16px; background: Theme.primary-container;
-                        min-height: question.preferred-height + 24px;
-                        question := TextInput { x: 12px; y: 12px; width: parent.width - 24px; text: turn.question; read-only: true; wrap: word-wrap; color: Theme.on-primary-container; font-size: 16px; }
+                // Cada fragmento é uma linha virtual independente, sem ancestral pintado gigante.
+                for turn in AsideState.turns: VerticalLayout { spacing: 0px; padding-bottom: turn.end ? 12px : 0px;
+                    if turn.question != "": HorizontalLayout { Rectangle { horizontal-stretch: 15; } Rectangle {
+                        horizontal-stretch: 85; background: Theme.primary-container;
+                        border-top-left-radius: turn.first ? 16px : 0px;
+                        border-top-right-radius: turn.first ? 16px : 0px;
+                        border-bottom-left-radius: turn.last ? 16px : 0px;
+                        border-bottom-right-radius: turn.last ? 16px : 0px;
+                        min-height: question.preferred-height + (turn.first ? 12px : 0px) + (turn.last ? 12px : 0px);
+                        question := TextInput { x: 12px; y: turn.first ? 12px : 0px; width: parent.width - 24px; text: turn.question; read-only: true; wrap: word-wrap; color: Theme.on-primary-container; font-size: 16px; }
                     } }
-                    if turn.answer != "": MarkdownView { blocks: turn.blocks; source-markdown: turn.answer; link-clicked(url) => { AsideState.link(url); } copy(text) => { AsideState.copy(text); } }
-                    if turn.status != "": Text { text: turn.status; font-size: 12px; color: turn.failed ? Theme.error : Theme.on-surface-variant; wrap: word-wrap; }
-                    if turn.running: Badge { width: 8px; height: 8px; border-radius: 4px; }
+                    if turn.answer != "": VerticalLayout {
+                        padding-top: turn.first ? 6px : 0px;
+                        MarkdownView { blocks: turn.blocks; source-markdown: turn.answer; link-clicked(url) => { AsideState.link(url); } copy(text) => { AsideState.copy(text); } }
+                    }
+                    if turn.status != "": VerticalLayout {
+                        padding-top: 6px;
+                        Text { text: turn.status; font-size: 12px; color: turn.failed ? Theme.error : Theme.on-surface-variant; wrap: word-wrap; }
+                    }
+                    if turn.running: VerticalLayout {
+                        padding-top: 6px;
+                        Badge { width: 8px; height: 8px; border-radius: 4px; }
+                    }
                 }
             }
             }
