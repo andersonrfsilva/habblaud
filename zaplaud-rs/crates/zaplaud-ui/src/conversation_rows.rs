@@ -178,12 +178,18 @@ pub fn build_rows(
                 _ => {}
             }
             let summary = summaries.get(&conversation::summary_key(entry));
-            let summarized =
-                conversation::wants_summary(entry, enabled) && summary.is_some_and(|s| !s.failed);
+            // Resumo desligado: o começo da resposta, sem modelo; vazio (só código) mostra a resposta inteira.
+            let brief = conversation::wants_brief(entry, enabled)
+                .then(|| conversation::reply_brief(&entry.text))
+                .filter(|brief| !brief.is_empty());
+            let summarized = brief.is_some()
+                || conversation::wants_summary(entry, enabled)
+                    && summary.is_some_and(|s| !s.failed);
             let display = if summarized && !expanded {
                 label = strings::SUMMARY_LABEL.into();
                 summary
                     .and_then(|s| s.text.clone())
+                    .or(brief)
                     .unwrap_or_else(|| strings::SUMMARY_LOADING.into())
             } else {
                 if summarized {
@@ -334,6 +340,39 @@ mod tests {
     use super::*;
 
     #[test]
+    fn disabled_summary_shows_reply_start_until_expanded() {
+        let entry = TerminalEntry {
+            id: "r".into(),
+            kind: "assistant".into(),
+            text: format!("Conclusão primeiro.\n\n{}", "detalhe ".repeat(100)),
+            ..Default::default()
+        };
+        let build = |expanded: &HashSet<String>, enabled| {
+            build_rows(
+                std::slice::from_ref(&entry),
+                "all",
+                expanded,
+                &BTreeMap::new(),
+                enabled,
+                false,
+                0,
+            )
+        };
+        let closed = build(&HashSet::new(), false);
+        assert!(
+            closed[0].summarized && closed[0].display.starts_with("Conclusão primeiro. detalhe")
+        );
+        assert_eq!(closed[0].label, strings::SUMMARY_LABEL);
+        let open = build(&HashSet::from(["r".to_owned()]), false);
+        assert_eq!(
+            open.iter().map(|r| r.fragment.as_str()).collect::<String>(),
+            entry.text
+        );
+        // Ligado e ainda sem pedido no estado: a resposta inteira, como antes.
+        assert!(!build(&HashSet::new(), true)[0].summarized);
+    }
+
+    #[test]
     fn continued_rows_keep_entry_identity_source_and_last_time() {
         let text = "linha de uma resposta extensa\n".repeat(2000);
         let entry = TerminalEntry {
@@ -343,10 +382,11 @@ mod tests {
             at: Some(1_000),
             ..Default::default()
         };
+        // Aberta: com resumo desligado, a resposta longa fechada mostraria só o começo.
         let rows = build_rows(
             &[entry],
             "all",
-            &HashSet::new(),
+            &HashSet::from(["original".to_owned()]),
             &BTreeMap::new(),
             false,
             false,

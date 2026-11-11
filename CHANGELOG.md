@@ -12,6 +12,8 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Zaplaud:** com "Resumir respostas" desligado, a resposta longa mostra na hora o começo dela em texto corrido,
+  sem chamar modelo; tocar mostra a resposta completa. Vale no Android, iOS e desktop Rust.
 - **Zaplaud desktop:** O desktop Rust agora reconhece os controles disponíveis no ZeroClaw, permite interromper e iniciar conversas sem misturar rascunhos e esconde indicadores de contexto não confiáveis. Resumos HTTP funcionam sem Tiny. Aprovações e perguntas também mostram o resumo enviado pelo servidor.
 - **Zaplaud desktop:** no cliente Rust, navegador de arquivos com download, chamada de personagens com conversa aberta,
   conversa em largura total, login salvo em coleção desbloqueada do chaveiro, quebra de linha no campo de mensagem

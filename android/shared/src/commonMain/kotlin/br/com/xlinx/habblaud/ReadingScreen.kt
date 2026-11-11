@@ -848,6 +848,47 @@ private val ASIDE_PULL = 180.dp
 private const val SUMMARY_MIN_CHARS = 500
 /** O servidor aceita até 32 Ki caracteres; o resumo de uma resposta maior olha só o começo dela. */
 private const val SUMMARY_MAX_CHARS = 32 * 1024
+/** O começo sem modelo junta parágrafos até passar deste tamanho e corta neste outro. */
+private const val BRIEF_MIN = 160
+private const val BRIEF_MAX = 400
+private val LIST_MARK = Regex("^([-*+]|\\d+[.)])\\s+")
+
+/**
+ * Com "Resumir respostas" desligado, a resposta longa mostra o começo em texto corrido, na hora e sem modelo: os
+ * agentes respondem com a conclusão primeiro. Pula blocos de código, títulos e tabelas; começa no primeiro parágrafo
+ * em prosa. Vazio quando não sobra texto (resposta só de código): fica a resposta inteira.
+ */
+internal fun replyBrief(text: String): String {
+    val paragraphs = mutableListOf<List<String>>()
+    var lines = mutableListOf<String>()
+    var fence = false
+    fun flush() { if (lines.isNotEmpty()) paragraphs += lines; lines = mutableListOf() }
+    for (raw in text.lines()) {
+        val line = raw.trim()
+        when {
+            line.startsWith("```") -> { fence = !fence; flush() }
+            fence -> {}
+            line.isEmpty() -> flush()
+            else -> lines += line
+        }
+    }
+    flush()
+    val start = paragraphs.indexOfFirst { it[0][0] !in "|#>" && !LIST_MARK.containsMatchIn(it[0]) }.coerceAtLeast(0)
+    val out = StringBuilder()
+    for (paragraph in paragraphs.drop(start)) {
+        if (out.length >= BRIEF_MIN) break
+        for (line in paragraph) {
+            if (line[0] == '|' || line[0] == '#') continue
+            val plain = line.removePrefix(">").trim().replace(LIST_MARK, "").replace("**", "").replace("`", "")
+            if (plain.isNotBlank()) out.append(' ').append(plain)
+        }
+    }
+    val brief = out.toString().trim()
+    if (brief.length <= BRIEF_MAX) return brief
+    val head = brief.take(BRIEF_MAX - 1)
+    val space = head.lastIndexOf(' ')
+    return (if (space > BRIEF_MAX * 0.6) head.take(space) else head).trimEnd(' ', ',', ';', ':', '.', '-') + "…"
+}
 
 @Composable
 private fun EntryView(entry: TerminalEntry, results: Map<String?, List<TerminalEntry>>, count: Int = 1, tools: List<TerminalEntry> = emptyList(), recovered: Boolean = false, cachedSummary: String? = null, summarize: (suspend (String) -> String)? = null, keepPlace: (before: Float, now: () -> Float) -> Unit = { _, _ -> }) {
@@ -901,7 +942,8 @@ private fun EntryView(entry: TerminalEntry, results: Map<String?, List<TerminalE
                     }
                 } else {
                     // Resposta longa com "Resumir respostas" ligado: mostra o resumo; tocar alterna com a resposta completa.
-                    // Sem resumo (curta, servidor recusou ou falhou), fica a resposta completa como sempre.
+                    // Desligado: mostra o começo dela (replyBrief), sem modelo. Sem nenhum dos dois (curta, servidor
+                    // recusou ou falhou, resposta só de código), fica a resposta completa como sempre.
                     val key = summaryKey(entry)
                     val wantsSummary = summarize != null && entry.kind == "assistant" && entry.text.length > SUMMARY_MIN_CHARS
                     var summary by remember(key) { mutableStateOf(cachedSummary) }
@@ -910,12 +952,14 @@ private fun EntryView(entry: TerminalEntry, results: Map<String?, List<TerminalE
                         try { summary = summarize!!(entry.text.take(SUMMARY_MAX_CHARS)) }
                         catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; summaryFailed = true }
                     }
-                    val summarized = wantsSummary && !summaryFailed
+                    val brief = remember(key, summarize == null) { if (summarize == null && entry.kind == "assistant" && entry.text.length > SUMMARY_MIN_CHARS) replyBrief(entry.text).ifEmpty { null } else null }
+                    val summarized = wantsSummary && !summaryFailed || brief != null
+                    val shown = summary ?: brief
                     if (summarized && !expanded) {
                         Column(Modifier.fillMaxWidth().onGloballyPositioned { headerY = it.positionInWindow().y }.clickable { val before = headerY; expanded = true; keepPlace(before) { headerY } }, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            if (summary == null) Text(stringResource(Res.string.summary_loading), style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (shown == null) Text(stringResource(Res.string.summary_loading), style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             else {
-                                Text(summary!!, color = MaterialTheme.colorScheme.onSurface)
+                                Text(shown, color = MaterialTheme.colorScheme.onSurface)
                                 Text(stringResource(Res.string.summary_label), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                             }
                         }

@@ -121,6 +121,83 @@ pub fn wants_summary(entry: &TerminalEntry, enabled: bool) -> bool {
 pub fn summary_text(entry: &TerminalEntry) -> Vec<u16> {
     entry.text.encode_utf16().take(SUMMARY_MAX_CHARS).collect()
 }
+/// O começo sem modelo junta parágrafos até passar de BRIEF_MIN e corta em BRIEF_MAX caracteres.
+const BRIEF_MIN: usize = 160;
+const BRIEF_MAX: usize = 400;
+
+/// Com "Resumir respostas" desligado, a resposta longa mostra o começo dela (`reply_brief`), sem modelo.
+pub fn wants_brief(entry: &TerminalEntry, enabled: bool) -> bool {
+    !enabled && entry.kind == "assistant" && utf16_len(&entry.text) > SUMMARY_MIN_CHARS
+}
+
+fn list_mark(line: &str) -> Option<&str> {
+    let rest = line.strip_prefix(['-', '*', '+']).or_else(|| {
+        let digits = line.trim_start_matches(|c: char| c.is_ascii_digit());
+        (digits.len() < line.len())
+            .then_some(digits)?
+            .strip_prefix(['.', ')'])
+    })?;
+    rest.starts_with(char::is_whitespace)
+        .then(|| rest.trim_start())
+}
+
+/// O começo da resposta em texto corrido, como o `replyBrief` do Kotlin: os agentes respondem com a conclusão
+/// primeiro. Pula blocos de código, títulos e tabelas; começa no primeiro parágrafo em prosa. Vazio quando não
+/// sobra texto (resposta só de código): fica a resposta inteira.
+pub fn reply_brief(text: &str) -> String {
+    let mut paragraphs: Vec<Vec<&str>> = Vec::new();
+    let mut lines = Vec::new();
+    let mut fence = false;
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.starts_with("```") {
+            fence = !fence;
+        } else if !fence && !line.is_empty() {
+            lines.push(line);
+            continue;
+        }
+        if !lines.is_empty() {
+            paragraphs.push(std::mem::take(&mut lines));
+        }
+    }
+    if !lines.is_empty() {
+        paragraphs.push(lines);
+    }
+    let start = paragraphs
+        .iter()
+        .position(|p| !p[0].starts_with(['|', '#', '>']) && list_mark(p[0]).is_none())
+        .unwrap_or(0);
+    let mut out = String::new();
+    for paragraph in &paragraphs[start.min(paragraphs.len())..] {
+        if out.chars().count() >= BRIEF_MIN {
+            break;
+        }
+        for line in paragraph {
+            if line.starts_with(['|', '#']) {
+                continue;
+            }
+            let line = line.strip_prefix('>').unwrap_or(line).trim();
+            let plain = list_mark(line)
+                .unwrap_or(line)
+                .replace("**", "")
+                .replace('`', "");
+            if !plain.trim().is_empty() {
+                out.push(' ');
+                out.push_str(&plain);
+            }
+        }
+    }
+    let brief = out.trim();
+    if brief.chars().count() <= BRIEF_MAX {
+        return brief.to_owned();
+    }
+    let head: String = brief.chars().take(BRIEF_MAX - 1).collect();
+    let cut = match head.rfind(' ') {
+        Some(space) if head[..space].chars().count() * 10 > BRIEF_MAX * 6 => &head[..space],
+        _ => &head,
+    };
+    format!("{}…", cut.trim_end_matches([' ', ',', ';', ':', '.', '-']))
+}
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SummaryState {
@@ -203,4 +280,30 @@ pub fn reduce_summary(
         _ => {}
     }
     (state, effects)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn brief_starts_at_first_prose_skips_code_titles_tables_and_cuts_at_word() {
+        let reply = format!(
+            "## Causa\n\n```rust\nlet x = 1;\n```\n\nO **resumo** demora: `slot` atende 2 por vez.\n\n| a | b |\n|---|---|\n\n- Cada pedido leva 2,3 s.\n- A fila cresce.\n\n{}",
+            "fim ".repeat(200)
+        );
+        let brief = reply_brief(&reply);
+        assert_eq!(
+            brief.split(" fim").next().unwrap(),
+            "O resumo demora: slot atende 2 por vez. Cada pedido leva 2,3 s. A fila cresce."
+        );
+        assert!(
+            brief.chars().count() <= BRIEF_MAX && brief.ends_with("fim…"),
+            "{brief}"
+        );
+        assert_eq!(
+            reply_brief(&format!("```\n{}```", "código\n".repeat(100))),
+            ""
+        );
+    }
 }
