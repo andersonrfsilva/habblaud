@@ -954,7 +954,8 @@ private fun EntryView(entry: TerminalEntry, results: Map<String?, List<TerminalE
                     }
                     val brief = remember(key, summarize == null) { if (summarize == null && entry.kind == "assistant" && entry.text.length > SUMMARY_MIN_CHARS) replyBrief(entry.text).ifEmpty { null } else null }
                     val summarized = wantsSummary && !summaryFailed || brief != null
-                    val shown = summary ?: brief
+                    // Desligado vale mesmo onde o modelo já tinha resumido: o resumo guardado não volta.
+                    val shown = brief ?: summary
                     if (summarized && !expanded) {
                         Column(Modifier.fillMaxWidth().onGloballyPositioned { headerY = it.positionInWindow().y }.clickable { val before = headerY; expanded = true; keepPlace(before) { headerY } }, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             if (shown == null) Text(stringResource(Res.string.summary_loading), style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant)

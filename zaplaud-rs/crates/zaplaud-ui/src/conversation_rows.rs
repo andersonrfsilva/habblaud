@@ -187,9 +187,8 @@ pub fn build_rows(
                     && summary.is_some_and(|s| !s.failed);
             let display = if summarized && !expanded {
                 label = strings::SUMMARY_LABEL.into();
-                summary
-                    .and_then(|s| s.text.clone())
-                    .or(brief)
+                brief
+                    .or_else(|| summary.and_then(|s| s.text.clone()))
                     .unwrap_or_else(|| strings::SUMMARY_LOADING.into())
             } else {
                 if summarized {
@@ -347,12 +346,20 @@ mod tests {
             text: format!("Conclusão primeiro.\n\n{}", "detalhe ".repeat(100)),
             ..Default::default()
         };
+        // Resumo do modelo guardado de quando estava ligado.
+        let cached = BTreeMap::from([(
+            conversation::summary_key(&entry),
+            SummaryState {
+                text: Some("Resumo do modelo.".into()),
+                ..Default::default()
+            },
+        )]);
         let build = |expanded: &HashSet<String>, enabled| {
             build_rows(
                 std::slice::from_ref(&entry),
                 "all",
                 expanded,
-                &BTreeMap::new(),
+                &cached,
                 enabled,
                 false,
                 0,
@@ -368,8 +375,8 @@ mod tests {
             open.iter().map(|r| r.fragment.as_str()).collect::<String>(),
             entry.text
         );
-        // Ligado e ainda sem pedido no estado: a resposta inteira, como antes.
-        assert!(!build(&HashSet::new(), true)[0].summarized);
+        // Ligado: o resumo do modelo volta.
+        assert_eq!(build(&HashSet::new(), true)[0].display, "Resumo do modelo.");
     }
 
     #[test]
