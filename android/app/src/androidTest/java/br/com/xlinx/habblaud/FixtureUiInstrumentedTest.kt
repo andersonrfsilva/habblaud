@@ -64,6 +64,7 @@ class FixtureUiInstrumentedTest {
     private var scenario: ActivityScenario<MainActivity>? = null
     private var prepared = false
     private var zeroClawFixture = false
+    private var restoreDisplay: (() -> Unit)? = null
     private val zeroClawKey = SessionKey(origin, "zeroclaw", "zeroclaw", "00000000-0000-4000-8000-000000000008")
     private fun fixture(path: String, body: JSONObject? = null): JSONObject {
         val port = requireNotNull(InstrumentationRegistry.getArguments().getString("fixtureLocalPort")?.toIntOrNull())
@@ -126,6 +127,7 @@ class FixtureUiInstrumentedTest {
 
     @After fun cleanup() {
         scenario?.close()
+        restoreDisplay?.invoke()
         if (zeroClawFixture) fixtureCommand("runtime omp")
         if (prepared) {
             runBlocking { LocalStateStore(context).clear() }
@@ -682,16 +684,27 @@ class FixtureUiInstrumentedTest {
             android.os.ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(command)).use { it.readBytes().decodeToString().trim() }
         val rotation = shell("wm user-rotation")
         val angle = shell("settings get system user_rotation").toInt()
-        try {
-            shell("wm size 2560x1600")
-            shell("wm density 240")
-            // O AVD 320×640 limita o resultado a 1920×1600; ainda exerce a coluna larga a 1280 dp.
+        restoreDisplay = {
+            shell("wm size reset")
+            shell("wm density reset")
+            shell("wm user-rotation lock $angle")
+            shell("wm user-rotation $rotation")
+        }
+        run {
+            // Mesmo girado, o AVD tem ao menos 1600 dp de largura: a conversa deve ultrapassar os antigos 840 dp.
+            shell("wm size 1920x1600")
+            shell("wm density 160")
             scenario = ActivityScenario.launch(MainActivity::class.java)
             await(R.string.message_text)
             awaitDescription(R.string.cast_start)
             compose.onNodeWithContentDescription(text(R.string.cast_start)).assertIsDisplayed()
-            val width = compose.onNodeWithTag("conversation-list").fetchSemanticsNode().boundsInRoot.width
-            assertTrue("A conversa ainda está limitada a 840 dp: $width px", width > 840 * context.resources.displayMetrics.density)
+            compose.waitUntil(15_000) {
+                val node = compose.onNodeWithTag("conversation-list").fetchSemanticsNode()
+                node.boundsInRoot.width > 840 * node.layoutInfo.density.density
+            }
+            val node = compose.onNodeWithTag("conversation-list").fetchSemanticsNode()
+            assertTrue("A conversa ainda está limitada a 840 dp: ${node.boundsInRoot.width} px",
+                node.boundsInRoot.width > 840 * node.layoutInfo.density.density)
             for (theme in listOf("light", "dark")) {
                 runBlocking { LocalStateStore(context).setTheme(theme) }
                 compose.waitForIdle()
@@ -711,12 +724,6 @@ class FixtureUiInstrumentedTest {
             val request = requests.getJSONObject(requests.length() - 1)
             assertEquals("new", request.getString("mode"))
             assertEquals("/fixture/projeto", request.getString("room"))
-        } finally {
-            scenario?.close(); scenario = null
-            shell("wm size reset")
-            shell("wm density reset")
-            shell("wm user-rotation lock $angle")
-            shell("wm user-rotation $rotation")
         }
     }
 }

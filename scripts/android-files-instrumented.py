@@ -81,7 +81,7 @@ def main():
                 subprocess.run(['adb', 'reverse', f'tcp:{port}', f'tcp:{port}'], check=True)
                 reverses.append(port)
             subprocess.run([
-                './gradlew', '--max-workers=4', ':app:connectedDebugAndroidTest',
+                './gradlew', '--max-workers=6', ':app:connectedDebugAndroidTest',
                 '-Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true',
                 f'-Pandroid.testInstrumentationRunnerArguments.class={TEST}',
                 '-Pandroid.testInstrumentationRunnerArguments.fixture=true',

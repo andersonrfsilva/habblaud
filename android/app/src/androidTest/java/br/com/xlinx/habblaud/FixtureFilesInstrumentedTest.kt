@@ -2,6 +2,7 @@ package br.com.xlinx.habblaud
 
 import android.content.ContentUris
 import android.content.Context
+import android.content.pm.ActivityInfo
 import android.os.Build
 import android.provider.MediaStore
 import androidx.compose.ui.test.*
@@ -61,13 +62,22 @@ class FixtureFilesInstrumentedTest {
     private fun login(argument: String): String {
         val origin = requireNotNull(arguments.getString(argument))
         scenario = ActivityScenario.launch(MainActivity::class.java)
+        scenario!!.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
+        compose.waitUntil(30_000) {
+            compose.onRoot().fetchSemanticsNode().boundsInRoot.let { it.height > it.width }
+        }
         awaitTag("server-url")
         compose.onNodeWithTag("server-url").performTextReplacement(origin)
         compose.onNodeWithTag("username").performTextInput("android-test")
         compose.onNodeWithTag("password").performTextInput("android-test")
-        compose.onNodeWithTag("login-submit").performClick()
-        awaitTag("http-confirm")
-        compose.onNodeWithTag("http-confirm").performClick()
+        android.os.ParcelFileDescriptor.AutoCloseInputStream(
+            InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("input keyevent KEYCODE_BACK")
+        ).use { it.readBytes() }
+        compose.onNodeWithTag("login-submit").performScrollTo().performClick()
+        compose.waitUntil(30_000) {
+            compose.onAllNodesWithText(context.getString(R.string.http_login_title)).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("http-confirm", useUnmergedTree = true).performClick()
         compose.waitUntil(30_000) {
             compose.onAllNodesWithContentDescription(context.getString(R.string.menu)).fetchSemanticsNodes().isNotEmpty()
         }
@@ -103,7 +113,7 @@ class FixtureFilesInstrumentedTest {
                 }
             } finally { screenshot.recycle() }
         }
-        compose.onNodeWithTag("files-download:$name").performClick()
+        compose.onNodeWithTag("files-download:$name").performScrollTo().assertIsDisplayed().performClick()
         awaitTag("files-completed:$name")
         val saved = downloads()
         assertEquals("Um arquivo deve ser publicado em Downloads", 1, saved.size)
