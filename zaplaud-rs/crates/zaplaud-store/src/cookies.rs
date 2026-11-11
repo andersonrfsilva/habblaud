@@ -39,6 +39,7 @@ fn keyring_target() -> Option<String> {
 }
 
 /// Primeira coleção destrancada e persistente com rótulo único; a de sessão some ao sair.
+#[cfg(any(target_os = "linux", test))]
 fn choose_unlocked(collections: impl Iterator<Item = (String, String, bool)>) -> Option<String> {
     let collections: Vec<_> = collections.collect();
     collections

@@ -20,11 +20,12 @@ fn probe_has_no_notdef_and_paints_with_the_app_font_stack() -> Result<(), Box<dy
         #[cfg(target_os = "macos")]
         {
             use slint::fontique_011::fontique::GenericFamily;
-            let collection = shared_collection();
+            let mut collection = shared_collection();
+            let sans = collection.generic_families(GenericFamily::SansSerif).next();
+            let system = collection.generic_families(GenericFamily::SystemUi).next();
             assert_eq!(
-                collection.generic_families(GenericFamily::SansSerif).next(),
-                collection.generic_families(GenericFamily::SystemUi).next(),
-                "sans-serif deve preservar a fonte de interface nativa do macOS",
+                sans, system,
+                "sans-serif deve preservar a fonte de interface nativa do macOS"
             );
         }
         let mut fonts = parley::FontContext {
