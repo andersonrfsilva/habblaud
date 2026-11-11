@@ -265,27 +265,50 @@ describe('elenco com runtime ZeroClaw', () => {
     expect(s.members.get('ana')?.last).toEqual({ '/a': historicalId });
   });
 
-  it('retoma sem prompt sem inferência e aceita modelo legado compatível', async () => {
+  it('retoma no modelo original mesmo se o personagem trocou de modelo depois', async () => {
     const s = runtimeSetup();
     s.history.set(historicalId, { sessionId: historicalId, agent: first.alias, name: 'Ana', cwd: '/a' });
-    s.members.set('ana', { ...runtimeMember, model: first.model, instructions: 'Perfil' });
+    s.members.set('ana', { ...runtimeMember, model: second.alias, instructions: 'Perfil' });
     accepted(s.launcher.start('ana', { mode: 'resume', room: '/a', session: historicalId }));
     await settleRuntime();
+    expect(s.connector.openSession).toHaveBeenCalledWith(expect.objectContaining({ sessionId: historicalId, agent: first.alias }));
     expect(s.messages.send).not.toHaveBeenCalled();
     expect(s.launcher.jobs()[0].status).toBe('done');
   });
 
-  it.each(['omp', 'room', 'alias', 'model', 'already-open'])('recusa histórico incompatível antes da conexão: %s', (problem) => {
+  it.each(['omp', 'room', 'alias', 'already-open'])('recusa histórico incompatível antes da conexão: %s', (problem) => {
     const s = runtimeSetup();
     if (problem !== 'omp') s.history.set(historicalId, {
       sessionId: historicalId, agent: problem === 'alias' ? 'm_000000000000' : first.alias,
       name: 'Ana', cwd: problem === 'room' ? '/other' : '/a',
     });
-    if (problem === 'model') s.members.set('ana', { ...runtimeMember, model: second.alias });
     if (problem === 'already-open') s.restore({ cast: undefined });
     expect(s.launcher.start('ana', { mode: 'resume', room: '/a', session: historicalId })).toMatchObject({ status: 422 });
     expect(s.connector.openSession).not.toHaveBeenCalled();
     expect(s.launcher.jobs()).toEqual([]);
+  });
+
+  it('conversa nova usa o modelo escolhido no pedido, acima do modelo do personagem e do padrão', async () => {
+    const s = runtimeSetup();
+    s.members.set('ana', { ...runtimeMember, model: first.alias });
+    accepted(s.launcher.start('ana', { mode: 'new', model: second.alias }));
+    accepted(s.launcher.startNew({ model: second.model }));
+    await settleRuntime();
+    expect(s.connector.openSession).toHaveBeenNthCalledWith(1, expect.objectContaining({ cast: 'ana', agent: second.alias }));
+    expect(s.connector.openSession).toHaveBeenNthCalledWith(2, expect.objectContaining({ agent: second.alias }));
+  });
+
+  it('recusa modelo fora do catálogo, não textual ou junto de uma retomada', () => {
+    const s = runtimeSetup();
+    s.history.set(historicalId, { sessionId: historicalId, agent: first.alias, name: 'Ana', cwd: '/a' });
+    for (const result of [
+      s.launcher.start('ana', { mode: 'new', model: 'm_000000000000' }),
+      s.launcher.start('ana', { mode: 'new', model: 7 }),
+      s.launcher.start('ana', { mode: 'resume', room: '/a', session: historicalId, model: first.alias }),
+      s.launcher.startNew({ model: 'outro' }),
+      s.launcher.startNew({ room: '/a', session: historicalId, model: first.alias }),
+    ]) expect(result).toMatchObject({ status: 422 });
+    expect(s.connector.openSession).not.toHaveBeenCalled();
   });
 
   it('recusa membro, prompt, instruções e modelo inválidos antes de conectar', () => {

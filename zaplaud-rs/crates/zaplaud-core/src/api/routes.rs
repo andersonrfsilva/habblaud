@@ -173,8 +173,12 @@ impl HabblaudApi {
         })
     }
     pub async fn cast_runtime(&self) -> Result<Option<String>, Error> {
-        let value = self.json("/api/cast/models", None).await?;
-        Ok(model::catalog_runtime(&value).map(str::to_owned))
+        Ok(self.cast_catalog().await?.runtime)
+    }
+    pub async fn cast_catalog(&self) -> Result<model::CastCatalog, Error> {
+        Ok(model::CastCatalog::parse(
+            &self.json("/api/cast/models", None).await?,
+        ))
     }
     pub async fn summary_http(&self) -> Result<bool, Error> {
         Ok(self.json("/api/health", None).await?.get("summaryHttp") == Some(&Value::Bool(true)))
@@ -182,12 +186,15 @@ impl HabblaudApi {
     pub async fn new_cast(
         &self,
         resume: Option<ResumeSession<'_>>,
+        model: Option<&str>,
     ) -> Result<CastSubmission, Error> {
         let mut body = json!({});
         if let Some(resume) = resume {
             body["room"] = json!(resume.room);
             body["session"] = json!(resume.session);
             body["account"] = json!(resume.account);
+        } else if let Some(model) = model {
+            body["model"] = json!(model);
         }
         self.submit_cast("/api/cast/new", body).await
     }
@@ -195,12 +202,15 @@ impl HabblaudApi {
         &self,
         cast_id: &str,
         resume: Option<ResumeSession<'_>>,
+        model: Option<&str>,
     ) -> Result<CastSubmission, Error> {
         let mut body = json!({"mode":if resume.is_some() {"resume"} else {"new"}});
         if let Some(resume) = resume {
             body["room"] = json!(resume.room);
             body["session"] = json!(resume.session);
             body["account"] = json!(resume.account);
+        } else if let Some(model) = model {
+            body["model"] = json!(model);
         }
         self.submit_cast(
             &format!("/api/cast/{}/start", encode_segment(cast_id)),

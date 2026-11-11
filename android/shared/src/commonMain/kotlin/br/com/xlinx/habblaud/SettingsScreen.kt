@@ -287,6 +287,7 @@ private fun SwitchRow(label: String, checked: Boolean, enabled: Boolean = true, 
 }
 
 private fun roleLabel(role: String) = when (role) {
+    "default" -> Res.string.role_main
     "task" -> Res.string.role_task
     "plan" -> Res.string.role_plan
     "tiny" -> Res.string.role_tiny

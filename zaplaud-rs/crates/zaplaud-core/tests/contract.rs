@@ -346,7 +346,7 @@ async fn full_kotlin_http_contract() -> TestResult {
     .await?;
     assert!(api.roles().await?.pending);
     fixture.command("cast-consume").await?;
-    let called = api.start_cast("caio", None).await?;
+    let called = api.start_cast("caio", None, None).await?;
     assert_eq!(called.cast.as_deref(), Some("caio"));
     fixture.command("cast-consume").await?;
     assert!(
@@ -372,6 +372,7 @@ async fn full_kotlin_http_contract() -> TestResult {
             session: &historical.key.session_id,
             account: &historical.key.account,
         }),
+        None,
     )
     .await?;
     fixture.command("cast-consume").await?;
@@ -382,19 +383,22 @@ async fn full_kotlin_http_contract() -> TestResult {
             .iter()
             .any(|s| s.agent_id.as_deref() == Some("fixture:cast:bia") && s.key == historical.key)
     );
-    let new = api.new_cast(None).await?;
+    let new = api.new_cast(None, None).await?;
     assert!(new.cast.is_some());
     fixture.command("cast-consume").await?;
     // Novo também deve aceitar retomada sem personagem fixo.
     let resumed_new = api
-        .new_cast(Some(ResumeSession {
-            room: markdown
-                .project
-                .as_deref()
-                .ok_or("pasta histórica ausente")?,
-            session: &markdown.key.session_id,
-            account: &markdown.key.account,
-        }))
+        .new_cast(
+            Some(ResumeSession {
+                room: markdown
+                    .project
+                    .as_deref()
+                    .ok_or("pasta histórica ausente")?,
+                session: &markdown.key.session_id,
+                account: &markdown.key.account,
+            }),
+            None,
+        )
         .await?;
     let resumed_cast = resumed_new.cast.ok_or("cast Novo ausente")?;
     fixture.command("cast-consume").await?;
@@ -458,8 +462,8 @@ async fn closed_omp_resume_subagents_and_usage_contract() -> TestResult {
             account: ".omp",
         });
         let job = match contact {
-            Some(id) => api.start_cast(id, resume).await?,
-            None => api.new_cast(resume).await?,
+            Some(id) => api.start_cast(id, resume, None).await?,
+            None => api.new_cast(resume, None).await?,
         };
         let cast = job.cast.ok_or("cast ausente")?;
         let consumed = fixture.command("cast-consume").await?;
@@ -600,10 +604,20 @@ async fn zeroclaw_runtime_messages_controls_cast_and_summary_contract() -> TestR
             .any(|s| s.agent_id.as_deref() == Some("fixture:zeroclaw")
                 && s.key.session_id != session.key.session_id)
     );
-    let job = api.new_cast(None).await?;
+    let catalog = api.cast_catalog().await?;
+    assert_eq!(catalog.models.len(), 2);
+    let alias = &catalog.models[1].alias;
+    let job = api.new_cast(None, Some(alias)).await?;
     assert!(job.cast.is_some());
     let stats = fixture.command("stats").await?;
     assert_eq!(stats["runtime"], "zeroclaw");
+    assert_eq!(
+        stats["castRequests"]
+            .as_array()
+            .and_then(|r| r.last())
+            .ok_or("pedido ausente")?["model"],
+        alias.as_str()
+    );
     assert!(
         !stats["castRequests"]
             .as_array()

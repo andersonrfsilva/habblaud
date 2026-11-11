@@ -271,17 +271,18 @@ GET `/api/cast/jobs` a cada 5 s enquanto STARTED, available decide availability.
 | Menu conversa | `menu` | — | selected != null |
 | Dispensar no menu | `cast_dismiss` | — | available, agente aberto, castOpened, cast conhecido ou prefixo novo-; enabled !sending&&!activeJob; abre confirmação |
 | Escolher Novo | `cast_new` | — | Primeira linha de start/resume-select; contato fora do elenco |
-| Escolher contato | nome dinâmico | — | Apenas free, dono primeiro na retomada; start envia imediatamente |
+| Escolher contato | nome dinâmico | — | Apenas free, dono primeiro na retomada; start abre Modelo em ZeroClaw com 2+ modelos; demais enviam imediatamente |
+| Escolher modelo | `role_pick_model` | — | Apenas start ZeroClaw com 2+ modelos; rótulo id completo; destaca modelo do contato ou defaultModel; toque envia alias |
 | Confirmar dismiss/resume | `cast_confirm` | — | !sending; envia pedido |
-| Cancelar diálogos | `cancel` | — | Fecha diálogo |
+| Cancelar diálogos | `cancel` | — | Na etapa Modelo retorna aos contatos; demais fecham diálogo |
 
 Fontes: `CastActions.kt:124-220`. Regex de sessão retomável `^[0-9a-fA-F][0-9a-fA-F-]{7,199}$`. Retomar **não depende de haver contato livre**, pois Novo sempre existe. (`CastActions.kt:37-38`, `CastActions.kt:130-138`.)
 
-Diálogos start/resume-select: título `cast_select_character`, lista rolável maxHeight360; linhas padding12, spacing12, avatar40, Novo com caixa40+ic_person_add. Start envia ao escolher, sem etapa de pasta. Confirmação dismiss: título `cast_dismiss`, corpo `cast_dismiss_confirm`; resume: título `cast_resume`, corpo nome e projeto separados por newline.
+Diálogos start/resume-select: título `cast_select_character`, lista rolável maxHeight360; linhas padding12, spacing12, avatar40, Novo com caixa40+ic_person_add. Start ZeroClaw com 2+ modelos abre segunda etapa `role_pick_model`, lista rolável do catálogo e modelo padrão destacado. Retomada mantém modelo original sem seletor. Start OMP ou com 0–1 modelos envia ao escolher, sem model. Nenhum start escolhe pasta. Confirmação dismiss: título `cast_dismiss`, corpo `cast_dismiss_confirm`; resume: título `cast_resume`, corpo nome e projeto separados por newline.
 
 Rotas:
-- Novo: POST `/api/cast/new` `{}`; o host resolve `~` como pasta padrão.
-- Contato existente novo: POST `/api/cast/<id>/start` `{mode:"new"}`; mesma pasta padrão.
+- Novo: POST `/api/cast/new` `{model?}`; alias só para nova conversa ZeroClaw com seleção explícita; o host resolve `~` como pasta padrão.
+- Contato existente novo: POST `/api/cast/<id>/start` `{mode:"new",model?}`; mesma regra de model e pasta padrão.
 - Novo retomando: POST `/api/cast/new` `{room,session,account}`.
 - Contato existente retomando: POST `/api/cast/<id>/start` `{mode:"resume",room,session,account}`.
 - Dispensar: POST `/api/agents/<agentId>/dismiss` `{}`.
@@ -316,7 +317,7 @@ Settings substitui ReadingScreen inteira. TopAppBar `settings`, voltar `back`; B
 | Explicação por sessão | `settings_per_session` | Hint |
 | Resumos | `settings_summaries`; `settings_summarize` | Switch só habilitado se roles["tiny"] != null; checked=preferência&&hasTiny; setSummarize |
 | Explicação resumo | `settings_summarize_hint` / `settings_summarize_needs_tiny` | Conforme hasTiny |
-| Papéis globais | `settings_roles`; `role_task`, `role_plan`, `role_tiny`, `role_advisor` | Linha clicável só rolesStatus available e !rolesPending; abre RoleDialog |
+| Papéis globais | `settings_roles`; `role_main`, `role_task`, `role_plan`, `role_tiny`, `role_advisor` | Linha clicável só rolesStatus available e !rolesPending; abre RoleDialog |
 | Notificações | `notifications`; `settings_notifications_open` ou `settings_notifications_on` | Só notificationPlatform.available; texto open se whileOpenOnly; atualiza preferência e permissão da plataforma |
 | Pedidos/perguntas | `settings_notify_permission` | Habilitado somente toggle principal on; setNotifyEvents |
 | Turno concluído | `settings_notify_done` | Mesmo gate; setNotifyEvents |
@@ -530,7 +531,7 @@ Evidências dos comandos e ausência de emulação extra: `server/test/android-f
 ## 16. Regras adicionais de modelos e integração do host
 
 - `modelBrand` ignora caixa e prefixos até a última `/`: começa com claude → Claude; gpt/codex ou regex `^o\d` → OpenAI; gemini → Gemini; desconhecido → nenhum badge. A família não depende de provider da sessão. (`data/Roles.kt:41-49`.)
-- Ordem real dos papéis em Settings é **task, plan, advisor, tiny**. (`data/Roles.kt:8-9`.)
+- Ordem real dos papéis em Settings é **default, task, plan, advisor, tiny**. (`data/Roles.kt:8-9`.)
 - Modelo manual de papel deve casar `^[A-Za-z0-9][\w.-]*/[^\s\x00-\x1f\x7f]{1,200}$`; `splitRole` só interpreta sufixos de raciocínio conhecidos após a última `/`. `joinRole` acrescenta `:<level>` se não nulo. (`data/Roles.kt:11-21`.)
 - Modelos do snapshot são strings de `models` de todos agentes, distinct e sorted. Não existe lista fixa embutida de modelos. (`data/Roles.kt:23-27`.)
 - Grupos de modelos exigem `/`, acrescentam o atual mesmo que ausente, removem `:batch` e variante datada `-\d{8}` quando base sem data existe, **exceto o atual preservado**. Provedores em ordem alfabética case-insensitive; modelos tokenizados por partes alfanuméricas, números descendentes, texto alfabético. Versão numérica adicional vem antes; sufixo textual adicional vem depois. (`data/Roles.kt:52-83`.)

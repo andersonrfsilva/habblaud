@@ -1285,6 +1285,7 @@ fn cast_resume_free_owner_and_identity_boundaries() {
         id: id.into(),
         name: id.into(),
         avatar: None,
+        model: None,
     };
     let characters = vec![
         character("livre"),

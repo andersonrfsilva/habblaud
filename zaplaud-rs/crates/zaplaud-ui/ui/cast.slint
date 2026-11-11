@@ -1,10 +1,11 @@
 import { Theme, Icons } from "resources.slint";
 import { Labels } from "labels.slint";
 import { Dialog, TextButton, Avatar, ScrollList } from "widgets/kit.slint";
-export struct CastRow { id: string, name: string, initials: string, avatar: image }
+export struct CastRow { id: string, name: string, initials: string, avatar: image, selected: bool }
 export global CastState {
     in-out property <bool> visible;
     in-out property <bool> confirming;
+    in property <bool> picking-model;
     in property <bool> resume-visible;
     in property <bool> dismiss-visible;
     in property <bool> enabled: true;
@@ -28,10 +29,11 @@ export component CastSheet inherits Rectangle {
             ScrollList {
                 height: min(360px, CastState.rows.length * 64px);
                 for row in CastState.rows: Rectangle { height: 64px;
+                    background: row.selected ? Theme.primary-container : transparent;
                     HorizontalLayout { padding-left: 12px; padding-right: 12px; padding-top: 12px; padding-bottom: 12px; spacing: 12px;
-                        if row.id != "": Avatar { width: 40px; height: 40px; initials: row.initials; source: row.avatar; }
-                        if row.id == "": Rectangle { width: 40px; height: 40px; Image { x: 8px; y: 8px; width: 24px; height: 24px; source: Icons.ic-person-add; colorize: Theme.on-surface; image-fit: contain; } }
-                        TextButton { text: row.name; text-weight: 400; horizontal-padding: 0px; foreground: Theme.on-surface; horizontal-alignment: left; enabled: CastState.enabled; clicked => { CastState.choose(row.id); } }
+                        if !CastState.picking-model && row.id != "": Avatar { width: 40px; height: 40px; initials: row.initials; source: row.avatar; }
+                        if !CastState.picking-model && row.id == "": Rectangle { width: 40px; height: 40px; Image { x: 8px; y: 8px; width: 24px; height: 24px; source: Icons.ic-person-add; colorize: Theme.on-surface; image-fit: contain; } }
+                        TextButton { text: row.name; text-weight: row.selected ? 600 : 400; horizontal-padding: 0px; foreground: Theme.on-surface; horizontal-alignment: left; enabled: CastState.enabled; clicked => { CastState.choose(row.id); } }
                     }
                 }
             }

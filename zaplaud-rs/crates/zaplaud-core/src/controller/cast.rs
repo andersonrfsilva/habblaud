@@ -2,7 +2,7 @@
 use crate::{
     Error,
     api::{HabblaudApi, ResumeSession},
-    model::{CastChoice, CastJobs, SessionItem},
+    model::{CastCatalog, CastChoice, CastJobs, SessionItem},
 };
 use std::collections::HashSet;
 
@@ -10,6 +10,7 @@ use std::collections::HashSet;
 pub struct State {
     pub availability: String,
     pub runtime: Option<String>,
+    pub catalog: CastCatalog,
     pub characters: Vec<CastChoice>,
     pub jobs: CastJobs,
     pub result: String,
@@ -55,7 +56,9 @@ impl State {
     }
     pub async fn load(&mut self, api: &HabblaudApi) -> Result<(), Error> {
         self.runtime = None;
-        self.runtime = api.cast_runtime().await?;
+        self.catalog = CastCatalog::default();
+        self.catalog = api.cast_catalog().await?;
+        self.runtime = self.catalog.runtime.clone();
         self.characters = api
             .cast()
             .await?
@@ -101,12 +104,29 @@ impl State {
                 id.starts_with("novo-") || self.characters.iter().any(|c| c.id == *id)
             })
     }
+    pub fn picks_model(&self) -> bool {
+        self.runtime.as_deref() == Some("zeroclaw") && self.catalog.models.len() > 1
+    }
+    pub fn default_model(&self, choice: &CastChoice) -> Option<&str> {
+        choice
+            .model
+            .as_deref()
+            .and_then(|value| {
+                self.catalog
+                    .models
+                    .iter()
+                    .find(|m| m.alias == value || m.model == value)
+            })
+            .map(|m| m.alias.as_str())
+            .or(self.catalog.default_model.as_deref())
+    }
     pub async fn submit(
         &mut self,
         api: &HabblaudApi,
         choice: &str,
         resume: Option<&SessionItem>,
         dismiss: Option<&str>,
+        model: Option<&str>,
     ) -> Result<(), Error> {
         if resume.is_some_and(|session| !self.can_resume(session)) {
             return Err(Error::InvalidResponse("runtime da sessão"));
@@ -121,12 +141,17 @@ impl State {
             session: &s.key.session_id,
             account: &s.key.account,
         });
+        let model = model.filter(|alias| {
+            resume.is_none()
+                && self.picks_model()
+                && self.catalog.models.iter().any(|m| m.alias == *alias)
+        });
         let result = if let Some(agent) = dismiss {
             api.dismiss_agent(agent).await
         } else if choice.is_empty() {
-            api.new_cast(resume).await
+            api.new_cast(resume, model).await
         } else {
-            api.start_cast(choice, resume).await
+            api.start_cast(choice, resume, model).await
         };
         self.sending = false;
         match result {
@@ -177,6 +202,7 @@ mod tests {
             id: id.into(),
             name: id.into(),
             avatar: None,
+            model: None,
         };
         let mut state = State {
             characters: vec![

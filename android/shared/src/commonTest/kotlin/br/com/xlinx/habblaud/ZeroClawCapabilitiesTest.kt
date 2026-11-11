@@ -65,6 +65,58 @@ class ZeroClawCapabilitiesTest {
         assertEquals(key, SessionKey.deserialize(key.serialize()))
     }
 
+    private val modelCatalog = """
+        {"provider":"zeroclaw","models":[
+            {"alias":"m_000000000001","model":"fixture/model-legivel"},
+            {"alias":"m_000000000002","model":"fixture/model-alternativo"}
+        ],"defaultModel":"m_000000000001"}
+    """.trimIndent()
+
+    @Test fun castCatalogParsesModelsAndOnlyOffersChoiceForMultipleZeroClawModels() {
+        val catalog = parseCastModelCatalog(modelCatalog)
+        assertEquals("zeroclaw", catalog.runtime)
+        assertEquals(listOf(
+            CastModel("m_000000000001", "fixture/model-legivel"),
+            CastModel("m_000000000002", "fixture/model-alternativo"),
+        ), catalog.models)
+        assertEquals("m_000000000001", catalog.defaultModel)
+        assertTrue(catalog.canChoose)
+        assertFalse(catalog.copy(models = catalog.models.take(1)).canChoose)
+        assertFalse(catalog.copy(models = emptyList()).canChoose)
+        assertFalse(catalog.copy(runtime = "omp").canChoose)
+        assertFalse(catalog.copy(runtime = null).canChoose)
+        assertEquals(emptyList(), parseCastModelCatalog(modelCatalog.replace("zeroclaw", "omp")).models)
+        assertEquals(CastModelCatalog(null, emptyList(), null), parseCastModelCatalog("{}"))
+    }
+
+    @Test fun castModelPreselectionResolvesAliasOrFullIdAndFallsBackToDefault() {
+        val catalog = parseCastModelCatalog(modelCatalog)
+        assertEquals("m_000000000002", preselectedCastModel(catalog, "m_000000000002"))
+        assertEquals("m_000000000002", preselectedCastModel(catalog, "fixture/model-alternativo"))
+        assertEquals("m_000000000001", preselectedCastModel(catalog, null))
+        assertEquals("m_000000000001", preselectedCastModel(catalog, "unknown/model"))
+        assertNull(preselectedCastModel(catalog.copy(defaultModel = "unknown"), null))
+    }
+
+    @Test fun newZeroClawStartSendsChosenAliasButOmpAndSmallCatalogsOmitModel() {
+        val catalog = parseCastModelCatalog(modelCatalog)
+        val alias = "m_000000000002"
+        assertEquals("""{"model":"$alias"}""", newCastBody(catalog, false, alias).toString())
+        assertEquals("""{"mode":"new","model":"$alias"}""", newCastBody(catalog, true, alias).toString())
+        for (withoutChoice in listOf(
+            catalog.copy(runtime = "omp"),
+            catalog.copy(runtime = null),
+            catalog.copy(models = catalog.models.take(1)),
+            catalog.copy(models = emptyList()),
+        )) {
+            assertEquals("{}", newCastBody(withoutChoice, false, alias).toString())
+            assertEquals("""{"mode":"new"}""", newCastBody(withoutChoice, true, alias).toString())
+        }
+        assertEquals("{}", newCastBody(catalog, false).toString())
+        assertEquals("{}", newCastBody(catalog, false, "fixture/model-alternativo").toString())
+        assertEquals("{}", newCastBody(catalog, false, "unknown").toString())
+    }
+
     @Test fun newNavigationUsesSnapshotWithoutOldSessionAndRejectsOtherIdentity() {
         val next = item().copy(key = key.copy(sessionId = "new"))
         assertEquals(next, newSessionTarget(listOf(next), key, "agent"))

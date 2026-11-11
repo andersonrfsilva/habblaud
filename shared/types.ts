@@ -42,7 +42,7 @@ export const CAST_IDLE_MINUTES = 120;
 export const NEW_CAST_PREFIX = 'novo-';
 
 /** Papéis do omp que a tela de Configurações troca (modelRoles global da conta padrão, `omp config`). */
-export const OMP_EDITABLE_ROLES = ['task', 'plan', 'advisor', 'tiny'] as const;
+export const OMP_EDITABLE_ROLES = ['default', 'task', 'plan', 'advisor', 'tiny'] as const;
 export type OmpEditableRole = (typeof OMP_EDITABLE_ROLES)[number];
 /** Valor de um papel: `provedor/modelo` com `:raciocínio` opcional; null apaga o papel (volta ao padrão do omp). */
 export type OmpRoles = Partial<Record<OmpEditableRole, string | null>>;

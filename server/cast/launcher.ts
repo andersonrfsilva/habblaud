@@ -50,7 +50,7 @@ export class CastLauncher {
   start(id: string, raw: unknown): { job: CastJobInfo } | { status: number; error: string } {
     const member = this.opts.member(id);
     const body = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
-    if (!member || member.kind !== 'main' || (body.mode !== 'new' && body.mode !== 'resume') || (body.mode === 'new' && body.session !== undefined) || (body.prompt !== undefined && (typeof body.prompt !== 'string' || body.prompt.length > PROMPT_MAX || /^\s*-/.test(body.prompt))) || (member.model !== undefined && member.model.startsWith('-'))) return { status: 422, error: tr('pedido inválido') };
+    if (!member || member.kind !== 'main' || (body.mode !== 'new' && body.mode !== 'resume') || (body.mode === 'new' && body.session !== undefined) || !validModel(body, this.opts.zeroclaw) || (body.prompt !== undefined && (typeof body.prompt !== 'string' || body.prompt.length > PROMPT_MAX || /^\s*-/.test(body.prompt))) || (member.model !== undefined && member.model.startsWith('-'))) return { status: 422, error: tr('pedido inválido') };
     if (this.state(id) || this.opts.agents().some((a) => a.cast === id && a.status !== 'offline' && a.status !== 'done')) return { status: 409, error: tr('personagem ocupado') };
     const limit = this.limitError();
     if (limit) return limit;
@@ -72,7 +72,8 @@ export class CastLauncher {
       }
       if (!/^[0-9a-f][0-9a-f-]{7,199}$/i.test(resume!)) return { status: 422, error: tr('pedido inválido') };
     }
-    if (this.opts.zeroclaw) return this.startZeroClaw({ cast: id, name: member.name, room, model: member.model,
+    // ZeroClaw: `model` do pedido vale só nesta conversa nova; retomar segue o modelo em que a conversa começou.
+    if (this.opts.zeroclaw) return this.startZeroClaw({ cast: id, name: member.name, room, model: resume ? undefined : (body.model as string | undefined) ?? member.model,
       resume, instructions: body.mode === 'new' ? member.instructions : undefined, prompt: body.prompt as string | undefined, account: body.account });
     if (!this.available()) return { status: 503, error: tr('auxiliar do host desligado (npm run codex:bridge)') };
     // A conversa mora na conta em que foi gravada: `account` do histórico vence a do personagem.
@@ -98,14 +99,14 @@ export class CastLauncher {
    */
   startNew(raw: unknown): { job: CastJobInfo } | { status: number; error: string } {
     const body = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
-    if ((body.account !== undefined && typeof body.account !== 'string') || (body.prompt !== undefined && (typeof body.prompt !== 'string' || body.prompt.length > PROMPT_MAX || /^\s*-/.test(body.prompt)))) return { status: 422, error: tr('pedido inválido') };
+    if ((body.account !== undefined && typeof body.account !== 'string') || !validModel(body, this.opts.zeroclaw) || (body.prompt !== undefined && (typeof body.prompt !== 'string' || body.prompt.length > PROMPT_MAX || /^\s*-/.test(body.prompt)))) return { status: 422, error: tr('pedido inválido') };
     if (body.session !== undefined && (typeof body.session !== 'string' || !/^[0-9a-f][0-9a-f-]{7,199}$/i.test(body.session))) return { status: 422, error: tr('pedido inválido') };
     const limit = this.limitError();
     if (limit) return limit;
     const room = body.session === undefined ? undefined : resumeRoom(body.room);
     if (body.session !== undefined && !room) return { status: 422, error: tr('informe a pasta do projeto (caminho absoluto)') };
     if (this.opts.zeroclaw) return this.startZeroClaw({ cast: `${NEW_CAST_PREFIX}${randomUUID().slice(0, 8)}`,
-      name: 'Novo', room, resume: body.session as string | undefined, prompt: body.prompt as string | undefined, account: body.account });
+      name: 'Novo', room, model: body.model as string | undefined, resume: body.session as string | undefined, prompt: body.prompt as string | undefined, account: body.account });
     if (!this.available()) return { status: 503, error: tr('auxiliar do host desligado (npm run codex:bridge)') };
     const agentDir = this.opts.account(body.account as string | undefined);
     if (!agentDir) return { status: 422, error: tr('conta não encontrada') };
@@ -356,4 +357,9 @@ const ROLE_VALUE = /^[A-Za-z0-9][\w.-]*\/[^\s\x00-\x1f\x7f]{1,200}$/;
 function resumeRoom(raw: unknown): string | undefined {
   const room = typeof raw === 'string' ? normalizeCwd(raw) : '';
   return isAbsolute(room) && room.length <= 1024 ? room : undefined;
+}
+
+/** `model` só em conversa nova no ZeroClaw (o catálogo valida o valor); omp e retomadas não escolhem modelo no pedido. */
+function validModel(body: Record<string, unknown>, zeroclaw: unknown): boolean {
+  return body.model === undefined || (!!zeroclaw && typeof body.model === 'string' && body.session === undefined && body.mode !== 'resume');
 }

@@ -116,13 +116,13 @@ describe('rodada do elenco', () => {
     await castRound(post, async () => {}, () => {}, { port: 12345, dataDir: tmp.dir, tmux: '/bin/tmux', list: async () => ['melissa', 'giovana'] });
     expect(bodies[0]).toEqual({ path: '/api/host/cast/poll', body: { open: ['melissa', 'giovana'] } });
   });
-  it('papéis: grava só task/plan/advisor válidos, relê a conta do servidor e manda no próximo poll', async () => {
+  it('papéis: grava só papéis editáveis válidos, relê a conta do servidor e manda no próximo poll', async () => {
     const writes: unknown[] = [];
     let current: Record<string, string> | undefined;
     const roles: OmpRolesIO = { report: () => current, refresh: async (dir) => { current = { task: `lido de ${dir}` }; }, write: async (dir, r) => { writes.push({ dir, r }); } };
     const jobs = [
-      { id: 'ok', op: 'roles', cast: '', agentDir: codexHome, roles: { task: 'openai-codex/gpt-6-luna:high', plan: null } },
-      { id: 'role', op: 'roles', cast: '', agentDir: codexHome, roles: { default: 'a/b' } },
+      { id: 'ok', op: 'roles', cast: '', agentDir: codexHome, roles: { default: 'anthropic/claude-opus-5-5:high', task: 'openai-codex/gpt-6-luna:high', plan: null } },
+      { id: 'role', op: 'roles', cast: '', agentDir: codexHome, roles: { smol: 'a/b' } },
       { id: 'value', op: 'roles', cast: '', agentDir: codexHome, roles: { task: '--x' } },
       { id: 'dir', op: 'roles', cast: '', agentDir: join(tmp.dir, 'missing'), roles: { task: 'a/b' } },
     ];
@@ -130,7 +130,7 @@ describe('rodada do elenco', () => {
     const post: Post = async (path, body) => { bodies.push(body); return { status: 200, json: path.endsWith('/poll') ? { jobs, rolesDir: codexHome } : {} }; };
     const result = await castRound(post, async () => {}, () => {}, { port: 12345, dataDir: tmp.dir, tmux: '/bin/tmux', roles });
     expect(result).toMatchObject({ results: [{ id: 'ok', ok: true }, { id: 'role', ok: false }, { id: 'value', ok: false }, { id: 'dir', ok: false }] });
-    expect(writes).toEqual([{ dir: codexHome, r: { task: 'openai-codex/gpt-6-luna:high', plan: null } }]);
+    expect(writes).toEqual([{ dir: codexHome, r: { default: 'anthropic/claude-opus-5-5:high', task: 'openai-codex/gpt-6-luna:high', plan: null } }]);
     expect(bodies[0]).toEqual({});
     await castRound(async (path, body) => { bodies.push(body); return { status: 200, json: path.endsWith('/poll') ? { jobs: [] } : {} }; }, async () => {}, () => {}, { port: 12345, dataDir: tmp.dir, roles });
     expect(bodies.at(-1)).toEqual({ roles: { task: `lido de ${codexHome}` } });

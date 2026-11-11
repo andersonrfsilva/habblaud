@@ -11,6 +11,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.filled.MoreVert
@@ -23,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -34,7 +36,29 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.*
 import io.ktor.http.encodeURLPathPart
 
-private data class CastChoice(val id: String, val name: String, val avatar: Avatar?)
+private data class CastChoice(val id: String, val name: String, val avatar: Avatar?, val model: String? = null)
+internal data class CastModel(val alias: String, val model: String)
+internal data class CastModelCatalog(val runtime: String?, val models: List<CastModel>, val defaultModel: String?) {
+    val canChoose: Boolean get() = runtime == "zeroclaw" && models.size > 1
+}
+internal fun parseCastModelCatalog(body: String): CastModelCatalog {
+    val catalog = wireJson.parseToJsonElement(body).jsonObject
+    val runtime = catalog.string("provider")?.takeIf { it == "omp" || it == "zeroclaw" }
+    val models = if (runtime == "zeroclaw") catalog.objects("models").mapNotNull { entry ->
+        val alias = entry.string("alias")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+        val model = entry.string("model")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+        CastModel(alias, model)
+    } else emptyList()
+    return CastModelCatalog(runtime, models, catalog.string("defaultModel"))
+}
+internal fun preselectedCastModel(catalog: CastModelCatalog, characterModel: String?): String? =
+    catalog.models.firstOrNull { it.alias == characterModel || it.model == characterModel }?.alias
+        ?: catalog.defaultModel?.takeIf { alias -> catalog.models.any { it.alias == alias } }
+
+internal fun newCastBody(catalog: CastModelCatalog, character: Boolean, model: String? = null): JsonObject = buildJsonObject {
+    if (character) put("mode", "new")
+    if (catalog.canChoose && model != null && catalog.models.any { it.alias == model }) put("model", model)
+}
 private val sessionIdPattern = Regex("^[0-9a-fA-F][0-9a-fA-F-]{7,199}$")
 internal fun canResumeCast(selected: SessionItem?, runtime: String?): Boolean =
     selected != null && selected.agentId == null && supportsSessionControl(selected.key.provider) &&
@@ -48,7 +72,8 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
     var availability by remember(api) { mutableStateOf("loading") }
     var characters by remember(api) { mutableStateOf(emptyList<CastChoice>()) }
     var jobs by remember(api) { mutableStateOf(emptyMap<String, String>()) }
-    var runtime by remember(api) { mutableStateOf<String?>(null) }
+    var catalog by remember(api) { mutableStateOf(CastModelCatalog(null, emptyList(), null)) }
+    val runtime = catalog.runtime
     var dialog by remember { mutableStateOf("") }
     var choice by remember { mutableStateOf<CastChoice?>(null) }
     var result by remember { mutableStateOf("") }
@@ -58,16 +83,16 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
     LaunchedEffect(selected?.key) { result = "" }
     // O elenco muda pouco: carrega ao conectar, depois de cada pedido e ao abrir a escolha; os pedidos, a cada 5 s.
     suspend fun loadCast() {
-        runtime = catalogRuntime(api.request("/api/cast/models"))
+        catalog = parseCastModelCatalog(api.request("/api/cast/models"))
         characters = wireJson.parseToJsonElement(api.request("/api/cast")).jsonObject.objects("members")
             .filter { it.string("kind") == "main" }.mapNotNull { member ->
                 val id = member.string("id") ?: return@mapNotNull null
                 val name = member.string("name") ?: return@mapNotNull null
-                CastChoice(id, name, parseAvatar(member))
+                CastChoice(id, name, parseAvatar(member), member.string("model"))
             }
     }
     LaunchedEffect(api, connected, refresh, lifecycleOwner) {
-        if (!connected) { availability = "offline"; runtime = null; return@LaunchedEffect }
+        if (!connected) { availability = "offline"; catalog = CastModelCatalog(null, emptyList(), null); return@LaunchedEffect }
         var castLoaded = false
         var unauthorized = false
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -88,7 +113,7 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
                 if (availability == "available" && !castLoaded) { loadCast(); castLoaded = true }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                if (e is ApiException && e.status == 401) { unauthorized = true; runtime = null; characters = emptyList(); onUnauthorized(); return@repeatOnLifecycle }
+                if (e is ApiException && e.status == 401) { unauthorized = true; catalog = CastModelCatalog(null, emptyList(), null); characters = emptyList(); onUnauthorized(); return@repeatOnLifecycle }
                 availability = if (e is ApiException && e.status == 403) "forbidden" else "offline"
             }
             delay(5_000)
@@ -122,6 +147,13 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
                 dialog = ""; refresh++
             } finally { sending = false }
         }
+    }
+    fun start(member: CastChoice?, model: String? = null) {
+        submit(if (member == null) "/api/cast/new" else "/api/cast/${member.id.encodeURLPathPart()}/start", newCastBody(catalog, member != null, model))
+    }
+    fun chooseStart(member: CastChoice?) {
+        choice = member
+        if (catalog.canChoose) dialog = "start-model" else start(member)
     }
     val current = selected?.cast?.let { id -> characters.find { it.id == id } }
     // Quem foi chamado como "Novo" não está no elenco: o pedido e o Dispensar seguem pelo id `novo-…` do agente.
@@ -172,13 +204,13 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
         Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
             // "Novo": agente fora do elenco, com nome e visual sorteados pelo servidor.
             val newLabel = stringResource(Res.string.cast_new)
-            Row(Modifier.fillMaxWidth().clickable(enabled = !sending) { submit("/api/cast/new", buildJsonObject {}) }.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxWidth().clickable(enabled = !sending) { chooseStart(null) }.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) { Icon(painterResource(Res.drawable.ic_person_add), contentDescription = null) }
                 Text(newLabel)
             }
             free.forEach { member ->
                 Row(Modifier.fillMaxWidth().clickable(enabled = !sending) {
-                    submit("/api/cast/${member.id.encodeURLPathPart()}/start", buildJsonObject { put("mode", "new") })
+                    chooseStart(member)
                 }.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     CharacterAvatar(api, member.avatar, member.name, 40.dp)
                     Text(member.name)
@@ -186,6 +218,23 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
             }
         }
     }, confirmButton = {}, dismissButton = { TextButton(onClick = { dialog = "" }) { Text(stringResource(Res.string.cancel)) } })
+    if (dialog == "start-model") AlertDialog(onDismissRequest = { dialog = "" }, title = { Text(stringResource(Res.string.role_pick_model)) }, text = {
+        Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+            val preselected = preselectedCastModel(catalog, choice?.model)
+            catalog.models.forEach { model ->
+                val selectedModel = model.alias == preselected
+                Row(Modifier.fillMaxWidth().selectable(selected = selectedModel, enabled = !sending, role = Role.RadioButton, onClick = {
+                    start(choice, model.alias)
+                }).padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    RadioButton(selected = selectedModel, onClick = null, enabled = !sending)
+                    Text(modelLabel(model.model))
+                }
+            }
+        }
+    }, confirmButton = {}, dismissButton = {
+        TextButton(onClick = { dialog = "start" }) { Text(stringResource(Res.string.back)) }
+        TextButton(onClick = { dialog = "" }) { Text(stringResource(Res.string.cancel)) }
+    })
     if (dialog == "resume-select") AlertDialog(onDismissRequest = { dialog = "" }, title = { Text(stringResource(Res.string.cast_select_character)) }, text = {
         Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
             // "Novo": agente fora do elenco, com nome e visual sorteados pelo servidor, retoma a conversa.
