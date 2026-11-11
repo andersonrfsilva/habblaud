@@ -1,3 +1,4 @@
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -7,8 +8,10 @@ import signal
 import subprocess
 import sys
 import threading
+import tempfile
 import time
 import xml.etree.ElementTree as ET
+import uuid
 
 
 class Interrupted(Exception):
@@ -32,6 +35,8 @@ def main():
     gradle = None
     reverses = []
     succeeded = False
+    files_fixtures = []
+    files_workspace = tempfile.TemporaryDirectory(prefix='zaplaud-files-ci-')
     try:
         fixture = subprocess.Popen(
             ['npx', 'tsx', 'scripts/android-smoke.ts', '--port', '14748',
@@ -80,10 +85,25 @@ def main():
             reverses.append(value)
         print('Reverse mappings established:', flush=True)
         subprocess.run(['adb', 'reverse', '--list'], check=True)
+        spec = importlib.util.spec_from_file_location('files_fixture', Path(__file__).with_name('android-files-instrumented.py'))
+        files_fixture = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(files_fixture)
+        workspace = Path(files_workspace.name)
+        (workspace / 'documentos').mkdir()
+        files_name = f'aceitacao-{uuid.uuid4().hex}.txt'
+        (workspace / 'documentos' / files_name).write_bytes('Arquivo fictício de aceitação.\n'.encode())
+        for allow in ('terminal,messages,permissions', 'messages,permissions'):
+            child, origin, files_port = files_fixture.start_fixture(workspace, allow)
+            files_fixtures.append((child, origin))
+            subprocess.run(['adb', 'reverse', f'tcp:{files_port}', f'tcp:{files_port}'], check=True)
+            reverses.append(files_port)
         gradle = subprocess.Popen([
-            './gradlew', ':shared:connectedAndroidDeviceTest', ':app:connectedDebugAndroidTest',
+            './gradlew', '--max-workers=6', ':shared:connectedAndroidDeviceTest', ':app:connectedDebugAndroidTest',
             '-Pandroid.testInstrumentationRunnerArguments.fixture=true',
             f'-Pandroid.testInstrumentationRunnerArguments.fixtureLocalPort={port}',
+            f'-Pandroid.testInstrumentationRunnerArguments.filesOrigin={files_fixtures[0][1]}',
+            f'-Pandroid.testInstrumentationRunnerArguments.filesDeniedOrigin={files_fixtures[1][1]}',
+            f'-Pandroid.testInstrumentationRunnerArguments.filesName={files_name}',
         ], cwd='android', start_new_session=True)
         while gradle.poll() is None:
             if fixture.poll() is not None:
@@ -154,6 +174,9 @@ def main():
                 except subprocess.TimeoutExpired:
                     os.killpg(fixture.pid, signal.SIGKILL)
                     fixture.wait()
+        for child, _ in reversed(files_fixtures):
+            files_fixture.stop_fixture(child)
+        files_workspace.cleanup()
 
 
 if __name__ == '__main__':

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Zaplaud
+Comment=Cliente de mensagens Zaplaud
+Exec=zaplaud
+TryExec=zaplaud
+Icon=zaplaud
+Terminal=false
+Categories=Network;InstantMessaging;
+StartupNotify=true
+StartupWMClass=zaplaud

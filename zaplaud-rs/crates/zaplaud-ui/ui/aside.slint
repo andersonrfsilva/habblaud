@@ -1,0 +1,92 @@
+import { Theme } from "resources.slint";
+import { Labels } from "labels.slint";
+import { Sheet, TextButton, IconButton, TextField, ScrollList, ProgressRing, Menu, RadioButton, Badge } from "widgets/kit.slint";
+import { MarkdownView, MdBlock } from "markdown/markdown.slint";
+import { MaterialIcons } from "widgets/material-icons.slint";
+export struct AsideTurnRow { question: string, answer: string, blocks: [MdBlock], status: string, failed: bool, running: bool }
+export struct AsideTopicRow { id: string, title: string, selected: bool }
+export global AsideState {
+    in-out property <bool> visible;
+    in property <bool> available;
+    in property <bool> enabled;
+    in property <bool> loading;
+    in property <bool> sending;
+    in property <bool> running;
+    in-out property <string> draft;
+    in-out property <string> submitted-draft;
+    callback valid-draft(string) -> bool;
+    pure callback nonblank-draft(string) -> bool;
+    in property <string> title;
+    in property <string> hint;
+    in property <string> empty;
+    in property <string> input-label;
+    in property <string> send-label;
+    in property <string> stop-label;
+    in property <string> topics-label;
+    in property <string> new-label;
+    in property <string> error;
+    in property <[AsideTurnRow]> turns;
+    in property <[AsideTopicRow]> topics;
+    callback open(); callback close(); callback ask(string); callback stop(); callback choose(string); callback new-topic(); callback link(string); callback copy(string);
+    callback app-visibility(bool);
+}
+component TopicPicker inherits TextButton {
+    text: AsideState.topics-label;
+    trailing-icon: MaterialIcons.arrow-drop-down;
+    clicked => { topics.show(); }
+    topics := Menu {
+        TextButton { text: AsideState.new-label; clicked => { AsideState.new-topic(); topics.close(); } }
+        for topic in AsideState.topics: RadioButton { text: topic.title; checked: topic.selected; toggled => { AsideState.choose(topic.id); topics.close(); } }
+    }
+}
+export component AsideSheet inherits Rectangle {
+    private property <string> accepted-draft;
+    private property <string> current-draft: AsideState.draft;
+    changed current-draft => { if self.current-draft == "" { self.accepted-draft = ""; } }
+    if AsideState.visible: Sheet {
+        title: AsideState.title;
+        dismissed => { AsideState.close(); }
+        VerticalLayout { padding: 16px; spacing: 8px;
+            HorizontalLayout {
+                VerticalLayout {
+                    Text { text: AsideState.title; font-size: 22px; color: Theme.on-surface; }
+                    Text { text: AsideState.hint; font-size: 12px; color: Theme.on-surface-variant; wrap: word-wrap; }
+                }
+                TopicPicker {}
+                TextButton { text: Labels.cancel; clicked => { AsideState.close(); } }
+            }
+            Rectangle { vertical-stretch: 1;
+                if AsideState.loading && AsideState.turns.length == 0: ProgressRing { width: 40px; height: 40px; x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; }
+                if !AsideState.loading && AsideState.turns.length == 0: Text { text: AsideState.empty; color: Theme.on-surface-variant; vertical-alignment: center; horizontal-alignment: center; }
+                ScrollList {
+                    // Só acompanha o fim se o usuário já estava nele: rolar para o início não é desfeito pelo polling.
+                    property <bool> following: true;
+                    changed content-height => { if self.following { self.content-y = min(0px, self.height - self.content-height); } }
+                    scrolled => { self.following = self.content-height <= self.height || self.content-y <= self.height - self.content-height + 2px; }
+                for turn in AsideState.turns: VerticalLayout { spacing: 6px; padding-bottom: 12px;
+                    HorizontalLayout { Rectangle { horizontal-stretch: 15; } Rectangle {
+                        horizontal-stretch: 85; border-radius: 16px; background: Theme.primary-container;
+                        min-height: question.preferred-height + 24px;
+                        question := TextInput { x: 12px; y: 12px; width: parent.width - 24px; text: turn.question; read-only: true; wrap: word-wrap; color: Theme.on-primary-container; font-size: 16px; }
+                    } }
+                    if turn.answer != "": MarkdownView { blocks: turn.blocks; source-markdown: turn.answer; link-clicked(url) => { AsideState.link(url); } copy(text) => { AsideState.copy(text); } }
+                    if turn.status != "": Text { text: turn.status; font-size: 12px; color: turn.failed ? Theme.error : Theme.on-surface-variant; wrap: word-wrap; }
+                    if turn.running: Badge { width: 8px; height: 8px; border-radius: 4px; }
+                }
+            }
+            }
+            if AsideState.error != "": Text { text: AsideState.error; color: Theme.error; wrap: word-wrap; }
+            HorizontalLayout { spacing: 8px;
+                TextField {
+                    text <=> AsideState.draft; placeholder: AsideState.input-label; multiline: true; max-lines: 4;
+                    edited(value) => {
+                        if AsideState.valid-draft(value) { root.accepted-draft = value; }
+                        else { self.text = root.accepted-draft; }
+                    }
+                }
+                if AsideState.running: IconButton { icon: MaterialIcons.stop; label: AsideState.stop-label; background: Theme.error-container; foreground: Theme.on-error-container; clicked => { AsideState.stop(); } }
+                if !AsideState.running: IconButton { icon: MaterialIcons.send; label: AsideState.send-label; background: Theme.primary; foreground: Theme.on-primary; enabled: !AsideState.sending && AsideState.nonblank-draft(AsideState.draft); clicked => { AsideState.submitted-draft = AsideState.draft; AsideState.ask(AsideState.draft); } }
+            }
+        }
+    }
+}

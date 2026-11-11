@@ -1,0 +1,172 @@
+# Plano 074: resultado da execução (cliente desktop do Zaplaud em Rust + Slint)
+
+Executado em 2026-11-10 por ordem do dono, depois da medição do Zaplaud Compose no miranote (418–490 MiB de memória,
+3,5–10% de CPU parado). Branch `feat/zaplaud-rs`, commit `6d19879`. Código em [`zaplaud-rs/`](../zaplaud-rs/README.md).
+
+## Estado
+
+As 27 capacidades da tabela de paridade do [plano 074](074-zaplaud-cliente-rust-slint.md) estão implementadas e
+exercitadas contra o servidor de teste (`scripts/android-smoke.ts`), numa tela virtual (Xvfb), nos temas claro e
+escuro. O que **não** foi verificado está na seção "Não verificado": é o que falta para declarar a troca concluída.
+
+## Medição inicial e correção da premissa de memória
+
+As medições abaixo foram feitas em Xvfb **1100×760, escala 1×**, não em um desktop Retina maximizado.
+Descrevem o build anterior, não o padrão atual. Não extrapole a diferença de 8 MiB para outras resoluções.
+
+| Medida | Rust anterior (Skia por CPU) | Rust anterior (`SLINT_BACKEND=winit-software`) | Compose (067, servidor de teste) | Compose (miranote, uso real) |
+|---|---:|---:|---:|---:|
+| Abrir a janela | 108 ms | 84 ms | 1.020 ms | não medido |
+| Memória parada (PSS), lista | 37 MiB | 29 MiB | 339 MiB | 418–490 MiB |
+| Memória com conversa de 252 entradas | 39 MiB | 31 MiB | — | — |
+| Memória com agente trabalhando | 41 MiB | 33 MiB | — | — |
+| Memória depois de 20 aberturas de conversa | 42 MiB | 33 MiB | — | — |
+| CPU parada, lista (30 s) | 0,83% | 0,33% | 0,10% (minimizado) | 3,5–10% |
+| CPU com agente trabalhando | 0,50% | 0,53% | — | — |
+| Threads | 6–9 | 6–9 | — | 48–51 |
+| Tamanho | 31 MiB (um binário) | o mesmo binário | 192 MiB | 192 MiB |
+
+Metas do plano: memória parada abaixo de 100 MiB e abertura abaixo de 300 ms: **atingidas** nos dois modos. CPU
+parada "~0%": **não atingida** (0,3–0,8% de um núcleo; a origem medida são os despertares do laço de eventos, não um
+temporizador do app). JSON completos em `/tmp/zaplaud-rs-release-measure-{skia,software}.json` (temporários).
+
+O padrão agora é `software` do Slint nos dois sistemas; Skia é uma feature Cargo não padrão (`--features skia`).
+Com esse build opcional, `ZAPLAUD_RENDERER=skia-software` habilita cor; `ZAPLAUD_RENDERER=skia` usa Metal no macOS.
+`SLINT_BACKEND` continua tendo precedência. A fonte Noto Emoji embutida mantém sequências sem exigir cor.
+
+O primeiro uso real no MacBook Air Apple Silicon (macOS 15.7, 8 GB, janela Retina de cerca de 2880×1800 pixels)
+invalidou a escolha anterior: Skia por CPU consumiu **237 MB**, Metal **363 MB** e `software` **47–49 MB**
+com a sessão real restaurada. No login: **36 / 139 / 50 MB**, respectivamente.
+São medições `footprint` do dono, em MB, não PSS Linux em MiB. Emoji colorido não justifica esse custo.
+
+### Nova matriz Linux
+
+Uma execução por caso, CPU por 30 s sem foco, Xvfb por socket Unix/MIT-SHM.
+Mesmo binário anterior com ambos os renderizadores compilados; valores PSS em MiB,
+na ordem lista / conversa com 252 entradas SSE / conversa trabalhando.
+
+| Janela lógica / escala | Renderer | PSS MiB: lista / 252 / trabalhando | CPU %: lista / 252 / trabalhando |
+| --- | --- | --- | --- |
+| 1100×760 / 1× | skia-software | 34,52 / 37,29 / 38,07 | 0,17 / 0,23 / 0,50 |
+| 1100×760 / 1× | software | 24,44 / 28,23 / 28,33 | 0,33 / 0,37 / 0,43 |
+| 1920×1080 / 1× | skia-software | 34,85 / 39,94 / 41,96 | 0,20 / 0,40 / 0,70 |
+| 1920×1080 / 1× | software | 28,55 / 28,59 / 30,24 | 0,33 / 0,40 / 0,60 |
+| 2880×1800 / 1× | skia-software | 39,99 / 45,76 / 47,78 | 0,17 / 0,77 / 0,93 |
+| 2880×1800 / 1× | software | 34,82 / 25,68 / 29,24 | 0,20 / 0,37 / 0,83 |
+| 1440×900 / 2× | skia-software | 41,25 / 44,19 / 45,48 | 0,23 / 0,40 / 0,50 |
+| 1440×900 / 2× | software | 33,32 / 35,40 / 36,37 | 0,60 / 0,30 / 0,73 |
+
+O probe de **500 entradas reais**, com 2880×1800 pixels físicos e indicador a 1 Hz,
+mediu software **36,24 MiB PSS / 0,10% CPU**, Skia CPU **91,63 MiB / 0,20% CPU**.
+Ambos passaram a geometria e usaram duas threads. O probe não inclui rede, bandeja e
+persistência do aplicativo completo. O adicional de **55,39 MiB** não se justifica por cor.
+Os dados privados continuam fora do Git; relatórios não reproduzem mensagens.
+Todas as capturas, inclusive a última usada para medir, confirmaram 2880×1800.
+Uma rodada anterior foi descartada: resize lógico perdia o override 2×; o probe agora pede pixels físicos.
+
+O transporte X11 TCP sem SHM falhou em 2880×1800 nos dois renderizadores:
+`Maximum request length exceeded`. A medição válida usa socket local/MIT-SHM.
+JSONs: `/tmp/zaplaud-matrix-shm-*.json`, `/tmp/zaplaud-real500-linux-measure.json`.
+
+### Limite da rodada macOS
+
+O Mac suspendeu durante os ensaios; SSH passou a expirar e o coordenador confirmou Tailscale offline.
+Antes disso, release leve e exemplos compilaram, o catálogo confirmou Helvetica/System Font,
+e o bundle corrigido foi assinado; iconutil/sips confirmaram representação de 1024×1024.
+Não foi possível buscar e inspecionar os PNGs nativos, medir foco/segundo plano, executar a suíte Mac
+ou instalar/reiniciar o aplicativo final com o layout corrigido. Nenhum dado ou cookie do dono foi alterado.
+Os números Mac desta seção continuam sendo os fornecidos pelo dono, não uma nova certificação.
+
+### Pacote leve sem Skia compilado
+
+Release após a correção do layout: **23.945.888 bytes**, contra **31.156.736 bytes**
+com a feature Skia: **6,88 MiB a menos no arquivo**. Na conversa em 1440×900 / 2×,
+retirar Skia mantendo o mesmo renderer `software` reduziu PSS de 33,27/35,18 MiB
+para 31,30/33,28 MiB (252 entradas/trabalhando). No login, houve 31,14/31,83 MiB:
+não atribua todo o tamanho do arquivo à memória residente.
+
+| Janela lógica / escala | PSS MiB: lista / 252 / trabalhando | CPU %: lista / 252 / trabalhando | Uma abertura, ms |
+| --- | --- | --- | ---: |
+| 1100×760 / 1× | 23,62 / 24,55 / 26,56 | 0,33 / 0,40 / 0,40 | 37,52 |
+| 1920×1080 / 1× | 25,41 / 28,04 / 30,13 | 0,20 / 0,30 / 0,47 | 37,16 |
+| 2880×1800 / 1× | 34,30 / 36,91 / 35,87 | 0,63 / 0,33 / 1,17 | 37,51 |
+| 1440×900 / 2× | 31,83 / 31,30 / 33,28 | 0,27 / 0,40 / 0,83 | 48,79 |
+
+O perfil leve não liga libstdc++; exige glibc 2.43 no artefato local.
+Ícones Linux e macOS usam resvg do próprio projeto; o Dock recebe margem transparente
+e máscara arredondada, sem Quick Look para SVG. O teste do exportador verifica alfa,
+corpo e presença da arte canônica. Fontique/macOS resolveu Helvetica para sans-serif;
+o cliente passa a usar System Font e peso regular explícito 400.
+
+O backend macOS de softbuffer já usa DeviceRGB, mas retorna buffer novo/idade zero
+e ignora danos parciais: Slint rasteriza tudo e CoreGraphics reapresenta tudo.
+Ambos os renderizadores CPU usam esse caminho; Metal evita-o com custo de memória
+inaceitável. Sem fork, o relógio permanece a 1 Hz em foco e passa a 15 s sem foco,
+com spinner estático; oculto/minimizado suspende o timer.
+
+## Como foi feito
+
+Subagentes em paralelo, cada um numa worktree própria e dono de arquivos distintos, com um integrador por onda:
+
+| Onda | Frentes | Resultado |
+|---|---|---|
+| Fase 0 | esqueleto, modelos, recursos gerados do Kotlin, CI; mapa do contrato (29 rotas, regras, telas) | 30 testes; `zaplaud-rs/docs/contrato/` |
+| A | cliente HTTP/SSE, regras e redutores, store em disco e chaveiro, markdown, janela/login/lista | 116 testes |
+| B | conversa, compositor, aprovação, elenco e bate-papo paralelo, configurações, sistema (avisos, bandeja, pacote), acabamento do kit | 156 testes |
+| Acabamento | conversa, desempenho, visual, fixture/pacote, correções das duas revisões | 193 testes |
+| Certificação | emoji/renderizador; 58 pares de telas contra o Compose real, teclado, acessibilidade | 196 testes |
+
+Verificações que passam no commit final: `cargo fmt --check`; `cargo clippy --workspace --all-targets --locked -- -D warnings`;
+`cargo test --workspace --locked` (196, 1 ignorado localmente e executado à parte); `npm test -- server` (1.271);
+três roteiros gráficos (`conversation-smoke.py`, `keyboard-smoke.py`, `accessibility-smoke.py`) nos dois temas e nos
+dois modos de desenho (12 de 12).
+
+## Revisões independentes
+
+- **Paridade** (27 capacidades contra o Kotlin): 20 iguais e 7 parciais, todas corrigidas com teste de regressão
+  (trabalho bloqueante na única thread de rede, gravação a cada snapshot, aprovação presa depois de queda do stream,
+  aviso que sumia em 10 s, avatar com falha pedido de novo sem parar, papel perdido ao minimizar, entre outros).
+- **Segurança**: nada crítico. Corrigidos: `Retry-After` sem teto travava o login para sempre; fila de snapshots sem
+  limite; pasta do socket de instância única previsível em `/tmp`; comando longo escondido na folha de aprovação
+  (agora quebra linha, rola e mostra "mais N linhas"); anexo trocado depois de escolhido; arquivo de janela malformado
+  derrubava a abertura; importação de preferências Java limitada às chaves conhecidas; CI com ações fixadas por hash.
+  **O cliente Kotlin tem o mesmo `Retry-After` sem teto** (não alterado aqui).
+
+## Harmonia com o Zaplaud do celular
+
+- Textos (242), cores (48 papéis do Material 3, claros e escuros) e ícones são **gerados** de `android/shared/src/commonMain`
+  na compilação. Mudou no Kotlin, muda no Rust.
+- Estado em disco no mesmo formato do desktop Compose (provado nos dois sentidos com o store JVM real): dá para trocar
+  de cliente sem perder servidores nem rascunhos.
+- 58 pares lado a lado contra o Compose real (29 telas, claro e escuro). Diferenças que restam, por tela, em
+  `zaplaud-rs/scripts/compare-compose.md`: rasterização de fonte; espaçamento de letras do markdown (limite do
+  `StyledText` do Slint 1.18.1); e adaptações de desktop aceitas (aprovação, bate-papo paralelo e informações da sessão
+  como painel lateral; ações da mensagem ao passar o mouse e no clique direito).
+
+## Diferenças de comportamento assumidas
+
+- Avisos reaproveitam o stream que a tela já usa, em vez de abrir um segundo `/api/stream` como o Android.
+- Marcar como lida exige estar no fim da conversa **e** com a janela em foco.
+- Seleção de texto vale dentro de um bloco; para a mensagem inteira há "Copiar mensagem" (limite do Slint).
+- Instância única: abrir de novo traz a janela existente.
+- Sem arrastar arquivos para a janela (o Slint 1.18.1 não repassa o evento); o seletor usa o portal do sistema, depois
+  `zenity`/`kdialog`, depois um diálogo de caminhos.
+- Caracteres de apresentação texto dentro das mensagens (▶, ✳) podem sair coloridos no modo padrão.
+
+## Não verificado
+
+- **Wayland** (o miranote usa Wayfire), **macOS**, chaveiro real (Secret Service/Keychain), notificações e bandeja
+  numa sessão de verdade, seletor de arquivos nativo, leitor de tela real. Tudo foi exercitado por protocolo em
+  serviços DBus falsos ou não pôde ser exercitado nesta máquina (sem tela, sem chaveiro).
+- Instalação no miranote: a máquina estava desligada. Pacote pronto em
+  `~/dados/zaplaud-rs-dist/final/zaplaud-linux-x86_64.tar.gz` (instala sem `sudo`; o pacote leve exige glibc 2.43).
+- `.deb`/`.rpm` gerados só para inspeção; o CI gera os de distribuição numa base Ubuntu 24.04. O workflow não foi disparado.
+- Uso real do dono (fase 6 do plano).
+
+## Decisões pendentes do dono
+
+1. **Modo de desenho padrão resolvido por memória**: `software`, com Skia somente opt-in; ver medições acima.
+2. **Remover o desktop Compose** (`android/desktop`, `android/shared/src/jvmMain`) depois de usar o Rust no dia a dia.
+   Hipótese de trabalho: sim. O layout de duas colunas em tela larga continua no Kotlin (iPad e tablet).
+3. **Mesclar `feat/zaplaud-rs` em `producao`**: só acrescenta `zaplaud-rs/`, um workflow de CI e comandos opcionais na
+   fixture de teste.

@@ -26,3 +26,7 @@ ios/**/xcuserdata/
 *.mobileprovision
 *.p12
 *.p8
+
+# Artefatos do cliente Rust desktop
+zaplaud-rs/target/
+zaplaud-rs/scripts/__pycache__/

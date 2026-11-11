@@ -1,0 +1,21 @@
+export global Clock {
+    in-out property <int> tick;
+    in-out property <bool> list-needed;
+    in-out property <bool> conversation-needed;
+    in-out property <bool> list-visible;
+    in-out property <bool> conversation-visible;
+    in-out property <bool> visible: true;
+    in-out property <bool> focused: true;
+    callback refresh();
+    callback viewport(length, length, bool);
+    callback row-layout(int, length, length);
+    pure callback elapsed(string, int) -> string;
+    pure callback activity(string, string, int) -> string;
+    pure callback spinner(bool, int, bool) -> string;
+    changed list-needed => { refresh(); }
+    changed conversation-needed => { refresh(); }
+    changed list-visible => { refresh(); }
+    changed conversation-visible => { refresh(); }
+    changed visible => { refresh(); }
+    changed focused => { refresh(); }
+}

@@ -64,6 +64,7 @@ class FixtureUiInstrumentedTest {
     private var scenario: ActivityScenario<MainActivity>? = null
     private var prepared = false
     private var zeroClawFixture = false
+    private var restoreDisplay: (() -> Unit)? = null
     private val zeroClawKey = SessionKey(origin, "zeroclaw", "zeroclaw", "00000000-0000-4000-8000-000000000008")
     private fun fixture(path: String, body: JSONObject? = null): JSONObject {
         val port = requireNotNull(InstrumentationRegistry.getArguments().getString("fixtureLocalPort")?.toIntOrNull())
@@ -89,7 +90,9 @@ class FixtureUiInstrumentedTest {
     }
     private fun assertNoZeroClawContext() {
         compose.onAllNodes(androidx.compose.ui.test.hasContentDescription("Contexto em uso", substring = true)).assertCountEquals(0)
-        compose.onNodeWithTag("session-info-open").performClick()
+        compose.onNode(SemanticsMatcher("abrir informações da sessão") {
+            it.config.getOrNull(androidx.compose.ui.semantics.SemanticsActions.OnClick)?.label == text(R.string.session_info)
+        }).performClick()
         compose.onNodeWithText(text(R.string.info_context)).assertDoesNotExist()
         compose.onNodeWithText(text(R.string.thinking_menu)).assertDoesNotExist()
         compose.onNodeWithText(text(R.string.info_hide_details)).assertDoesNotExist()
@@ -124,6 +127,7 @@ class FixtureUiInstrumentedTest {
 
     @After fun cleanup() {
         scenario?.close()
+        restoreDisplay?.invoke()
         if (zeroClawFixture) fixtureCommand("runtime omp")
         if (prepared) {
             runBlocking { LocalStateStore(context).clear() }
@@ -454,16 +458,24 @@ class FixtureUiInstrumentedTest {
         val registered = fixtureRequest("/api/permissions", JSONObject()
             .put("session_id", key.sessionId)
             .put("tool_name", "Bash")
-            .put("tool_input", JSONObject().put("command", "echo fixture")))
+            .put("tool_input", JSONObject().put("command", "echo fixture").put("description", "Descrição segura da fixture")))
         val id = registered.optString("id")
         assertTrue("Fixture não registrou a permissão: $registered", id.isNotEmpty())
         scenario = ActivityScenario.launch(MainActivity::class.java)
         awaitDescription(R.string.permission_approve)
         compose.onNodeWithContentDescription(text(R.string.permission_approve)).performClick()
         await(R.string.permission_allow)
+        val summary = fixtureRequest("/api/permissions/$id").getString("text")
+        compose.onNodeWithText(summary).assertExists()
         compose.waitUntil(15_000) {
             compose.onAllNodes(hasText("echo fixture", substring = true)).fetchSemanticsNodes().isNotEmpty()
         }
+        compose.waitForIdle()
+        val screenshot = requireNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
+        context.getExternalFilesDir(null)!!.resolve("zaplaud-align-kotlin-permission.png").outputStream().use {
+            screenshot.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+        }
+        screenshot.recycle()
         InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("input keyevent KEYCODE_BACK").close()
         compose.waitUntil(15_000) { compose.onAllNodes(hasText(text(R.string.permission_allow))).fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithText(text(R.string.message_text)).assertIsDisplayed()
@@ -527,6 +539,7 @@ class FixtureUiInstrumentedTest {
         compose.onNodeWithText(text(R.string.view_all)).performClick()
         compose.onNodeWithContentDescription(text(R.string.permission_answer)).performClick()
         compose.waitUntil(15_000) { compose.onAllNodes(hasText("Cor?")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText(request("/api/permissions/$id").getString("text")).assertExists()
         val toggles = compose.onAllNodes(isToggleable())
         toggles[1].performScrollTo().performClick()
         toggles[2].performScrollTo().performClick()
@@ -663,5 +676,54 @@ class FixtureUiInstrumentedTest {
         compose.onNodeWithContentDescription(text(R.string.menu)).performClick()
         compose.onNodeWithText(text(R.string.thinking_menu)).assertDoesNotExist()
         compose.onNodeWithText(text(R.string.deliver_mode)).assertIsDisplayed()
+    }
+
+    @Test fun tabletKeepsCastAndUsesFullConversationWidth() {
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        fun shell(command: String): String =
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(command)).use { it.readBytes().decodeToString().trim() }
+        val rotation = shell("wm user-rotation")
+        val angle = shell("settings get system user_rotation").toInt()
+        restoreDisplay = {
+            shell("wm size reset")
+            shell("wm density reset")
+            shell("wm user-rotation lock $angle")
+            shell("wm user-rotation $rotation")
+        }
+        run {
+            // Mesmo girado, o AVD tem ao menos 1600 dp de largura: a conversa deve ultrapassar os antigos 840 dp.
+            shell("wm size 1920x1600")
+            shell("wm density 160")
+            scenario = ActivityScenario.launch(MainActivity::class.java)
+            await(R.string.message_text)
+            awaitDescription(R.string.cast_start)
+            compose.onNodeWithContentDescription(text(R.string.cast_start)).assertIsDisplayed()
+            compose.waitUntil(15_000) {
+                val node = compose.onNodeWithTag("conversation-list").fetchSemanticsNode()
+                node.boundsInRoot.width > 840 * node.layoutInfo.density.density
+            }
+            val node = compose.onNodeWithTag("conversation-list").fetchSemanticsNode()
+            assertTrue("A conversa ainda está limitada a 840 dp: ${node.boundsInRoot.width} px",
+                node.boundsInRoot.width > 840 * node.layoutInfo.density.density)
+            for (theme in listOf("light", "dark")) {
+                runBlocking { LocalStateStore(context).setTheme(theme) }
+                compose.waitForIdle()
+                val screenshot = requireNotNull(automation.takeScreenshot())
+                context.getExternalFilesDir(null)!!.resolve("zaplaud-align-kotlin-tablet-$theme.png").outputStream().use {
+                    screenshot.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+                }
+                screenshot.recycle()
+            }
+            val before = fixture("/api/fixture/stats").getJSONArray("castRequests").length()
+            compose.onNodeWithContentDescription(text(R.string.cast_start)).performClick()
+            compose.waitUntil(15_000) { compose.onAllNodes(hasText("Bia Fictícia")).fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("Bia Fictícia").performClick()
+            compose.onNodeWithText("/fixture/projeto").performClick()
+            compose.waitUntil(15_000) { fixture("/api/fixture/stats").getJSONArray("castRequests").length() > before }
+            val requests = fixture("/api/fixture/stats").getJSONArray("castRequests")
+            val request = requests.getJSONObject(requests.length() - 1)
+            assertEquals("new", request.getString("mode"))
+            assertEquals("/fixture/projeto", request.getString("room"))
+        }
     }
 }

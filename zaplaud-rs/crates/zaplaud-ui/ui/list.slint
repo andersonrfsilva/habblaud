@@ -1,0 +1,161 @@
+import { Clock } from "clock.slint";
+import { Theme, StatusColors } from "resources.slint";
+import { Labels } from "labels.slint";
+import { TextField, TextButton, SegmentedControl, Chip, Banner, Avatar, Badge, ScrollList, ScrollContainer, Menu, ProgressRing, Tooltip, Fab, IconButton } from "widgets/kit.slint";
+import { MaterialIcons } from "widgets/material-icons.slint";
+import { FilesState } from "files.slint";
+export struct SessionRow {
+    key: string, title: string, subtitle: string, activity: string, time: string, unread: string,
+    initials: string, avatar: image, brand: image, brand-color: color, fallback-color: color,
+    selected: bool, sub: bool, sub-last: bool, permission: string,
+    working: bool, since: string, activity-text: string, codex: bool,
+    avatar-key: string, unread-label: string,
+}
+export struct ServerRow { origin: string, label: string, connection: string, needs-login: bool, error: string }
+export global ListState {
+    in property <[SessionRow]> rows;
+    in property <[ServerRow]> servers;
+    in property <string> connection: "connecting";
+    in-out property <string> filter;
+    in-out property <string> query;
+    in-out property <bool> search-open;
+    in-out property <int> tab;
+    in-out property <bool> menu-open;
+    in-out property <int> focus-request;
+    in property <bool> loading;
+    in property <bool> app-visible: true;
+    in property <bool> server-notices;
+    in property <bool> terminal-allowed;
+    in property <string> terminal-blocked-label;
+    in property <bool> cast-visible;
+    in property <image> cast-icon;
+    callback open(string);
+    callback avatar(string);
+    callback changed();
+    callback settings();
+    callback add-server();
+    callback relogin(string);
+    callback permission(string);
+    callback cast();
+}
+export component ListPane inherits Rectangle {
+    body-metrics := Text { visible: false; text: "M"; font-size: 16px; }
+    subtitle-metrics := Text { visible: false; text: "M"; font-size: 14px; }
+    background: Theme.background;
+    property <int> keyboard-index: -1;
+    forward-focus: list-focus;
+    private property <int> focus-request: ListState.focus-request;
+    changed focus-request => { list-focus.focus(); }
+    private property <bool> search-open: ListState.search-open;
+    changed search-open => { if !self.search-open { list-focus.focus(); } }
+    changed visible => { Clock.viewport(session-list.content-y, session-list.height, self.visible); }
+    init => { list-focus.focus(); }
+    list-focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.DownArrow { root.keyboard-index = min(root.keyboard-index + 1, ListState.rows.length - 1); return accept; }
+            if event.text == Key.UpArrow { root.keyboard-index = max(0, root.keyboard-index - 1); return accept; }
+            if event.text == Key.Return && root.keyboard-index >= 0 && root.keyboard-index < ListState.rows.length {
+                ListState.open(ListState.rows[root.keyboard-index].key); return accept;
+            }
+            return reject;
+        }
+    }
+    Rectangle { x: 0px; y: 0px; width: root.width; height: 64px; background: Theme.surface; }
+    VerticalLayout { spacing: 0px;
+        HorizontalLayout { height: 64px; spacing: 8px; padding-left: 16px; padding-right: 12px;
+            Text { text: Labels.app-name; color: Theme.on-surface; font-size: 22px; vertical-alignment: center; horizontal-stretch: 0; }
+            Rectangle { width: 10px;
+                Rectangle { y: (parent.height - self.height) / 2; width: 10px; height: 10px; border-radius: 5px; background: ListState.connection == "connected" ? Theme.primary : ListState.connection == "connecting" ? StatusColors.warning : Theme.error; accessible-role: text; accessible-label: ListState.connection == "connected" ? Labels.reading-connected : ListState.connection == "connecting" ? Labels.reading-connecting : Labels.reading-offline; }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            VerticalLayout { width: 32px; alignment: center; IconButton { width: 32px; icon: MaterialIcons.more-vert; label: Labels.menu; clicked => { ListState.menu-open = true; menu.show(); } } }
+        }
+        VerticalLayout { padding-left: 12px; padding-right: 12px; spacing: 8px;
+        if ListState.server-notices: VerticalLayout { spacing: 8px;
+            for server in ListState.servers: VerticalLayout { spacing: 8px;
+                if server.needs-login: HorizontalLayout { height: 48px; Text { text: server.label; color: Theme.on-surface; vertical-alignment: center; } VerticalLayout { width: relogin-action.min-width; alignment: center; relogin-action := TextButton { text: Labels.relogin; clicked => { ListState.relogin(server.origin); } } } }
+                if server.error != "": Text { text: server.error; color: Theme.error; wrap: word-wrap; }
+            }
+        }
+        if ListState.servers.length > 1: ScrollContainer {
+            height: 48px;
+            content-width: chips.preferred-width;
+            chips := HorizontalLayout { spacing: 8px;
+                Chip { text: Labels.filter-all; selected: ListState.filter == ""; clicked => { ListState.filter = ""; ListState.changed(); } }
+                for server in ListState.servers: Chip {
+                    text: "    " + server.label; selected: ListState.filter == server.origin;
+                    clicked => { ListState.filter = server.origin; ListState.changed(); }
+                    Rectangle { x: 10px; y: (parent.height - 10px) / 2; width: 10px; height: 10px; border-radius: 5px; background: server.needs-login || server.connection == "offline" ? Theme.error : server.connection == "connecting" ? StatusColors.warning : Theme.primary; }
+                }
+            }
+        }
+        Rectangle { height: 48px; SegmentedControl { x: 0px; y: 4px; width: parent.width; height: 40px; labels: [Labels.open-sessions, Labels.recent-sessions]; selected <=> ListState.tab; chosen(index) => { if ListState.query == "" { ListState.search-open = false; } ListState.changed(); } } }
+        if ListState.search-open: TextField {
+            text <=> ListState.query; placeholder: Labels.search-sessions; autofocus: ListState.query == "";
+            leading-icon: MaterialIcons.search; trailing-icon: MaterialIcons.close; trailing-label: Labels.search-close;
+            edited(value) => { ListState.changed(); }
+            trailing-clicked => { ListState.query = ""; ListState.search-open = false; ListState.changed(); }
+        }
+        if ListState.loading: ProgressRing { height: 24px; }
+        if !ListState.loading && !ListState.terminal-allowed: Text { text: ListState.terminal-blocked-label; color: Theme.on-surface; font-size: 16px; letter-spacing: 0.5px; line-height-factor: 24px / body-metrics.preferred-height; wrap: word-wrap; }
+        if !ListState.loading && ListState.rows.length == 0: VerticalLayout { padding: 32px;
+            Text { text: ListState.query != "" ? Labels.search-no-match : Labels.sessions-empty; color: Theme.on-surface-variant; wrap: word-wrap; horizontal-alignment: center; }
+            if ListState.query != "": TextButton { text: Labels.search-clear; clicked => { ListState.query = ""; ListState.changed(); } }
+        }
+        session-list := ScrollList {
+            changed content-y => { Clock.viewport(self.content-y, self.height, root.visible); }
+            changed height => { Clock.viewport(self.content-y, self.height, root.visible); }
+            for row[index] in ListState.rows: row-box := Rectangle {
+                property <length> body-height: row.sub ? 36px : max(60px, content.preferred-height);
+                property <length> group-spacing: index + 1 < ListState.rows.length && (row.sub ? row.sub-last : !ListState.rows[index + 1].sub) ? 8px : 0px;
+                init => { ListState.avatar(row.key); Clock.row-layout(index, self.y, self.body-height); }
+                changed y => { Clock.row-layout(index, self.y, self.body-height); }
+                changed height => { Clock.row-layout(index, self.y, self.body-height); }
+                height: self.body-height + self.group-spacing;
+                Rectangle {
+                    x: 0px; y: 0px; width: parent.width; height: parent.body-height; border-radius: 12px;
+                    background: row.selected ? Theme.secondary-container : row-touch.pressed ? Theme.on-surface.with-alpha(0.12) : row-touch.has-hover ? Theme.on-surface.with-alpha(0.08) : transparent;
+                    border-width: root.keyboard-index == index && list-focus.has-focus ? 2px : 0px; border-color: Theme.primary;
+                }
+                if row.selected: Rectangle { x: 0px; y: 0px; width: parent.width; height: parent.body-height; border-radius: 12px; background: row-touch.pressed ? Theme.on-surface.with-alpha(0.12) : row-touch.has-hover ? Theme.on-surface.with-alpha(0.08) : transparent; }
+                accessible-role: list-item; accessible-label: row.title + ", " + row.subtitle + (row.activity == "" ? "" : ", " + row.activity) + (row.permission == "" ? "" : ", " + row.permission) + (row.unread-label == "" ? "" : ", " + row.unread-label);
+                accessible-action-default => { ListState.open(row.key); }
+                row-touch := TouchArea { x: 0px; y: 0px; width: parent.width; height: parent.body-height; clicked => { root.keyboard-index = index; list-focus.focus(); ListState.open(row.key); } }
+                content := HorizontalLayout { x: 0px; y: 0px; width: parent.width; height: parent.body-height; padding-top: row.sub ? 0px : 6px; padding-bottom: row.sub ? 0px : 6px; spacing: row.sub ? 0px : 12px;
+                    if row.sub: Rectangle { width: 40px;
+                        Rectangle { x: 23.25px; width: 1.5px; height: row.sub-last ? parent.height / 2 : parent.height; background: Theme.outline-variant; }
+                        Rectangle { x: 24px; y: parent.height / 2 - 0.75px; width: 16px; height: 1.5px; background: Theme.outline-variant; }
+                    }
+                    VerticalLayout { alignment: center; Avatar { width: row.sub ? 24px : 48px; height: self.width; source: row.avatar; initials: row.initials; brand: row.brand; brand-color: row.brand-color; fallback-color: row.fallback-color; label: row.title; } }
+                    VerticalLayout { padding-left: row.sub ? 8px : 0px; spacing: 0px; horizontal-stretch: 1;
+                        Tooltip { text: row.title; height: min(title.preferred-height, row.sub ? 20px : 48px);
+                            clicked => { root.keyboard-index = index; list-focus.focus(); ListState.open(row.key); }
+                            title := Text { x: 0px; y: 0px; width: parent.width; height: parent.height; text: row.title; color: Theme.on-surface; font-size: row.sub ? 14px : 16px; letter-spacing: 0.5px; line-height-factor: row.sub ? 20px / subtitle-metrics.preferred-height : 24px / body-metrics.preferred-height; font-weight: row.unread != "" ? 700 : 400; wrap: word-wrap; overflow: elide; }
+                        }
+                        Text { text: row.subtitle; color: Theme.on-surface-variant; font-size: row.sub ? 12px : 14px; letter-spacing: 0.25px; line-height-factor: 20px / subtitle-metrics.preferred-height; overflow: elide; font-weight: row.unread != "" ? 700 : 400; }
+                        if row.activity != "": HorizontalLayout {
+                            height: 20px; spacing: 3px;
+                            Text { height: 20px; text: Clock.spinner(row.codex, Clock.tick, Clock.focused); font-family: "DejaVu Sans"; color: Theme.primary; font-size: 12px; vertical-alignment: center; horizontal-stretch: 0; }
+                            Text { height: 20px; text: row.working && row.since != "" ? Clock.activity(row.activity-text, row.since, Clock.tick) : row.activity; color: Theme.primary; font-size: 12px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                        }
+                        if row.permission != "": TextButton { text: row.permission; foreground: Theme.error; clicked => { ListState.permission(row.key); } }
+                    }
+                    if !row.sub: VerticalLayout { alignment: center; spacing: 6px; width: max(32px, time-label.preferred-width);
+                        time-label := Text { height: 16px; text: row.time; color: row.unread != "" ? Theme.primary : Theme.on-surface-variant; font-size: 11px; letter-spacing: 0.5px; horizontal-alignment: right; }
+                        if row.unread != "": Rectangle { height: 16px; Badge { x: parent.width - self.width; y: 0px; text: row.unread; } }
+                    }
+                }
+            }
+        }
+        }
+    }
+    // Ponto de montagem do FAB: o recurso de elenco fornece ícone e callback.
+    if ListState.cast-visible: Fab { x: parent.width - 72px; y: parent.height - 72px; icon: ListState.cast-icon; label: Labels.cast-start;
+        clicked => { ListState.cast(); }
+    }
+    menu := Menu { x: root.width - 52px; y: 56px; width: 150px;
+        TextButton { min-height: 48px; preferred-height: 48px; text: Labels.settings; text-weight: 400; foreground: Theme.on-surface; horizontal-alignment: left; border-radius: 0px; clicked => { menu.close(); ListState.menu-open = false; ListState.settings(); } }
+        TextButton { min-height: 48px; preferred-height: 48px; text: Labels.add-server; text-weight: 400; foreground: Theme.on-surface; horizontal-alignment: left; border-radius: 0px; clicked => { menu.close(); ListState.menu-open = false; ListState.add-server(); } }
+        TextButton { min-height: 48px; preferred-height: 48px; text: FilesState.title; text-weight: 400; foreground: Theme.on-surface; horizontal-alignment: left; border-radius: 0px; clicked => { menu.close(); ListState.menu-open = false; FilesState.open(false); } }
+    }
+}

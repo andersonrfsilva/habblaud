@@ -1,0 +1,53 @@
+import { Theme, Icons, PermissionColors } from "resources.slint";
+import { Labels } from "labels.slint";
+import { Avatar, Pill, IconButton } from "widgets/kit.slint";
+import { CastState } from "cast.slint";
+import { PermissionState } from "permission.slint";
+import { MaterialIcons } from "widgets/material-icons.slint";
+export global ConversationState {
+    in property <bool> selected;
+    in property <string> key;
+    in property <string> title;
+    in property <string> subtitle;
+    in property <string> initials;
+    in property <image> avatar;
+    callback close();
+    callback info();
+    callback menu();
+}
+export component ConversationPane inherits Rectangle {
+    in property <string> info-label;
+    in property <bool> narrow;
+    background: Theme.dark ? Theme.surface-container-lowest : Theme.surface-container-low;
+    forward-focus: conversation-focus;
+    init => { conversation-focus.focus(); }
+    conversation-focus := FocusScope {}
+    if !ConversationState.selected: Pill { text: Labels.select-conversation; x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; width: self.preferred-width; height: 36px; }
+    Rectangle {
+        visible: ConversationState.selected;
+        width: parent.width; height: parent.height;
+        VerticalLayout { spacing: 0px;
+            Rectangle { height: 0px; Rectangle { x: 0px; y: 0px; width: parent.width; height: 64px; background: Theme.surface; } }
+            HorizontalLayout { height: 64px; padding-left: 16px; padding-right: 8px; spacing: 8px;
+                if root.narrow: VerticalLayout { width: 40px; alignment: center; IconButton { icon: MaterialIcons.arrow-back; label: Labels.back-sessions; clicked => { ConversationState.close(); } } }
+                VerticalLayout { width: 36px; alignment: center; Avatar { width: 36px; height: 36px; source: ConversationState.avatar; initials: ConversationState.initials; } }
+                Rectangle { horizontal-stretch: 1;
+                    accessible-role: button; accessible-label: root.info-label;
+                    accessible-action-default => { ConversationState.info(); }
+                    forward-focus: info-keys;
+                    border-width: info-keys.has-focus ? 1px : 0px; border-color: Theme.primary;
+                    info-keys := FocusScope {
+                        key-pressed(event) => { if event.text == Key.Return || event.text == Key.Space { ConversationState.info(); return accept; } return reject; }
+                    }
+                    VerticalLayout { alignment: center; spacing: 0px; Text { text: ConversationState.title; color: Theme.on-surface; font-size: 22px; overflow: elide; } Text { text: ConversationState.subtitle; color: Theme.on-surface-variant; font-size: 12px; overflow: elide; } }
+                    TouchArea { clicked => { ConversationState.info(); } }
+                }
+                if PermissionState.pending: VerticalLayout { width: 40px; alignment: center; IconButton { icon: PermissionState.action-label == PermissionState.answer-label ? Icons.ic-help : Icons.ic-verified-user; label: PermissionState.action-label; background: PermissionColors.attention; foreground: PermissionColors.on-attention; clicked => { PermissionState.open-selected(); } } }
+                if CastState.resume-visible: VerticalLayout { width: 40px; alignment: center; IconButton { icon: MaterialIcons.play-arrow; label: CastState.resume-label; enabled: CastState.enabled; clicked => { CastState.resume(); } } }
+                VerticalLayout { width: 40px; alignment: center; IconButton { icon: MaterialIcons.more-vert; label: Labels.menu; clicked => { ConversationState.menu(); } } }
+            }
+            // Próxima etapa monta transcript, avisos e compositor neste host nomeado.
+            conversation-content := Rectangle { vertical-stretch: 1; @children }
+        }
+    }
+}

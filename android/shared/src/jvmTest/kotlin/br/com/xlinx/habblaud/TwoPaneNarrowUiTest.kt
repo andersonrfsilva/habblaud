@@ -23,5 +23,6 @@ class TwoPaneNarrowUiTest {
         waitUntil(timeoutMillis = 15_000) { onAllNodesWithTag("conversation-list").fetchSemanticsNodes().isNotEmpty() }
         onNodeWithTag("conversation-list").assertExists()
         onAllNodes(sessionRow).assertCountEquals(0)
+        onNodeWithContentDescription("Chamar contato").assertDoesNotExist()
     }
 }

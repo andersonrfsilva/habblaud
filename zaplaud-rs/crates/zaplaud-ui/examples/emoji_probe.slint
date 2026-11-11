@@ -1,0 +1,26 @@
+import { MarkdownView, MdBlock, Theme } from "../ui/markdown/markdown.slint";
+export { MdBlock, Theme }
+export component EmojiProbe inherits Window {
+    title: "Zaplaud";
+    width: 1100px;
+    height: 600px;
+    background: Theme.surface;
+    default-font-weight: 400;
+    in property <string> sample;
+    in property <string> symbols;
+    in property <[MdBlock]> blocks;
+    VerticalLayout {
+        padding: 20px;
+        spacing: 12px;
+        Text { text: "Text"; color: Theme.on-surface; }
+        Text { text: root.sample; font-size: 32px; color: Theme.on-surface; }
+        Text { text: "TextInput"; color: Theme.on-surface; }
+        TextInput { text: root.sample; font-size: 32px; color: Theme.on-surface; }
+        Text { text: "MarkdownView"; color: Theme.on-surface; }
+        MarkdownView { blocks: root.blocks; source-markdown: root.sample; }
+        Text { text: root.symbols; font-family: "DejaVu Sans"; font-size: 24px; color: Theme.on-surface; }
+        Text { text: "Regular 400 — Texto normal: ação, conversa, 123"; font-size: 20px; font-weight: 400; color: Theme.on-surface; }
+        Text { text: "Medium 500 — Texto normal: ação, conversa, 123"; font-size: 20px; font-weight: 500; color: Theme.on-surface; }
+        Text { text: "Bold 700 — Texto normal: ação, conversa, 123"; font-size: 20px; font-weight: 700; color: Theme.on-surface; }
+    }
+}

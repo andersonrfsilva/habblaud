@@ -1,0 +1,35 @@
+[workspace]
+members = ["crates/zaplaud-core", "crates/zaplaud-store", "crates/zaplaud-ui"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.96.1"
+license = "MIT"
+
+[workspace.dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "rustls-tls-webpki-roots", "cookies", "json", "stream"] }
+tokio = { version = "1", features = ["rt", "sync", "time", "macros", "net", "process", "io-util"] }
+futures-util = "0.3"
+thiserror = "2"
+url = "2"
+slint = { version = "=1.18.1", default-features = false, features = ["std", "backend-winit", "backend-winit-x11", "backend-winit-wayland", "renderer-software", "compat-1-2", "accessibility", "unstable-winit-030", "unstable-fontique-011"] }
+slint-build = "=1.18.1"
+roxmltree = "0.21"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+
+[profile.release]
+strip = true
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+panic = "abort"

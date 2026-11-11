@@ -1,0 +1,198 @@
+import { Theme } from "resources.slint";
+import { Labels } from "labels.slint";
+import { Sheet, TextButton, IconButton, RadioButton, Menu, ScrollList, ScrollContainer, Divider, ProgressRing } from "widgets/kit.slint";
+import { MaterialIcons } from "widgets/material-icons.slint";
+
+export struct FilesRootRow { label: string, path: string }
+export struct FilesCrumbRow { label: string, path: string }
+export struct FilesEntryRow { name: string, path: string, detail: string, directory: bool }
+export struct FilesDownloadRow { id: int, name: string, status: string, progress: float, running: bool, done: bool }
+
+export global FilesState {
+    in-out property <bool> visible;
+    in property <bool> loading;
+    in property <string> error;
+    in property <[FilesRootRow]> roots;
+    in-out property <int> root-index: -1;
+    in property <[FilesCrumbRow]> crumbs;
+    in property <[FilesEntryRow]> entries;
+    in property <[FilesDownloadRow]> downloads;
+    in-out property <int> selected-index: -1;
+    in property <string> title;
+    in property <string> root-label;
+    in property <string> loading-label;
+    in property <string> empty-label;
+    in property <string> truncated-label;
+    in property <string> close-label;
+    in property <string> parent-label;
+    in property <string> download-label;
+    in property <string> downloads-label;
+    in property <string> open-label;
+    in property <string> show-folder-label;
+    callback open(bool);
+    callback close();
+    callback root-chosen(int);
+    callback navigate(string);
+    callback activate(int);
+    callback parent();
+    callback cancel(int);
+    callback open-download(int, bool);
+}
+
+component RootPicker inherits TextButton {
+    text: FilesState.root-index >= 0 && FilesState.root-index < FilesState.roots.length ? FilesState.roots[FilesState.root-index].label : FilesState.root-label;
+    accessible-label: FilesState.root-label + ": " + self.text;
+    trailing-icon: MaterialIcons.arrow-drop-down;
+    clicked => { choices.show(); }
+    choices := Menu {
+        for item[index] in FilesState.roots: RadioButton {
+            text: item.label;
+            checked: FilesState.root-index == index;
+            toggled => { FilesState.root-chosen(index); choices.close(); }
+        }
+    }
+}
+
+component FilesPanel inherits FocusScope {
+    private property <bool> loading: FilesState.loading;
+    changed loading => { if !self.loading { self.focus(); } }
+    private property <int> selected: FilesState.selected-index;
+    changed selected => {
+        if self.selected >= 0 {
+            // As linhas têm altura fixa; a seleção por teclado nunca fica fora do visor.
+            if self.selected * 64px + entries.content-y < 0px {
+                entries.content-y = -self.selected * 64px;
+            } else if (self.selected + 1) * 64px + entries.content-y > entries.height {
+                entries.content-y = min(0px, entries.height - (self.selected + 1) * 64px);
+            }
+        } else { entries.content-y = 0px; }
+    }
+    key-pressed(event) => {
+        if event.text == Key.Backspace {
+            if !FilesState.loading && FilesState.crumbs.length > 1 { FilesState.parent(); }
+            return accept;
+        }
+        if !FilesState.loading && FilesState.entries.length > 0 {
+            if event.text == Key.DownArrow {
+                FilesState.selected-index = min(FilesState.entries.length - 1, FilesState.selected-index + 1);
+                return accept;
+            }
+            if event.text == Key.UpArrow {
+                FilesState.selected-index = max(0, FilesState.selected-index < 0 ? FilesState.entries.length - 1 : FilesState.selected-index - 1);
+                return accept;
+            }
+            if event.text == Key.Return && FilesState.selected-index >= 0 && FilesState.selected-index < FilesState.entries.length {
+                FilesState.activate(FilesState.selected-index); return accept;
+            }
+        }
+        return reject;
+    }
+    VerticalLayout { padding: 16px; spacing: 8px;
+        // Sentinelas impedem Tab de devolver o foco ao shell atrás da folha.
+        FocusScope { width: 0px; height: 0px; key-pressed(event) => {
+            if event.text == Key.Backtab || (event.text == Key.Tab && event.modifiers.shift) { last.focus(); return accept; }
+            return reject;
+        } }
+        HorizontalLayout { spacing: 8px;
+            Text { text: FilesState.title; font-size: 22px; color: Theme.on-surface; vertical-alignment: center; }
+            close := IconButton { icon: MaterialIcons.close; label: FilesState.close-label; clicked => { FilesState.close(); } }
+        }
+        if FilesState.roots.length > 1: RootPicker {}
+        HorizontalLayout { spacing: 4px;
+            IconButton {
+                icon: MaterialIcons.arrow-back; label: FilesState.parent-label;
+                enabled: !FilesState.loading && FilesState.crumbs.length > 1;
+                clicked => { FilesState.parent(); }
+            }
+            ScrollContainer { height: 48px; content-width: trail.preferred-width;
+                trail := HorizontalLayout { spacing: 0px; alignment: start;
+                    for crumb[index] in FilesState.crumbs: HorizontalLayout { spacing: 0px;
+                        if index > 0: Text { text: "/"; color: Theme.on-surface-variant; vertical-alignment: center; }
+                        TextButton {
+                            text: crumb.label;
+                            text-weight: index == FilesState.crumbs.length - 1 ? 700 : 500;
+                            foreground: index == FilesState.crumbs.length - 1 ? Theme.on-surface : Theme.primary;
+                            enabled: !FilesState.loading;
+                            clicked => { FilesState.navigate(crumb.path); }
+                        }
+                    }
+                }
+            }
+        }
+        if FilesState.error != "": Text { text: FilesState.error; color: Theme.error; wrap: word-wrap; }
+        Rectangle { vertical-stretch: 1; min-height: 64px;
+            if FilesState.loading: VerticalLayout { alignment: center; spacing: 8px;
+                HorizontalLayout { alignment: center; ProgressRing { label: FilesState.loading-label; } }
+                Text { text: FilesState.loading-label; color: Theme.on-surface-variant; horizontal-alignment: center; }
+            }
+            if !FilesState.loading && FilesState.error == "" && FilesState.entries.length == 0: Text {
+                text: FilesState.empty-label; color: Theme.on-surface-variant; wrap: word-wrap;
+                horizontal-alignment: center; vertical-alignment: center;
+            }
+            entries := ScrollList {
+                visible: !FilesState.loading;
+                for entry[index] in FilesState.entries: Rectangle {
+                    height: 64px;
+                    background: FilesState.selected-index == index ? Theme.secondary-container : area.has-hover ? Theme.on-surface.with-alpha(0.08) : transparent;
+                    border-radius: 8px;
+                    border-width: root.has-focus && FilesState.selected-index == index ? 2px : 0px;
+                    border-color: Theme.primary;
+                    accessible-role: button;
+                    accessible-label: entry.name;
+                    accessible-description: entry.detail + ". " + (entry.directory ? FilesState.open-label : FilesState.download-label);
+                    accessible-enabled: !FilesState.loading;
+                    accessible-action-default => { if !FilesState.loading { FilesState.selected-index = index; FilesState.activate(index); } }
+                    HorizontalLayout { padding: 8px; spacing: 12px;
+                        Image { width: 24px; height: 24px; source: entry.directory ? MaterialIcons.keyboard-arrow-right : MaterialIcons.attach-file; colorize: Theme.on-surface-variant; }
+                        VerticalLayout { alignment: center; spacing: 2px;
+                            Text { text: entry.name; color: Theme.on-surface; font-size: 16px; overflow: elide; }
+                            Text { text: entry.detail; color: Theme.on-surface-variant; font-size: 12px; overflow: elide; }
+                        }
+                        if !entry.directory: Text { text: FilesState.download-label; color: Theme.primary; font-size: 14px; vertical-alignment: center; horizontal-stretch: 0; }
+                    }
+                    area := TouchArea {
+                        enabled: !FilesState.loading;
+                        clicked => { root.focus(); FilesState.selected-index = index; FilesState.activate(index); }
+                    }
+                }
+            }
+        }
+        if !FilesState.loading && FilesState.truncated-label != "": Text {
+            text: FilesState.truncated-label; color: Theme.on-surface-variant; font-size: 12px; wrap: word-wrap;
+        }
+        if FilesState.downloads.length > 0: Divider {}
+        if FilesState.downloads.length > 0: Text { text: FilesState.downloads-label; color: Theme.on-surface; font-size: 16px; font-weight: 500; }
+        if FilesState.downloads.length > 0: ScrollList {
+            height: min(224px, FilesState.downloads.length * 112px);
+            vertical-stretch: 0;
+            for download in FilesState.downloads: VerticalLayout { height: 112px; spacing: 4px; padding-bottom: 8px;
+                Text { text: download.name; color: Theme.on-surface; font-size: 14px; overflow: elide; }
+                Text { text: download.status; color: Theme.on-surface-variant; font-size: 12px; overflow: elide; }
+                if download.running: Rectangle {
+                    height: 4px; background: Theme.surface-container-highest; border-radius: 2px;
+                    accessible-role: progress-indicator; accessible-label: download.name + ": " + download.status;
+                    Rectangle { width: parent.width * max(0, min(1, download.progress)); height: parent.height; border-radius: 2px; background: Theme.primary; }
+                }
+                HorizontalLayout { alignment: end; spacing: 4px;
+                    if download.running: TextButton { text: Labels.cancel; clicked => { FilesState.cancel(download.id); } }
+                    if download.done: TextButton { text: FilesState.open-label; clicked => { FilesState.open-download(download.id, false); } }
+                    if download.done: TextButton { text: FilesState.show-folder-label; clicked => { FilesState.open-download(download.id, true); } }
+                }
+            }
+        }
+        last := FocusScope { width: 0px; height: 0px; key-pressed(event) => {
+            if event.text == Key.Tab && !event.modifiers.shift { close.focus(); return accept; }
+            return reject;
+        } }
+    }
+}
+
+export component FilesSheet inherits Sheet {
+    visible: FilesState.visible;
+    title: FilesState.title;
+    dismissed => { FilesState.close(); }
+    forward-focus: panel;
+    private property <bool> active: FilesState.visible;
+    changed active => { if self.active { panel.focus(); } }
+    panel := FilesPanel { enabled: FilesState.visible; }
+}

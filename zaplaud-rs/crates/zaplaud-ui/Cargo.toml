@@ -1,0 +1,126 @@
+[package]
+name = "zaplaud-ui"
+description = "Cliente desktop nativo de mensagens Zaplaud"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "zaplaud"
+path = "src/main.rs"
+
+[features]
+default = []
+skia = ["slint/renderer-skia-opengl"]
+
+[dependencies]
+pulldown-cmark = { version = "0.13", default-features = false }
+zaplaud-core = { path = "../zaplaud-core" }
+zaplaud-store = { path = "../zaplaud-store" }
+slint.workspace = true
+tokio.workspace = true
+serde_json.workspace = true
+url.workspace = true
+image = { version = "0.25", default-features = false, features = ["png"] }
+httpdate = "1"
+rfd = "0.17"
+futures-util.workspace = true
+# Compartilha zbus 5 com Slint e ksni; 4.19 acrescenta uma terceira versão.
+notify-rust = { version = "~4.18", default-features = false, features = ["z"] }
+rustix = { version = "1", features = ["process"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+ksni = { version = "0.3", default-features = false, features = ["async-io"] }
+
+[build-dependencies]
+slint-build.workspace = true
+roxmltree.workspace = true
+serde_json.workspace = true
+resvg = { version = "0.45", default-features = false }
+
+[dev-dependencies]
+tempfile = "3"
+serde_json.workspace = true
+roxmltree.workspace = true
+usvg = "0.45"
+parley = "0.11.1"
+swash = "0.2.10"
+resvg = { version = "0.45", default-features = false }
+
+[lints]
+workspace = true
+
+[package.metadata.deb]
+name = "zaplaud"
+maintainer = "XLINX <suporte@xlinx.com.br>"
+copyright = "XLINX"
+extended-description = "Cliente desktop nativo de mensagens Zaplaud."
+section = "net"
+priority = "optional"
+depends = "$auto, libxkbcommon0, libwayland-client0, libx11-6, libx11-xcb1, libxcursor1, libxrandr2, libxi6, libxcb1, libxcb-render0, libxcb-shm0, libxkbcommon-x11-0"
+assets = [
+    ["target/release/zaplaud", "usr/bin/zaplaud", "755"],
+    ["../../packaging/zaplaud.desktop", "usr/share/applications/zaplaud.desktop", "644"],
+    ["ui/fonts/OFL-NotoEmoji.txt", "usr/share/doc/zaplaud/OFL-NotoEmoji.txt", "644"],
+    ["ui/fonts/LICENSE-DejaVu.txt", "usr/share/doc/zaplaud/LICENSE-DejaVu.txt", "644"],
+    ["../../packaging/icons/hicolor/16x16/apps/zaplaud.png", "usr/share/icons/hicolor/16x16/apps/zaplaud.png", "644"],
+    ["../../packaging/icons/hicolor/24x24/apps/zaplaud.png", "usr/share/icons/hicolor/24x24/apps/zaplaud.png", "644"],
+    ["../../packaging/icons/hicolor/32x32/apps/zaplaud.png", "usr/share/icons/hicolor/32x32/apps/zaplaud.png", "644"],
+    ["../../packaging/icons/hicolor/48x48/apps/zaplaud.png", "usr/share/icons/hicolor/48x48/apps/zaplaud.png", "644"],
+    ["../../packaging/icons/hicolor/64x64/apps/zaplaud.png", "usr/share/icons/hicolor/64x64/apps/zaplaud.png", "644"],
+    ["../../packaging/icons/hicolor/128x128/apps/zaplaud.png", "usr/share/icons/hicolor/128x128/apps/zaplaud.png", "644"],
+    ["../../packaging/icons/hicolor/256x256/apps/zaplaud.png", "usr/share/icons/hicolor/256x256/apps/zaplaud.png", "644"],
+    ["../../packaging/icons/hicolor/512x512/apps/zaplaud.png", "usr/share/icons/hicolor/512x512/apps/zaplaud.png", "644"],
+    ["../../packaging/icons/hicolor/1024x1024/apps/zaplaud.png", "usr/share/icons/hicolor/1024x1024/apps/zaplaud.png", "644"],
+]
+
+[package.metadata.generate-rpm]
+name = "zaplaud"
+summary = "Cliente desktop nativo de mensagens Zaplaud"
+license = "MIT"
+assets = [
+    { source = "target/release/zaplaud", dest = "/usr/bin/zaplaud", mode = "755" },
+    { source = "packaging/zaplaud.desktop", dest = "/usr/share/applications/zaplaud.desktop", mode = "644" },
+    { source = "crates/zaplaud-ui/ui/fonts/OFL-NotoEmoji.txt", dest = "/usr/share/licenses/zaplaud/OFL-NotoEmoji.txt", mode = "644" },
+    { source = "crates/zaplaud-ui/ui/fonts/LICENSE-DejaVu.txt", dest = "/usr/share/licenses/zaplaud/LICENSE-DejaVu.txt", mode = "644" },
+    { source = "packaging/icons/hicolor/16x16/apps/zaplaud.png", dest = "/usr/share/icons/hicolor/16x16/apps/zaplaud.png", mode = "644" },
+    { source = "packaging/icons/hicolor/24x24/apps/zaplaud.png", dest = "/usr/share/icons/hicolor/24x24/apps/zaplaud.png", mode = "644" },
+    { source = "packaging/icons/hicolor/32x32/apps/zaplaud.png", dest = "/usr/share/icons/hicolor/32x32/apps/zaplaud.png", mode = "644" },
+    { source = "packaging/icons/hicolor/48x48/apps/zaplaud.png", dest = "/usr/share/icons/hicolor/48x48/apps/zaplaud.png", mode = "644" },
+    { source = "packaging/icons/hicolor/64x64/apps/zaplaud.png", dest = "/usr/share/icons/hicolor/64x64/apps/zaplaud.png", mode = "644" },
+    { source = "packaging/icons/hicolor/128x128/apps/zaplaud.png", dest = "/usr/share/icons/hicolor/128x128/apps/zaplaud.png", mode = "644" },
+    { source = "packaging/icons/hicolor/256x256/apps/zaplaud.png", dest = "/usr/share/icons/hicolor/256x256/apps/zaplaud.png", mode = "644" },
+    { source = "packaging/icons/hicolor/512x512/apps/zaplaud.png", dest = "/usr/share/icons/hicolor/512x512/apps/zaplaud.png", mode = "644" },
+    { source = "packaging/icons/hicolor/1024x1024/apps/zaplaud.png", dest = "/usr/share/icons/hicolor/1024x1024/apps/zaplaud.png", mode = "644" },
+]
+
+[package.metadata.generate-rpm.requires]
+libxkbcommon = "*"
+libxkbcommon-x11 = "*"
+libX11 = "*"
+libXcursor = "*"
+libXrandr = "*"
+libXi = "*"
+libxcb = "*"
+wayland-libs = "*"
+fontconfig = "*"
+freetype = "*"
+
+[package.metadata.bundle]
+name = "Zaplaud"
+identifier = "br.com.xlinx.zaplaud"
+icon = ["../../packaging/icons/hicolor/32x32/apps/zaplaud.png", "../../packaging/icons/hicolor/128x128/apps/zaplaud.png", "../../packaging/icons/hicolor/256x256/apps/zaplaud.png", "../../packaging/icons/hicolor/512x512/apps/zaplaud.png", "../../packaging/icons/hicolor/1024x1024/apps/zaplaud.png"]
+category = "public.app-category.social-networking"
+short_description = "Cliente desktop nativo de mensagens Zaplaud"
+resources = ["ui/fonts/OFL-NotoEmoji.txt", "ui/fonts/LICENSE-DejaVu.txt"]
+
+[package.metadata.bundle.osx]
+minimum_system_version = "11.0"
+
+[package.metadata.bundle.linux]
+startup_wm_class = "zaplaud"

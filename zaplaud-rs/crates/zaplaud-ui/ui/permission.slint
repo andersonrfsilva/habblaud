@@ -1,0 +1,143 @@
+import { Theme } from "resources.slint";
+import { Sheet, TextButton, FilledButton, TextField, ScrollContainer, Avatar, ProgressRing, CheckBox } from "widgets/kit.slint";
+export struct PermissionChoice { question: int, index: int, multi: bool, label: string, description: string, checked: bool }
+export struct PermissionQuestionRow { index: int, multi: bool, text: string, other: string, options: [PermissionChoice] }
+export struct PermissionSuggestionRow { index: int, text: string, checked: bool }
+export global PermissionState {
+    in-out property <bool> visible;
+    in-out property <bool> pending;
+    in-out property <bool> enabled;
+    in-out property <bool> loading;
+    in-out property <bool> busy;
+    in-out property <bool> show-deny;
+    in-out property <bool> claude;
+    in-out property <bool> interrupt;
+    in-out property <bool> has-detail;
+    in-out property <bool> expired;
+    in-out property <string> expired-label;
+    in-out property <string> request-id;
+    in-out property <string> title;
+    in-out property <string> subtitle;
+    in-out property <string> character;
+    in-out property <string> initials;
+    in-out property <string> tool;
+    in-out property <string> summary;
+    in property <string> summary-label;
+    in-out property <string> input;
+    in-out property <string> input-label;
+    in-out property <string> deadline;
+    in-out property <image> avatar;
+    in-out property <image> brand;
+    in-out property <color> brand-color;
+    in-out property <color> fallback-color;
+    in-out property <string> error;
+    in-out property <string> blocked;
+    in-out property <string> reason;
+    in-out property <[PermissionQuestionRow]> questions;
+    in-out property <[PermissionSuggestionRow]> suggestions;
+    in-out property <string> pending-label;
+    in-out property <string> action-label;
+    in-out property <string> allow-label;
+    in-out property <string> deny-label;
+    in-out property <string> answer-label;
+    in-out property <string> terminal-label;
+    in-out property <string> cancel-label;
+    in-out property <string> tool-label;
+    in-out property <string> other-label;
+    in-out property <string> reason-label;
+    in-out property <string> interrupt-label;
+    callback open-session(string);
+    callback open-selected();
+    callback close();
+    callback decide(string, string);
+    callback deny(string);
+    pure callback more-lines(int) -> string;
+    callback select(int, int, bool, bool);
+    callback other(int, bool, string);
+    callback suggestion(int, bool);
+    callback set-interrupt(bool);
+    callback set-reason(string);
+}
+export component PermissionSheet inherits Sheet {
+    dismissed => { PermissionState.close(); }
+    title: PermissionState.title;
+    private property <string> displayed-id: PermissionState.request-id;
+    forward-focus: first;
+    private property <bool> active: PermissionState.visible;
+    changed active => { if self.active { first.focus(); } }
+    FocusScope {
+    enabled: root.active;
+    width: min(480px, root.width); height: root.height;
+    key-released(event) => { if event.text == Key.Escape { PermissionState.close(); return accept; } return reject; }
+    ScrollContainer {
+        width: parent.width; height: parent.height; content-width: self.width;
+        VerticalLayout { alignment: start; padding-left: 20px; padding-right: 20px; padding-bottom: 24px; padding-top: 20px; spacing: 6px;
+            first := FocusScope {
+                height: 0px;
+                key-pressed(event) => {
+                    if event.text == Key.Backtab || (event.text == Key.Tab && event.modifiers.shift) { cancel.focus(); return accept; }
+                    return reject;
+                }
+            }
+            HorizontalLayout { spacing: 12px;
+                Avatar { initials: PermissionState.initials; source: PermissionState.avatar; brand: PermissionState.brand; brand-color: PermissionState.brand-color; fallback-color: PermissionState.fallback-color; }
+                VerticalLayout {
+                    if PermissionState.character != "": Text { text: PermissionState.character; font-size: 16px; color: Theme.on-surface; }
+                    Text { text: PermissionState.title; font-size: 22px; color: Theme.on-surface; wrap: word-wrap; }
+                    Text { text: PermissionState.subtitle; color: Theme.on-surface-variant; wrap: word-wrap; }
+                }
+            }
+            if PermissionState.blocked != "": Text { text: PermissionState.blocked; color: Theme.on-surface; wrap: word-wrap; }
+            if PermissionState.loading || PermissionState.busy: ProgressRing { width: 24px; height: 24px; }
+            if PermissionState.has-detail && PermissionState.questions.length == 0: VerticalLayout { width: min(480px, root.width) - 40px;
+                Text { text: PermissionState.tool-label; font-size: 12px; color: Theme.on-surface-variant; }
+                Text { text: PermissionState.tool; font-size: 16px; color: Theme.on-surface; wrap: char-wrap; }
+            }
+            if PermissionState.has-detail && PermissionState.summary != "": VerticalLayout {
+                Text { text: PermissionState.summary-label; font-size: 12px; color: Theme.on-surface-variant; }
+                Text { text: PermissionState.summary; font-size: 14px; color: Theme.on-surface-variant; wrap: word-wrap; accessible-role: text; accessible-label: PermissionState.summary; }
+            }
+            if PermissionState.has-detail && PermissionState.questions.length == 0: VerticalLayout { width: min(480px, root.width) - 40px;
+                Text { text: PermissionState.input-label; font-size: 12px; color: Theme.on-surface-variant; }
+                Rectangle { width: min(480px, root.width) - 40px; background: Theme.surface-container-highest; border-radius: 8px; height: min(220px, command-metrics.preferred-height + 24px);
+                    command-metrics := Text { visible: false; width: min(480px, root.width) - 64px; text: PermissionState.input; wrap: char-wrap; font-size: 16px; font-family: "monospace"; }
+                    line-metrics := Text { visible: false; text: "Mg"; font-size: 16px; font-family: "monospace"; }
+                    command-scroll := ScrollContainer { x: 12px; y: 12px; width: min(480px, root.width) - 64px; height: parent.height - 24px; content-width: self.width;
+                        content-height: command-metrics.preferred-height;
+                        command := TextInput { width: min(480px, root.width) - 64px; height: command-metrics.preferred-height; text: PermissionState.input; read-only: true; wrap: char-wrap; font-size: 16px; font-family: "monospace"; color: Theme.on-surface; accessible-label: PermissionState.input-label; }
+                    }
+                }
+                if command-metrics.preferred-height > command-scroll.height: Text { text: PermissionState.more-lines(ceil((command-metrics.preferred-height - command-scroll.height) / max(1px, line-metrics.preferred-height))); font-size: 12px; color: Theme.on-surface-variant; }
+            }
+            if PermissionState.deadline != "": Text { text: PermissionState.deadline; font-size: 12px; color: Theme.on-surface-variant; wrap: word-wrap; }
+            for question in PermissionState.questions: VerticalLayout { spacing: 6px;
+                Text { text: question.text; color: Theme.on-surface; wrap: word-wrap; }
+                for option in question.options: CheckBox { text: option.label; description: option.description; checked: option.checked; toggled => { PermissionState.select(question.index, option.index, question.multi, self.checked); } }
+                TextField { text: question.other; placeholder: PermissionState.other-label; outlined: true; edited(value) => { PermissionState.other(question.index, question.multi, value); } }
+            }
+            for suggestion in PermissionState.suggestions: CheckBox { text: suggestion.text; checked: suggestion.checked; toggled => { PermissionState.suggestion(suggestion.index, self.checked); } }
+            if PermissionState.show-deny && PermissionState.questions.length == 0: VerticalLayout {
+                if PermissionState.claude: CheckBox { text: PermissionState.interrupt-label; checked: PermissionState.interrupt; toggled => { PermissionState.set-interrupt(self.checked); } }
+                TextField { text: PermissionState.reason; placeholder: PermissionState.reason-label; outlined: true; edited(value) => { PermissionState.set-reason(value); } }
+            }
+            if PermissionState.expired: Text { text: PermissionState.expired-label; color: Theme.on-surface; wrap: word-wrap; }
+            if PermissionState.error != "": Text { text: PermissionState.error; color: Theme.error; wrap: word-wrap; }
+            HorizontalLayout {
+                if PermissionState.questions.length > 0: TextButton { text: PermissionState.answer-label; enabled: PermissionState.enabled; clicked => { PermissionState.decide(root.displayed-id, "answer"); } }
+                if PermissionState.questions.length == 0: FilledButton { text: PermissionState.allow-label; enabled: PermissionState.enabled; clicked => { PermissionState.decide(root.displayed-id, "allow"); } }
+                if PermissionState.questions.length == 0: TextButton { text: PermissionState.deny-label; enabled: PermissionState.enabled; clicked => { PermissionState.deny(root.displayed-id); } }
+                TextButton { text: PermissionState.terminal-label; enabled: PermissionState.enabled; clicked => { PermissionState.decide(root.displayed-id, "terminal"); } }
+            }
+            FocusScope {
+                height: 40px;
+                forward-focus: cancel;
+                key-pressed(event) => {
+                    if event.text == Key.Tab && !event.modifiers.shift { first.focus(); return accept; }
+                    return reject;
+                }
+                cancel := TextButton { text: PermissionState.cancel-label; clicked => { PermissionState.close(); } }
+            }
+        }
+    }
+    }
+}

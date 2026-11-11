@@ -12,6 +12,21 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Zaplaud desktop:** O desktop Rust agora reconhece os controles disponíveis no ZeroClaw, permite interromper e iniciar conversas sem misturar rascunhos e esconde indicadores de contexto não confiáveis. Resumos HTTP funcionam sem Tiny. Aprovações e perguntas também mostram o resumo enviado pelo servidor.
+- **Zaplaud desktop:** no cliente Rust, navegador de arquivos com download, chamada de personagens com conversa aberta,
+  conversa em largura total, login salvo em coleção desbloqueada do chaveiro, quebra de linha no campo de mensagem
+  e rolagem do bate-papo paralelo que preserva a leitura. O envio paralelo ignora texto vazio e indica turnos em execução.
+- **Zaplaud:** navegador de arquivos nas pastas de trabalho no Android, iOS e desktop Compose, com navegação por
+  pastas, download em fluxo com progresso e cancelamento e abertura do arquivo salvo, como no desktop Rust.
+- **Zaplaud:** novo cliente desktop nativo em Rust, com lista e conversa, Markdown, mensagens e anexos,
+  aprovações, configurações, elenco e bate-papo paralelo, seguindo o comportamento do celular. O padrão Linux/macOS
+  usa o renderizador leve do Slint e emoji de contorno embutido; Skia colorido é opt-in de compilação e execução.
+  A medição inicial de 37 MiB era de uma janela Xvfb 1100×760: no Mac Retina real, Skia por CPU chegou a 237 MB,
+  contra 47–49 MB do renderer software. O pacote macOS gera o ícone com resvg, sem o quadrado branco do Quick Look.
+  A fonte macOS usa a família de interface nativa com peso regular 400. Em foco mantém indicadores a 1 Hz;
+  sem foco, o cronômetro macOS atualiza a cada 15 s e não anima; oculto, suspende o timer.
+  Corrige a altura de texto rico e código que sobrepunha mensagens em conversas longas e escala Retina.
+  Wayland e persistência de login no chaveiro Linux real ainda exigem validação.
 - **Zaplaud:** no desktop, ícone na bandeja (waybar, KDE, GNOME com extensão de indicadores): clique traz a janela, e
   o menu tem "Abrir o Zaplaud" e "Fechar o Zaplaud". A janela se identifica como `zaplaud` (`WM_CLASS`), e docks como
   o wf-dock passam a mostrar o ícone do app.
@@ -104,6 +119,9 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Zaplaud:** em telas largas, chamar um contato continua disponível com uma conversa aberta, a pasta atual vem
+  primeiro e a conversa ocupa toda a coluna direita. Aprovações mostram o resumo e entradas JSON; o bate-papo
+  paralelo preserva a leitura do histórico. O bloqueio de login por excesso de tentativas dura no máximo 24 horas.
 - **Zaplaud:** o bate-papo paralelo não abre mais sem querer. A puxada para cima só conta se o gesto começar já no fim
   da conversa (a sobra de uma rolagem que volta do histórico não abre nada) e precisa ser mais longa (180 dp). No
   desktop a puxada saiu, porque a roda do mouse acumulava sem fim de gesto; lá o bate-papo abre pelo menu da conversa.

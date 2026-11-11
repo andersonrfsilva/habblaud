@@ -5,6 +5,11 @@ do omp estão fazendo: servidor Node sem dependências de runtime (`server/`), p
 (`shared/`). Todo texto visível passa por `tr('texto em PT')`, com as traduções em `shared/locales/` (`npm run
 i18n:check`), e toda mudança visível entra em "Não lançado" no `CHANGELOG.md`. O resto está no `CONTRIBUTING.md`.
 
+Os clientes Zaplaud (Kotlin em `android/`, para Android, iOS e desktop Compose; Rust em `zaplaud-rs/`, desktop nativo)
+andam juntos: mudança de comportamento em um entra no outro na mesma entrega, ou vira pendência registrada em
+[`docs/zaplaud-paridade.md`](docs/zaplaud-paridade.md). Textos do Zaplaud ficam no `strings.xml` do Kotlin; o Rust
+gera os dele a partir desse arquivo.
+
 ## AVISO — Habblaud World: dados verdadeiros
 
 O código em `shared/world/` e `server/world/` decide o que o Habblaud envia ao Habblaud World. Modificá-lo (ou qualquer

@@ -1,0 +1,157 @@
+name: Zaplaud Rust
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, producao]
+    paths:
+      - '.github/workflows/zaplaud-rs.yml'
+      - 'zaplaud-rs/**'
+      - 'android/shared/src/commonMain/composeResources/**'
+      - 'android/shared/src/**'
+      - 'android/*.gradle.kts'
+      - 'android/gradle/**'
+      - 'android/shared/src/commonMain/kotlin/br/com/xlinx/habblaud/ZaplaudApp.kt'
+      - 'scripts/android-smoke.ts'
+      - 'server/**'
+      - 'shared/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.npmrc'
+  pull_request:
+    paths:
+      - '.github/workflows/zaplaud-rs.yml'
+      - 'zaplaud-rs/**'
+      - 'android/shared/src/commonMain/composeResources/**'
+      - 'android/shared/src/**'
+      - 'android/*.gradle.kts'
+      - 'android/gradle/**'
+      - 'android/shared/src/commonMain/kotlin/br/com/xlinx/habblaud/ZaplaudApp.kt'
+      - 'scripts/android-smoke.ts'
+      - 'server/**'
+      - 'shared/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.npmrc'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zaplaud-rs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+      - name: Gerar armazenamento com JVM real
+        env:
+          ZAPLAUD_JVM_INTEROP_DIR: ${{ runner.temp }}/zaplaud-jvm-interop
+        run: bash zaplaud-rs/packaging/jvm-interop.sh
+      - name: Ler JVM e regravar com Rust
+        working-directory: zaplaud-rs
+        env:
+          ZAPLAUD_JVM_INTEROP_DIR: ${{ runner.temp }}/zaplaud-jvm-interop
+          ZAPLAUD_KEYRING: memory
+        run: cargo test --locked -p zaplaud-store --test jvm_interop -j 4 -- --ignored
+      - name: Reler gravação Rust com JVM
+        env:
+          ZAPLAUD_JVM_INTEROP_DIR: ${{ runner.temp }}/zaplaud-jvm-interop
+          ZAPLAUD_JVM_INTEROP_VERIFY: '1'
+        run: bash zaplaud-rs/packaging/jvm-interop.sh
+      - name: Instalar toolchain fixada
+        working-directory: zaplaud-rs
+        run: rustup show active-toolchain
+      - name: Verificar formatação
+        working-directory: zaplaud-rs
+        run: cargo fmt --check
+      - name: Verificar clippy
+        working-directory: zaplaud-rs
+        run: cargo clippy --locked --workspace --all-targets -j 4 -- -D warnings
+      - name: Testar workspace e contrato real
+        working-directory: zaplaud-rs
+        run: ZAPLAUD_KEYRING=memory xvfb-run -a cargo test --locked --workspace -j 4
+      - name: Construir renderer colorido opcional
+        working-directory: zaplaud-rs
+        run: cargo build --locked -p zaplaud-ui --features skia --bin zaplaud -j 4
+      - name: Preparar smokes gráficos e AT-SPI
+        working-directory: zaplaud-rs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libxtst6 libatspi2.0-0 at-spi2-core dbus-x11 python3-pil
+          cargo build --locked -p zaplaud-ui --bin zaplaud -j 4
+      - name: Exercitar conversa, teclado e acessibilidade nos dois temas
+        run: |
+          export ZAPLAUD_CI_BINARY="$PWD/zaplaud-rs/target/debug/zaplaud"
+          for theme in light dark; do
+            export ZAPLAUD_CI_THEME="$theme"
+            for script in conversation-smoke keyboard-smoke accessibility-smoke; do
+              export ZAPLAUD_CI_SCRIPT="$script"
+              xvfb-run -a sh -c 'python3 "zaplaud-rs/scripts/$ZAPLAUD_CI_SCRIPT.py" --binary "$ZAPLAUD_CI_BINARY" --display "$DISPLAY" --port 14789 --theme "$ZAPLAUD_CI_THEME"'
+            done
+          done
+
+  empacotar-linux:
+    needs: verificar
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Instalar ferramentas de empacotamento
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y librsvg2-bin desktop-file-utils pkg-config libfontconfig1-dev libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libxcb1-dev
+          cargo install cargo-deb --version 3.8.0 --locked
+          cargo install cargo-generate-rpm --version 0.21.1 --locked
+      - name: Construir release e gerar ícones canônicos
+        working-directory: zaplaud-rs
+        run: |
+          cargo build --release --locked -p zaplaud-ui --bin zaplaud -j 4
+          svg=$(find target/release/build -path '*/zaplaud-ui-*/out/ic_zaplaud.svg' -print -quit)
+          test -n "$svg"
+          bash packaging/generate-icons.sh "$svg"
+          desktop-file-validate packaging/zaplaud.desktop
+      - name: Exercitar instalação isolada
+        run: python3 zaplaud-rs/packaging/test-install.py
+      - name: Gerar DEB, RPM e pacote de usuário
+        working-directory: zaplaud-rs
+        run: |
+          cargo deb -p zaplaud-ui --no-build
+          cargo generate-rpm -p crates/zaplaud-ui
+          mkdir -p dist/zaplaud-linux-x86_64/packaging
+          cp target/release/zaplaud scripts/install-linux.sh dist/zaplaud-linux-x86_64/
+          cp packaging/zaplaud.desktop packaging/README.md dist/zaplaud-linux-x86_64/packaging/
+          cp -R packaging/icons dist/zaplaud-linux-x86_64/packaging/
+          cp crates/zaplaud-ui/ui/fonts/OFL-NotoSans.txt dist/zaplaud-linux-x86_64/
+          cp crates/zaplaud-ui/ui/fonts/OFL-NotoEmoji.txt dist/zaplaud-linux-x86_64/
+          cp crates/zaplaud-ui/ui/fonts/LICENSE-DejaVu.txt dist/zaplaud-linux-x86_64/
+          tar -C dist -czf dist/zaplaud-linux-x86_64.tar.gz zaplaud-linux-x86_64
+          sha256sum dist/*.tar.gz target/debian/*.deb target/generate-rpm/*.rpm > dist/SHA256SUMS
+      - name: Publicar artefatos de release
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: zaplaud-linux-x86_64
+          if-no-files-found: error
+          path: |
+            zaplaud-rs/dist/*.tar.gz
+            zaplaud-rs/dist/SHA256SUMS
+            zaplaud-rs/target/debian/*.deb
+            zaplaud-rs/target/generate-rpm/*.rpm

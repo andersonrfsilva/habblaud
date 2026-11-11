@@ -1,11 +1,12 @@
 import http from 'node:http';
 import { appendFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
-import { join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { OMP_SESSION_ID } from '../../shared/omp-events';
 import { AccountsService } from '../accounts/service';
 import { CastLauncher } from '../cast/launcher';
+import { resolveRoots } from '../files/browse';
 import { createAsideRoutes, handleAsideProgress } from '../asides/http';
 import { AsideStore } from '../asides/store';
 import { createApiHandler } from '../http/app';
@@ -58,14 +59,19 @@ const ZC_MODELS = [
 export async function startAndroidFixture(root: string, args: string[]): Promise<void> {
   let port = 14748;
   let allow: string | undefined;
+  let filesDir: string | undefined;
   let noSessionGuard = false;
+  let ompCastEnabled = false;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--port' && args[i + 1]) port = Number(args[++i]);
     else if (args[i] === '--allow' && args[i + 1]) allow = args[++i];
+    else if (args[i] === '--files' && args[i + 1]) filesDir = args[++i];
     else if (args[i] === '--no-session-guard') noSessionGuard = true;
     else throw new Error(`Unknown or incomplete option: ${args[i]}`);
   }
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('Invalid port');
+  const filesRoots = filesDir === undefined ? undefined : resolveRoots([{ path: resolve(filesDir), label: basename(resolve(filesDir)) }]);
+  if (filesRoots?.length === 0) throw new Error('Invalid files directory: use an existing workspace directory accepted by the file browser');
   setQuiet(true);
   const accountDir = join(root, ACCOUNT);
   const ompDir = join(root, OMP_ACCOUNT);
@@ -188,7 +194,7 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
   gateway.states.set(ZC_LIVE, 'running');
   // Deliberately stale context proves clients hide untrusted ZeroClaw measurements.
   office.applyTranscript('fixture:zeroclaw', { ...office.get('fixture:zeroclaw')!, context: { tokens: 120_000, window: 200_000 } });
-  const launcher = new CastLauncher({ dataDir: root, member: id => office.cast.get(id), agents: () => office.list(), account: id => !id || id === ACCOUNT ? accountDir : undefined, changed: () => office.markDirty() });
+  const launcher = new CastLauncher({ dataDir: root, member: id => office.cast.get(id), agents: () => office.list(), account: id => ompCastEnabled && id === OMP_ACCOUNT ? ompDir : !id || id === ACCOUNT ? accountDir : undefined, changed: () => office.markDirty() });
   late.launcher = launcher;
   let runtime: 'omp' | 'zeroclaw' = 'omp';
   let catalogMode = 'normal';
@@ -238,7 +244,7 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
   const openAgentOf = (account: string, session: string) => openMainAgent(office.list(), account, session);
   const history = new HistorySet([
     new SessionHistory({ accounts: () => accounts.entries().filter(account => account.provider === 'claude'), openAgentOf }),
-    new OmpHistory({ accounts: () => accounts.entries().filter(account => account.provider === 'omp'), openAgentOf }),
+    new OmpHistory({ accounts: () => ompCastEnabled ? accounts.entriesOf('omp') : accounts.entries().filter(account => account.provider === 'omp'), openAgentOf }),
     new ZeroClawHistory({ connector, mirror, account: () => zeroclaw.accountId, openAgentOf }),
   ]);
   const allowed = parseAllow(allow);
@@ -246,7 +252,7 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
   writeFileSync(summaryToken, 'fixture-only');
   gateway.responses.set('POST /v1/messages', { body: { content: [{ type: 'text', text: 'Resumo HTTP fictício sem Tiny.' }] } });
   const summaries = new Summarizer({ bin: () => undefined, agentDir: () => undefined, http: { url: gateway.url, model: 'fixture-summary', tokenFile: summaryToken, auth: 'bearer' } });
-  const api = createApiHandler({ office, hub, accounts, sources: () => zeroclaw.sources(), version: 'android-fixture', inDocker: false, terminal: true, terminals, sessions: history, messages: createMessageRoutes(messages), asides: { page: createAsideRoutes(asides), progress: (req, res) => handleAsideProgress(req, res, asides) }, permissions: createPermissionRoutes(permissions), get castLauncher() { return late.launcher; }, get summaries() { return runtime === 'zeroclaw' ? summaries : undefined; }, spawnFolders: async () => projects.map(name => ({ name, path: `/fixture/${name}`, lastAt: Date.now(), sessions: 1 })), remote: { is: isRemoteRequest, allows: feature => allowed.has(feature) } });
+  const api = createApiHandler({ office, hub, accounts, sources: () => zeroclaw.sources(), version: 'android-fixture', inDocker: false, terminal: true, terminals, sessions: history, messages: createMessageRoutes(messages), asides: { page: createAsideRoutes(asides), progress: (req, res) => handleAsideProgress(req, res, asides) }, permissions: createPermissionRoutes(permissions), get castLauncher() { return late.launcher; }, get summaries() { return runtime === 'zeroclaw' ? summaries : undefined; }, spawnFolders: async () => projects.map(name => ({ name, path: `/fixture/${name}`, lastAt: Date.now(), sessions: 1 })), browse: filesRoots ? { roots: () => filesRoots } : undefined, remote: { is: isRemoteRequest, allows: feature => allowed.has(feature) } });
   const passwordHashText = await hashPassword('android-test');
   const passwordHash = parsePasswordHash(passwordHashText);
   if (!passwordHash) throw new Error('Could not create fixture password');
@@ -416,6 +422,35 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
       const [command, agentId, kind] = line.trim().split(/\s+/);
       let result: unknown;
       if (command === 'stats') result = stats();
+      else if (command === 'seed-usage') {
+        const now = Date.now();
+        accounts.setUsage(OMP_ACCOUNT, { source: 'omp', fetchedAt: now, fiveHour: { utilization: 60, resetsAt: now + 3_600_000 }, sevenDay: { utilization: 100, resetsAt: now + 86_400_000 } });
+        office.markDirty();
+        result = { ok: true, fetchedAt: now };
+      }
+      else if (command === 'seed-subagents') {
+        const parent = office.get(agentId);
+        if (!parent || parent.kind !== 'main') throw new Error('Expected seed-subagents <mainAgentId>');
+        for (const role of ['task', '__advisor']) {
+          const id = `${agentId}:${role}`;
+          office.addSub({ id, parentId: agentId, sessionId: parent.sessionId, role, background: false, startedAt: Date.now() });
+          const path = paths.get(agentId);
+          if (path) paths.set(id, path);
+        }
+        result = { ok: true };
+      }
+      else if (command === 'seed-closed-omp') {
+        if (!agentId || !OMP_SESSION_ID.test(agentId) || kind) throw new Error('Expected seed-closed-omp <sessionId>');
+        ompCastEnabled = true;
+        paths.set(agentId, seed(agentId, 'omp'));
+        result = { ok: true, sessionId: agentId, account: OMP_ACCOUNT, project: CWD };
+      }
+      else if (command === 'roles-seed') {
+        const roles: unknown = JSON.parse(line.trim().slice(command.length).trim());
+        if (!roles || typeof roles !== 'object' || Array.isArray(roles)) throw new Error('Expected roles-seed <JSON object>');
+        launcher.poll({ roles });
+        result = { ok: true, ...launcher.roles() };
+      }
       else if (command === 'runtime') {
         if (agentId !== 'omp' && agentId !== 'zeroclaw') throw new Error('Expected runtime omp|zeroclaw');
         runtime = agentId;
@@ -480,6 +515,12 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
           if (job.op === 'start') {
             const id = `fixture:cast:${job.cast}`;
             const sessionId = job.resume ?? randomUUID();
+            if (ompCastEnabled && job.agentDir === ompDir) {
+              paths.set(id, (job.resume && paths.get(job.resume)) || seed(sessionId, 'omp', false, job.folder));
+              office.addMain({ id, cast: job.cast, provider: 'omp', account: OMP_ACCOUNT, sessionId, cwd: job.folder, role: 'Agente principal', startedAt: Date.now(), status: 'idle' });
+              messages.inbox({ session: sessionId, account: OMP_ACCOUNT });
+              continue;
+            }
             const existing = join(accountDir, 'projects', encodeCwd(job.folder), `${sessionId}.jsonl`);
             paths.set(id, job.resume && existsSync(existing) ? existing : seed(sessionId, 'claude', false, job.folder));
             office.addMain({ id, cast: job.cast, account: ACCOUNT, sessionId, cwd: job.folder, role: 'Agente principal', startedAt: Date.now(), status: 'idle' });
@@ -512,6 +553,11 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
         office.switchSession(agentId, sessionId);
         messages.inbox({ session: sessionId, account: agent.account });
         result = { ok: true, sessionId };
+      } else if (command === 'reply') {
+        const agent = office.get(agentId);
+        if (!agent || agent.kind !== 'main' || kind) throw new Error('Expected reply <mainAgentId>');
+        office.addActivity(agentId, { id: randomUUID(), kind: 'respond', icon: '', text: 'Resposta fictícia', at: Date.now() }, false);
+        result = { ok: true };
       } else if (command === 'append') {
         const agent = office.get(agentId);
         const path = paths.get(agentId);

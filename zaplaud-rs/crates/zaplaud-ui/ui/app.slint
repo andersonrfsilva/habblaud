@@ -1,0 +1,122 @@
+import "fonts/NotoSansMono-Regular.ttf";
+export { Clock } from "clock.slint";
+import { Clock } from "clock.slint";
+import { Theme, Icons } from "resources.slint";
+import { Labels } from "labels.slint";
+import { LoginPane, LoginState } from "login.slint";
+import { ListPane, ListState } from "list.slint";
+import { ConversationPane, ConversationState } from "conversation.slint";
+import { ConversationView, ConversationStatus, ConversationViewState, ConversationMenu, SessionInfoSheet } from "conversation_view.slint";
+export { ConversationViewState, ConversationRow, ToolDetail, InfoRow, ModelChoice, MdBlock, MdCell, MdSpan } from "conversation_view.slint";
+export { TranscriptProbe, MarkdownGeometry } from "conversation_view.slint";
+export { ComposerState, ComposerAttachment } from "composer.slint";
+import { Dialog } from "widgets/kit.slint";
+import { CastSheet, CastState } from "cast.slint";
+import { AsideSheet, AsideState } from "aside.slint";
+export { CastState, CastRow } from "cast.slint";
+export { AsideState, AsideTurnRow, AsideTopicRow } from "aside.slint";
+import { FilesSheet, FilesState } from "files.slint";
+export { FilesState, FilesRootRow, FilesCrumbRow, FilesEntryRow, FilesDownloadRow } from "files.slint";
+import { ComposerPane, ComposerDialogs, ComposerState } from "composer.slint";
+import { SettingsPane, SettingsState } from "settings.slint";
+import { PermissionSheet, PermissionState } from "permission.slint";
+export { PermissionState, PermissionChoice, PermissionQuestionRow, PermissionSuggestionRow } from "permission.slint";
+export { SettingsState, SettingsRow } from "settings.slint";
+export { Theme, Icons, AvatarColors } from "resources.slint";
+export { Labels } from "labels.slint";
+export { MaterialIcons } from "widgets/material-icons.slint";
+export { LoginState } from "login.slint";
+export { ListState, SessionRow, ServerRow } from "list.slint";
+export { ConversationState } from "conversation.slint";
+export global AppEvents {
+    callback settings();
+    callback selection-changed(string);
+    callback logout(string);
+    callback theme(bool);
+}
+export global ShellState {
+    in-out property <string> logout-origin;
+    in property <string> logout-title;
+    in property <string> logout-warning;
+    in-out property <bool> logout-busy;
+    in-out property <string> message;
+    callback confirm-logout();
+}
+export component AppWindow inherits Window {
+    title: Labels.app-name; icon: Icons.ic-zaplaud;
+    default-font-size: 16px;
+    default-font-weight: 400;
+    preferred-width: 1100px; preferred-height: 760px; min-width: 320px; min-height: 400px; background: Theme.background;
+    out property <bool> wide: root.width >= 840px;
+    property <bool> clock-list-visible: !LoginState.visible && !SettingsState.visible && (root.wide || !ConversationState.selected);
+    property <bool> clock-conversation-visible: !LoginState.visible && !SettingsState.visible && ConversationState.selected;
+    changed clock-list-visible => { Clock.list-visible = self.clock-list-visible; }
+    changed clock-conversation-visible => { Clock.conversation-visible = self.clock-conversation-visible; }
+    public function copy-conversation(text: string) { conversation-clipboard.text = text; conversation-clipboard.select-all(); conversation-clipboard.copy(); }
+    conversation-clipboard := TextInput { width: 0px; height: 0px; opacity: 0; }
+    forward-focus: keys;
+    private property <bool> logout-open: ShellState.logout-origin != "";
+    private property <bool> message-open: ShellState.message != "";
+    private property <bool> overlay-open: FilesState.visible || PermissionState.visible || AsideState.visible || CastState.visible || CastState.confirming || ConversationViewState.menu-open || ConversationViewState.info-open || ComposerState.confirm-visible || ComposerState.shake-confirm || ComposerState.picker-visible || root.logout-open || root.message-open;
+    private property <bool> settings-open: SettingsState.visible;
+    private property <bool> http-open: LoginState.confirm-http;
+    changed http-open => { if !self.http-open && LoginState.visible { keys.focus(); } }
+    changed settings-open => { if !self.settings-open { keys.focus(); ListState.focus-request += 1; } }
+    keys := FocusScope {
+        enabled: !root.overlay-open;
+        changed enabled => { if self.enabled { self.focus(); ListState.focus-request += 1; } }
+        key-pressed(event) => {
+            if root.wide && (event.modifiers.control || event.modifiers.meta) && (event.text == "f" || event.text == "F") && !LoginState.visible && !SettingsState.visible {
+                ListState.search-open = true; return accept;
+            }
+            return reject;
+        }
+        key-released(event) => {
+            if event.text == Key.Escape {
+                if LoginState.confirm-http { LoginState.cancel-http(); }
+                else if LoginState.visible && LoginState.can-cancel { LoginState.cancel(); }
+                else if SettingsState.visible { SettingsState.close(); }
+                else if ConversationState.selected { ConversationState.close(); ListState.focus-request += 1; }
+                else if ListState.search-open { ListState.query = ""; ListState.search-open = false; ListState.changed(); }
+                return accept;
+            }
+            return reject;
+        }
+        if LoginState.visible: LoginPane {}
+        if !LoginState.visible && !SettingsState.visible: HorizontalLayout {
+            spacing: 0px;
+            if root.wide || !ConversationState.selected: ListPane { width: root.wide ? 360px : parent.width; }
+            if root.wide: Rectangle { width: 1px; background: Theme.outline-variant; }
+            if root.wide || ConversationState.selected: ConversationPane {
+                narrow: !root.wide;
+                info-label: ConversationViewState.info-label;
+                VerticalLayout {
+                    spacing: 0px;
+                    ConversationView {}
+                    ConversationStatus {}
+                    HorizontalLayout {
+                        padding-left: 12px; padding-right: 12px; spacing: 0px;
+                        ComposerPane {}
+                    }
+                }
+            }
+        }
+        if !LoginState.visible && SettingsState.visible: SettingsPane {}
+    }
+    if ConversationViewState.menu-open: ConversationMenu {}
+    if ConversationViewState.info-open: SessionInfoSheet {}
+    CastSheet {}
+    AsideSheet {}
+    FilesSheet {}
+    ComposerDialogs {}
+    PermissionSheet { visible: PermissionState.visible; }
+    if ShellState.logout-origin != "": Dialog {
+        title: ShellState.logout-title; text: ShellState.logout-warning; confirm: Labels.confirm; cancel: Labels.cancel;
+        confirmed => { if !ShellState.logout-busy { ShellState.logout-busy = true; ShellState.confirm-logout(); } }
+        dismissed => { if !ShellState.logout-busy { ShellState.logout-origin = ""; } }
+    }
+    if ShellState.message != "": Dialog {
+        text: ShellState.message; confirm: Labels.confirm;
+        confirmed => { ShellState.message = ""; } dismissed => { ShellState.message = ""; }
+    }
+}
