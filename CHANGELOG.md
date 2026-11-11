@@ -106,6 +106,8 @@ do meio (0.**3**.0).
   ferramentas mostram a hora do último evento (nas ferramentas, o último resultado também conta).
 - **Android:** o menu de modelo da sessão agrupa por provedor, com a versão mais nova primeiro, como o seletor dos
   papéis; o item do menu mostra o provedor do modelo atual.
+- **Zaplaud (Android e desktop):** Configurações também trocam o modelo e o raciocínio do papel `default` do omp
+  (agente principal), além de `task`, `plan`, `advisor` e `tiny`.
 
 ### Alterado
 

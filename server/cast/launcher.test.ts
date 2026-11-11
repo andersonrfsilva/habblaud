@@ -70,19 +70,19 @@ describe('CastLauncher', () => {
   it('papéis: valida no servidor, vai para a conta padrão, termina no ack; o que o auxiliar lê aparece em roles()', () => {
     const { launcher } = setup();
     expect(launcher.setRoles({ roles: { task: 'a/b' } })).toMatchObject({ status: 503 });
-    launcher.poll({ roles: { task: 'openai/gpt:high', default: 'x/y', plan: 'sem-barra' } });
-    expect(launcher.roles()).toEqual({ roles: { task: 'openai/gpt:high' }, pending: false });
-    for (const bad of [{}, { roles: {} }, { roles: { default: 'a/b' } }, { roles: { task: 'gpt' } }, { roles: { task: '-x/y' } }, { roles: { task: 'a/b c' } }, { roles: { task: 3 } }])
+    launcher.poll({ roles: { task: 'openai/gpt:high', default: 'x/y', smol: 'a/b', plan: 'sem-barra' } });
+    expect(launcher.roles()).toEqual({ roles: { default: 'x/y', task: 'openai/gpt:high' }, pending: false });
+    for (const bad of [{}, { roles: {} }, { roles: { smol: 'a/b' } }, { roles: { task: 'gpt' } }, { roles: { task: '-x/y' } }, { roles: { task: 'a/b c' } }, { roles: { task: 3 } }])
       expect(launcher.setRoles(bad)).toMatchObject({ status: 422 });
-    const submitted = launcher.setRoles({ roles: { task: 'openai/gpt-6:low', advisor: null } });
+    const submitted = launcher.setRoles({ roles: { default: 'anthropic/opus:high', task: 'openai/gpt-6:low', advisor: null } });
     if (!('job' in submitted)) throw new Error('roles failed');
     expect(launcher.roles().pending).toBe(true);
     const [job] = launcher.poll();
-    expect(job).toEqual({ id: submitted.job.id, op: 'roles', cast: '', agentDir: '/tmp', roles: { task: 'openai/gpt-6:low', advisor: null } });
+    expect(job).toEqual({ id: submitted.job.id, op: 'roles', cast: '', agentDir: '/tmp', roles: { default: 'anthropic/opus:high', task: 'openai/gpt-6:low', advisor: null } });
     launcher.ack({ results: [{ id: job.id, ok: true }] });
     expect(launcher.jobs().find((j) => j.id === job.id)?.status).toBe('done');
     // Logo após o ack (antes de o auxiliar reler), roles() já mostra o que foi gravado.
-    expect(launcher.roles()).toEqual({ roles: { task: 'openai/gpt-6:low' }, pending: false });
+    expect(launcher.roles()).toEqual({ roles: { default: 'anthropic/opus:high', task: 'openai/gpt-6:low' }, pending: false });
   });
   it('fails a start without a session and queues a stop', () => {
     const { launcher, time } = setup();

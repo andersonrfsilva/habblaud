@@ -36,7 +36,7 @@ pub const ASIDE_QUESTION_MAX: usize = 20_000;
 pub const DELIVER_MODES: [&str; 3] = ["aside", "followUp", "steer"];
 pub const VIEWS: [&str; 3] = ["all", "prompts", "no_tools"];
 pub const THEMES: [&str; 3] = ["system", "light", "dark"];
-pub const EDITABLE_ROLES: [&str; 4] = ["task", "plan", "advisor", "tiny"];
+pub const EDITABLE_ROLES: [&str; 5] = ["default", "task", "plan", "advisor", "tiny"];
 pub const THINKING_LEVELS: [&str; 7] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 // O Kotlin aceita o conteúdo de qualquer primitivo, não apenas strings JSON.

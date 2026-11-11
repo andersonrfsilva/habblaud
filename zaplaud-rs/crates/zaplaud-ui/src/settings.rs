@@ -7,7 +7,7 @@ use std::{
 use tokio::sync::mpsc;
 use zaplaud_core::{
     api::HabblaudApi,
-    model::{AccountQuota, ModelRoles, THINKING_LEVELS},
+    model::{AccountQuota, EDITABLE_ROLES, ModelRoles, THINKING_LEVELS},
     rules::{
         composer::{join_role, role_model_groups, snapshot_models, split_role},
         list::server_label,
@@ -110,6 +110,7 @@ fn row(kind: &str, key: &str, text: &str) -> SettingsRow {
 }
 fn role_label(role: &str) -> &'static str {
     match role {
+        "default" => strings::ROLE_MAIN,
         "task" => strings::ROLE_TASK,
         "plan" => strings::ROLE_PLAN,
         "tiny" => strings::ROLE_TINY,
@@ -245,7 +246,7 @@ impl State {
                 "forbidden" => rows.push(row("hint", "", strings::CAST_FORBIDDEN)),
                 "error" => rows.push(row("hint", "", strings::ROLES_LOAD_ERROR)),
                 _ => {
-                    for role in ["task", "plan", "advisor", "tiny"] {
+                    for role in EDITABLE_ROLES {
                         let mut r = row("role", role, role_label(role));
                         r.enabled =
                             self.roles.available && !self.roles.pending && self.status == "ready";

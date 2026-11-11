@@ -6,7 +6,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 
 /** Papéis do omp que as Configurações trocam (modelRoles global da conta padrão do servidor). */
-val EDITABLE_ROLES = listOf("task", "plan", "advisor", "tiny")
+val EDITABLE_ROLES = listOf("default", "task", "plan", "advisor", "tiny")
 
 /** `provedor/modelo` sem espaço nem controle: o mesmo formato que o servidor aceita para um papel. */
 val ROLE_MODEL = Regex("^[A-Za-z0-9][\\w.-]*/[^\\s\\x00-\\x1f\\x7f]{1,200}$")

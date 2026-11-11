@@ -316,7 +316,7 @@ Settings substitui ReadingScreen inteira. TopAppBar `settings`, voltar `back`; B
 | Explicação por sessão | `settings_per_session` | Hint |
 | Resumos | `settings_summaries`; `settings_summarize` | Switch só habilitado se roles["tiny"] != null; checked=preferência&&hasTiny; setSummarize |
 | Explicação resumo | `settings_summarize_hint` / `settings_summarize_needs_tiny` | Conforme hasTiny |
-| Papéis globais | `settings_roles`; `role_task`, `role_plan`, `role_tiny`, `role_advisor` | Linha clicável só rolesStatus available e !rolesPending; abre RoleDialog |
+| Papéis globais | `settings_roles`; `role_main`, `role_task`, `role_plan`, `role_tiny`, `role_advisor` | Linha clicável só rolesStatus available e !rolesPending; abre RoleDialog |
 | Notificações | `notifications`; `settings_notifications_open` ou `settings_notifications_on` | Só notificationPlatform.available; texto open se whileOpenOnly; atualiza preferência e permissão da plataforma |
 | Pedidos/perguntas | `settings_notify_permission` | Habilitado somente toggle principal on; setNotifyEvents |
 | Turno concluído | `settings_notify_done` | Mesmo gate; setNotifyEvents |
@@ -530,7 +530,7 @@ Evidências dos comandos e ausência de emulação extra: `server/test/android-f
 ## 16. Regras adicionais de modelos e integração do host
 
 - `modelBrand` ignora caixa e prefixos até a última `/`: começa com claude → Claude; gpt/codex ou regex `^o\d` → OpenAI; gemini → Gemini; desconhecido → nenhum badge. A família não depende de provider da sessão. (`data/Roles.kt:41-49`.)
-- Ordem real dos papéis em Settings é **task, plan, advisor, tiny**. (`data/Roles.kt:8-9`.)
+- Ordem real dos papéis em Settings é **default, task, plan, advisor, tiny**. (`data/Roles.kt:8-9`.)
 - Modelo manual de papel deve casar `^[A-Za-z0-9][\w.-]*/[^\s\x00-\x1f\x7f]{1,200}$`; `splitRole` só interpreta sufixos de raciocínio conhecidos após a última `/`. `joinRole` acrescenta `:<level>` se não nulo. (`data/Roles.kt:11-21`.)
 - Modelos do snapshot são strings de `models` de todos agentes, distinct e sorted. Não existe lista fixa embutida de modelos. (`data/Roles.kt:23-27`.)
 - Grupos de modelos exigem `/`, acrescentam o atual mesmo que ausente, removem `:batch` e variante datada `-\d{8}` quando base sem data existe, **exceto o atual preservado**. Provedores em ordem alfabética case-insensitive; modelos tokenizados por partes alfanuméricas, números descendentes, texto alfabético. Versão numérica adicional vem antes; sufixo textual adicional vem depois. (`data/Roles.kt:52-83`.)
