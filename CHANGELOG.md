@@ -119,6 +119,10 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Zaplaud desktop:** respostas e saídas de ferramenta muito longas não fecham mais o app. Em telas de alta
+  resolução, uma mensagem mais alta que cerca de 16 mil pixels estourava o limite do desenho por software; agora ela
+  é exibida em pedaços que continuam parecendo uma única mensagem.
+
 - **Zaplaud:** em telas largas, chamar um contato continua disponível com uma conversa aberta, a pasta atual vem
   primeiro e a conversa ocupa toda a coluna direita. Aprovações mostram o resumo e entradas JSON; o bate-papo
   paralelo preserva a leitura do histórico. O bloqueio de login por excesso de tentativas dura no máximo 24 horas.
