@@ -252,7 +252,8 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
   writeFileSync(summaryToken, 'fixture-only');
   gateway.responses.set('POST /v1/messages', { body: { content: [{ type: 'text', text: 'Resumo HTTP fictício sem Tiny.' }] } });
   const summaries = new Summarizer({ bin: () => undefined, agentDir: () => undefined, http: { url: gateway.url, model: 'fixture-summary', tokenFile: summaryToken, auth: 'bearer' } });
-  const api = createApiHandler({ office, hub, accounts, sources: () => zeroclaw.sources(), version: 'android-fixture', inDocker: false, terminal: true, terminals, sessions: history, messages: createMessageRoutes(messages), asides: { page: createAsideRoutes(asides), progress: (req, res) => handleAsideProgress(req, res, asides) }, permissions: createPermissionRoutes(permissions), get castLauncher() { return late.launcher; }, get summaries() { return runtime === 'zeroclaw' ? summaries : undefined; }, spawnFolders: async () => projects.map(name => ({ name, path: `/fixture/${name}`, lastAt: Date.now(), sessions: 1 })), browse: filesRoots ? { roots: () => filesRoots } : undefined, remote: { is: isRemoteRequest, allows: feature => allowed.has(feature) } });
+  let httpSummariesEnabled = false;
+  const api = createApiHandler({ office, hub, accounts, sources: () => zeroclaw.sources(), version: 'android-fixture', inDocker: false, terminal: true, terminals, sessions: history, messages: createMessageRoutes(messages), asides: { page: createAsideRoutes(asides), progress: (req, res) => handleAsideProgress(req, res, asides) }, permissions: createPermissionRoutes(permissions), get castLauncher() { return late.launcher; }, get summaries() { return runtime === 'zeroclaw' || httpSummariesEnabled ? summaries : undefined; }, spawnFolders: async () => projects.map(name => ({ name, path: `/fixture/${name}`, lastAt: Date.now(), sessions: 1 })), browse: filesRoots ? { roots: () => filesRoots } : undefined, remote: { is: isRemoteRequest, allows: feature => allowed.has(feature) } });
   const passwordHashText = await hashPassword('android-test');
   const passwordHash = parsePasswordHash(passwordHashText);
   if (!passwordHash) throw new Error('Could not create fixture password');
@@ -553,6 +554,20 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
         office.switchSession(agentId, sessionId);
         messages.inbox({ session: sessionId, account: agent.account });
         result = { ok: true, sessionId };
+      } else if (command === 'http-summaries') {
+        if (!['on', 'off'].includes(agentId) || kind) throw new Error('Expected http-summaries <on|off>');
+        httpSummariesEnabled = agentId === 'on';
+        result = { ok: true };
+      } else if (command === 'long-reply') {
+        const agent = office.get(agentId);
+        const path = paths.get(agentId);
+        if (!agent || !path || kind) throw new Error('Expected long-reply <agentId>');
+        const text = '# Resposta longa fictícia\n\n' + Array.from({ length: 40 }, (_, index) => `Parágrafo ${index + 1}: conteúdo fictício para verificar a expansão do resumo e preservar o cabeçalho tocado.`).join('\n\n');
+        const message = { role: 'assistant', content: [{ type: 'text', text }] };
+        appendFileSync(path, JSON.stringify(agent.provider === 'omp'
+          ? { type: 'message', id: randomUUID(), timestamp: new Date().toISOString(), message }
+          : { uuid: randomUUID(), timestamp: new Date().toISOString(), sessionId: agent.sessionId, cwd: CWD, isSidechain: false, type: 'assistant', message: { id: randomUUID(), ...message } }) + '\n');
+        result = { ok: true, chars: text.length };
       } else if (command === 'reply') {
         const agent = office.get(agentId);
         if (!agent || agent.kind !== 'main' || kind) throw new Error('Expected reply <mainAgentId>');

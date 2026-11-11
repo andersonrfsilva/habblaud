@@ -32,6 +32,7 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -624,6 +625,67 @@ class FixtureUiInstrumentedTest {
         val after = fixture("/api/fixture/stats")
         assertEquals(before.getJSONObject("gets").optInt("/api/cast/roles"), after.getJSONObject("gets").optInt("/api/cast/roles"))
         assertEquals(before.getJSONObject("posts").optInt("/api/cast/roles"), after.getJSONObject("posts").optInt("/api/cast/roles"))
+    }
+
+    @Test fun newestSummaryExpandsWithoutMovingTappedHeader() = expandLongSummary(older = false)
+
+    @Test fun olderSummaryExpandsWithoutMovingTappedHeader() = expandLongSummary(older = true)
+
+    private fun expandLongSummary(older: Boolean) {
+        fixtureCommand("http-summaries on")
+        try {
+            fixtureCommand("bind-omp 00000000-0000-4000-8000-000000000002")
+            fixtureCommand("long-reply fixture:omp")
+            runBlocking {
+                LocalStateStore(context).setSummarize(true)
+                LocalStateStore(context).setLastSession(SessionKey(origin, "omp", ".omp", "00000000-0000-4000-8000-000000000002"))
+            }
+            scenario = ActivityScenario.launch(MainActivity::class.java)
+            await(R.string.message_text)
+            compose.waitUntil(15_000) { compose.onAllNodes(hasText("Resumo HTTP fictício sem Tiny.")).fetchSemanticsNodes().isNotEmpty() }
+            if (older) {
+                // A resposta resumida deixa de ser a última; o teste volta a ela pelo histórico.
+                val requests = fixture("/api/fixture/stats").getJSONObject("posts").optInt("/api/summaries")
+                fixtureCommand("long-reply fixture:omp")
+                compose.waitUntil(15_000) { fixture("/api/fixture/stats").getJSONObject("posts").optInt("/api/summaries") > requests }
+                compose.onNodeWithTag("conversation-list").performScrollToIndex(1)
+            }
+            val labels = compose.onAllNodes(hasText(text(R.string.summary_label)))
+            val visibleLabel = labels.fetchSemanticsNodes().indexOfFirst { it.boundsInWindow.height > 0f }
+            assertTrue("Resumo precisa estar visível antes do toque", visibleLabel >= 0)
+            val label = labels.fetchSemanticsNodes()[visibleLabel]
+            val before = label.boundsInWindow.top
+            fun offset() = compose.onNodeWithTag("conversation-list").fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value()
+            assertEquals("Caso deve começar no fim ou no histórico", !older, offset() == 0f)
+            val summaryRequests = fixture("/api/fixture/stats").getJSONObject("posts").optInt("/api/summaries")
+            println("SUMMARY before older=$older header=$before scroll=${offset()}")
+            screenshot("before", older)
+            labels[visibleLabel].performTouchInput { click() }
+            compose.waitForIdle()
+            val expanded = compose.onAllNodes(hasText(text(R.string.summary_collapse))).fetchSemanticsNodes()
+            println("SUMMARY after older=$older expanded=${expanded.isNotEmpty()} header=${expanded.firstOrNull()?.boundsInWindow?.top} scroll=${offset()}")
+            screenshot("after", older)
+            compose.onNodeWithText(text(R.string.summary_collapse)).assertIsDisplayed()
+            val after = compose.onNodeWithText(text(R.string.summary_collapse)).fetchSemanticsNode().boundsInWindow.top
+            // O resumo tem texto antes do rótulo; a âncora é o início da bolha, não o rótulo inferior.
+            assertTrue("Cabeçalho deve ficar no lugar após expandir: $before -> $after", kotlin.math.abs(after - before) <= 2f)
+            assertEquals("Expandir não deve pedir outro resumo", summaryRequests, fixture("/api/fixture/stats").getJSONObject("posts").optInt("/api/summaries"))
+            val anchoredOffset = offset()
+            compose.onNodeWithTag("conversation-list").performTouchInput { swipeUp() }
+            compose.onNodeWithText(text(R.string.summary_collapse)).assertExists()
+            assertTrue("A âncora não deve bloquear a rolagem manual", offset() != anchoredOffset)
+        } finally {
+            fixtureCommand("http-summaries off")
+            scenario?.close(); scenario = null
+            fixtureCommand("bind-omp 00000000-0000-4000-8000-000000000002")
+        }
+    }
+
+    private fun screenshot(phase: String, older: Boolean) {
+        val file = "/sdcard/Download/zaplaud-resumo-${if (older) "older" else "newest"}-$phase.png"
+        InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("screencap -p $file").use {
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(it).readBytes()
+        }
     }
 
     @Test fun zeroClawClosedHistoryResumesOnlyThroughCast() {
