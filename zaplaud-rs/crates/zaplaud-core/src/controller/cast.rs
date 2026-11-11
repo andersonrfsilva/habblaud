@@ -11,7 +11,6 @@ pub struct State {
     pub availability: String,
     pub runtime: Option<String>,
     pub characters: Vec<CastChoice>,
-    pub folders: Vec<String>,
     pub jobs: CastJobs,
     pub result: String,
     pub submitted_cast: Option<String>,
@@ -63,7 +62,6 @@ impl State {
             .into_iter()
             .map(|member| member.choice)
             .collect();
-        self.folders = api.cast_folders().await?;
         Ok(())
     }
     pub fn active_job(&self, id: &str) -> bool {
@@ -86,13 +84,6 @@ impl State {
             .characters
             .iter()
             .filter(|c| !open.contains(c.id.as_str()) && !self.active_job(&c.id))
-            .filter(|c| {
-                selected.is_none_or(|s| {
-                    s.project.as_ref().is_some_and(|p| {
-                        p.starts_with('/') && (c.rooms.is_empty() || c.rooms.contains(p))
-                    })
-                })
-            })
             .cloned()
             .collect();
         if let Some(selected) = selected {
@@ -114,7 +105,6 @@ impl State {
         &mut self,
         api: &HabblaudApi,
         choice: &str,
-        room: &str,
         resume: Option<&SessionItem>,
         dismiss: Option<&str>,
     ) -> Result<(), Error> {
@@ -127,15 +117,16 @@ impl State {
         self.sending = true;
         self.result.clear();
         let resume = resume.map(|s| ResumeSession {
+            room: s.project.as_deref().unwrap_or_default(),
             session: &s.key.session_id,
             account: &s.key.account,
         });
         let result = if let Some(agent) = dismiss {
             api.dismiss_agent(agent).await
         } else if choice.is_empty() {
-            api.new_cast(room, resume).await
+            api.new_cast(resume).await
         } else {
-            api.start_cast(choice, room, resume).await
+            api.start_cast(choice, resume).await
         };
         self.sending = false;
         match result {
@@ -181,20 +172,18 @@ mod tests {
         assert!(!state.can_resume(&item));
     }
     #[test]
-    fn choices_exclude_open_jobs_and_wrong_rooms_and_prioritize_owner() {
-        let member = |id: &str, rooms: &[&str]| CastChoice {
+    fn choices_exclude_open_jobs_and_prioritize_owner() {
+        let member = |id: &str| CastChoice {
             id: id.into(),
             name: id.into(),
-            rooms: rooms.iter().map(|room| (*room).into()).collect(),
             avatar: None,
         };
         let mut state = State {
             characters: vec![
-                member("open", &[]),
-                member("busy", &[]),
-                member("wrong", &["/elsewhere"]),
-                member("free", &[]),
-                member("owner", &["/project"]),
+                member("open"),
+                member("busy"),
+                member("free"),
+                member("owner"),
             ],
             ..State::default()
         };

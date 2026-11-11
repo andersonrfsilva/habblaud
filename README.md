@@ -629,13 +629,11 @@ and waits for the next request, give a new instruction or correct its course, wi
 Open **Cast** on the top bar to create, edit or delete fixed characters. Choose a name, appearance and kind:
 main, advisor or subagent. For subagents, enter observed types such as `reviewer` or `Explore`.
 
-- **Allowed rooms:** select the folders where the character can be used; no selection allows all rooms. A home room,
-  if chosen, must be among them. It offers the character to the first unbound main session arriving there.
+- **Calling:** **Call** opens a new session in the home folder (`~`) of the computer running the session, or
+  **Continue** resumes the character's most recent conversation. Resuming from history keeps that conversation's folder.
 - **Dress:** use the pencil in a main agent's details to select a free member or create one from the agent.
-  **Back to random** removes the session binding. If the member is busy or the room is not allowed, the session
-  gets a random character.
+  **Back to random** removes the session binding. If the member is busy, the session gets a random character.
 - In omp, `HABBLAUD_CAST=<id>` requests a member for the session. Advisors and subagents use matching members.
-  Rooms organize character selection; they do not restrict tools or file access.
 - `HABBLAUD_CAST_MAX` (1 to 50; unset means no limit) caps how many characters Habblaud keeps open at once. Open
   `hb-*` sessions and pending starts count; characters being dismissed do not.
 
@@ -1026,7 +1024,6 @@ The host helper (`npm run codex:bridge`) opens omp in `hb-<id>` sessions. Use `t
 | `PUT /api/cast/:id`, `DELETE /api/cast/:id` | Edit or delete a cast member; local access or the remote port after login when `terminal` is in `HABBLAUD_REMOTE_ALLOW`. |
 | `PUT /api/agents/:id/cast`, `DELETE /api/agents/:id/cast` | Dress the main agent with `{cast}`, or return to a random character. omp sessions can request a member with `HABBLAUD_CAST=<id>`; local access or the remote port after login when `terminal` is in `HABBLAUD_REMOTE_ALLOW`. |
 | `POST /api/cast/:id/start`, `POST /api/agents/:id/dismiss`, `GET /api/cast/jobs` | Start, dismiss or track cast sessions; local access or the remote port after login when `terminal` is in `HABBLAUD_REMOTE_ALLOW`. |
-| `GET /api/cast/dirs?path=<absolute>` | Browse directories under the home folder or comma-separated absolute `HABBLAUD_CAST_ROOTS`; terminal access required. |
 | `POST /api/host/cast/poll`, `POST /api/host/cast/ack` | The host helper fetches and acknowledges cast jobs. |
 | `GET /api/sessions/recent` | Session history: sessions from the last 7 days across all accounts (up to 150); local access only. |
 | `GET /api/sessions/:conta/:sessionId/terminal` | SSE of the conversation of a session from the history (same protocol as the terminal); local access only. |

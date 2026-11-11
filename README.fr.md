@@ -626,14 +626,14 @@ Ouvrez **Distribution** dans la barre supérieure pour créer, modifier ou suppr
 un nom, une apparence et un type : principal, conseiller ou sous-agent. Pour les sous-agents, indiquez les types
 observés, comme `reviewer` ou `Explore`.
 
-- **Salles autorisées :** choisissez les dossiers où le personnage peut être utilisé ; aucune sélection autorise
-  toutes les salles. La salle principale, si choisie, doit en faire partie. Elle propose le personnage à la première
-  session principale sans lien qui y arrive.
+- **Appeler :** **Appeler** ouvre une nouvelle session dans le dossier personnel (`~`) de l'ordinateur où tourne la
+  session, ou **Continuer** reprend la conversation la plus récente du personnage. Reprendre depuis l'historique
+  garde le dossier de cette conversation.
 - **Attribuer un personnage :** utilisez le crayon dans les détails d'un agent principal pour choisir un membre libre
-  ou en créer un à partir de l'agent. **Revenir au tirage au sort** supprime le lien. Si le membre est occupé ou la
-  salle non autorisée, la session reçoit un personnage tiré au sort.
+  ou en créer un à partir de l'agent. **Revenir au tirage au sort** supprime le lien. Si le membre est occupé, la
+  session reçoit un personnage tiré au sort.
 - Dans omp, `HABBLAUD_CAST=<id>` demande un membre pour la session. Le conseiller et les sous-agents utilisent des
-  membres correspondant à leurs types. Les salles organisent le choix ; elles ne limitent ni les outils ni les fichiers.
+  membres correspondant à leurs types.
 - `HABBLAUD_CAST_MAX` (1 à 50 ; absent = sans limite) limite le nombre de personnages que Habblaud garde ouverts en
   même temps. Les sessions `hb-*` ouvertes et les appels en cours comptent ; les personnages en cours de renvoi, non.
 
@@ -1043,7 +1043,6 @@ L'auxiliaire de l'hôte (`npm run codex:bridge`) ouvre omp dans des sessions `hb
 | `PUT /api/cast/:id`, `DELETE /api/cast/:id` | Modifie ou supprime un membre ; accès local ou par le port distant après connexion, avec `terminal` dans `HABBLAUD_REMOTE_ALLOW`. |
 | `PUT /api/agents/:id/cast`, `DELETE /api/agents/:id/cast` | Attribue `{cast}` à l'agent principal ou revient au tirage au sort. Les sessions omp peuvent demander un membre avec `HABBLAUD_CAST=<id>` ; accès local ou par le port distant après connexion, avec `terminal` dans `HABBLAUD_REMOTE_ALLOW`. |
 | `POST /api/cast/:id/start`, `POST /api/agents/:id/dismiss`, `GET /api/cast/jobs` | Lance, renvoie ou suit les sessions du casting ; accès local ou par le port distant après connexion, avec `terminal` dans `HABBLAUD_REMOTE_ALLOW`. |
-| `GET /api/cast/dirs?path=<absolu>` | Liste les dossiers sous le répertoire personnel ou les racines absolues de `HABBLAUD_CAST_ROOTS`, séparées par des virgules ; accès terminal requis. |
 | `POST /api/host/cast/poll`, `POST /api/host/cast/ack` | L'auxiliaire de l'hôte récupère et confirme les demandes du casting. |
 | `GET /api/sessions/recent` | Historique : sessions des 7 derniers jours de tous les comptes (jusqu'à 150) ; en accès local uniquement. |
 | `GET /api/sessions/:conta/:sessionId/terminal` | SSE de la conversation d'une session de l'historique (même protocole que le terminal) ; en accès local uniquement. |

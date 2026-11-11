@@ -171,6 +171,7 @@ const castLauncher: CastLauncher | undefined = config.terminal ? new CastLaunche
   idle: (agent) => office.castIdle(agent),
   zeroclaw: config.zeroclawCatalog ? new ZeroClawCast({
     catalog: config.zeroclawCatalog,
+    home: config.home,
     connector: () => zeroclawConnector,
     delivery: () => zeroclawDelivery,
     messages: () => late.messages,
@@ -494,7 +495,6 @@ const api = createApiHandler({
   pty: ptys ? createPtyRoutes(ptys) : undefined,
   spawn,
   castLauncher,
-  castRoots: process.env.HABBLAUD_CAST_ROOTS?.split(',').map((path) => path.trim()).filter(Boolean) ?? [config.home],
   attachments,
   dictation,
   deliveries,

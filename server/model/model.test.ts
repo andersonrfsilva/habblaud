@@ -493,20 +493,16 @@ describe('Office', () => {
 describe('Office: elenco', () => {
   const main = (id: string, sessionId: string, cwd: string, now: number) =>
     ({ id, account: 'acc', sessionId, cwd, role: 'Agente principal', startedAt: now, status: 'working' }) as const;
-  const ana = { id: 'ana', name: 'Ana', look: 'f', seed: 42, kind: 'main', home: '/p/api', rooms: ['/p/api'] } as const;
+  const ana = { id: 'ana', name: 'Ana', look: 'f', seed: 42, kind: 'main' } as const;
 
-  it('reserva nome, sorteia e avisa quando o membro está ocupado ou fora da sala', () => {
+  it('reserva nome, sorteia e avisa quando o membro está ocupado, em qualquer sala', () => {
     const { office, now } = makeOffice();
-    expect(office.cast.put({ ...ana, rooms: [...ana.rooms] })).toBe(true);
+    expect(office.cast.put({ ...ana })).toBe(true);
     office.addMain({ ...main('a', 's1', '/p/api', now()), cast: 'ana' });
-    office.addMain({ ...main('b', 's2', '/p/api', now()), cast: 'ana' });
-    office.addMain({ ...main('c', 's3', '/p/web', now()), cast: 'ana' });
+    office.addMain({ ...main('b', 's2', '/p/web', now()), cast: 'ana' });
     expect(office.get('a')).toMatchObject({ cast: 'ana', name: 'Ana' });
     expect(office.get('b')?.name).not.toBe('Ana');
-    expect(office.get('c')?.name).not.toBe('Ana');
-    const notices = office.commit().notices.map((n) => n.text);
-    expect(notices.some((n) => n.includes('está ocupado'))).toBe(true);
-    expect(notices.some((n) => n.includes('não trabalha'))).toBe(true);
+    expect(office.commit().notices.map((n) => n.text).some((n) => n.includes('está ocupado'))).toBe(true);
   });
 
   it('"Novo" (novo-…): nome sorteado, sem visual de membro, mas o id fica para dispensar; id desconhecido comum não', () => {
@@ -521,12 +517,11 @@ describe('Office: elenco', () => {
     expect(office.get('b')?.cast).toBe('novo-99999999');
   });
 
-  it('normaliza salas e casa antes de vestir a sessão', () => {
+  it('last guarda a sessão mais recente por último, mesmo quando a sala já existia', () => {
     const { office, now } = makeOffice();
-    office.cast.put({ ...ana, home: '/tmp//x/', rooms: ['/tmp/x/', '/tmp//x'] });
-    expect(office.cast.get('ana')).toMatchObject({ home: '/tmp/x', rooms: ['/tmp/x'] });
-    office.addMain(main('a', 's1', '/tmp/x', now()));
-    expect(office.get('a')?.cast).toBe('ana');
+    office.cast.put({ ...ana, last: { '/p/api': 'old-api', '/p/web': 'old-web' } });
+    office.addMain({ ...main('a', 's1', '/p/api', now()), cast: 'ana' });
+    expect(Object.entries(office.cast.get('ana')!.last!)).toEqual([['/p/web', 'old-web'], ['/p/api', 's1']]);
   });
 
   it('cria a partir do agente: o nome dele não conflita e ele já veste o personagem', () => {
@@ -534,34 +529,29 @@ describe('Office: elenco', () => {
     office.addMain(main('a', 's1', '/p/api', now()));
     office.addMain(main('b', 's2', '/p/api', now()));
     const nome = office.get('a')!.name;
-    const membro = { id: 'x', name: nome, look: 'f', seed: 1, kind: 'main', rooms: [] } as const;
+    const membro = { id: 'x', name: nome, look: 'f', seed: 1, kind: 'main' } as const;
     // Sem `from`, o agente que usa o nome bloqueia; com `from` de outro agente também.
-    expect(office.putCast({ ...membro, rooms: [] })).toBe('conflict');
-    expect(office.putCast({ ...membro, rooms: [] }, 'b')).toBe('conflict');
-    expect(office.putCast({ ...membro, rooms: [] }, 'a')).toBe('ok');
+    expect(office.putCast({ ...membro })).toBe('conflict');
+    expect(office.putCast({ ...membro }, 'b')).toBe('conflict');
+    expect(office.putCast({ ...membro }, 'a')).toBe('ok');
     expect(office.get('a')).toMatchObject({ cast: 'x', name: nome });
     expect(office.cast.binding('s1')).toBe('x');
   });
 
-  it('não entrega o membro da sala quando outra sessão presente mantém vínculo fora dela', () => {
+  it('sessão sem personagem pedido nem vínculo sorteia, mesmo havendo membro livre', () => {
     const { office, now } = makeOffice();
-    office.cast.put({ ...ana, rooms: [...ana.rooms] });
-    office.addMain({ ...main('a', 's1', '/p/web', now()), cast: 'ana' });
-    office.addMain(main('b', 's2', '/p/api', now()));
-    expect(office.get('b')?.cast).toBeUndefined();
-    office.moveMain('a', '/p/api');
-    expect(office.get('a')?.cast).toBe('ana');
+    office.cast.put({ ...ana });
+    office.addMain(main('a', 's1', '/p/api', now()));
+    expect(office.get('a')?.cast).toBeUndefined();
   });
 
-  it('mantém vínculo no clear e muda de visual ao sair e voltar da sala', () => {
+  it('mantém o vínculo no clear e ao mudar de sala', () => {
     const { office, now } = makeOffice();
-    office.cast.put({ ...ana, rooms: [...ana.rooms] });
-    office.addMain(main('a', 's1', '/p/api', now()));
+    office.cast.put({ ...ana });
+    office.addMain({ ...main('a', 's1', '/p/api', now()), cast: 'ana' });
     office.switchSession('a', 's2');
     expect(office.cast.binding('s2')).toBe('ana');
     office.moveMain('a', '/p/web');
-    expect(office.get('a')?.cast).toBeUndefined();
-    office.moveMain('a', '/p/api');
     expect(office.get('a')?.cast).toBe('ana');
   });
 
@@ -571,8 +561,8 @@ describe('Office: elenco', () => {
       const file = join(tmp.dir, 'cast.json');
       const cast = new CastStore(file);
       const first = makeOffice(new NameStore(null), cast);
-      cast.put({ ...ana, rooms: [...ana.rooms] });
-      first.office.addMain(main('a', 's1', '/p/api', first.now()));
+      cast.put({ ...ana });
+      first.office.addMain({ ...main('a', 's1', '/p/api', first.now()), cast: 'ana' });
       first.office.switchSession('a', 's2');
       cast.flush();
       const reopened = new CastStore(file);
@@ -586,8 +576,8 @@ describe('Office: elenco', () => {
 
   it('associa advisor e um reviewer livre por vez', () => {
     const { office, now } = makeOffice();
-    office.cast.put({ id: 'advisor', name: 'Iara', look: 'f', seed: 3, kind: 'advisor', rooms: [] });
-    office.cast.put({ id: 'reviewer', name: 'Revisor', look: 'm', seed: 4, kind: 'sub', match: ['reviewer'], rooms: [] });
+    office.cast.put({ id: 'advisor', name: 'Iara', look: 'f', seed: 3, kind: 'advisor' });
+    office.cast.put({ id: 'reviewer', name: 'Revisor', look: 'm', seed: 4, kind: 'sub', match: ['reviewer'] });
     office.addMain(main('a', 's1', '/p/api', now()));
     office.addSub({ id: 'advisor-1', parentId: 'a', sessionId: 's1', role: '__advisor', background: false, startedAt: now() });
     for (const id of ['r1', 'r2']) office.addSub({ id, parentId: 'a', sessionId: 's1', role: id, agentType: 'reviewer', background: false, startedAt: now() });
@@ -599,8 +589,8 @@ describe('Office: elenco', () => {
 
   it('subagente sem tipos serve a qualquer subagente, depois dos que listam o tipo', () => {
     const { office, now } = makeOffice();
-    office.cast.put({ id: 'linus', name: 'Linus', look: 'm', seed: 5, kind: 'sub', match: [], rooms: [] });
-    office.cast.put({ id: 'reviewer', name: 'Revisor', look: 'm', seed: 4, kind: 'sub', match: ['reviewer'], rooms: [] });
+    office.cast.put({ id: 'linus', name: 'Linus', look: 'm', seed: 5, kind: 'sub', match: [] });
+    office.cast.put({ id: 'reviewer', name: 'Revisor', look: 'm', seed: 4, kind: 'sub', match: ['reviewer'] });
     office.addMain(main('a', 's1', '/p/api', now()));
     office.addSub({ id: 'r1', parentId: 'a', sessionId: 's1', role: 'r1', agentType: 'reviewer', background: false, startedAt: now() });
     office.addSub({ id: 't1', parentId: 'a', sessionId: 's1', role: 't1', agentType: 'task', background: false, startedAt: now() });

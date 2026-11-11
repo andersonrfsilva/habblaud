@@ -34,14 +34,11 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.*
 import io.ktor.http.encodeURLPathPart
 
-private data class CastChoice(val id: String, val name: String, val rooms: List<String>, val avatar: Avatar?)
+private data class CastChoice(val id: String, val name: String, val avatar: Avatar?)
 private val sessionIdPattern = Regex("^[0-9a-fA-F][0-9a-fA-F-]{7,199}$")
 internal fun canResumeCast(selected: SessionItem?, runtime: String?): Boolean =
     selected != null && selected.agentId == null && supportsSessionControl(selected.key.provider) &&
         selected.key.provider == runtime && selected.key.sessionId.matches(sessionIdPattern) && selected.project?.startsWith('/') == true
-
-internal fun castFolders(folders: List<String>, rooms: List<String>, current: String?): List<String> =
-    (folders + rooms).distinct().filter { rooms.isEmpty() || it in rooms }.sortedByDescending { it == current }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,7 +47,6 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
     val lifecycleOwner = LocalLifecycleOwner.current
     var availability by remember(api) { mutableStateOf("loading") }
     var characters by remember(api) { mutableStateOf(emptyList<CastChoice>()) }
-    var folders by remember(api) { mutableStateOf(emptyList<String>()) }
     var jobs by remember(api) { mutableStateOf(emptyMap<String, String>()) }
     var runtime by remember(api) { mutableStateOf<String?>(null) }
     var dialog by remember { mutableStateOf("") }
@@ -60,17 +56,15 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
     var sending by remember { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
     LaunchedEffect(selected?.key) { result = "" }
-    // Elenco e pastas mudam pouco: carregam ao conectar, depois de cada pedido e ao abrir a escolha; os pedidos, a cada 5 s.
+    // O elenco muda pouco: carrega ao conectar, depois de cada pedido e ao abrir a escolha; os pedidos, a cada 5 s.
     suspend fun loadCast() {
         runtime = catalogRuntime(api.request("/api/cast/models"))
         characters = wireJson.parseToJsonElement(api.request("/api/cast")).jsonObject.objects("members")
             .filter { it.string("kind") == "main" }.mapNotNull { member ->
                 val id = member.string("id") ?: return@mapNotNull null
                 val name = member.string("name") ?: return@mapNotNull null
-                val rooms = (member["rooms"] as? JsonArray)?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty()
-                CastChoice(id, name, rooms, parseAvatar(member))
+                CastChoice(id, name, parseAvatar(member))
             }
-        folders = wireJson.parseToJsonElement(api.request("/api/cast/folders")).jsonObject.objects("folders").mapNotNull { it.string("path") }
     }
     LaunchedEffect(api, connected, refresh, lifecycleOwner) {
         if (!connected) { availability = "offline"; runtime = null; return@LaunchedEffect }
@@ -135,10 +129,9 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
     val activeJob = selected?.cast?.takeIf { current != null || newAgent }?.let { jobs[it] in listOf("queued", "sent", "waiting") } == true
     // Só quem está livre (sem agente aberto nem pedido em andamento), como a reserva da web: o servidor recusaria os outros.
     val free = characters.filter { it.id !in openCast && jobs[it.id] !in listOf("queued", "sent", "waiting") }
-    // Qualquer personagem livre que trabalha na pasta pode continuar a conversa omp encerrada; o dono vem primeiro.
-    val eligible = if (selected?.project?.startsWith('/') == true) free.filter { it.rooms.isEmpty() || selected.project in it.rooms } else emptyList()
-    val resumeChoices = eligible.sortedByDescending { it == current }
-    // "Novo" também retoma: o ▶ não depende de haver personagem livre na pasta.
+    // Qualquer personagem livre pode continuar a conversa omp encerrada; o dono vem primeiro.
+    val resumeChoices = free.sortedByDescending { it == current }
+    // "Novo" também retoma: o ▶ não depende de haver personagem livre.
     val resume = canResumeCast(selected, runtime)
     val dismiss = selected?.agentId != null && selected.castOpened && (current != null || newAgent)
     val actions: @Composable () -> Unit = {
@@ -175,28 +168,21 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
         if (result.isNotEmpty()) Text(stringResource(when (result) { "pending" -> Res.string.cast_pending; "done" -> Res.string.cast_done; "busy" -> Res.string.cast_busy; "forbidden" -> Res.string.cast_forbidden; "failed" -> Res.string.cast_failed; else -> Res.string.cast_unknown }), style = MaterialTheme.typography.bodySmall)
     }
     content(actions, fab, status)
-    if (dialog == "start") AlertDialog(onDismissRequest = { dialog = "" }, title = { Text(stringResource(if (choice == null) Res.string.cast_select_character else Res.string.cast_select_folder)) }, text = {
+    if (dialog == "start") AlertDialog(onDismissRequest = { dialog = "" }, title = { Text(stringResource(Res.string.cast_select_character)) }, text = {
         Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
-            if (choice == null) {
-                // "Novo": agente fora do elenco, com nome e visual sorteados pelo servidor.
-                val newLabel = stringResource(Res.string.cast_new)
-                Row(Modifier.fillMaxWidth().clickable { choice = CastChoice("", newLabel, emptyList(), null) }.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) { Icon(painterResource(Res.drawable.ic_person_add), contentDescription = null) }
-                    Text(newLabel)
+            // "Novo": agente fora do elenco, com nome e visual sorteados pelo servidor.
+            val newLabel = stringResource(Res.string.cast_new)
+            Row(Modifier.fillMaxWidth().clickable(enabled = !sending) { submit("/api/cast/new", buildJsonObject {}) }.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) { Icon(painterResource(Res.drawable.ic_person_add), contentDescription = null) }
+                Text(newLabel)
+            }
+            free.forEach { member ->
+                Row(Modifier.fillMaxWidth().clickable(enabled = !sending) {
+                    submit("/api/cast/${member.id.encodeURLPathPart()}/start", buildJsonObject { put("mode", "new") })
+                }.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    CharacterAvatar(api, member.avatar, member.name, 40.dp)
+                    Text(member.name)
                 }
-                free.forEach { member ->
-                    Row(Modifier.fillMaxWidth().clickable { choice = member }.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        CharacterAvatar(api, member.avatar, member.name, 40.dp)
-                        Text(member.name)
-                    }
-                }
-            } else {
-                val availableFolders = castFolders(folders, choice!!.rooms, selected?.project)
-                if (availableFolders.isEmpty()) Text(stringResource(Res.string.cast_no_folders))
-                availableFolders.forEach { folder -> Text(folder, Modifier.fillMaxWidth().clickable {
-                    if (choice!!.id.isEmpty()) submit("/api/cast/new", buildJsonObject { put("room", folder) })
-                    else submit("/api/cast/${choice!!.id.encodeURLPathPart()}/start", buildJsonObject { put("mode", "new"); put("room", folder) })
-                }.padding(12.dp)) }
             }
         }
     }, confirmButton = {}, dismissButton = { TextButton(onClick = { dialog = "" }) { Text(stringResource(Res.string.cancel)) } })
@@ -204,7 +190,7 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
         Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
             // "Novo": agente fora do elenco, com nome e visual sorteados pelo servidor, retoma a conversa.
             val newLabel = stringResource(Res.string.cast_new)
-            Row(Modifier.fillMaxWidth().clickable { choice = CastChoice("", newLabel, emptyList(), null); dialog = "resume" }.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxWidth().clickable { choice = CastChoice("", newLabel, null); dialog = "resume" }.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) { Icon(painterResource(Res.drawable.ic_person_add), contentDescription = null) }
                 Text(newLabel)
             }

@@ -86,7 +86,6 @@ def run(binary, display, theme):
         d.click(316, 716)
         save('cast')
         d.click(400, 272)
-        d.click(440, 260)
         keyboard.smoke.wait_for(lambda: len(command('stats')['castRequests']) == 1, 'Elenco ZeroClaw não chamado', 10)
         stats = command('stats')
         assert stats['runtime'] == 'zeroclaw'

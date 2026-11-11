@@ -72,22 +72,21 @@ describe('retomada ZeroClaw pelo elenco', () => {
     expect(canResumeViaCast({ ...zero, open: true }, catalog, 'zeroclaw')).toBe(false);
   });
 
-  it('oferece só personagens principais livres, com pasta e conta compatíveis', () => {
-    const member = (id: string, extra: Partial<CastMember> = {}): CastMember => ({ id, name: id, kind: 'main', rooms: [], seed: 1, look: 'f', ...extra });
+  it('oferece só personagens principais livres, com conta compatível', () => {
+    const member = (id: string, extra: Partial<CastMember> = {}): CastMember => ({ id, name: id, kind: 'main', seed: 1, look: 'f', ...extra });
     const members = [
-      member('free'), member('room', { rooms: ['/project'], account: 'tenant' }),
-      member('other-room', { rooms: ['/other'] }), member('other-account', { account: 'other' }),
+      member('free'), member('same-account', { account: 'tenant' }), member('other-account', { account: 'other' }),
       member('advisor', { kind: 'advisor' }), member('busy'), member('offline'),
     ];
     const agents = [{ cast: 'busy', status: 'idle' }, { cast: 'offline', status: 'offline' }] as AgentInfo[];
-    expect(castResumeTargets(zero, members, agents).map((m) => m.id)).toEqual(['free', 'room', 'offline']);
+    expect(castResumeTargets(zero, members, agents).map((m) => m.id)).toEqual(['free', 'same-account', 'offline']);
   });
 
   it('retoma pelo startCast com UUID e conta exatos, nunca pelo controle OMP', async () => {
     const startCast = vi.fn().mockResolvedValue(undefined);
     const terminal = { openSession: vi.fn() };
     expect(await resumeHistoryCast(zero, 'character', { startCast }, terminal)).toBeUndefined();
-    expect(startCast).toHaveBeenCalledExactlyOnceWith('character', '/project', 'resume', '', { session: zero.sessionId, account: zero.account });
+    expect(startCast).toHaveBeenCalledExactlyOnceWith('character', 'resume', '', { room: '/project', session: zero.sessionId, account: zero.account });
     expect(terminal.openSession).not.toHaveBeenCalled();
   });
 

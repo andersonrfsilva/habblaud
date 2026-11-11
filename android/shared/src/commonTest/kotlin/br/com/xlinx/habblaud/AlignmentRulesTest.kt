@@ -19,12 +19,6 @@ class AlignmentRulesTest {
         assertEquals(now + 60_000, retryAfterDeadline("invalid", now))
     }
 
-    @Test fun foldersPutCurrentProjectFirstWithoutBypassingRooms() {
-        assertEquals(listOf("/current", "/one", "/two"), castFolders(listOf("/one", "/current", "/one"), listOf("/two", "/current", "/one"), "/current"))
-        assertEquals(listOf("/one"), castFolders(listOf("/current", "/one"), listOf("/one"), "/current"))
-        assertEquals(listOf("/one", "/two"), castFolders(listOf("/one", "/two"), emptyList(), "/absent"))
-    }
-
     @Test fun permissionInputPreservesStringsAndCompactsStructuredJson() {
         fun input(json: String) = permissionInput(wireJson.parseToJsonElement(json).jsonObject)
         assertEquals("echo teste", input("""{"input":"echo teste"}"""))

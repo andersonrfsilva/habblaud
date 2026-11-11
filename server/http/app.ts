@@ -1,8 +1,7 @@
 // Rotas da API (/api/*). Respostas JSON; rotas desconhecidas -> 404 JSON.
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { readdirSync, realpathSync, statSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
-import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { parseCastMember } from '../model/cast';
 import type { CastLauncher } from '../cast/launcher';
 import type { AccessInfo, AgentInfo, ModSummary, OfficeSnapshot, SourceInfo, UpdateStatus } from '../../shared/types';
@@ -92,7 +91,6 @@ export interface ApiDeps {
   /** Novo agente pelo escritório (/api/spawn e, para o auxiliar do host, /api/host/spawn/*; server/spawn/spawn.ts). */
   spawn?: SpawnService;
   castLauncher?: CastLauncher;
-  castRoots?: string[];
   /** Pastas sugeridas no "Novo agente" (GET /api/spawn/folders; spawn/folders.ts): projetos recentes. */
   spawnFolders?: () => Promise<SpawnFolder[]>;
   /** Anexos do "Novo agente" (POST /api/spawn/attachments; spawn/attachments.ts). */
@@ -350,7 +348,6 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       const result = office.dress(agentId, body.cast);
       if (result === 'not-found') return sendJson(res, 404, { error: NOT_EDITABLE });
       if (result === 'conflict') return sendJson(res, 409, { error: tr('personagem ocupado') });
-      if (result === 'room') return sendJson(res, 422, { error: tr('personagem não trabalha nesta sala') });
       return sendJson(res, 200, { ok: true });
     }
     if (method === 'GET') return sendJson(res, 200, { members: office.cast.list() });
@@ -363,9 +360,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
     const old = id ? office.cast.get(id) : undefined;
     if (id && !old) return sendJson(res, 404, { error: tr('membro do elenco não encontrado') });
     const data = body as Record<string, unknown>;
-    if (data.home === null) delete old?.home;
     if (data.match === null) delete old?.match;
-    if (data.home === null) delete data.home;
     if (data.match === null) delete data.match;
     for (const key of ['model', 'instructions', 'idleMinutes', 'account']) if (data[key] === null) {
       if (old) delete (old as unknown as Record<string, unknown>)[key];
@@ -554,7 +549,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
     }
     const castStart = /^\/api\/cast\/([a-z0-9-]{1,40})\/start$/.exec(path);
     const castDismiss = /^\/api\/agents\/([^/]+)\/dismiss$/.exec(path);
-    if (path === '/api/cast/models' || path === '/api/cast/jobs' || path === '/api/cast/folders' || path === '/api/cast/dirs' || path === '/api/cast/new' || path === '/api/cast/roles' || castStart || castDismiss) {
+    if (path === '/api/cast/models' || path === '/api/cast/jobs' || path === '/api/cast/new' || path === '/api/cast/roles' || castStart || castDismiss) {
       const launcher = deps.castLauncher;
       // Mesma trava do terminal: local, ou a porta remota com login e `terminal` em HABBLAUD_REMOTE_ALLOW.
       if (!deps.terminal || !trusted(req, 'terminal') || !launcher) sendJson(res, 403, { error: denied(req, tr('o elenco só pode ser editado pelo próprio computador')) });
@@ -566,35 +561,6 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
         else sendJson(res, 200, { jobs: launcher.jobs(), available: launcher.available() });
       } else if (path === '/api/cast/roles' && isRead) {
         sendJson(res, 200, { available: launcher.available(), ...launcher.roles() });
-      } else if (path === '/api/cast/folders') {
-        // Pastas recentes (histórico de sessões + salas) para chamar o personagem, mesmo com "Novo agente" desligado.
-        if (!isRead) methodNotAllowed(res, 'GET');
-        else (deps.spawnFolders ?? (async () => []))().then((folders) => sendJson(res, 200, { folders }), (err) => fail(res, err));
-      } else if (path === '/api/cast/dirs') {
-        if (!isRead) methodNotAllowed(res, 'GET');
-        else {
-          const roots = (deps.castRoots ?? []).flatMap((root) => {
-            try { return isAbsolute(root) && statSync(root).isDirectory() ? [realpathSync(root)] : []; } catch { return []; }
-          });
-          const requested = url.searchParams.get('path');
-          if (!requested) sendJson(res, 200, { path: '', dirs: roots.map((root) => ({ name: basename(root) || root, path: root })) });
-          else {
-            try {
-              if (!isAbsolute(requested) || requested.includes('\0') || /(^|[\\/])\.\.([\\/]|$)/.test(requested)) throw new Error();
-              const real = realpathSync(requested);
-              const root = roots.find((r) => real === r || !relative(r, real).startsWith('..' + sep) && relative(r, real) !== '..' && !isAbsolute(relative(r, real)));
-              if (!root || !statSync(real).isDirectory() || relative(root, real).split(sep).some((part) => part.startsWith('.'))) throw new Error();
-              const dirs = readdirSync(real).filter((name) => !name.startsWith('.')).sort((a, b) => a.localeCompare(b)).flatMap((name) => {
-                try {
-                  const target = realpathSync(join(real, name));
-                  const rel = relative(root, target);
-                  return rel !== '..' && !rel.startsWith('..' + sep) && !isAbsolute(rel) && !rel.split(sep).some((part) => part.startsWith('.')) && statSync(target).isDirectory() ? [{ name, path: join(real, name) }] : [];
-                } catch { return []; }
-              }).slice(0, 500);
-              sendJson(res, 200, { path: real, ...(real !== root ? { parent: dirname(real) } : {}), dirs });
-            } catch { sendJson(res, 404, { error: tr('pasta ou arquivo fora da pasta de trabalho') }); }
-          }
-        }
       } else if (method !== 'POST') methodNotAllowed(res, 'POST');
       else if (castDismiss) {
         let id: string;
@@ -604,7 +570,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
         else sendJson(res, 202, result);
       } else {
         readJson(req).then((body) => {
-          // "Novo": mesma trava de chamar um personagem sem salas (qualquer pasta que o auxiliar ache no host).
+          // "Novo": agente fora do elenco, aberto na pasta pessoal (ou retomando uma conversa na pasta dela).
           const result = path === '/api/cast/new' ? launcher.startNew(body) : path === '/api/cast/roles' ? launcher.setRoles(body) : launcher.start(castStart![1], body);
           if ('error' in result) sendJson(res, result.status, { error: result.error });
           else sendJson(res, 202, result);

@@ -940,7 +940,6 @@ impl Permission {
 pub struct CastChoice {
     pub id: String,
     pub name: String,
-    pub rooms: Vec<String>,
     pub avatar: Option<Avatar>,
 }
 impl CastChoice {
@@ -951,13 +950,6 @@ impl CastChoice {
         Some(Self {
             id: string(o, "id")?,
             name: string(o, "name")?,
-            rooms: o
-                .get("rooms")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(primitive)
-                .collect(),
             avatar: Avatar::parse(o),
         })
     }

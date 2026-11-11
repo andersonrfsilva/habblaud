@@ -153,10 +153,10 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
   // do modelo junto do avatar aparecerem nas capturas.
   const ompAgent = office.get('fixture:omp');
   if (ompAgent) office.applyTranscript(ompAgent.id, { title: ompAgent.title, tasks: ompAgent.tasks, stats: ompAgent.stats, model: 'claude-opus-5-5', context: { tokens: 120_000, window: 200_000 } });
-  if (office.putCast({ id: 'ana', name: 'Ana Fictícia', kind: 'main', seed: 1001, look: 'f', rooms: ['/fixture/projeto'] }, 'fixture:claude') !== 'ok' ||
-      office.putCast({ id: 'bia', name: 'Bia Fictícia', kind: 'main', seed: 1002, look: 'f', rooms: ['/fixture/projeto'], last: { '/fixture/projeto': CLOSED } }) !== 'ok' ||
-      office.putCast({ id: 'caio', name: 'Caio Fictício', kind: 'main', seed: 1003, look: 'm', rooms: [] }) !== 'ok' ||
-      office.putCast({ id: 'davi', name: 'Davi Fictício', kind: 'main', seed: 1004, look: 'm', rooms: ['/fixture/caderno'] }, 'fixture:omp') !== 'ok') throw new Error('Could not create fictional cast');
+  if (office.putCast({ id: 'ana', name: 'Ana Fictícia', kind: 'main', seed: 1001, look: 'f' }, 'fixture:claude') !== 'ok' ||
+      office.putCast({ id: 'bia', name: 'Bia Fictícia', kind: 'main', seed: 1002, look: 'f', last: { '/fixture/projeto': CLOSED } }) !== 'ok' ||
+      office.putCast({ id: 'caio', name: 'Caio Fictício', kind: 'main', seed: 1003, look: 'm' }) !== 'ok' ||
+      office.putCast({ id: 'davi', name: 'Davi Fictício', kind: 'main', seed: 1004, look: 'm' }, 'fixture:omp') !== 'ok') throw new Error('Could not create fictional cast');
   const gateway = await startTestGateway();
   gateway.options.abortFrame = true;
   const mirror = new ZeroClawMirror({ dataDir: root });
@@ -185,8 +185,8 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
       gateway.messages.set(event.sessionId, messages);
     } else if (event.type === 'frame' && ['done', 'aborted'].includes(event.frame.type)) gateway.states.set(event.sessionId, 'idle');
   });
-  if (office.putCast({ id: 'zelia', name: 'Zélia Fictícia', kind: 'main', seed: 1005, look: 'f', rooms: [CWD], model: ZC_MODELS[0].alias }) !== 'ok' ||
-      office.putCast({ id: 'zora', name: 'Zora Fictícia', kind: 'main', seed: 1006, look: 'f', rooms: [CWD], model: ZC_MODELS[0].alias, last: { [CWD]: ZC_CLOSED } }) !== 'ok') throw new Error('Could not create ZeroClaw cast');
+  if (office.putCast({ id: 'zelia', name: 'Zélia Fictícia', kind: 'main', seed: 1005, look: 'f', model: ZC_MODELS[0].alias }) !== 'ok' ||
+      office.putCast({ id: 'zora', name: 'Zora Fictícia', kind: 'main', seed: 1006, look: 'f', model: ZC_MODELS[0].alias, last: { [CWD]: ZC_CLOSED } }) !== 'ok') throw new Error('Could not create ZeroClaw cast');
   await zeroclaw.start();
   await connector.openSession({ sessionId: ZC_LIVE, agent: ZC_MODELS[0].alias, name: 'Zélia Fictícia', cwd: CWD, cast: 'zelia', officeAgentId: 'fixture:zeroclaw' });
   await zeroclaw.flush();
@@ -200,7 +200,7 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
   let catalogMode = 'normal';
   const delivery = new ZeroClawDelivery({ connector, isClosing: id => late.launcher?.isClosing(id) ?? false, onCancelSession: (id, reason) => late.messages?.cancelZeroClawSession(id, reason), onReplacementFailed: id => office.closeMain(id) });
   const zcLauncher = new CastLauncher({ dataDir: root, member: id => office.cast.get(id), agents: () => office.list(), account: () => undefined, changed: () => office.markDirty(),
-    zeroclaw: new ZeroClawCast({ catalog: { models: ZC_MODELS, defaultModel: ZC_MODELS[0].alias }, connector: () => connector, delivery: () => delivery, messages: () => late.messages, account: () => zeroclaw.accountId, ready: () => true, afterOpen: () => zeroclaw.flush() }) });
+    zeroclaw: new ZeroClawCast({ catalog: { models: ZC_MODELS, defaultModel: ZC_MODELS[0].alias }, home: '/fixture/home', connector: () => connector, delivery: () => delivery, messages: () => late.messages, account: () => zeroclaw.accountId, ready: () => true, afterOpen: () => zeroclaw.flush() }) });
   launcher.poll({ open: ['ana', 'davi'] });
   const presence = setInterval(() => launcher.ack({ results: [] }), 10_000);
   timers.add(presence);
@@ -516,15 +516,17 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
           if (job.op === 'start') {
             const id = `fixture:cast:${job.cast}`;
             const sessionId = job.resume ?? randomUUID();
+            // Como o auxiliar: sem `folder`, a sessão abre na pasta pessoal.
+            const folder = job.folder ?? '/fixture/home';
             if (ompCastEnabled && job.agentDir === ompDir) {
-              paths.set(id, (job.resume && paths.get(job.resume)) || seed(sessionId, 'omp', false, job.folder));
-              office.addMain({ id, cast: job.cast, provider: 'omp', account: OMP_ACCOUNT, sessionId, cwd: job.folder, role: 'Agente principal', startedAt: Date.now(), status: 'idle' });
+              paths.set(id, (job.resume && paths.get(job.resume)) || seed(sessionId, 'omp', false, folder));
+              office.addMain({ id, cast: job.cast, provider: 'omp', account: OMP_ACCOUNT, sessionId, cwd: folder, role: 'Agente principal', startedAt: Date.now(), status: 'idle' });
               messages.inbox({ session: sessionId, account: OMP_ACCOUNT });
               continue;
             }
-            const existing = join(accountDir, 'projects', encodeCwd(job.folder), `${sessionId}.jsonl`);
-            paths.set(id, job.resume && existsSync(existing) ? existing : seed(sessionId, 'claude', false, job.folder));
-            office.addMain({ id, cast: job.cast, account: ACCOUNT, sessionId, cwd: job.folder, role: 'Agente principal', startedAt: Date.now(), status: 'idle' });
+            const existing = join(accountDir, 'projects', encodeCwd(folder), `${sessionId}.jsonl`);
+            paths.set(id, job.resume && existsSync(existing) ? existing : seed(sessionId, 'claude', false, folder));
+            office.addMain({ id, cast: job.cast, account: ACCOUNT, sessionId, cwd: folder, role: 'Agente principal', startedAt: Date.now(), status: 'idle' });
             messages.inbox({ session: sessionId, account: ACCOUNT });
           } else {
             const agent = office.list().find(item => item.cast === job.cast && item.status !== 'offline');

@@ -214,7 +214,7 @@ Os campos de `Theme` incluem os 48 papéis Material 3 em claro e escuro. O [base
 
 ### Elenco e bate-papo paralelo
 
-`controller::cast::State` executa as rotas tipadas de elenco sem repetir POSTs. A origem das ações segue a seleção, depois o filtro, depois o servidor único. `CastState` publica retomar/dispensar e o texto de estado para o host da conversa; `ListState.cast` abre a escolha de contato e pasta.
+`controller::cast::State` executa as rotas tipadas de elenco sem repetir POSTs. A origem das ações segue a seleção, depois o filtro, depois o servidor único. `CastState` publica retomar/dispensar e o texto de estado para o host da conversa; `ListState.cast` abre a escolha de contato. Escolher Novo ou personagem livre envia imediatamente `{}` ou `{"mode":"new"}`. Novas conversas usam `~` resolvido pelo host, nunca a pasta da seleção. Retomar preserva a pasta histórica e permite qualquer personagem livre, com dono primeiro.
 
 `controller::aside::run` recebe eventos por `mpsc`, publica o redutor por `watch` e sinaliza 401 por um canal separado. Descartar o runner cancela chamadas e esperas. Fechar ou trocar de sessão limpa a folha e encerra o polling. O runner limita a espera periódica de 700 ms do Kotlin a 1 s, conforme a meta desktop; não cria SSE adicional. Perguntas, cancelamentos e a consulta inicial continuam imediatos. `AsideState.open()` é a entrada do menu da conversa.
 

@@ -145,11 +145,8 @@ def main():
             d.key('Escape')
             assert_closed(f'{name}: Esc não recuperou foco do shell')
             passed.append(name)
-        # O Kotlin só permite iniciar elenco sem conversa selecionada.
-        for name, folder in [('cast-picker', False), ('cast-folders', True)]:
+        for name in ['cast-picker']:
             d.click(316, 716)
-            if folder:
-                d.click(400, 304)
             time.sleep(.3)
             assert d.image().getpixel((20, 20)) != smoke.palette(args.theme)['surface'], f'{name}: diálogo não abriu'
             d.key('Escape')

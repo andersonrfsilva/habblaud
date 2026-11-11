@@ -318,9 +318,9 @@ export class OfficeStore {
     return { jobs: [], available: false };
   }
 
-  /** `from`: retomar uma conversa escolhida no histórico (sessão e conta dela), em vez da última do personagem. */
-  async startCast(id: string, room: string, mode: 'new' | 'resume', prompt: string, from?: { session: string; account: string }): Promise<string | undefined> {
-    return this.castRequest(`/api/cast/${encodeURIComponent(id)}/start`, 'POST', { room, mode, ...(prompt ? { prompt } : {}), ...(from ?? {}) });
+  /** Nova sessão abre na pasta pessoal; `from`: retomar uma conversa do histórico (pasta, sessão e conta dela). Sem `from`, "resume" retoma a mais recente do personagem. */
+  async startCast(id: string, mode: 'new' | 'resume', prompt: string, from?: { room: string; session: string; account: string }): Promise<string | undefined> {
+    return this.castRequest(`/api/cast/${encodeURIComponent(id)}/start`, 'POST', { mode, ...(prompt ? { prompt } : {}), ...(from ?? {}) });
   }
 
   async dismissCast(id: string): Promise<string | undefined> {
@@ -330,7 +330,7 @@ export class OfficeStore {
   /** `from`: criar a partir deste agente (ele veste o personagem novo; o nome dele não conta como em uso). */
   async saveCast(body: Omit<CastMember, 'id'> | CastMember, from?: string): Promise<string | undefined> {
     const id = 'id' in body ? body.id : undefined;
-    return this.castRequest(id ? `/api/cast/${encodeURIComponent(id)}` : '/api/cast', id ? 'PUT' : 'POST', { ...body, home: body.home ?? null, match: body.match ?? null, model: body.model ?? null, instructions: body.instructions ?? null, idleMinutes: body.idleMinutes ?? null, account: body.account ?? null, ...(from ? { from } : {}) });
+    return this.castRequest(id ? `/api/cast/${encodeURIComponent(id)}` : '/api/cast', id ? 'PUT' : 'POST', { ...body, match: body.match ?? null, model: body.model ?? null, instructions: body.instructions ?? null, idleMinutes: body.idleMinutes ?? null, account: body.account ?? null, ...(from ? { from } : {}) });
   }
 
   async deleteCast(id: string): Promise<string | undefined> {

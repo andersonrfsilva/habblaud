@@ -341,7 +341,7 @@ export class Office {
       // Sessão que voltou durante o período de graça.
       delete existing.removeAt;
       if (p.cast && p.cast !== this.cast.binding(p.sessionId)) {
-        this.applyCast(existing.info, this.castFor({ id: p.id, session: p.sessionId, room: existing.info.roomId, explicit: p.cast }));
+        this.applyCast(existing.info, this.castFor({ id: p.id, session: p.sessionId, explicit: p.cast }));
         keepNewCast(existing.info, p.cast);
         this.castFallbackNotice(existing.info, p.cast);
         this.markDirty();
@@ -351,7 +351,7 @@ export class Office {
     }
     const roomId = normalizeCwd(p.cwd);
     this.ensureRoom(roomId, now);
-    const chosen = this.castFor({ id: p.id, session: p.sessionId, room: roomId, explicit: p.cast });
+    const chosen = this.castFor({ id: p.id, session: p.sessionId, explicit: p.cast });
     const person = chosen ?? this.deps.names.assign(p.sessionId, this.takenNames(undefined, p.sessionId));
     const info: AgentInfo = {
       id: p.id,
@@ -396,7 +396,7 @@ export class Office {
     if (bound) this.cast.bind(sessionId, bound);
     if (!info.cast) this.deps.names.remember(sessionId, { name: info.name, look: info.look });
     info.sessionId = sessionId;
-    this.applyCast(info, this.castFor({ id, session: sessionId, room: info.roomId }));
+    this.applyCast(info, this.castFor({ id, session: sessionId }));
     this.castFallbackNotice(info);
     info.tasks = [];
     info.stats = zeroStats();
@@ -609,11 +609,11 @@ export class Office {
     if (!rec || rec.info.kind !== 'main' || rec.info.roomId === roomId) return;
     this.ensureRoom(roomId, this.now());
     rec.info.roomId = roomId;
-    this.applyCast(rec.info, this.castFor({ id, session: rec.info.sessionId, room: roomId }));
+    this.applyCast(rec.info, this.castFor({ id, session: rec.info.sessionId }));
     this.castFallbackNotice(rec.info);
     for (const sub of this.descendants(id)) {
       sub.info.roomId = roomId;
-      this.applyCast(sub.info, this.castFor({ id: sub.info.id, session: sub.info.sessionId, room: roomId, sub: true, role: sub.info.role, agentType: sub.info.agentType }));
+      this.applyCast(sub.info, this.castFor({ id: sub.info.id, session: sub.info.sessionId, sub: true, role: sub.info.role, agentType: sub.info.agentType }));
     }
     this.markDirty();
   }
@@ -629,7 +629,7 @@ export class Office {
       this.reactivateSub(p.id);
       return true;
     }
-    const chosen = this.castFor({ id: p.id, session: p.sessionId, room: parent.info.roomId, role: p.role, agentType: p.agentType, sub: true });
+    const chosen = this.castFor({ id: p.id, session: p.sessionId, role: p.role, agentType: p.agentType, sub: true });
     const person = chosen ?? this.deps.names.assign(p.id, this.takenNames());
     const info: AgentInfo = {
       id: p.id,
@@ -858,28 +858,21 @@ export class Office {
 
   // ---------------------------------------------------------------- elenco
 
-  private castFor(p: { id: string; session: string; room: string; explicit?: string; sub?: boolean; role?: string; agentType?: string }): CastMember | undefined {
+  private castFor(p: { id: string; session: string; explicit?: string; sub?: boolean; role?: string; agentType?: string }): CastMember | undefined {
     const free = (m: CastMember) => !(this.deps.castLauncher?.()?.state(m.id) && !(p.explicit === m.id && this.deps.castLauncher?.()?.state(m.id) === 'calling')) && ![...this.agents.values()].some((r) => r.info.id !== p.id && r.removeAt === undefined && r.info.cast === m.id);
-    const allowed = (m: CastMember) => !m.rooms.length || m.rooms.includes(p.room);
     if (p.sub) {
-      const usable = this.cast.list().filter((m) => allowed(m) && free(m));
+      const usable = this.cast.list().filter(free);
       if (p.role === '__advisor') return usable.find((m) => m.kind === 'advisor');
       const type = p.agentType?.toLowerCase();
-      // Tipo listado vence; sem tipos, o personagem serve a qualquer subagente (como salas vazias = qualquer sala).
+      // Tipo listado vence; sem tipos, o personagem serve a qualquer subagente.
       return usable.find((m) => m.kind === 'sub' && !!type && !!m.match?.some((t) => t.toLowerCase() === type))
         ?? usable.find((m) => m.kind === 'sub' && !m.match?.length);
     }
     const wanted = p.explicit ?? this.cast.binding(p.session);
-    if (wanted) {
-      const member = this.cast.get(wanted);
-      if (member && p.explicit) this.cast.bind(p.session, member.id);
-      if (member && member.kind === 'main' && allowed(member) && free(member)) return member;
-      return undefined;
-    }
-    const member = this.cast.list().find((m) => m.kind === 'main' && m.home === p.room && allowed(m) && free(m)
-      && ![...this.agents.values()].some((r) => r.removeAt === undefined && r.info.kind === 'main' && r.info.sessionId !== p.session && this.cast.binding(r.info.sessionId) === m.id));
-    if (member) this.cast.bind(p.session, member.id);
-    return member;
+    if (!wanted) return undefined;
+    const member = this.cast.get(wanted);
+    if (member && p.explicit) this.cast.bind(p.session, member.id);
+    return member && member.kind === 'main' && free(member) ? member : undefined;
   }
 
   private castFallbackNotice(info: AgentInfo, explicit?: string): void {
@@ -889,9 +882,7 @@ export class Office {
     if (!member) return;
     const room = this.roomName(info.roomId);
     const occupied = [...this.agents.values()].find((r) => r.info.id !== info.id && r.removeAt === undefined && r.info.cast === member.id);
-    const text = member.rooms.length && !member.rooms.includes(info.roomId)
-      ? tr('{0} não trabalha em {1}; {2} assumiu a sessão', [member.name, room, info.name])
-      : tr('{0} está ocupado em {1}; {2} assumiu a sessão', [member.name, occupied ? this.roomName(occupied.info.roomId) : room, info.name]);
+    const text = tr('{0} está ocupado em {1}; {2} assumiu a sessão', [member.name, occupied ? this.roomName(occupied.info.roomId) : room, info.name]);
     this.notice('character', info.id, 'info', text, info.roomId);
   }
 
@@ -909,14 +900,17 @@ export class Office {
 
   private rememberCast(info: AgentInfo): void {
     const member = info.cast && this.cast.get(info.cast);
-    if (!member || member.kind !== 'main' || member.last?.[info.roomId] === info.sessionId) return;
-    this.cast.put({ ...member, last: { ...member.last, [info.roomId]: info.sessionId } });
+    if (!member || member.kind !== 'main') return;
+    const { [info.roomId]: previous, ...rest } = member.last ?? {};
+    // Reinsere a sala no fim: a última chave é a sessão mais recente (o "Continuar" do Chamar usa ela).
+    if (previous === info.sessionId && Object.keys(member.last!).at(-1) === info.roomId) return;
+    this.cast.put({ ...member, last: { ...rest, [info.roomId]: info.sessionId } });
   }
 
   requestCast(id: string, castId: string): void {
     const rec = this.agents.get(id);
     if (!rec || rec.info.kind !== 'main') return;
-    this.applyCast(rec.info, this.castFor({ id, session: rec.info.sessionId, room: rec.info.roomId, explicit: castId }));
+    this.applyCast(rec.info, this.castFor({ id, session: rec.info.sessionId, explicit: castId }));
     keepNewCast(rec.info, castId);
     this.castFallbackNotice(rec.info, castId);
     this.markDirty();
@@ -930,7 +924,7 @@ export class Office {
     for (const r of this.agents.values()) {
       if (r.info.cast !== member.id) continue;
       const info = r.info;
-      const chosen = this.castFor({ id: info.id, session: info.sessionId, room: info.roomId, sub: info.kind === 'sub', role: info.role, agentType: info.agentType });
+      const chosen = this.castFor({ id: info.id, session: info.sessionId, sub: info.kind === 'sub', role: info.role, agentType: info.agentType });
       this.applyCast(info, chosen);
       if (info.kind === 'main' && !chosen) this.castFallbackNotice(info);
     }
@@ -946,11 +940,10 @@ export class Office {
     return true;
   }
 
-  dress(id: string, castId: string): 'ok' | 'not-found' | 'conflict' | 'room' {
+  dress(id: string, castId: string): 'ok' | 'not-found' | 'conflict' {
     const rec = this.agents.get(id);
     const member = this.cast.get(castId);
     if (!rec || rec.removeAt !== undefined || rec.info.kind !== 'main' || !member || member.kind !== 'main') return 'not-found';
-    if (member.rooms.length && !member.rooms.includes(rec.info.roomId)) return 'room';
     if ([...this.agents.values()].some((r) => r.info.id !== id && r.removeAt === undefined && r.info.cast === castId)) return 'conflict';
     this.cast.bind(rec.info.sessionId, castId);
     this.applyCast(rec.info, member);

@@ -51,6 +51,8 @@ export interface ZeroClawCastOptions {
   delivery(): Pick<ZeroClawDelivery, 'cancelSession' | 'stopSession'> | undefined;
   messages(): Pick<MessageRegistry, 'send'> | undefined;
   account(): string | undefined;
+  /** Pasta pessoal do servidor: toda sessão nova abre nela. */
+  home: string;
   ready(): boolean;
   afterOpen?(): Promise<void>;
 }
@@ -72,18 +74,19 @@ export class ZeroClawCast {
     connector.onEvent(listener);
     return true;
   }
-  prepare(input: { cast: string; name: string; room: string; model?: string; resume?: string;
+  prepare(input: { cast: string; name: string; room?: string; model?: string; resume?: string;
     instructions?: string; prompt?: string; account?: unknown }): { session: OpenSession; text?: string } {
     const connector = this.options.connector();
     if (!connector) throw new Error('ZeroClaw está indisponível');
-    if (/[\x00-\x1f]/.test(input.room)) throw new Error('Pasta ZeroClaw inválida');
+    const room = input.room ?? this.options.home;
+    if (/[\x00-\x1f]/.test(room)) throw new Error('Pasta ZeroClaw inválida');
     if (input.account !== undefined && (typeof input.account !== 'string' || input.account !== this.options.account())) {
       throw new Error('Conta ZeroClaw incompatível');
     }
     let alias = resolveZeroClawModel(this.options.catalog, input.model);
     if (input.resume !== undefined) {
       const original = connector.metadataOf(input.resume);
-      if (!original || normalizeCwd(original.cwd) !== input.room
+      if (!original || normalizeCwd(original.cwd) !== room
         || !this.options.catalog.models.some((entry) => entry.alias === original.agent)) throw new Error('Histórico ZeroClaw incompatível com a sala ou o catálogo');
       if (input.model !== undefined && alias !== original.agent) throw new Error('Modelo da conversa ZeroClaw diferente: abra uma conversa nova');
       if (connector.session(input.resume)) throw new Error('Conversa ZeroClaw já aberta');
@@ -93,7 +96,7 @@ export class ZeroClawCast {
     const text = input.resume === undefined && input.instructions
       ? `Instruções do personagem:\n${input.instructions}${input.prompt ? `\n\nPedido inicial:\n${input.prompt}` : ''}`
       : input.prompt;
-    return { session: { sessionId: input.resume ?? randomUUID(), agent: alias, name: input.name, cwd: input.room, cast: input.cast },
+    return { session: { sessionId: input.resume ?? randomUUID(), agent: alias, name: input.name, cwd: room, cast: input.cast },
       ...(text ? { text } : {}) };
   }
   async open(session: OpenSession): Promise<void> {

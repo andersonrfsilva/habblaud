@@ -12103,37 +12103,6 @@ button.ui-files__open { cursor: pointer; }
   border-top: 1px solid var(--ui-line);
 }
 .ui-cast__actions .ui-btn--primary { min-width: 120px; justify-content: center; }
-.ui-folder-picker { display: grid; gap: 6px; }
-.ui-folder-picker__tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.ui-folder-picker__tools .ui-spawn__other { margin: 0; }
-.ui-folder-picker__other { display: flex; gap: 6px; align-items: center; }
-.ui-folder-picker__other[hidden] { display: none; }
-.ui-folder-picker__badge { color: var(--ui-accent); font-weight: 600; }
-.ui-folder-picker__browser {
-  display: grid;
-  gap: 6px;
-  padding: 10px;
-  border: 1px solid var(--ui-line-strong);
-  border-radius: var(--radius-sm);
-  background: var(--ui-bg-soft);
-  overflow-wrap: anywhere;
-}
-.ui-folder-picker__browser:empty { display: none; }
-.ui-folder-picker__browser .ui-files__list { max-height: 240px; overflow: auto; margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; }
-.ui-folder-picker__bar { display: flex; align-items: center; gap: 8px; }
-.ui-folder-picker__path { flex: 1; min-width: 0; font: 12px var(--font-mono, monospace); color: var(--ui-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
-.ui-folder-picker__dir {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  min-height: 34px;
-  padding: 4px 8px;
-  border-radius: 6px;
-  text-align: left;
-}
-.ui-folder-picker__dir:hover, .ui-folder-picker__dir:focus-visible { background: color-mix(in srgb, var(--ui-accent) 12%, transparent); outline: none; }
-.ui-folder-picker__foot { display: flex; justify-content: flex-end; gap: 8px; }
 /* O corpo do diálogo tem altura limitada: a tela do elenco fica do tamanho do conteúdo (o corpo rola), em vez de
    esticar até a altura do corpo e espremer as listas roláveis (cartões, subpastas). */
 .ui-cast .ui-cast__content { align-content: start; }

@@ -427,9 +427,6 @@ tap 'Chamar contato'
 wait_text 'Escolha um contato'
 shot elenco-contato
 tap 'Caio Fictício'
-wait_text 'Escolha a pasta do projeto'
-shot elenco-pasta
-tap '/fixture/jardim'
 wait_text 'Pedido enviado. Aguardando o servidor.'
 shot elenco-aguardando
 printf 'cast-consume\n' >&3

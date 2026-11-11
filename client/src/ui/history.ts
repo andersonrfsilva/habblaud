@@ -96,7 +96,7 @@ export function canResumeViaCast(s: RecentSession, catalog: CastModelCatalog | u
 }
 
 export function castResumeTargets(s: RecentSession, members: readonly CastMember[], agents: readonly AgentInfo[]): CastMember[] {
-  return members.filter((m) => m.kind === 'main' && (!m.rooms.length || m.rooms.includes(s.project ?? ''))
+  return members.filter((m) => m.kind === 'main'
     && (!m.account || m.account === s.account)
     && !agents.some((a) => a.cast === m.id && a.status !== 'offline' && a.status !== 'done'));
 }
@@ -109,7 +109,7 @@ export async function resumeHistoryCast(
   terminal: Pick<TerminalControl, 'openSession'>,
 ): Promise<string | undefined> {
   if (s.open) { terminal.openSession(s); return; }
-  if (cast) return store.startCast(cast, s.project!, 'resume', '', { session: s.sessionId, account: s.account });
+  if (cast) return store.startCast(cast, 'resume', '', { room: s.project!, session: s.sessionId, account: s.account });
   try {
     const response = await fetch('/api/cast/new', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },

@@ -27,13 +27,12 @@ export interface CastMember {
   parts?: AppearanceParts;
   kind: 'main' | 'advisor' | 'sub';
   match?: string[];
-  home?: string;
-  rooms: string[];
   model?: string;
   instructions?: string;
   /** Minutos parado até ser dispensado; ausente = CAST_IDLE_MINUTES; 0 = nunca. */
   idleMinutes?: number;
   account?: string;
+  /** Última sessão por sala; a ordem das chaves segue o uso (a última é a mais recente). */
   last?: Record<string, string>;
 }
 
@@ -49,7 +48,8 @@ export type OmpEditableRole = (typeof OMP_EDITABLE_ROLES)[number];
 export type OmpRoles = Partial<Record<OmpEditableRole, string | null>>;
 
 export type CastJob =
-  | { id: string; op: 'start'; cast: string; folder: string; agentDir: string; model?: string; instructionsFile?: string; resume?: string; prompt?: string }
+  /** `folder` ausente: o auxiliar abre na pasta pessoal do host. */
+  | { id: string; op: 'start'; cast: string; folder?: string; agentDir: string; model?: string; instructionsFile?: string; resume?: string; prompt?: string }
   | { id: string; op: 'stop'; cast: string }
   | { id: string; op: 'roles'; cast: ''; agentDir: string; roles: OmpRoles };
 

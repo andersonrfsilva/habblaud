@@ -114,7 +114,7 @@ SDK local temporário, Xvfb `:89` e fixture real na porta `14789`, permitindo
 - `permission-bash`, `permission-question-single`, `permission-question-multi`, `permission-question-omp`;
 - `settings-appearance`, `settings-roles`, `settings-role-dialog`, `settings-quotas`;
 - `aside`, `session-info`, `conversation-menu`, `list-menu`;
-- `cast-picker`, `cast-folders`, `cast-dismiss`, `cast-resume-picker`, `cast-resume`.
+- `cast-picker`, `cast-dismiss`, `cast-resume-picker`, `cast-resume`.
 
 As capturas intermediárias foram feitas por XTest e incluem diálogos reais. Ainda falta
 auditar todos os arquivos, capturar novamente o Rust integrado e produzir todos os pares
@@ -272,7 +272,6 @@ Horários relativos, IDs e portas da fixture variam entre execuções; não são
 | aside | F, M, P |
 | session-info | F, P |
 | cast-picker | F, A |
-| cast-folders | F, A |
 | cast-dismiss | F |
 | cast-resume-picker | F, A |
 | cast-resume | F, A |

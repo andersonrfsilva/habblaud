@@ -50,20 +50,28 @@ export class CastLauncher {
   start(id: string, raw: unknown): { job: CastJobInfo } | { status: number; error: string } {
     const member = this.opts.member(id);
     const body = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
-    if (!member || member.kind !== 'main' || typeof body.room !== 'string' || (body.mode !== 'new' && body.mode !== 'resume') || (body.prompt !== undefined && (typeof body.prompt !== 'string' || body.prompt.length > PROMPT_MAX || /^\s*-/.test(body.prompt))) || (member.model !== undefined && member.model.startsWith('-'))) return { status: 422, error: tr('pedido inválido') };
+    if (!member || member.kind !== 'main' || (body.mode !== 'new' && body.mode !== 'resume') || (body.mode === 'new' && body.session !== undefined) || (body.prompt !== undefined && (typeof body.prompt !== 'string' || body.prompt.length > PROMPT_MAX || /^\s*-/.test(body.prompt))) || (member.model !== undefined && member.model.startsWith('-'))) return { status: 422, error: tr('pedido inválido') };
     if (this.state(id) || this.opts.agents().some((a) => a.cast === id && a.status !== 'offline' && a.status !== 'done')) return { status: 409, error: tr('personagem ocupado') };
     const limit = this.limitError();
     if (limit) return limit;
     if (this.opts.zeroclaw && this.isOpened(id)) return { status: 409, error: tr('personagem ocupado') };
-    // Sem salas no personagem vale qualquer pasta absoluta (o auxiliar confere se ela existe no host); com salas, só elas.
-    const room = normalizeCwd(body.room);
-    if (!isAbsolute(room) || room.length > 1024) return { status: 422, error: tr('informe a pasta do projeto (caminho absoluto)') };
-    // `session`: retomar uma conversa escolhida no histórico (pode ser de outro agente); sem ele, a última do personagem na sala.
-    const explicit = body.session !== undefined;
-    if (explicit && (body.mode !== 'resume' || typeof body.session !== 'string')) return { status: 422, error: tr('pedido inválido') };
-    if ((member.rooms.length && !member.rooms.includes(room)) || (body.mode === 'resume' && !explicit && !member.last?.[room])) return { status: 422, error: tr('personagem não trabalha nesta sala') };
-    const resume = body.mode === 'resume' ? (explicit ? body.session as string : member.last![room]) : undefined;
-    if (resume !== undefined && !/^[0-9a-f][0-9a-f-]{7,199}$/i.test(resume)) return { status: 422, error: tr('pedido inválido') };
+    // Nova sessão: sempre na pasta pessoal (o `room` de clientes antigos é ignorado).
+    // Retomar: `session` escolhida no histórico (pode ser de outro agente) vem com a pasta dela; sem ela, a conversa
+    // mais recente do personagem (a última chave de `last`).
+    let room: string | undefined;
+    let resume: string | undefined;
+    if (body.mode === 'resume') {
+      if (body.session !== undefined) {
+        if (typeof body.session !== 'string') return { status: 422, error: tr('pedido inválido') };
+        room = resumeRoom(body.room);
+        if (!room) return { status: 422, error: tr('informe a pasta do projeto (caminho absoluto)') };
+        resume = body.session;
+      } else {
+        [room, resume] = Object.entries(member.last ?? {}).at(-1) ?? [];
+        if (!room) return { status: 422, error: tr('personagem sem conversa anterior') };
+      }
+      if (!/^[0-9a-f][0-9a-f-]{7,199}$/i.test(resume!)) return { status: 422, error: tr('pedido inválido') };
+    }
     if (this.opts.zeroclaw) return this.startZeroClaw({ cast: id, name: member.name, room, model: member.model,
       resume, instructions: body.mode === 'new' ? member.instructions : undefined, prompt: body.prompt as string | undefined, account: body.account });
     if (!this.available()) return { status: 503, error: tr('auxiliar do host desligado (npm run codex:bridge)') };
@@ -80,29 +88,29 @@ export class CastLauncher {
         writeFileSync(instructionsFile, member.instructions, { mode: 0o600 });
       } catch { return { status: 500, error: tr('não foi possível gravar as instruções') }; }
     }
-    const job: CastJob = { id: randomUUID(), op: 'start', cast: id, folder: room, agentDir, ...(member.model ? { model: member.model } : {}), ...(instructionsFile ? { instructionsFile } : {}), ...(resume ? { resume } : {}), ...(body.prompt ? { prompt: body.prompt as string } : {}) };
+    const job: CastJob = { id: randomUUID(), op: 'start', cast: id, ...(room ? { folder: room } : {}), agentDir, ...(member.model ? { model: member.model } : {}), ...(instructionsFile ? { instructionsFile } : {}), ...(resume ? { resume } : {}), ...(body.prompt ? { prompt: body.prompt as string } : {}) };
     return { job: this.enqueue(job) };
   }
   /**
-   * "Novo": agente fora do elenco, numa sala livre. O escritório sorteia nome e visual (como numa sessão aberta à mão);
+   * "Novo": agente fora do elenco, na pasta pessoal. O escritório sorteia nome e visual (como numa sessão aberta à mão);
    * o id `novo-…` só serve para acompanhar a chamada, dispensar e encerrar por ociosidade como um personagem.
-   * Com `session`, retoma essa conversa do histórico (quando nenhum personagem livre trabalha na pasta).
+   * Com `session`, retoma essa conversa do histórico na pasta dela (`room`).
    */
   startNew(raw: unknown): { job: CastJobInfo } | { status: number; error: string } {
     const body = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
-    if (typeof body.room !== 'string' || (body.account !== undefined && typeof body.account !== 'string') || (body.prompt !== undefined && (typeof body.prompt !== 'string' || body.prompt.length > PROMPT_MAX || /^\s*-/.test(body.prompt)))) return { status: 422, error: tr('pedido inválido') };
+    if ((body.account !== undefined && typeof body.account !== 'string') || (body.prompt !== undefined && (typeof body.prompt !== 'string' || body.prompt.length > PROMPT_MAX || /^\s*-/.test(body.prompt)))) return { status: 422, error: tr('pedido inválido') };
     if (body.session !== undefined && (typeof body.session !== 'string' || !/^[0-9a-f][0-9a-f-]{7,199}$/i.test(body.session))) return { status: 422, error: tr('pedido inválido') };
     const limit = this.limitError();
     if (limit) return limit;
-    const room = normalizeCwd(body.room);
-    if (!isAbsolute(room) || room.length > 1024) return { status: 422, error: tr('informe a pasta do projeto (caminho absoluto)') };
+    const room = body.session === undefined ? undefined : resumeRoom(body.room);
+    if (body.session !== undefined && !room) return { status: 422, error: tr('informe a pasta do projeto (caminho absoluto)') };
     if (this.opts.zeroclaw) return this.startZeroClaw({ cast: `${NEW_CAST_PREFIX}${randomUUID().slice(0, 8)}`,
       name: 'Novo', room, resume: body.session as string | undefined, prompt: body.prompt as string | undefined, account: body.account });
     if (!this.available()) return { status: 503, error: tr('auxiliar do host desligado (npm run codex:bridge)') };
     const agentDir = this.opts.account(body.account as string | undefined);
     if (!agentDir) return { status: 422, error: tr('conta não encontrada') };
     const cast = `${NEW_CAST_PREFIX}${randomUUID().slice(0, 8)}`;
-    return { job: this.enqueue({ id: randomUUID(), op: 'start', cast, folder: room, agentDir, ...(body.session ? { resume: body.session as string } : {}), ...(body.prompt ? { prompt: body.prompt as string } : {}) }) };
+    return { job: this.enqueue({ id: randomUUID(), op: 'start', cast, ...(room ? { folder: room } : {}), agentDir, ...(body.session ? { resume: body.session as string } : {}), ...(body.prompt ? { prompt: body.prompt as string } : {}) }) };
   }
   private limitError(): { status: number; error: string } | undefined {
     if (this.opts.max === undefined || this.openCount() < this.opts.max) return undefined;
@@ -343,3 +351,9 @@ export class CastLauncher {
 
 /** `provedor/modelo`, com `:nível` de raciocínio opcional (o omp separa o último `:off|…|max`); nada de espaço ou controle. */
 const ROLE_VALUE = /^[A-Za-z0-9][\w.-]*\/[^\s\x00-\x1f\x7f]{1,200}$/;
+
+/** Pasta da conversa retomada: absoluta e de tamanho sensato (o auxiliar confere se ela existe no host). */
+function resumeRoom(raw: unknown): string | undefined {
+  const room = typeof raw === 'string' ? normalizeCwd(raw) : '';
+  return isAbsolute(room) && room.length <= 1024 ? room : undefined;
+}

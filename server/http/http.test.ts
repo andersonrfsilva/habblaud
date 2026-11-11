@@ -149,38 +149,15 @@ describe('rotas do auxiliar do elenco', () => {
       }
     }
   });
-  it('navega somente pastas contidas nas raízes e exige a trava', async () => {
-    const tmp = tempDir();
-    const root = join(tmp.dir, 'root');
-    mkdirSync(join(root, 'pasta'), { recursive: true });
-    mkdirSync(join(root, '.oculta'));
-    writeFileSync(join(root, 'arquivo'), '');
-    symlinkSync(tmp.dir, join(root, 'escape'));
-    const launcher = new CastLauncher({ dataDir: tmp.dir, member: () => undefined, agents: () => [], account: () => tmp.dir, changed: () => {} });
-    const env = await start({ terminal: true, castLauncher: launcher, castRoots: [root] });
-    try {
-      const get = (path: string) => fetch(`${env.base}/api/cast/dirs?path=${encodeURIComponent(path)}`);
-      const result = await (await get(root)).json() as { dirs: { name: string }[] };
-      expect(result.dirs.map((entry) => entry.name)).toEqual(['pasta']);
-      expect((await get(tmp.dir)).status).toBe(404);
-      expect((await get(join(root, 'escape'))).status).toBe(404);
-      expect((await get(`${root}/../root`)).status).toBe(404);
-      expect((await raw(env.base, '/api/cast/dirs', { headers: { Host: 'habblaud.lan' } })).status).toBe(403);
-    } finally {
-      await env.close();
-      env.cleanup();
-      tmp.cleanup();
-    }
-  });
   it('exige acesso local e aceita uma chamada após o poll', async () => {
     const agents: AgentInfo[] = [];
     const launcher = new CastLauncher({
-      dataDir: '/tmp', member: () => ({ id: 'ana', name: 'Ana', kind: 'main', look: 'f', seed: 1, rooms: ['/a'] }),
+      dataDir: '/tmp', member: () => ({ id: 'ana', name: 'Ana', kind: 'main', look: 'f', seed: 1 }),
       agents: () => agents, account: () => '/tmp', changed: () => {},
     });
     const env = await start({ terminal: true, castLauncher: launcher });
     try {
-      const body = JSON.stringify({ room: '/a', mode: 'new' });
+      const body = JSON.stringify({ mode: 'new' });
       const post = (path: string, payload = '{}') => fetch(`${env.base}${path}`, { method: 'POST', headers: JSON_HEADERS, body: payload });
       expect((await post('/api/cast/ana/start', body)).status).toBe(503);
       expect((await raw(env.base, '/api/host/cast/poll', { method: 'POST', headers: { Host: 'habblaud.lan', ...JSON_HEADERS }, body: '{}' })).status).toBe(403);
@@ -190,7 +167,7 @@ describe('rotas do auxiliar do elenco', () => {
       expect(await started.json()).toMatchObject({ job: { cast: 'ana', op: 'start', status: 'queued' } });
       expect((await post('/api/cast/ana/start', body)).status).toBe(409);
       expect((await post('/api/agents/unknown/dismiss')).status).toBe(404);
-      env.office.cast.put({ id: 'ana', name: 'Ana', kind: 'main', look: 'f', seed: 1, rooms: ['/a'] });
+      env.office.cast.put({ id: 'ana', name: 'Ana', kind: 'main', look: 'f', seed: 1 });
       env.office.addMain({ id: 'cast-ana', account: '.claude', sessionId: 'ana-session', cast: 'ana', cwd: '/a', role: 'Agente principal', startedAt: Date.now(), status: 'idle' });
       agents.push(env.office.get('cast-ana')!);
       const [job] = launcher.poll();
@@ -400,7 +377,7 @@ describe('elenco (API)', () => {
   afterEach(async () => { await env.close(); env.cleanup(); });
   const request = (path: string, method: string, body?: unknown) => fetch(`${env.base}${path}`, { method, headers: JSON_HEADERS, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   const agentPath = (id = '.claude:1') => `/api/agents/${encodeURIComponent(id)}/cast`;
-  const member = { name: 'Ana Backend', look: 'f', seed: 7, kind: 'main', rooms: ['/p/loja'], home: '/p/loja', parts: { skin: '#5a3623' } };
+  const member = { name: 'Ana Backend', look: 'f', seed: 7, kind: 'main', parts: { skin: '#5a3623' } };
 
   it('cria, lista, veste, edita e apaga', async () => {
     expect((await request('/api/cast', 'POST', member)).status).toBe(201);
@@ -409,21 +386,24 @@ describe('elenco (API)', () => {
     expect(env.office.get('.claude:1')).toMatchObject({ cast: 'ana-backend', name: member.name });
     expect((await request('/api/cast/ana-backend', 'PUT', { name: 'Ana Nova' })).status).toBe(200);
     expect(env.office.get('.claude:1')?.name).toBe('Ana Nova');
+    // `rooms`/`home` de clientes antigos são ignorados: o personagem continua vestido.
     expect((await request('/api/cast/ana-backend', 'PUT', { home: null, rooms: ['/p/web'] })).status).toBe(200);
-    expect(env.office.get('.claude:1')?.cast).toBeUndefined();
-    expect(env.office.cast.get('ana-backend')?.home).toBeUndefined();
+    expect(env.office.get('.claude:1')?.cast).toBe('ana-backend');
+    expect(env.office.cast.get('ana-backend')).not.toHaveProperty('rooms');
     expect((await request('/api/cast/ana-backend', 'DELETE')).status).toBe(200);
     expect(env.office.get('.claude:1')?.cast).toBeUndefined();
   });
 
-  it('recusa ocupado, sala proibida e nomes duplicados', async () => {
+  it('recusa ocupado e nomes duplicados; veste em qualquer sala', async () => {
     expect((await request('/api/cast', 'POST', member)).status).toBe(201);
     expect((await request('/api/cast', 'POST', member)).status).toBe(409);
     expect((await request(agentPath(), 'PUT', { cast: 'ana-backend' })).status).toBe(200);
     env.office.addMain({ id: '.claude:2', account: '.claude', sessionId: 's2', cwd: '/p/loja', role: 'Agente principal', startedAt: Date.now(), status: 'working' });
     expect((await request(agentPath('.claude:2'), 'PUT', { cast: 'ana-backend' })).status).toBe(409);
     env.office.moveMain('.claude:2', '/p/web');
-    expect((await request(agentPath('.claude:2'), 'PUT', { cast: 'ana-backend' })).status).toBe(422);
+    expect((await request(agentPath('.claude:2'), 'PUT', { cast: 'ana-backend' })).status).toBe(409);
+    env.office.closeMain('.claude:1');
+    expect((await request(agentPath('.claude:2'), 'PUT', { cast: 'ana-backend' })).status).toBe(200);
   });
 
   it('DELETE de agente inexistente retorna erro 404', async () => {

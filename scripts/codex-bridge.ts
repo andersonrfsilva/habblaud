@@ -442,13 +442,15 @@ export async function castRound(post: Post, run: CastRun, log: (line: string) =>
       if (job.op === 'stop') {
         if (exists) await run(opts.tmux, ['kill-session', '-t', `=${name}`]);
       } else {
-        if (exists || !opts.omp || typeof job.folder !== 'string' || !isAbsolute(job.folder) || !isDir(job.folder) || typeof job.agentDir !== 'string' || !isAbsolute(job.agentDir) || !isDir(join(job.agentDir, 'sessions'))) throw new Error(tr('pedido inválido'));
+        // Sem `folder` (sessão nova), abre na pasta pessoal do host.
+        const folder = job.folder ?? homedir();
+        if (exists || !opts.omp || typeof folder !== 'string' || !isAbsolute(folder) || !isDir(folder) || typeof job.agentDir !== 'string' || !isAbsolute(job.agentDir) || !isDir(join(job.agentDir, 'sessions'))) throw new Error(tr('pedido inválido'));
         if (job.instructionsFile !== undefined) {
           if (typeof job.instructionsFile !== 'string' || !isAbsolute(job.instructionsFile)) throw new Error(tr('pedido inválido'));
           const rel = relative(realpathSync(join(opts.dataDir, 'cast')), realpathSync(job.instructionsFile));
           if (!rel || rel.startsWith('..') || isAbsolute(rel)) throw new Error(tr('pedido inválido'));
         }
-        const args = ['new-session', '-d', '-s', name, '-c', job.folder, '-e', `HABBLAUD_CAST=${job.cast}`, '-e', `PI_CODING_AGENT_DIR=${job.agentDir}`, '-e', `HABBLAUD_PORT=${opts.port}`];
+        const args = ['new-session', '-d', '-s', name, '-c', folder, '-e', `HABBLAUD_CAST=${job.cast}`, '-e', `PI_CODING_AGENT_DIR=${job.agentDir}`, '-e', `HABBLAUD_PORT=${opts.port}`];
         // O servidor tmux pode manter um ambiente anterior ao reinício do auxiliar.
         for (const key of ['PUPPETEER_EXECUTABLE_PATH', 'MOLI_BIN', 'MOLI_CHROME_HEADED']) {
           const value = process.env[key];
