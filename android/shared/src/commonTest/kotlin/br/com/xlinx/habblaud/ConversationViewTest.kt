@@ -108,4 +108,12 @@ class ConversationViewTest {
         ))
         assertEquals(setOf("a1:err", "a3:err"), recovered)
     }
+
+    @Test fun briefStartsAtFirstProseSkipsCodeTitlesTablesAndCutsAtWord() {
+        val reply = "## Causa\n\n```kotlin\nval x = 1\n```\n\nO **resumo** demora: `slot` atende 2 por vez.\n\n| a | b |\n|---|---|\n\n- Cada pedido leva 2,3 s.\n- A fila cresce.\n\n" + "fim ".repeat(200)
+        val brief = replyBrief(reply)
+        assertEquals("O resumo demora: slot atende 2 por vez. Cada pedido leva 2,3 s. A fila cresce.", brief.substringBefore(" fim"))
+        assertTrue(brief.length <= 400 && brief.endsWith("fim…"), brief)
+        assertEquals("", replyBrief("```\n" + "código\n".repeat(100) + "```"))
+    }
 }
