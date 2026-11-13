@@ -264,9 +264,9 @@ describe('agentes fixos: persona e Telegram', () => {
       expect(await (await fetch(`${env.base}/api/cast/pato/telegram`)).json()).toEqual({ linked: true, peers: ['646407890'], active: true });
       expect((await put(env.base, 'telegram', { token, peers: ['123'] })).status).toBe(200);
       expect(readdirSync(directory)).toEqual(['tiopatinhas.json']);
-      expect((await fetch(`${env.base}/api/cast/pato/telegram`, { method: 'DELETE' })).status).toBe(200);
+      expect((await fetch(`${env.base}/api/cast/pato/telegram`, { method: 'DELETE', headers: JSON_HEADERS })).status).toBe(200);
       expect(existsSync(file)).toBe(false);
-      expect((await fetch(`${env.base}/api/cast/pato/telegram`, { method: 'DELETE' })).status).toBe(200);
+      expect((await fetch(`${env.base}/api/cast/pato/telegram`, { method: 'DELETE', headers: JSON_HEADERS })).status).toBe(200);
       expect(await (await fetch(`${env.base}/api/cast/pato/telegram`)).json()).toEqual({ linked: false, peers: [], active: true });
     } finally { await env.close(); }
   });
@@ -281,7 +281,7 @@ describe('agentes fixos: persona e Telegram', () => {
       expect((await put(env.base, 'telegram', { token, peers: ['123'] })).status).toBe(500);
       expect(readFileSync(target, 'utf8')).toBe('preservado');
       expect(await (await fetch(`${env.base}/api/cast/pato/telegram`)).json()).toEqual({ linked: false, peers: [], active: false });
-      expect((await fetch(`${env.base}/api/cast/pato/telegram`, { method: 'DELETE' })).status).toBe(500);
+      expect((await fetch(`${env.base}/api/cast/pato/telegram`, { method: 'DELETE', headers: JSON_HEADERS })).status).toBe(500);
       const other = tempDir();
       try {
         symlinkSync(directory, join(other.dir, 'telegram'));
