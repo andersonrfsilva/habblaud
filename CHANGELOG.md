@@ -12,6 +12,8 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Elenco web / ZeroClaw:** personagens podem usar agentes fixos declarados pelo administrador, editar a persona
+  e solicitar vínculo de bot Telegram; a aplicação pelo host reinicia brevemente os personagens abertos.
 - **Zaplaud:** com "Resumir respostas" desligado, a resposta longa mostra na hora o começo dela em texto corrido,
   sem chamar modelo; tocar mostra a resposta completa. Vale no Android, iOS e desktop Rust.
 - **Zaplaud desktop:** O desktop Rust agora reconhece os controles disponíveis no ZeroClaw, permite interromper e iniciar conversas sem misturar rascunhos e esconde indicadores de contexto não confiáveis. Resumos HTTP funcionam sem Tiny. Aprovações e perguntas também mostram o resumo enviado pelo servidor.

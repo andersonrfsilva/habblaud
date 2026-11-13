@@ -1,10 +1,13 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { mkdirSync, realpathSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
+import { mkdirSync, realpathSync, symlinkSync, truncateSync, writeFileSync, readFileSync, statSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentInfo, ModSummary, OfficeSnapshot, PermissionRequestInfo, UpdateStatus } from '../../shared/types';
 import { CastLauncher } from '../cast/launcher';
+import { NamedAgentSettings, PERSONA_MAX_CHARS } from '../cast/named';
+import { CastStore } from '../model/cast';
+import { ZeroClawConnector } from '../sources/zeroclaw/connector';
 import { AccountsService } from '../accounts/service';
 import { setQuiet } from '../log';
 import { NameStore } from '../model/names';
@@ -180,6 +183,122 @@ describe('rotas do auxiliar do elenco', () => {
       await env.close();
       env.cleanup();
     }
+  });
+});
+
+describe('agentes fixos: persona e Telegram', () => {
+  async function setup() {
+    const tmp = tempDir();
+    let content = '';
+    let exists = false;
+    let active = false;
+    const gateway = http.createServer(async (req, res) => {
+      res.setHeader('Content-Type', 'application/json');
+      if (req.url === '/api/channels') return void res.end(JSON.stringify({ channels: active ? [{ name: 'telegram.tiopatinhas', enabled: true, status: 'ready' }] : [] }));
+      if (req.url !== '/api/personality/SOUL.md?agent=tiopatinhas') { res.writeHead(404); res.end('{}'); return; }
+      if (req.method === 'PUT') {
+        const chunks: Buffer[] = [];
+        for await (const chunk of req) chunks.push(Buffer.from(chunk));
+        content = JSON.parse(Buffer.concat(chunks).toString()).content;
+        exists = true;
+        res.end(JSON.stringify({ bytes_written: Buffer.byteLength(content) }));
+      } else res.end(JSON.stringify({ content, exists, truncated: false }));
+    });
+    const listening = Promise.withResolvers<void>();
+    gateway.listen(0, '127.0.0.1', listening.resolve);
+    await listening.promise;
+    const connector = new ZeroClawConnector({ url: `http://127.0.0.1:${(gateway.address() as AddressInfo).port}`, dataDir: tmp.dir });
+    const cast = new CastStore(null, { namedAliases: ['tiopatinhas'] });
+    cast.put({ id: 'pato', name: 'Pato', seed: 1, look: 'm', kind: 'main', agent: 'tiopatinhas' });
+    const launcher = new CastLauncher({ dataDir: tmp.dir, member: (id) => cast.get(id), agents: () => [], account: () => undefined, changed: () => {} });
+    vi.spyOn(launcher, 'namedAliases').mockReturnValue(['tiopatinhas']);
+    const env = await start({ terminal: true, castLauncher: launcher, castNamed: new NamedAgentSettings(tmp.dir, connector) }, { cast }, false);
+    return { ...env, dir: tmp.dir, activate: () => { active = true; }, close: async () => {
+      await env.close();
+      gateway.closeAllConnections();
+      const closing = Promise.withResolvers<void>();
+      gateway.close(() => closing.resolve());
+      await closing.promise;
+      env.cleanup();
+      tmp.cleanup();
+    } };
+  }
+  const token = '123456789:' + 'a'.repeat(35);
+  const put = (base: string, resource: string, body: unknown) => fetch(`${base}/api/cast/pato/${resource}`, { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify(body) });
+
+  it('lê arquivo ausente, grava persona e recusa tamanho excessivo e acesso sem confiança', async () => {
+    const env = await setup();
+    try {
+      expect(await (await fetch(`${env.base}/api/cast/pato/persona`)).json()).toEqual({ text: '' });
+      expect((await put(env.base, 'persona', { text: 'Sou o Tio Patinhas 🦆' })).status).toBe(200);
+      expect(await (await fetch(`${env.base}/api/cast/pato/persona`)).json()).toEqual({ text: 'Sou o Tio Patinhas 🦆' });
+      expect((await put(env.base, 'persona', { text: 'a'.repeat(PERSONA_MAX_CHARS + 1) })).status).toBe(413);
+      expect((await put(env.base, 'persona', { text: '🦆'.repeat(PERSONA_MAX_CHARS) })).status).toBe(200);
+      expect((await put(env.base, 'persona', { text: 3 })).status).toBe(400);
+      for (const resource of ['persona', 'telegram']) {
+        for (const method of ['GET', 'PUT', ...(resource === 'telegram' ? ['DELETE'] : [])]) {
+          expect((await raw(env.base, `/api/cast/pato/${resource}`, { method, headers: { Host: 'habblaud.lan', ...JSON_HEADERS }, body: '{}' })).status).toBe(403);
+        }
+      }
+    } finally { await env.close(); }
+  });
+  it('valida pedidos, grava atomicamente com modos privados e nunca devolve token', async () => {
+    const env = await setup();
+    try {
+      for (const body of [
+        { token: 'bad', peers: ['123'] }, { token, peers: [] }, { token, peers: ['abc'] },
+        { token, peers: ['123', '123'] }, { token, peers: Array.from({ length: 9 }, (_, i) => String(i)) },
+        { token, peers: [123] }, { token, peers: ['1'.repeat(21)] }, { token, peers: ['123'], extra: true },
+      ]) expect((await put(env.base, 'telegram', body)).status).toBe(400);
+      expect((await put(env.base, 'telegram', { token, peers: ['646407890'] })).status).toBe(200);
+      const directory = join(env.dir, 'telegram');
+      const file = join(directory, 'tiopatinhas.json');
+      expect(statSync(directory).mode & 0o777).toBe(0o700);
+      expect(statSync(file).mode & 0o777).toBe(0o600);
+      expect(readdirSync(directory)).toEqual(['tiopatinhas.json']);
+      expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ token, peers: ['646407890'] });
+      const response = await (await fetch(`${env.base}/api/cast/pato/telegram`)).text();
+      expect(response).not.toContain(token);
+      expect(JSON.parse(response)).toEqual({ linked: true, peers: ['646407890'], active: false });
+      env.activate();
+      expect(await (await fetch(`${env.base}/api/cast/pato/telegram`)).json()).toEqual({ linked: true, peers: ['646407890'], active: true });
+      expect((await put(env.base, 'telegram', { token, peers: ['123'] })).status).toBe(200);
+      expect(readdirSync(directory)).toEqual(['tiopatinhas.json']);
+      expect((await fetch(`${env.base}/api/cast/pato/telegram`, { method: 'DELETE' })).status).toBe(200);
+      expect(existsSync(file)).toBe(false);
+      expect((await fetch(`${env.base}/api/cast/pato/telegram`, { method: 'DELETE' })).status).toBe(200);
+      expect(await (await fetch(`${env.base}/api/cast/pato/telegram`)).json()).toEqual({ linked: false, peers: [], active: true });
+    } finally { await env.close(); }
+  });
+  it('ignora pedidos inválidos e recusa symlinks de arquivo e diretório', async () => {
+    const env = await setup();
+    try {
+      const directory = join(env.dir, 'telegram');
+      mkdirSync(directory);
+      const target = join(env.dir, 'target');
+      writeFileSync(target, 'preservado');
+      symlinkSync(target, join(directory, 'tiopatinhas.json'));
+      expect((await put(env.base, 'telegram', { token, peers: ['123'] })).status).toBe(500);
+      expect(readFileSync(target, 'utf8')).toBe('preservado');
+      expect(await (await fetch(`${env.base}/api/cast/pato/telegram`)).json()).toEqual({ linked: false, peers: [], active: false });
+      expect((await fetch(`${env.base}/api/cast/pato/telegram`, { method: 'DELETE' })).status).toBe(500);
+      const other = tempDir();
+      try {
+        symlinkSync(directory, join(other.dir, 'telegram'));
+        const settings = new NamedAgentSettings(other.dir, { request: async () => ({ channels: [] }) });
+        await expect(settings.link('tiopatinhas', { token, peers: ['123'] })).rejects.toThrow();
+      } finally { other.cleanup(); }
+    } finally { await env.close(); }
+  });
+  it('recusa segundo vínculo e agentes fora do catálogo', async () => {
+    const env = await setup();
+    try {
+      const body = { name: 'Outra', seed: 2, look: 'f', kind: 'main', agent: 'tiopatinhas' };
+      const create = (value: unknown) => fetch(`${env.base}/api/cast`, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(value) });
+      expect((await create(body)).status).toBe(409);
+      expect((await create({ ...body, agent: 'inexistente' })).status).toBe(400);
+      expect((await fetch(`${env.base}/api/cast/ausente/persona`)).status).toBe(404);
+    } finally { await env.close(); }
   });
 });
 

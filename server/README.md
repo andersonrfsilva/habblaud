@@ -40,6 +40,7 @@ O runtime ZeroClaw exige também:
 | --- | --- |
 | `HABBLAUD_ZEROCLAW_AGENTS` | JSON não vazio `[{"alias":"m_<12 hex>","model":"provedor/modelo"}]`, na ordem do catálogo |
 | `HABBLAUD_ZEROCLAW_DEFAULT_AGENT` | Alias padrão presente nesse catálogo |
+| `HABBLAUD_ZEROCLAW_NAMED` | Opcional: JSON `[{"alias":"tiopatinhas","model":"provedor/modelo"}]` de agentes fixos declarados pelo administrador |
 
 O alias é `m_` seguido dos primeiros 12 dígitos hexadecimais minúsculos de SHA-256 do identificador
 `model` completo em UTF-8. O mesmo alias identifica o agente e o modelo na configuração do gateway.
@@ -55,6 +56,30 @@ ZeroClaw devolve `{provider:'zeroclaw',models:[{alias,model}],defaultModel:alias
 `model` é o identificador legível, e `alias` é a chave enviada e armazenada.
 OMP devolve `{provider:'omp',models:[]}` e mantém sua descoberta existente.
 O endpoint não expõe URL, credenciais nem TOML e aceita somente GET.
+
+Com agentes fixos, a resposta acrescenta `named:[{alias,model}]`; sem eles, os campos existentes não mudam.
+Aliases fixos seguem `^[a-z][a-z0-9]{1,23}$`, são únicos e não colidem com o catálogo de modelos.
+Cada alias pode vestir somente um personagem principal. O campo opcional `agent` do personagem escolhe
+esse agente em sessões novas e retomadas; `model` e `instructions` deixam de selecionar modelo ou injetar contexto.
+A persona fica em `<HOME>/agentes/<alias>/SOUL.md`, no workspace configurado pelo administrador no daemon.
+
+As rotas abaixo usam a mesma trava local/remota `terminal` das alterações do elenco e exigem personagem
+vinculado a um agente fixo configurado:
+
+| Rota | Resultado |
+| --- | --- |
+| `GET /api/cast/:id/persona` | `{text}`; arquivo ausente é texto vazio |
+| `PUT /api/cast/:id/persona` | Corpo `{text}`, até 20.000 caracteres Unicode; proxy para `SOUL.md` do agente |
+| `GET /api/cast/:id/telegram` | `{linked,peers,active}`, nunca inclui o token |
+| `PUT /api/cast/:id/telegram` | Corpo `{token,peers}`; grava pedido atômico para o host |
+| `DELETE /api/cast/:id/telegram` | Remove o pedido; ausência já conta como desvinculado |
+
+O token deve seguir `^[0-9]{6,12}:[A-Za-z0-9_-]{30,64}$`; `peers` contém de 1 a 8 strings únicas,
+cada uma com 1 a 20 dígitos. Outros campos são recusados. Pedidos têm no máximo 4096 bytes.
+O arquivo `<HABBLAUD_DATA_DIR>/telegram/<alias>.json` usa modo 0600, em diretório 0700; symlinks são recusados.
+O host aplica a alteração em cerca de 30 segundos, reiniciando brevemente os personagens abertos.
+`active` verifica se `/api/channels` lista `name: "telegram.<alias>"`; durante falha de consulta retorna `false`.
+Isso confirma a presença na configuração atual, não a autenticação ou saúde do bot.
 
 Na conversa nova, instruções do personagem são contexto textual, não system prompt:
 `Instruções do personagem:\n<instructions>`, seguido de `\n\nPedido inicial:\n<prompt>` quando houver pedido.
