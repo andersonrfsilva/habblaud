@@ -7,10 +7,11 @@ import type { MessageRegistry } from '../messages/registry';
 export interface ZeroClawCatalog {
   models: { alias: string; model: string }[];
   defaultModel: string;
+  named?: { alias: string; model: string }[];
 }
 
 /** Validate once at startup; aliases match the tenant's full UTF-8 model identifiers. */
-export function parseZeroClawCatalog(raw: string | undefined, defaultAgent: string | undefined): ZeroClawCatalog {
+export function parseZeroClawCatalog(raw: string | undefined, defaultAgent: string | undefined, namedRaw?: string): ZeroClawCatalog {
   if (!raw?.trim()) throw new Error('HABBLAUD_ZEROCLAW_AGENTS obrigatória');
   if (!defaultAgent) throw new Error('HABBLAUD_ZEROCLAW_DEFAULT_AGENT obrigatória');
   const invalid = () => new Error('HABBLAUD_ZEROCLAW_AGENTS inválida');
@@ -31,6 +32,23 @@ export function parseZeroClawCatalog(raw: string | undefined, defaultAgent: stri
     catalog.models.push({ alias: entry.alias, model: entry.model });
   }
   if (!aliases.has(defaultAgent)) throw new Error('HABBLAUD_ZEROCLAW_DEFAULT_AGENT inválida');
+  if (namedRaw !== undefined) {
+    const invalidNamed = () => new Error('HABBLAUD_ZEROCLAW_NAMED inválida');
+    let named: unknown;
+    try { named = JSON.parse(namedRaw); } catch { throw invalidNamed(); }
+    if (!Array.isArray(named)) throw invalidNamed();
+    const entries: { alias: string; model: string }[] = [];
+    for (const entry of named) {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)
+        || Object.keys(entry).some((key) => key !== 'alias' && key !== 'model')
+        || typeof entry.alias !== 'string' || !/^[a-z][a-z0-9]{1,23}$/.test(entry.alias)
+        || aliases.has(entry.alias) || typeof entry.model !== 'string' || !entry.model
+        || /[\s\x00-\x1f\x7f-\x9f*?\[\]]/u.test(entry.model)) throw invalidNamed();
+      aliases.add(entry.alias);
+      entries.push({ alias: entry.alias, model: entry.model });
+    }
+    if (entries.length) catalog.named = entries;
+  }
   return catalog;
 }
 
@@ -63,8 +81,9 @@ export class ZeroClawCast {
   available(): boolean {
     return this.options.ready() && !!this.options.connector() && !!this.options.delivery() && !!this.options.messages();
   }
-  models(): { provider: 'zeroclaw'; models: { alias: string; model: string }[]; defaultModel: string } {
-    return { provider: 'zeroclaw', models: this.options.catalog.models.map((entry) => ({ ...entry })), defaultModel: this.options.catalog.defaultModel };
+  models(): { provider: 'zeroclaw'; models: { alias: string; model: string }[]; defaultModel: string; named?: { alias: string; model: string }[] } {
+    return { provider: 'zeroclaw', models: this.options.catalog.models.map((entry) => ({ ...entry })), defaultModel: this.options.catalog.defaultModel,
+      ...(this.options.catalog.named?.length ? { named: this.options.catalog.named.map((entry) => ({ ...entry })) } : {}) };
   }
   session(id: string) { return this.options.connector()?.session(id); }
   openSessions() { return this.options.connector()?.openSessions() ?? []; }
@@ -74,7 +93,7 @@ export class ZeroClawCast {
     connector.onEvent(listener);
     return true;
   }
-  prepare(input: { cast: string; name: string; room?: string; model?: string; resume?: string;
+  prepare(input: { cast: string; name: string; room?: string; model?: string; agent?: string; resume?: string;
     instructions?: string; prompt?: string; account?: unknown }): { session: OpenSession; text?: string } {
     const connector = this.options.connector();
     if (!connector) throw new Error('ZeroClaw está indisponível');
@@ -83,17 +102,19 @@ export class ZeroClawCast {
     if (input.account !== undefined && (typeof input.account !== 'string' || input.account !== this.options.account())) {
       throw new Error('Conta ZeroClaw incompatível');
     }
-    let alias = resolveZeroClawModel(this.options.catalog, input.model);
+    if (input.agent !== undefined && !this.options.catalog.named?.some((entry) => entry.alias === input.agent)) throw new Error('Agente ZeroClaw não configurado');
+    let alias = input.agent ?? resolveZeroClawModel(this.options.catalog, input.model);
     if (input.resume !== undefined) {
       const original = connector.metadataOf(input.resume);
       if (!original || normalizeCwd(original.cwd) !== room
-        || !this.options.catalog.models.some((entry) => entry.alias === original.agent)) throw new Error('Histórico ZeroClaw incompatível com a sala ou o catálogo');
-      if (input.model !== undefined && alias !== original.agent) throw new Error('Modelo da conversa ZeroClaw diferente: abra uma conversa nova');
+        || !(input.agent !== undefined ? original.agent === input.agent
+          : this.options.catalog.models.some((entry) => entry.alias === original.agent))) throw new Error('Histórico ZeroClaw incompatível com a sala ou o catálogo');
+      if (input.agent === undefined && input.model !== undefined && alias !== original.agent) throw new Error('Modelo da conversa ZeroClaw diferente: abra uma conversa nova');
       if (connector.session(input.resume)) throw new Error('Conversa ZeroClaw já aberta');
       alias = original.agent;
     }
-    if (input.instructions !== undefined && input.instructions.length > 8_000) throw new Error('Instruções ZeroClaw acima do limite');
-    const text = input.resume === undefined && input.instructions
+    if (input.agent === undefined && input.instructions !== undefined && input.instructions.length > 8_000) throw new Error('Instruções ZeroClaw acima do limite');
+    const text = input.agent === undefined && input.resume === undefined && input.instructions
       ? `Instruções do personagem:\n${input.instructions}${input.prompt ? `\n\nPedido inicial:\n${input.prompt}` : ''}`
       : input.prompt;
     return { session: { sessionId: input.resume ?? randomUUID(), agent: alias, name: input.name, cwd: room, cast: input.cast },

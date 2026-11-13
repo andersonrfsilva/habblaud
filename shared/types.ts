@@ -27,6 +27,8 @@ export interface CastMember {
   parts?: AppearanceParts;
   kind: 'main' | 'advisor' | 'sub';
   match?: string[];
+  /** Alias de um agente ZeroClaw configurado; modelo e instruções vêm do agente. */
+  agent?: string;
   model?: string;
   instructions?: string;
   /** Minutos parado até ser dispensado; ausente = CAST_IDLE_MINUTES; 0 = nunca. */

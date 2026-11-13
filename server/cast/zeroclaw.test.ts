@@ -55,6 +55,25 @@ describe('catálogo ZeroClaw', () => {
       expect(() => parseZeroClawCatalog(value, secret)).toThrow(/^HABBLAUD_ZEROCLAW_AGENTS inválida$/);
     }
   });
+  it('validates named aliases separately, preserves order and permits shared models', () => {
+    const named = [{ alias: 'financeiro', model: first.model }, { alias: 'suporte', model: first.model },
+      { alias: 'a1', model: 'provider/new' }, { alias: 'a'.repeat(24), model: 'provider/new' }];
+    expect(parseZeroClawCatalog(raw, second.alias, JSON.stringify(named))).toEqual({
+      models: [first, second], defaultModel: second.alias, named,
+    });
+    expect(parseZeroClawCatalog(raw, first.alias, '[]')).not.toHaveProperty('named');
+  });
+  it.each([
+    '', ' ', '{', 'null', '{}', '[null]', '[[]]', '["agent"]', '[{}]',
+    ...['a', 'Financeiro', 'a_b', 'a-b', '1a', 'a'.repeat(25), first.alias].map((alias) => JSON.stringify([{ alias, model: first.model }])),
+    ...['', ' abc', 'abc def', 'abc\n', 'abc*', 'abc?', 'abc[1]', 'abc\u0085'].map((model) => JSON.stringify([{ alias: 'financeiro', model }])),
+    JSON.stringify([{ alias: 'financeiro', model: 123 }]),
+    JSON.stringify([{ alias: 123, model: first.model }]),
+    JSON.stringify([{ alias: 'financeiro', model: first.model, extra: true }]),
+    JSON.stringify([{ alias: 'financeiro', model: first.model }, { alias: 'financeiro', model: second.model }]),
+  ])('rejects malformed, duplicate or colliding named entries without leaking input: %s', (named) => {
+    expect(() => parseZeroClawCatalog(raw, first.alias, named)).toThrow(/^HABBLAUD_ZEROCLAW_NAMED inválida$/);
+  });
 });
 
 describe('seleção do modelo ZeroClaw', () => {
@@ -101,7 +120,7 @@ function accepted(result: { job: CastJobInfo } | { status: number; error: string
   return result.job;
 }
 
-function runtimeSetup(max?: number, dataDir = '/unused-zeroclaw-cast-test') {
+function runtimeSetup(max?: number, dataDir = '/unused-zeroclaw-cast-test', named?: { alias: string; model: string }[]) {
   const agents: AgentInfo[] = [];
   const members = new Map<string, CastMember>([
     ['ana', { ...runtimeMember }], ['bia', { ...runtimeMember, id: 'bia', name: 'Bia' }],
@@ -181,7 +200,7 @@ function runtimeSetup(max?: number, dataDir = '/unused-zeroclaw-cast-test') {
   const idle = vi.fn();
   const changed = vi.fn();
   const runtime = new ZeroClawCast({
-    catalog: parseZeroClawCatalog(raw, second.alias), home: '/a', connector: () => connector, delivery: () => delivery,
+    catalog: parseZeroClawCatalog(raw, second.alias, named === undefined ? undefined : JSON.stringify(named)), home: '/a', connector: () => connector, delivery: () => delivery,
     messages: () => messages, account: () => 'zeroclaw', ready: () => controls.ready,
   });
   const launcher = new CastLauncher({
@@ -193,6 +212,52 @@ function runtimeSetup(max?: number, dataDir = '/unused-zeroclaw-cast-test') {
 }
 
 describe('elenco com runtime ZeroClaw', () => {
+  it('exposes named catalog only when nonempty and returns isolated copies', () => {
+    expect(runtimeSetup().launcher.models()).not.toHaveProperty('named');
+    expect(runtimeSetup(undefined, undefined, []).launcher.models()).not.toHaveProperty('named');
+    const s = runtimeSetup(undefined, undefined, [{ alias: 'financeiro', model: first.model }]);
+    const catalog = s.launcher.models();
+    expect(catalog.named).toEqual([{ alias: 'financeiro', model: first.model }]);
+    catalog.named![0].alias = 'changed';
+    expect(s.launcher.namedAliases()).toEqual(['financeiro']);
+  });
+  it('starts bound agents using their alias, ignoring stored and requested model and instructions', async () => {
+    const s = runtimeSetup(undefined, undefined, [{ alias: 'financeiro', model: first.model }]);
+    s.members.set('ana', { ...runtimeMember, agent: 'financeiro', model: '--ignored', instructions: 'Never inject' });
+    accepted(s.launcher.start('ana', { mode: 'new', model: { ignored: true }, prompt: 'Pedido' }));
+    await settleRuntime();
+    expect(s.connector.openSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'financeiro' }));
+    expect(s.messages.send).toHaveBeenCalledWith(expect.objectContaining({ text: 'Pedido' }));
+  });
+  it('never injects bound instructions without a prompt, including direct runtime use', () => {
+    const s = runtimeSetup(undefined, undefined, [{ alias: 'financeiro', model: first.model }]);
+    expect(s.runtime.prepare({ cast: 'ana', name: 'Ana', agent: 'financeiro', model: 'unknown',
+      instructions: 'x'.repeat(9000) })).toEqual({ session: expect.objectContaining({ agent: 'financeiro' }) });
+    expect(() => s.runtime.prepare({ cast: 'ana', name: 'Ana', agent: 'unknown' })).toThrow('Agente ZeroClaw não configurado');
+  });
+  it.each([false, true])('resumes bound conversations only for their exact alias; explicit=%s', async (explicit) => {
+    const s = runtimeSetup(undefined, undefined, [{ alias: 'financeiro', model: first.model }]);
+    s.members.set('ana', { ...runtimeMember, agent: 'financeiro', instructions: 'Never inject', last: { '/a': historicalId } });
+    const request = { mode: 'resume', prompt: 'Continue', ...(explicit ? { session: historicalId, room: '/a' } : {}) };
+    for (const agent of [first.alias, 'suporte']) {
+      s.history.set(historicalId, { sessionId: historicalId, agent, name: 'Old', cwd: '/a' });
+      expect(s.launcher.start('ana', request)).toMatchObject({ status: 422 });
+    }
+    s.history.set(historicalId, { sessionId: historicalId, agent: 'financeiro', name: 'Old', cwd: '/a' });
+    accepted(s.launcher.start('ana', request));
+    await settleRuntime();
+    expect(s.connector.openSession).toHaveBeenCalledWith(expect.objectContaining({ sessionId: historicalId, agent: 'financeiro' }));
+    expect(s.messages.send).toHaveBeenCalledWith(expect.objectContaining({ text: 'Continue' }));
+  });
+  it('rejects named histories for unbound casts and new anonymous conversations', () => {
+    const s = runtimeSetup(undefined, undefined, [{ alias: 'financeiro', model: first.model }]);
+    s.history.set(historicalId, { sessionId: historicalId, agent: 'financeiro', name: 'Old', cwd: '/a' });
+    expect(s.launcher.start('ana', { mode: 'resume', session: historicalId, room: '/a' })).toMatchObject({ status: 422 });
+    expect(s.launcher.startNew({ session: historicalId, room: '/a' })).toMatchObject({ status: 422 });
+    expect(s.launcher.startNew({ model: 'financeiro' })).toMatchObject({ status: 422 });
+    s.members.set('ana', { ...runtimeMember, agent: 'unknown' });
+    expect(s.launcher.start('ana', { mode: 'new' })).toMatchObject({ status: 422 });
+  });
   it('reserva antes de abrir, gera UUID novo e usa presença real para entregar uma única vez', async () => {
     const s = runtimeSetup();
     const gate = deferred();

@@ -23,6 +23,15 @@ describe('CastLauncher', () => {
     setMember({ ...member, last: { '/a': '../../bad' } });
     expect(launcher.start('ana', { mode: 'resume' })).toMatchObject({ status: 422 });
   });
+  it('rejects named bindings outside ZeroClaw and keeps the old catalog response', () => {
+    const { launcher, member: setMember } = setup();
+    launcher.poll();
+    expect(launcher.models()).toEqual({ provider: 'omp', models: [] });
+    expect(launcher.namedAliases()).toEqual([]);
+    setMember({ ...member, agent: 'financeiro' });
+    expect(launcher.start('ana', { mode: 'new' })).toMatchObject({ status: 422 });
+    expect(launcher.poll()).toEqual([]);
+  });
   it('requires host, previous session and a free member', () => {
     const { launcher, agents } = setup();
     expect(launcher.start('ana', { mode: 'new' })).toMatchObject({ status: 503 });

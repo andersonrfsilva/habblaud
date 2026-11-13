@@ -40,6 +40,17 @@ describe('configuração do catálogo ZeroClaw', () => {
     expect(config.omp).toBe(false);
     expect(config.ompDirs).toEqual([]);
   });
+  it('includes named agents only when configured and nonempty', () => {
+    const env = { ...isolatedEnv, ...catalogEnv, HABBLAUD_ZEROCLAW_URL: 'http://127.0.0.1:42617' };
+    const named = [{ alias: 'financeiro', model: 'abc' }, { alias: 'suporte', model: 'provider/model' }];
+    expect(loadConfig({ ...env, HABBLAUD_ZEROCLAW_NAMED: JSON.stringify(named) }, []).zeroclawCatalog)
+      .toEqual({ models, defaultModel: models[0].alias, named });
+    expect(loadConfig({ ...env, HABBLAUD_ZEROCLAW_NAMED: '[]' }, []).zeroclawCatalog)
+      .toEqual({ models, defaultModel: models[0].alias });
+    for (const value of ['', ' ', 'null', '{}', 'invalid']) {
+      expect(() => loadConfig({ ...env, HABBLAUD_ZEROCLAW_NAMED: value }, [])).toThrow(/HABBLAUD_ZEROCLAW_NAMED/);
+    }
+  });
 
   it.each([
     {},
@@ -60,6 +71,8 @@ describe('configuração do catálogo ZeroClaw', () => {
     { HABBLAUD_ZEROCLAW_DEFAULT_AGENT: catalogEnv.HABBLAUD_ZEROCLAW_DEFAULT_AGENT },
     { HABBLAUD_ZEROCLAW_AGENTS: '' },
     { HABBLAUD_ZEROCLAW_DEFAULT_AGENT: '' },
+    { HABBLAUD_ZEROCLAW_NAMED: '[]' },
+    { HABBLAUD_ZEROCLAW_NAMED: '' },
   ])('recusa catálogo mesmo parcial sem URL, não seleciona OMP: %j', (env) => {
     for (const url of [undefined, '', ' ']) {
       expect(() => loadConfig({ ...isolatedEnv, ...env, HABBLAUD_ZEROCLAW_URL: url }, [])).toThrow(/HABBLAUD_ZEROCLAW_URL/);
