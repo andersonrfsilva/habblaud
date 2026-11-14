@@ -32,6 +32,11 @@ function setup() {
   return { accounts, office, source, emit, catalog, id: `antigravity:${SID}` };
 }
 describe('fonte Antigravity', () => {
+  it('exposes an existing empty transcript immediately after session-open', async () => {
+    const s = setup();
+    expect(readFileSync(s.source.transcriptPathOf(s.id)!, 'utf8')).toBe('');
+    await s.source.flush();
+  });
   it('registra conta, entra e acompanha trabalho, permissão e fechamento', async () => {
     const s = setup();
     expect(s.accounts.entriesOf('antigravity')[0].detected.short).toBe('G');

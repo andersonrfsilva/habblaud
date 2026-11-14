@@ -6,6 +6,22 @@ import { antigravityTool, AntigravityMirror } from './mirror';
 
 const SID = '7f2c9ee1-2bdd-49ea-b431-3d56fc046301';
 describe('espelho Antigravity', () => {
+  it('creates a private empty transcript on opening and never truncates on resume', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'antigravity-mirror-'));
+    try {
+      const mirror = new AntigravityMirror({ dataDir: directory });
+      const event = { type: 'session-open' as const, sessionId: SID, cwd: '/tmp', resumed: false, info: { models: [], modelOptions: [] } };
+      await mirror.consume(event);
+      const path = mirror.pathOf(SID);
+      expect(await readFile(path, 'utf8')).toBe('');
+      expect((await stat(path)).mode & 0o777).toBe(0o600);
+      expect((await stat(dirname(path))).mode & 0o777).toBe(0o700);
+      await mirror.consume({ type: 'update', sessionId: SID, update: { sessionUpdate: 'user_message_chunk', content: { text: 'hello' } } });
+      const saved = await readFile(path, 'utf8');
+      await mirror.consume({ ...event, resumed: true });
+      expect(await readFile(path, 'utf8')).toBe(saved);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
   it('traduz a tabela de ferramentas e preserva ferramentas desconhecidas', () => {
     expect(antigravityTool({ name: 'run_command', rawInput: { CommandLine: 'echo ok' } })).toEqual({ name: 'Bash', input: { command: 'echo ok' } });
     expect(antigravityTool({ name: 'view_file', rawInput: { AbsolutePath: '/tmp/file' } })).toEqual({ name: 'Read', input: { file_path: '/tmp/file' } });

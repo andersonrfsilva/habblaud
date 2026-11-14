@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { appendFileSync, mkdirSync } from 'node:fs';
 import { appendFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { maskSecrets } from '../../../shared/activity';
@@ -33,10 +34,16 @@ export class AntigravityMirror {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionId)) throw new Error('Invalid ACP session UUID');
     return join(this.root, 'sessions', `${sessionId}.jsonl`);
   }
+  open(sessionId: string, cwd: string): void {
+    const path = this.pathOf(sessionId);
+    mkdirSync(join(this.root, 'sessions'), { recursive: true, mode: 0o700 });
+    appendFileSync(path, '', { mode: 0o600 });
+    this.directories.set(sessionId, cwd);
+  }
   async consume(event: AcpEvent): Promise<void> {
     if (event.type === 'diagnostic') return;
     const { sessionId } = event;
-    if (event.type === 'session-open') { this.directories.set(sessionId, event.cwd); return; }
+    if (event.type === 'session-open') { if (!this.directories.has(sessionId)) this.open(sessionId, event.cwd); return; }
     if (event.type === 'turn-state' && !event.busy || event.type === 'session-close') { await this.flush(sessionId); return; }
     if (event.type !== 'update') return;
     const update = event.update;
