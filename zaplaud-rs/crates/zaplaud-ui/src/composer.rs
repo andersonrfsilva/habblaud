@@ -361,12 +361,26 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
         let mut last_command = None;
         let mut picker = None::<tokio::task::JoinHandle<()>>;
         let mut new_target: Option<(SessionKey, String)> = None;
+        let mut switch_target: Option<(SessionKey, String, tokio::time::Instant)> = None;
         let mut switch_model: Option<String> = None;
         if app_visible { let _ = controller.events.send(Event::Start); }
         loop {
             tokio::select! {
                 result = snapshots.recv() => match result {
                     Ok(value) => {
+                        if switch_target.as_ref().is_some_and(|(previous, _, deadline)| {
+                            tokio::time::Instant::now() >= *deadline
+                                || value.selected.as_ref().map(|s| &s.key) != Some(previous)
+                                || !value.servers.iter().any(|s| s.api.origin() == previous.origin && !s.needs_login)
+                        }) {
+                            switch_target = None;
+                        }
+                        if let Some((previous, cast, _)) = &switch_target
+                            && let Some(target) = value.servers.iter().find(|s| s.api.origin() == previous.origin)
+                                .and_then(|s| composer::switch_tool_target(&s.reading.sessions, previous, Some(cast))) {
+                            let _ = context.commands.send(state::Event::Open(target.key.serialize().unwrap_or_default()));
+                            switch_target = None;
+                        }
                         if new_target.as_ref().is_some_and(|(previous, _)| !value.servers.iter().any(|s| s.api.origin() == previous.origin && !s.needs_login)) {
                             new_target = None;
                         }
@@ -376,7 +390,8 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                             let _ = context.commands.send(state::Event::Open(target.key.serialize().unwrap_or_default()));
                             new_target = None;
                         }
-                        let next = value.selected.clone().filter(|s| s.agent_id.is_some() && !s.sub);
+                        let next = value.selected.clone().filter(|s| !s.sub && (s.agent_id.is_some()
+                            || switch_target.as_ref().is_some_and(|(previous, _, _)| s.key == *previous)));
                         if next.as_ref().map(|s| &s.key) != selected.as_ref().map(|s| &s.key) {
                             switch_model = None;
                             let _ = controller.events.send(Event::Stop);
@@ -409,6 +424,10 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                 result = controller.states.changed() => {
                     if result.is_err() { break; }
                     let state = controller.states.borrow_and_update().clone();
+                    if switch_target.as_ref().is_some_and(|(previous, _, _)| state.composer.key.as_ref() == Some(previous))
+                        && state.composer.command_result.as_ref().is_some_and(|r| r.kind == "model" && r.status == "failed") {
+                        switch_target = None;
+                    }
                     if new_target.as_ref().is_some_and(|(previous, _)| state.composer.key.as_ref() == Some(previous))
                         && (state.composer.control_error.is_some() || state.composer.control.as_ref().is_some_and(|c| c.status == "failed")) {
                         new_target = None;
@@ -423,6 +442,15 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                     }
                     publish(&weak, &state, selected.as_ref(), backend.as_ref(), switch_model.as_deref());
                 }
+                _ = async {
+                    if let Some((_, _, deadline)) = &switch_target {
+                        tokio::time::sleep_until(*deadline).await;
+                    } else {
+                        std::future::pending::<()>().await;
+                    }
+                } => {
+                    switch_target = None;
+                },
                 action = receiver.recv() => {
                     let Some(action) = action else { break; };
                     let action = match action {
@@ -481,6 +509,13 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                         }
                         Action::Confirm if switch_model.is_some() => {
                             let value = switch_model.take().unwrap();
+                            if eligible && !state.composer.loading && !state.composer.sending && state.visible {
+                                switch_target = item.cast.as_ref().map(|cast| (
+                                    item.key.clone(),
+                                    cast.clone(),
+                                    tokio::time::Instant::now() + std::time::Duration::from_secs(90),
+                                ));
+                            }
                             publish(&weak, &state, selected.as_ref(), backend.as_ref(), None);
                             Some(Event::Command { agent_id, kind: "model".into(), value, eligible })
                         }
