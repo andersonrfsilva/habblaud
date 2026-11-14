@@ -72,4 +72,29 @@ describe('fonte Antigravity', () => {
     expect(entries.some(entry => entry.kind === 'assistant' && entry.text === 'Olá mundo')).toBe(true);
     expect(lines.some(line => line.includes('tool_result'))).toBe(true);
   });
+  it('adota a sessão nova sem trocar o agente e ignora o fechamento antigo', async () => {
+    const s = setup();
+    const next = '7f2c9ee1-2bdd-49ea-b431-3d56fc046302';
+    expect(await s.source.replace(SID, async () => {
+      s.emit({ type: 'session-open', sessionId: next, cwd: '/tmp', resumed: false, info: { models: [] } });
+      return { sessionId: next };
+    })).toBe(next);
+    s.emit({ type: 'session-close', sessionId: SID, reason: 'closed' });
+    expect(s.office.list()).toHaveLength(1);
+    expect(s.office.get(s.id)).toMatchObject({ sessionId: next, status: 'idle' });
+    expect(s.source.sources()[0].sessions).toBe(1);
+    await s.source.flush();
+  });
+  it('preserva a sessão antiga se abrir falha e rejeita adoção concorrente', async () => {
+    const s = setup();
+    const pending = Promise.withResolvers<{ sessionId: string }>();
+    const replacement = s.source.replace(SID, () => pending.promise);
+    await expect(s.source.replace(SID, async () => ({ sessionId: SID }))).rejects.toThrow();
+    pending.reject(new Error('falha'));
+    await expect(replacement).rejects.toThrow('falha');
+    expect(s.office.get(s.id)).toMatchObject({ sessionId: SID, status: 'idle' });
+    await expect(s.source.replace(SID, async () => { throw new Error('outra falha'); })).rejects.toThrow('outra falha');
+    expect(s.office.get(s.id)?.sessionId).toBe(SID);
+    await s.source.flush();
+  });
 });
