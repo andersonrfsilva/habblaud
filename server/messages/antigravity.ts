@@ -14,7 +14,7 @@ export const ERR_ANTIGRAVITY_QUEUED = tr('a mensagem Antigravity expirou esperan
 export class AntigravityDelivery implements PushDelivery {
   private readonly replacing = new Set<string>();
   private readonly instructions = new Map<string, { text: string; pending: boolean }>();
-  constructor(private readonly opts: { client: AntigravityClient; source: Pick<AntigravitySource, 'replace'>; handoff?: HandoffStore; diagnostic?: (message: string) => void }) {
+  constructor(private readonly opts: { client: AntigravityClient; source: Pick<AntigravitySource, 'replace' | 'expectUser'>; handoff?: HandoffStore; diagnostic?: (message: string) => void }) {
     opts.client.onEvent(event => { if (event.type === 'session-close') this.instructions.delete(event.sessionId); });
   }
   setInstructions(sessionId: string, instructions: string | undefined): void {
@@ -37,6 +37,7 @@ export class AntigravityDelivery implements PushDelivery {
     const request = instructions?.pending ? `Instruções do personagem:\n${instructions.text}\n\nPedido inicial:\n${content}` : content;
     const text = path ? `${tr('A conversa anterior, feita em outra ferramenta, está no arquivo anexo. Leia antes de responder.')}\n\n${request}` : request;
     try {
+      this.opts.source.expectUser(id, text, content);
       if (path) await this.opts.client.prompt(id, text, [{ path, name: 'conversa-anterior.md' }]);
       else await this.opts.client.prompt(id, text);
       if (instructions) instructions.pending = false;

@@ -32,6 +32,7 @@ type Pending = { kind: 'text' | 'thinking'; text: string };
 export class AntigravityMirror {
   readonly root: string;
   private readonly pending = new Map<string, Pending>();
+  private readonly expectedUsers = new Map<string, { sent: string; shown: string }[]>();
   private readonly directories = new Map<string, string>();
   constructor(options: { dataDir: string }) { this.root = join(options.dataDir, 'antigravity'); }
   pathOf(sessionId: string): string {
@@ -44,10 +45,16 @@ export class AntigravityMirror {
     appendFileSync(path, '', { mode: 0o600 });
     this.directories.set(sessionId, cwd);
   }
+  expectUser(sessionId: string, sent: string, shown: string): void {
+    const expected = this.expectedUsers.get(sessionId) ?? [];
+    expected.push({ sent, shown });
+    this.expectedUsers.set(sessionId, expected);
+  }
   async consume(event: AcpEvent): Promise<void> {
     if (event.type === 'diagnostic') return;
     const { sessionId } = event;
     if (event.type === 'session-open') { if (!this.directories.has(sessionId)) this.open(sessionId, event.cwd); return; }
+    if (event.type === 'session-close') this.expectedUsers.delete(sessionId);
     if (event.type === 'turn-state' && !event.busy || event.type === 'session-close') { await this.flush(sessionId); return; }
     if (event.type !== 'update') return;
     const update = event.update;
@@ -62,8 +69,12 @@ export class AntigravityMirror {
       return;
     }
     await this.flush(sessionId);
-    if (kind === 'user_message_chunk' && object(update.content)) {
-      await this.append(sessionId, { type: 'user', message: { role: 'user', content: maskSecrets(text(update.content.text)) } });
+    if (kind === 'user_message_chunk' && object(update.content) && typeof update.content.text === 'string' && update.content.text) {
+      const expected = this.expectedUsers.get(sessionId);
+      const index = expected?.findIndex(item => item.sent === update.content.text) ?? -1;
+      const shown = index >= 0 ? expected!.splice(index, 1)[0].shown : update.content.text;
+      if (!expected?.length) this.expectedUsers.delete(sessionId);
+      await this.append(sessionId, { type: 'user', message: { role: 'user', content: maskSecrets(shown) } });
     } else if (kind === 'tool_call') {
       const tool = antigravityTool(update);
       await this.append(sessionId, { type: 'assistant', message: { id: randomUUID(), role: 'assistant', content: [{ type: 'tool_use', id: update.toolCallId, name: tool.name, input: tool.input }], stop_reason: 'tool_use' } });
