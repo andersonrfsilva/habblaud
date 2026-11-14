@@ -5,7 +5,7 @@ import type { Office } from '../../model/office';
 import { log } from '../../log';
 import type { AgentSource } from '../source';
 import { createTranscriptState, parseLine, type ParsedActivity, type TranscriptState } from '../transcript';
-import { ZeroClawConnector, type ConnectorEvent, type OpenSession, type SessionDescriptor } from './connector';
+import { isNotFound, ZeroClawConnector, type ConnectorEvent, type OpenSession, type SessionDescriptor } from './connector';
 import { ZeroClawMirror } from './mirror';
 
 interface Tracker { id: string; state: TranscriptState; present: boolean; backlog: ParsedActivity[] }
@@ -96,6 +96,18 @@ export class ZeroClawSource implements AgentSource {
     return found;
   }
 
+  /** O espelho não tem nenhum registro `user` (pedido ou resultado de ferramenta): a sessão nunca teve turno. */
+  private async neverSent(sessionId: string): Promise<boolean> {
+    try {
+      for (const line of await this.opts.mirror.load(sessionId)) {
+        let record: unknown;
+        try { record = JSON.parse(line); } catch { return false; }
+        if (record !== null && typeof record === 'object' && 'type' in record && record.type === 'user') return false;
+      }
+      return true;
+    } catch { return false; }
+  }
+
   async flush(): Promise<void> { await this.pending; }
 
   async poll(): Promise<void> {
@@ -108,7 +120,12 @@ export class ZeroClawSource implements AgentSource {
       for (const session of this.opts.connector.openSessions()) {
         if (session.connected) this.enter(session);
         if (session.connected && (session.busy || session.continuityLost)) {
-          try { await this.opts.connector.refreshTurnState(session.sessionId); } catch { this.diagnostic('ZeroClaw: estado do turno desconhecido'); }
+          // Falha de uma sessão não derruba a fonte: o gateway respondeu, e marcar a fonte como fora deixaria o elenco
+          // inteiro "auxiliar indisponível" enquanto uma única sessão estiver com estado desconhecido.
+          try { await this.opts.connector.refreshTurnState(session.sessionId); } catch (error) {
+            // 404 sozinho não prova que nada roda; só limpa quem o espelho mostra que nunca recebeu pedido do usuário.
+            if (!(isNotFound(error) && await this.neverSent(session.sessionId) && this.opts.connector.clearNeverSent(session.sessionId))) log.warn('ZeroClaw: estado do turno desconhecido');
+          }
         }
       }
       await this.pending;

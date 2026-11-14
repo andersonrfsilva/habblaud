@@ -211,18 +211,32 @@ describe('ZeroClawConnector', () => {
     expect(value.session(A)?.busy).toBe(false);
   });
 
-  it('restores a running intention, keeps unknown after 404 or malformed state, and clears error state', async () => {
+  it('restores a running intention, keeps unknown after malformed state, and clears error state', async () => {
     const first = connector(); await first.openSession(input); first.stop();
     gateway.states.set(A, 'running'); const value = connector(); await value.start();
     await until(() => events.some((event) => event.type === 'turn-state' && event.source === 'state-running'));
     expect(value.session(A)).toMatchObject({ busy: true, continuityLost: true });
-    gateway.responses.set(`/api/sessions/${A}/state`, { status: 404, body: {} });
-    await expect(value.refreshTurnState(A)).rejects.toThrow();
     gateway.responses.set(`/api/sessions/${A}/state`, { body: { state: 'unknown' } });
     await expect(value.refreshTurnState(A)).rejects.toThrow();
     expect(value.session(A)).toMatchObject({ busy: true, continuityLost: true });
     gateway.responses.delete(`/api/sessions/${A}/state`); gateway.states.set(A, 'error');
     expect(await value.refreshTurnState(A)).toEqual({ busy: false, continuityLost: false });
+  });
+
+  it('clears a restored running intention only through clearNeverSent, and never after a message', async () => {
+    const first = connector(); await first.openSession(input); first.stop();
+    gateway.states.set(A, 'running'); const value = connector(); await value.start();
+    await until(() => events.some((event) => event.type === 'turn-state' && event.source === 'state-running'));
+    gateway.responses.set(`/api/sessions/${A}/state`, { status: 404, body: {} });
+    // 404 sozinho continua desconhecido: o gateway pode rodar um turno sem conseguir registrá-lo.
+    await expect(value.refreshTurnState(A)).rejects.toThrow();
+    expect(value.session(A)).toMatchObject({ busy: true, continuityLost: true });
+    expect(value.clearNeverSent(A)).toBe(true);
+    expect(value.session(A)).toMatchObject({ busy: false, continuityLost: false });
+    expect(events.some((event) => event.type === 'turn-state' && event.source === 'never-sent')).toBe(true);
+    await value.sendMessage(A, 'novo pedido');
+    expect(value.clearNeverSent(A)).toBe(false);
+    expect(value.session(A)?.busy).toBe(true);
   });
 
   it('ignores delayed idle proof from an earlier turn', async () => {

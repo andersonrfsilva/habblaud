@@ -46,6 +46,8 @@ function metadata(value: OpenSession): OpenSession {
 class HttpError extends Error {
   constructor(readonly status: number, readonly retryAfter: number) { super(`ZeroClaw HTTP ${status}`); }
 }
+/** O gateway respondeu 404: sem registro da sessão ou do turno (não prova que nada roda; persistência pode falhar). */
+export function isNotFound(error: unknown): boolean { return error instanceof HttpError && error.status === 404; }
 
 export class ZeroClawConnector {
   private readonly entries = new Map<string, Entry>();
@@ -331,6 +333,16 @@ export class ZeroClawConnector {
       }
     } catch (error) { if (this.current(entry, generation) && entry.descriptor.continuityLost) this.schedulePoll(entry); throw error; }
     return { busy: entry.descriptor.busy, continuityLost: entry.descriptor.continuityLost };
+  }
+  /**
+   * Sessão restaurada como "rodando" que nunca recebeu mensagem: o gateway não conhece turno dela (404) e o espelho não
+   * tem pedido do usuário. Só quem chama prova o "nunca enviada"; aqui só se exige que nada tenha sido enviado nesta vida.
+   */
+  clearNeverSent(id: string): boolean {
+    const entry = this.entries.get(id);
+    if (!entry?.descriptor.connected || entry.turn !== 0 || !(entry.descriptor.busy || entry.descriptor.continuityLost)) return false;
+    entry.turn++; this.turnState(entry, false, true, 'never-sent');
+    return true;
   }
   private schedulePoll(entry: Entry): void {
     if (this.stopped || !entry.descriptor.connected || entry.poll || !entry.descriptor.busy) return;
