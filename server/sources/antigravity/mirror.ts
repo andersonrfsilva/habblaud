@@ -70,9 +70,10 @@ export class AntigravityMirror {
     }
     await this.flush(sessionId);
     if (kind === 'user_message_chunk' && object(update.content) && typeof update.content.text === 'string' && update.content.text) {
+      const content = update.content.text;
       const expected = this.expectedUsers.get(sessionId);
-      const index = expected?.findIndex(item => item.sent === update.content.text) ?? -1;
-      const shown = index >= 0 ? expected!.splice(index, 1)[0].shown : update.content.text;
+      const index = expected?.findIndex(item => item.sent === content) ?? -1;
+      const shown = index >= 0 ? expected!.splice(index, 1)[0].shown : content;
       if (!expected?.length) this.expectedUsers.delete(sessionId);
       await this.append(sessionId, { type: 'user', message: { role: 'user', content: maskSecrets(shown) } });
     } else if (kind === 'tool_call') {
