@@ -5,7 +5,7 @@
 <h1 align="center">Habblaud</h1>
 
 <p align="center">
-  <b>The virtual office for your Claude Code (and Codex) agents.</b><br />
+  <b>The virtual office for your Claude Code, Codex, OMP, ZeroClaw and Antigravity agents.</b><br />
   Each project becomes a room, and each agent becomes a pixel-art character that shows, in real time, what it's doing.
 </p>
 
@@ -25,6 +25,16 @@
 
 ---
 
+This is the [andersonrfsilva/habblaud](https://github.com/andersonrfsilva/habblaud) fork of
+[marmottajr/habblaud](https://github.com/marmottajr/habblaud). It adds OMP integrations, optional ZeroClaw and
+Antigravity runtimes, and native Zaplaud clients. Technical guides, currently in Portuguese:
+
+- [Server, configuration and integration contracts](server/README.md).
+- Zaplaud: [Android and iPadOS](README.pt-BR.md#aplicativo-android-zaplaud), [Rust desktop](zaplaud-rs/README.md)
+  and [desktop installation](zaplaud-rs/packaging/README.md).
+- [Client capabilities and validation limits](docs/zaplaud-paridade.md).
+- [Documentation review plans and their implementation status](plans/README.md).
+
 You open Claude Code in several projects, launch subagents, leave tasks running… and lose track of who's doing
 what. **Habblaud** turns all of that into an office you can take in at a glance: who's typing, who raised a hand
 because they **need you**, who delivered their work and left, who went for a coffee while waiting for the next
@@ -34,9 +44,9 @@ And when two or more agents have nothing to do, the office gets a **social life*
 and they watch soccer together in the lounge, play video games and ping-pong, gossip in the kitchen, freshen up at the
 mirror and bet coins on rock-paper-scissors. See [Social life](#social-life).
 
-Everything runs on your machine, reading the files Claude Code itself already writes (plus only the `alias` lines in
-your shell, to give each account its letter). Nothing leaves the computer: Habblaud doesn't read credentials or make
-external calls.
+Habblaud runs locally, but its configured integrations and agent runtimes can contact external services and send
+conversation content. Some integrations use tokens supplied by the operator. See
+[Privacy and security](#privacy-and-security) before enabling them.
 
 ## Contents
 
@@ -136,7 +146,7 @@ shrinks on its own.
 ### 1. Get the project
 
 ```bash
-git clone https://github.com/marmottajr/habblaud.git
+git clone https://github.com/andersonrfsilva/habblaud.git
 cd habblaud
 npm install
 ```
@@ -391,9 +401,9 @@ npm run docker:up        # tira o container codetown e copia os dados do volume 
 - **Browser:** preferences and coins move to the new keys the first time the page opens.
 - **Variables:** the `CODETOWN_*` ones no longer work; rename them to `HABBLAUD_*` in `.env` (e.g. `HABBLAUD_BIND`). The
   server and `docker:up` warn you when they find an old one.
-- **Repository:** it's now `github.com/marmottajr/habblaud` (GitHub redirects the old address). To fix your
-  clone: `git remote set-url origin https://github.com/marmottajr/habblaud.git`. The local folder can keep its
-  old name.
+- **Repository:** the upstream project moved to `github.com/marmottajr/habblaud`; this fork is
+  `github.com/andersonrfsilva/habblaud`. To use this fork:
+  `git remote set-url origin https://github.com/andersonrfsilva/habblaud.git`. The local folder can keep its old name.
 - `settings.json` backups made before the switch keep the name `settings.json.codetown-backup-<data>`.
 
 ### Uninstalling
@@ -1157,7 +1167,7 @@ metadata (letter, email, organization) is read on the host by `docker:up` and pa
   folder: whatever is in it (including after a `git pull`) is what runs. The messages plugin
   (`habblaud-mensagens`) is separate precisely because it acts: it types into the session what you sent from the office.
 - **Local only, by default:** the server only accepts connections from the computer it runs on; opening it to the local network is optional.
-  There's no telemetry. The only external call is the new-version check: every 6 hours, an anonymous request,
+  There's no telemetry. The new-version check makes an external call every 6 hours: an anonymous request,
   with no token, to the public GitHub API (`api.github.com/repos/marmottajr/habblaud/releases/latest`). It doesn't send anything
   about your sessions; GitHub only sees your IP and the version in use, which goes in the `User-Agent`.
   `HABBLAUD_UPDATE_CHECK=0` turns off the request.
@@ -1168,8 +1178,14 @@ metadata (letter, email, organization) is read on the host by `docker:up` and pa
   With [omp](#omp-oh-my-pi), Habblaud runs `omp usage --json` for the account's usage card: omp is the one querying the
   providers (Anthropic, OpenAI…), with its own credentials and cache; Habblaud only reads the reply and drops the
   e-mails and ids that come with it. `HABBLAUD_OMP_USAGE=0` turns it off.
-- **No credentials:** Habblaud doesn't read passwords or access tokens. From each account's `.claude.json` it only uses the
-  email, the organization and the `/usage` cache; live usage comes from the mod (or the statusline tap).
+- **Integration credentials:** Habblaud does not extract the CLIs' private provider credentials. From each Claude Code
+  account's `.claude.json`, it uses email, organization and the `/usage` cache; live usage comes from the mod or tap.
+  Configured HTTP integrations do read `HABBLAUD_SUMMARY_TOKEN_FILE` and `HABBLAUD_QUOTA_TOKEN_FILE`.
+  Telegram setup accepts a token supplied by the operator and stores it locally. See [the server guide](server/README.md).
+- **Conversation transfers:** HTTP summaries send text to the configured endpoint. Switching between OMP and
+  Antigravity can attach cumulative conversation context to the next human message, delivered to the destination
+  runtime's provider. Agent runtimes, including the local ZeroClaw gateway, may use external model providers;
+  local storage and secret masking do not make inference offline or guarantee anonymization.
 - **Masked secrets:** tokens and passwords in known formats (`Bearer`, `-u usuário:senha`, `TOKEN=`, `sk-…`,
   `ghp_…`, `AKIA…` keys, JWTs, passwords in URLs) become `***` before they reach the browser.
 - **Protected against malicious sites:** the server refuses addresses that aren't `localhost`/IP (DNS rebinding) and

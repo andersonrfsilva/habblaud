@@ -5,7 +5,7 @@
 <h1 align="center">Habblaud</h1>
 
 <p align="center">
-  <b>La oficina virtual de tus agentes de Claude Code (y de Codex).</b><br />
+  <b>La oficina virtual de tus agentes Claude Code, Codex, OMP, ZeroClaw y Antigravity.</b><br />
   Cada proyecto se convierte en una sala, y cada agente, en un personaje en pixel art que muestra en tiempo real lo que está haciendo.
 </p>
 
@@ -25,6 +25,16 @@
 
 ---
 
+Este es el fork [andersonrfsilva/habblaud](https://github.com/andersonrfsilva/habblaud), derivado de
+[marmottajr/habblaud](https://github.com/marmottajr/habblaud). Añade integraciones OMP, runtimes opcionales
+ZeroClaw y Antigravity y clientes nativos Zaplaud. Guías técnicas, actualmente en portugués:
+
+- [Servidor, configuración y contratos de las integraciones](server/README.md).
+- Zaplaud: [Android y iPadOS](README.pt-BR.md#aplicativo-android-zaplaud), [escritorio Rust](zaplaud-rs/README.md)
+  e [instalación de escritorio](zaplaud-rs/packaging/README.md).
+- [Funciones de los clientes y límites de la validación](docs/zaplaud-paridade.md).
+- [Planes de revisión documental y estado de implementación](plans/README.md).
+
 Abres Claude Code en varios proyectos, lanzas subagentes, dejas tareas en marcha… y pierdes la noción de quién está
 haciendo qué. **Habblaud** convierte todo eso en una oficina que se entiende de un vistazo: quién está tecleando,
 quién levantó la mano porque **te necesita**, quién entregó el trabajo y se fue, quién salió a tomar un café
@@ -34,9 +44,9 @@ Y cuando dos o más agentes no tienen nada que hacer, la oficina cobra **vida so
 personalidad, y ven fútbol juntos en el salón, juegan videojuegos y ping-pong, chismean en la cocina, se arreglan
 frente al espejo y se apuestan monedas a piedra, papel o tijera. Míralo en [Vida social](#vida-social).
 
-Todo se ejecuta en tu máquina, leyendo los archivos que el propio Claude Code ya guarda (y solo las líneas `alias` de
-tu shell, para asignarle una letra a cada cuenta). Nada sale de tu computadora: Habblaud no lee credenciales ni hace
-llamadas externas.
+Habblaud se ejecuta localmente, pero las integraciones configuradas y los runtimes de los agentes pueden consultar
+servicios externos y enviar contenido de conversaciones. Algunas integraciones usan tokens proporcionados por el
+operador. Consulta [Privacidad y seguridad](#privacidad-y-seguridad) antes de habilitarlas.
 
 ## Índice
 
@@ -138,7 +148,7 @@ solo.
 ### 1. Descarga el proyecto
 
 ```bash
-git clone https://github.com/marmottajr/habblaud.git
+git clone https://github.com/andersonrfsilva/habblaud.git
 cd habblaud
 npm install
 ```
@@ -369,9 +379,9 @@ npm run docker:up        # tira o container codetown e copia os dados do volume 
 - **Navegador:** las preferencias y las monedas pasan a las claves nuevas la primera vez que se abre la página.
 - **Variables:** las `CODETOWN_*` ya no funcionan; renómbralas a `HABBLAUD_*` en el `.env` (p. ej., `HABBLAUD_BIND`). El
   servidor y `docker:up` avisan cuando encuentran una antigua.
-- **Repositorio:** ahora es `github.com/marmottajr/habblaud` (GitHub redirige la dirección antigua). Para ajustar el
-  clon: `git remote set-url origin https://github.com/marmottajr/habblaud.git`. La carpeta local puede seguir con el
-  nombre antiguo.
+- **Repositorio:** el proyecto original se trasladó a `github.com/marmottajr/habblaud`; este fork está en
+  `github.com/andersonrfsilva/habblaud`. Para usar este fork:
+  `git remote set-url origin https://github.com/andersonrfsilva/habblaud.git`. La carpeta local puede conservar su nombre.
 - Las copias de seguridad del `settings.json` hechas antes del cambio conservan el nombre
   `settings.json.codetown-backup-<data>`.
 
@@ -1104,7 +1114,7 @@ los pasa al contenedor.
   carpeta: lo que haya en ella (incluso después de un `git pull`) es lo que se ejecuta. El plugin de mensajes
   (`habblaud-mensagens`) está separado justamente porque actúa: escribe en la sesión lo que enviaste desde la oficina.
 - **Solo local, por defecto:** el servidor solo acepta conexiones de la propia computadora; abrirlo a la red local es
-  opcional. No hay telemetría. La única llamada externa es la comprobación de versión nueva: cada 6 horas, una
+  opcional. No hay telemetría. La comprobación de versión nueva hace una llamada externa cada 6 horas: una
   consulta anónima, sin token, a la API pública de GitHub (`api.github.com/repos/marmottajr/habblaud/releases/latest`).
   No envía nada sobre tus sesiones; GitHub ve solo tu IP y la versión en uso, que va en el `User-Agent`.
   `HABBLAUD_UPDATE_CHECK=0` desactiva la consulta.
@@ -1115,8 +1125,14 @@ los pasa al contenedor.
   Con [omp](#omp-oh-my-pi), Habblaud ejecuta `omp usage --json` para la tarjeta de uso de la cuenta: es omp quien
   consulta a los proveedores (Anthropic, OpenAI…), con sus propias credenciales y caché; Habblaud solo lee la respuesta
   y descarta los correos e ids que vienen con ella. `HABBLAUD_OMP_USAGE=0` lo desactiva.
-- **Sin credenciales:** Habblaud no lee contraseñas ni tokens de acceso. Del `.claude.json` de cada cuenta aprovecha
-  solo el correo, la organización y la caché de `/usage`; el uso en vivo viene del mod (o del tap de statusline).
+- **Credenciales por integración:** Habblaud no extrae las credenciales privadas de proveedores utilizadas por los CLI.
+  Del `.claude.json` de cada cuenta Claude Code usa correo, organización y caché de `/usage`; el uso en vivo viene
+  del mod o tap. Las integraciones HTTP configuradas leen `HABBLAUD_SUMMARY_TOKEN_FILE` y `HABBLAUD_QUOTA_TOKEN_FILE`.
+  La configuración Telegram recibe un token del operador y lo guarda localmente. Consulta la [guía del servidor](server/README.md).
+- **Transferencia de conversaciones:** los resúmenes HTTP envían texto al endpoint configurado. El cambio entre OMP y
+  Antigravity puede adjuntar contexto acumulativo al siguiente mensaje humano, enviado al proveedor del runtime de
+  destino. Los runtimes, incluido el gateway local ZeroClaw, pueden usar proveedores externos; el almacenamiento
+  local y el enmascaramiento de secretos no hacen que la inferencia sea offline ni garantizan anonimización.
 - **Secretos enmascarados:** los tokens y contraseñas con formato conocido (`Bearer`, `-u usuário:senha`, `TOKEN=`,
   claves `sk-…`, `ghp_…`, `AKIA…`, JWTs, contraseñas en URLs) se convierten en `***` antes de llegar al navegador.
 - **Protegido contra sitios maliciosos:** el servidor rechaza direcciones que no sean `localhost`/IP (DNS rebinding) y

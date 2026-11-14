@@ -12,6 +12,9 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Entrada do fork nos quatro READMEs.** Identifica `andersonrfsilva/habblaud`, preserva os créditos do projeto
+  original e aponta para os guias do servidor, clientes Zaplaud e planos da revisão documental. Clone e migração
+  de `origin` usam o fork; os avisos de privacidade distinguem execução local de envio de conversas e uso de tokens.
 - **Pasta padrão do elenco.** `HABBLAUD_CAST_FOLDER` define onde abrem as conversas novas do omp, Antigravity e ZeroClaw
   (personagens e "Novo"); sem ela, continuam na pasta pessoal. Retomar segue na pasta da conversa.
 - **Antigravity na página.** Modelos `agy/…` aparecem no editor de personagem e na gaveta do agente.
