@@ -1693,6 +1693,7 @@ pub fn cast_availability(
     open_cast: &HashSet<String>,
     jobs: &HashMap<String, String>,
     runtime: Option<&str>,
+    agy: bool,
 ) -> CastAvailability {
     let current = selected.and_then(|selected| {
         characters
@@ -1717,7 +1718,7 @@ pub fn cast_availability(
         .collect();
     let mut resume_choices = free.clone();
     resume_choices.sort_by_key(|character| std::cmp::Reverse(Some(character) == current));
-    let resume = selected.is_some_and(|selected| can_resume_cast(selected, runtime, false));
+    let resume = selected.is_some_and(|selected| can_resume_cast(selected, runtime, agy));
     let dismiss = selected.is_some_and(|selected| {
         selected.agent_id.is_some() && selected.cast_opened && (current.is_some() || new_agent)
     });

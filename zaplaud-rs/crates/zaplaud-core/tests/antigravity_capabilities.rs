@@ -127,3 +127,28 @@ fn resume_uses_antigravity_catalog_independently_of_runtime() {
     closed.key.session_id = "invalid".into();
     assert!(!can_resume_cast(&closed, None, true));
 }
+
+#[test]
+fn cast_availability_uses_catalog_agy_flag_for_resume() {
+    use std::collections::{HashMap, HashSet};
+    let mut closed = item();
+    closed.agent_id = None;
+    for agy in [false, true] {
+        for runtime in [None, Some("omp"), Some("zeroclaw")] {
+            let available = cast_availability(
+                Some(&closed), &[], &HashSet::new(), &HashMap::new(), runtime, agy,
+            );
+            assert_eq!(available.resume, agy);
+        }
+        for provider in ["omp", "zeroclaw"] {
+            let mut legacy = closed.clone();
+            legacy.key.provider = provider.into();
+            assert!(cast_availability(
+                Some(&legacy), &[], &HashSet::new(), &HashMap::new(), Some(provider), agy,
+            ).resume);
+            assert!(!cast_availability(
+                Some(&legacy), &[], &HashSet::new(), &HashMap::new(), None, agy,
+            ).resume);
+        }
+    }
+}
