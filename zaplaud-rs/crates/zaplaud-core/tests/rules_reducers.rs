@@ -375,6 +375,7 @@ fn kotlin_background_post_and_commands_cancel_without_replay() {
         token,
         id: Some("command".into()),
         status: Some("queued".into()),
+        error: None,
         failure: None,
     });
     assert_eq!(
@@ -400,6 +401,7 @@ fn kotlin_background_post_and_commands_cancel_without_replay() {
             token,
             id: None,
             status: Some("delivered".into()),
+            error: None,
             failure: None
         })
         .is_empty()
@@ -1384,6 +1386,7 @@ fn command_poll_limit_and_unauthorized_are_not_retry_posts() {
             token,
             id: Some("c".into()),
             status: Some("queued".into()),
+            error: None,
             failure: None,
         });
         assert_eq!(

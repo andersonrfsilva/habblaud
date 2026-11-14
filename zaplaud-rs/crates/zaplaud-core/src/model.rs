@@ -695,6 +695,7 @@ pub struct CachedConversation {
 pub struct CommandResult {
     pub kind: String,
     pub status: String,
+    pub reason: Option<String>,
 }
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ComposerState {

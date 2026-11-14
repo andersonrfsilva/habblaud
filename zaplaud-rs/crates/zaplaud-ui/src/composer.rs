@@ -49,12 +49,14 @@ fn failure(error: zaplaud_core::Error) -> Failure {
             status,
             code,
             attachments_expired,
+            detail,
             ..
         } => Failure {
             status: Some(status),
             session_changed: code.as_deref() == Some("session_changed"),
             attachments_expired,
             cancelled: false,
+            reason: (!detail.is_empty()).then_some(detail),
         },
         _ => Failure::default(),
     }
@@ -871,7 +873,7 @@ fn publish(
                     "thinking" => strings::THINKING_MENU,
                     _ => strings::SHAKE_SHORT,
                 };
-                crate::formatted(
+                let message = crate::formatted(
                     match result.status.as_str() {
                         "pending" => "command_pending",
                         "sent" => "command_sent",
@@ -879,7 +881,12 @@ fn publish(
                         _ => "command_unknown",
                     },
                     &[what],
-                )
+                );
+                if result.status == "failed" && let Some(reason) = result.reason {
+                    format!("{message} {reason}")
+                } else {
+                    message
+                }
             })
             .unwrap_or_default();
         global.set_command_status(command.into());
