@@ -18,6 +18,15 @@ em `~/apps/habblaud`, que é o Habblaud de produção (o `omp-tenant release` l�
 um plano pronto e revisado, pelo operador. Cada executor: leia o plano inteiro antes de começar, respeite as STOP
 conditions e atualize sua linha ao terminar.
 
+Revisão documental do fork em 2026-11-14, base `8e52027`: histórico exclusivo integrado mapeado por assunto e
+arquivos, com conferência dirigida dos contratos citados; não é revisão linha a linha de todos os patches.
+A revisão incremental de `17fb472..8e52027` encontrou somente o registro de publicação/reteste de 084/085
+no índice, sem alteração de código. O reteste real do Mac está registrado na linha 085; não prova a interface
+da página/Android, o cartão novo de permissão nem gates iOS. O 006 foi reescrito: sua especificação antiga
+preservava promessas de privacidade que já não valem. Novos planos documentais: 086–088, todos TODO.
+Nenhum código ou documento operacional foi alterado nesta revisão; sem builds, dispositivos, produção,
+merge, commit ou push. Verificação do planejamento: trechos e comandos documentais, não testes da aplicação.
+
 ## Execution order & status
 
 | Plan | Title | Priority | Effort | Depends on | Status |
@@ -27,7 +36,7 @@ conditions e atualize sua linha ao terminar.
 | 003  | Extensão do omp não entrega na sessão nova o que buscou para a anterior | P1 | S | — | DONE (merge 5f22b5a) |
 | 004  | Revogação remota falha fechada; verificador de versão não derruba o servidor | P3 | S | — | DONE (merge fba172b) |
 | 005  | Traduções completas e `i18n:check --strict` no CI | P3 | S | — | DONE (merge 69828b3) |
-| 006  | Introdução dos READMEs sem "nenhuma chamada externa" | P3 | S | — | TODO |
+| 006 | [Privacidade: chamadas externas, tokens configurados e fluxo de dados do fork](006-readme-chamadas-externas.md) | P1 | M | — | TODO (reescrito em 2026-11-14, base `8e52027`; a especificação de `4931abc` está substituída, não executar a redação antiga) |
 | 007  | Escritório parado a 30 qps (15 sem foco); 60 só com câmera em movimento ou entrada | P1 | S | — | DONE (merge f0e2e60) |
 | 008  | Opção "Economia de energia": escritório desenhado em 1× (pixelated) | P2 | M | — | DONE (merge 994d2c4) |
 | 009  | Telas, janelas e relógios repintados só quando mudam (cache por item) | P3 | M | — | SUPERSEDED por 012 (medido sem GPU, onde o ganho não aparece; branch apagado) |
@@ -107,6 +116,9 @@ conditions e atualize sua linha ao terminar.
 | 082 | [Zaplaud desktop Rust: o mesmo do 081; só clippy, build e testes sem tela](082-antigravity-no-zaplaud-rust.md) | P1 | M | 079, 083, 081 (chaves de texto) | DONE no branch `advisor/082-antigravity-zaplaud-rust` (`020e1de`, 6 commits sobre o 081), revisado e APROVADO em 2026-11-14 depois de uma rodada REVISE (`cast_availability` passava `agy = false`): clippy ok, 140 testes do núcleo ok, `cargo build --release` ok. Escopo ampliado na execução: `controller/message.rs` (texto do erro), `controller/cast.rs` (chamada), `conversation_view.{rs,slint}` (onde o menu de modelo mora); um `collapsible_if` que o clippy já recusava na base foi corrigido à parte (`535d79d`). **Janela não aberta: validação manual do dono** (roteiro no último commit) |
 | 084 | [Servidor: "Novo" mantém id, nome e visual na troca de ferramenta e na conversa nova; conversa nova do Antigravity abre vazia; cartão de permissão com o arquivo; fala da pessoa sem texto injetado; contexto lido sem pedir permissão (`additionalDirectories`)](084-antigravity-identidade-e-conversa-consistentes.md) | P1 | M | — | DONE (2026-11-14): `b34006e`, 7 commits, mesclado em `producao` (`17fb472`) e publicado (`deploy-17fb472`, rollback `rollback-ffbea77`). 2958 testes ok. Três afirmações antigas mudaram com aprovação do revisor: id do "Novo" na troca (agora o mesmo), tradução de ferramenta desconhecida, e `owns()` verdadeiro desde a abertura. Limite aceito: ferramenta desconhecida sem `rawInput` mostra a descrição só no título do cartão |
 | 085 | [Página, Zaplaud Kotlin e Zaplaud Rust selecionam sozinhos o contato reaberto depois da troca de ferramenta (mesmo `cast`, prazo de 90 s)](085-clientes-acompanham-a-troca-de-ferramenta.md) | P1 | M | contrato do 084 | DONE (2026-11-14): três partes (`80afa74` página, `04d41b3` Kotlin, `f4e5d55` Rust), mescladas em `producao` (`17fb472`); no conjunto 2965 testes, clippy, 142 testes do núcleo Rust e Gradle ok. Mac e M35 atualizados. Reteste no Mac do dono, com o app real e o servidor de produção (leitura e acionamento por acessibilidade; 1 turno do omp e 1 do `agy`): "Novo" Mateus no omp → modelo `agy/gemini-3.8-flash` → continuou **Mateus**, mesmo `cast`; a tela seguiu sozinha para a conversa nova, sem "encerrado" e sem "Conversa indisponível"; a primeira mensagem não pediu permissão, a fala apareceu limpa, a resposta chegou sem reselecionar; "Nova sessão" manteve o nome. **Não conferido na tela:** o cartão de permissão novo (não houve mais pedido), a página e o Android. Em aberto: o botão "Novo" de "Chamar contato" não respondeu ao acionamento por acessibilidade (inconclusivo; clicar à mão) |
+| 086 | [Entrada do fork: clone correto, créditos, contribuição e instalação desktop atual](086-documentar-entrada-e-instalacao-do-fork.md) | P1 | M | 006 | TODO |
+| 087 | [Configuração e contratos: ZeroClaw/resumo/cota, modelos Antigravity, capacidades e limites](087-reconciliar-configuracao-e-contratos.md) | P2 | M | 086 | TODO |
+| 088 | [Idiomas e notas: traduzir o contrato final, consolidar Não lançado e delimitar a verificação](088-alinhar-idiomas-e-notas-da-entrega.md) | P2 | M | 006, 086, 087 | TODO |
 
 Integração 079–083 (2026-11-14): branch `advisor/antigravity-079-083` (`cd6f384`, worktree `/tmp/habblaud-int`) junta
 os cinco planos: 080 (que contém 079 e 083) mais 082 (que contém 081); único conflito, `CHANGELOG.md`, resolvido
@@ -155,6 +167,13 @@ Em 2026-10-31 o branch `rpg` (elenco 031/032 e o que veio depois) foi promovido 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 
 ## Dependency notes
+
+- Revisão documental `8e52027`: executar **006 → 086 → 087 → 088**, sem edições paralelas nos READMEs compartilhados.
+  006 corrige privacidade nos quatro idiomas; 086 corrige entrada/instalação nos quatro; 087 corrige a referência
+  do servidor e os resumos EN/PT; 088 traduz o contrato final ES/FR, consolida somente “Não lançado” e aponta
+  para a evidência de verificação existente. Mudanças documentais dos predecessores são drift esperado.
+  Todos os quatro planos são somente Markdown; não autorizam implementação, release, deploy ou inferência real.
+  Não duplicar 006 com um novo número nem concluir gates de outros planos por dedução.
 
 - 079, 083, 080–082: Antigravity pelo **modelo**, no elenco e em todos os clientes (variante `plan`, `deep`,
   2026-11-14, commit `ba5a285`; baseline `npm test` 2857 ok). Reescritos no mesmo dia, antes de qualquer execução,
@@ -265,6 +284,20 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 - Planos 010–013 partem de `fork/main` (o `producao` local está 5 commits atrás).
 
 ## Findings considered and rejected
+
+- Revisão documental `8e52027`, achados considerados e descartados:
+  - glibc “contraditória”: `zaplaud-rs/README.md:39` já diferencia pacote local Arch da base CI; a referência
+    `zaplaud-rs/packaging/README.md:15` explicita 2.43 e 2.39. Preservar a distinção, não abrir migração.
+  - Retry-After “sem paridade”: o teto de 24 h já está implementado no Kotlin Android/Apple; corrigir apenas a
+    frase obsoleta do README Rust (087), não alterar código nem a linha correta da matriz.
+  - 031/032 “não integrados”: a promoção do `rpg` é registrada neste índice; não confundir nota histórica com
+    estado corrente, nem apagar o histórico de verificação.
+  - DONE automático por merge/instalação: rejeitado. Pendências de validação física/visual e fase 6 do 074
+    continuam independentes de código integrado. O reteste Mac 085 é evidência específica, não cobertura geral.
+  - Trocar `package.json.repository` para corrigir um link: fora do corte documental, pois afeta o atualizador.
+    O 086 corrige orientação e explica a política observada, sem mudar releases/atualizações.
+  - Uma linha de changelog por commit, reescrever releases publicadas ou criar testes permanentes de redação:
+    baixo valor; 088 consolida o estado final de “Não lançado” e preserva versões publicadas.
 
 - Campo `runtime` no personagem, campo "Ferramenta" no editor e botão "Novo no Antigravity" (primeira versão dos
   planos 079–082, 2026-11-14): recusados pelo dono no mesmo dia. O modelo `agy/…` decide.

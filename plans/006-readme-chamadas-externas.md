@@ -1,125 +1,197 @@
-# Plan 006: A introdução dos READMEs para de dizer "nenhuma chamada externa"
+# Plan 006: Corrigir promessas de privacidade e explicitar os fluxos de dados do fork
 
-> **Executor instructions**: Follow this plan step by step. Run every
-> verification command and confirm the expected result before moving to the
-> next step. If anything in the "STOP conditions" section occurs, stop and
-> report — do not improvise. When done, update the status row for this plan
-> in `plans/README.md` — unless a reviewer dispatched you and told you they
-> maintain the index.
+> Execute somente a documentação em Scope. Leia o plano inteiro; não altere comportamento para fazê-lo coincidir
+> com o texto. Atualize somente a linha 006 de `plans/README.md` ao concluir, salvo se houver integrador.
 >
-> **Drift check (run first)**: `git diff --stat 4931abc..HEAD -- README.md README.pt-BR.md README.es.md README.fr.md`
-> If any in-scope file changed since this plan was written, compare the
-> "Current state" excerpts against the live code before proceeding; on a
-> mismatch, treat it as a STOP condition.
+> **Drift check:** `git diff --stat 8e52027..HEAD -- README.md README.pt-BR.md README.es.md README.fr.md plans/README.md`.
+> Compare os trechos abaixo com os arquivos atuais. Mudanças inexplicadas exigem STOP; movimentação de linhas não.
+> A publicação deste lote de planos muda `plans/README.md` e é drift esperado; não exige parar a execução.
 
 ## Status
 
-- **Priority**: P3
-- **Effort**: S
-- **Risk**: LOW (só documentação)
+- **Priority**: P1
+- **Effort**: M
+- **Risk**: LOW — documentação; o risco editorial é minimizar uma transferência de dados.
 - **Depends on**: none
 - **Category**: docs
-- **Planned at**: commit `4931abc`, 2026-10-24
+- **Planned at**: commit `8e52027`, 2026-11-14
+- **Revision**: substitui integralmente a especificação de 2026-10-24, commit `4931abc`; estado no índice.
 
 ## Why this matters
 
-A introdução dos quatro READMEs afirma que o Habblaud "não faz chamadas externas". Não é verdade: ele consulta a API do
-GitHub a cada 6 h atrás de versão nova (`server/updates/checker.ts`, desligável com `HABBLAUD_UPDATE_CHECK=0`), o
-Habblaud World (ligado por padrão) fala com o servidor do mundo depois do login, e com o omp roda `omp usage --json`,
-que consulta o provedor. A seção "Privacidade e segurança" de cada README já descreve isso corretamente. O problema é
-só a frase da introdução, que contradiz a própria seção. Promessa de privacidade errada é o tipo de documentação que
-custa confiança.
+A abertura ainda promete ausência de chamadas externas e de leitura de credenciais. O fork já possui resumo HTTP,
+cota autenticada, configuração Telegram e transferência de conversa entre ferramentas. A versão anterior deste
+plano também estava errada: preservava a promessa de que as sessões nunca saem do computador e proibia corrigir
+a seção de privacidade. Corrigir apenas a introdução não resolve mais o problema.
 
 ## Current state
 
-As frases (texto atual exato):
+- `README.pt-BR.md:37–38`: “Nada sai do computador: o Habblaud não lê credenciais nem faz chamadas externas.”
+- `README.md:37–39`: “Nothing leaves the computer: Habblaud doesn't read credentials or make external calls.”
+- `README.es.md:37–39` e `README.fr.md:38–40`: a mesma promessa em espanhol e francês.
+- `README.pt-BR.md:1413–1425`: “A única chamada externa é a verificação de versão nova” e
+  “Sem credenciais: o Habblaud não lê senhas nem tokens de acesso.”
+- `server/summaries/summarizer.ts:25–49`:
 
-- `README.md:37-39`:
-  > Everything runs on your machine, reading the files Claude Code itself already writes (plus only the `alias` lines in
-  > your shell, to give each account its letter). Nothing leaves the computer: Habblaud doesn't read credentials or make
-  > external calls.
-- `README.pt-BR.md:37-38`:
-  > Tudo roda na sua máquina, lendo os arquivos que o próprio Claude Code já grava (e só as linhas `alias` do seu shell,
-  > para dar a letra de cada conta). Nada sai do computador: o Habblaud não lê credenciais nem faz chamadas externas.
-- `README.es.md:37-39`:
-  > Todo se ejecuta en tu máquina, leyendo los archivos que el propio Claude Code ya guarda (y solo las líneas `alias` de
-  > tu shell, para asignarle una letra a cada cuenta). Nada sale de tu computadora: Habblaud no lee credenciales ni hace
-  > llamadas externas.
-- `README.fr.md:37-39`:
-  > Tout tourne sur votre machine, en lisant les fichiers que Claude Code écrit déjà lui-même (et seulement les lignes
-  > `alias` de votre shell, pour attribuer une lettre à chaque compte). Rien ne quitte l'ordinateur : Habblaud ne lit
-  > aucun identifiant et ne fait aucun appel externe.
+  ```ts
+  token = (await readFile(config.tokenFile, 'utf8')).trim();
+  const response = await fetch(`${config.url}/v1/messages`, {
+  ```
 
-Seções de privacidade (destino do link), títulos exatos:
+  O corpo contém o texto enviado para resumo. A autenticação usa `x-api-key` ou Bearer.
+- `server/accounts/quota.ts:72–76`: lê o arquivo de token e faz GET autenticado na URL configurada.
+- `server/cast/named.ts:74–86`: recebe token e peers Telegram e grava o pedido de vínculo em arquivo privado.
+  Não copie nenhum valor real; `server/README.md:168–181` documenta o contrato sem expor credenciais.
+- `server/README.md:93–123`: contexto cumulativo, mascarado, sem raciocínio; até 150 mil caracteres;
+  arquivos privados em `<dataDir>/handoff`, limpeza na inicialização após 7 dias. O arquivo é enviado na primeira
+  mensagem humana após a troca, para o provedor da ferramenta de destino. `additionalDirectories` não aprova
+  ferramentas automaticamente nem transfere a sessão nativa.
+- `server/updates/checker.ts:189–200`: consulta o GitHub; `HABBLAUD_UPDATE_CHECK=0` desliga.
+- `server/README.md:250–304`: resumo HTTP configurado não exige Tiny; sem HTTP, permanece RPC do OMP.
+- `server/README.md:129–135,159–163,632–640`: ZeroClaw recebe mensagens e persona pelo gateway local;
+  a configuração desse gateway determina o provedor final. A conexão loopback não torna a inferência offline.
 
-| Arquivo | Linha | Título | Âncora GitHub |
-|---|---|---|---|
-| `README.md` | 991 | `## Privacy and security` | `#privacy-and-security` |
-| `README.pt-BR.md` | 988 | `## Privacidade e segurança` | `#privacidade-e-segurança` |
-| `README.es.md` | 1026 | `## Privacidad y seguridad` | `#privacidad-y-seguridad` |
-| `README.fr.md` | 1035 | `## Confidentialité et sécurité` | `#confidentialité-et-sécurité` |
-
-Trecho da seção em inglês que a frase nova resume (`README.md:1005-1012`): "There's no telemetry. The only external
-call is the new-version check ... `HABBLAUD_UPDATE_CHECK=0` turns off the request. Habblaud World (on by default) only
-sends something to the world server after you create an account and sign in ... `HABBLAUD_WORLD=0` turns it all off."
-
-Os READMEs quebram linha em ~120 colunas; mantenha.
-
-## Commands you will need
-
-| Purpose | Command | Expected |
-|---|---|---|
-| Conferir | `grep -n "chamadas externas\|external calls\|llamadas externas\|appel externe" README*.md` | só linhas fora da introdução (ou nenhuma) |
+Convenção: textos completos no idioma do arquivo, linhas de prosa próximas de 120 colunas, links Markdown relativos.
+Preserve âncoras de privacidade: `#privacy-and-security`, `#privacidade-e-segurança`,
+`#privacidad-y-seguridad`, `#confidentialité-et-sécurité`. Use tabelas `| Recurso | ... |`, como
+`docs/zaplaud-paridade.md:20–39`, para uma única representação dos fluxos, sem repetir uma segunda lista.
 
 ## Scope
 
-**In scope**: `README.md`, `README.pt-BR.md`, `README.es.md`, `README.fr.md` — só a frase da introdução.
+**In scope:** `README.md`, `README.pt-BR.md`, `README.es.md`, `README.fr.md`: introdução e seção de privacidade;
+`plans/README.md`: somente linha 006 e eventual evidência de conclusão dessa linha.
 
-**Out of scope**: as seções de privacidade (já corretas); `docs/world/privacidade.md`; qualquer código.
+**Out of scope:** código, manifests, `.env`, arquivos de tokens, estado real de usuários, `docs/world/privacidade.md`,
+outras seções dos READMEs, traduções de UI, CHANGELOG, deploy e qualquer comando com provedor real.
+Detalhes do World continuam no documento existente; não reauditar seu servidor.
+
+## Commands you will need
+
+Execute da raiz do clone/worktree.
+
+| Finalidade | Comando | Resultado |
+|---|---|---|
+| Base | `git show -s --format='%h %s' 8e52027` | `docs(planos): 084 e 085 publicados e retestados no Mac` |
+| Fontes | `rg -n -e 'tokenFile' -e '/v1/messages' server/summaries/summarizer.ts server/accounts/quota.ts` | Locais de leitura e envio, sem conteúdo de segredo |
+| Contratos | `rg -n -e 'handoff' -e 'additionalDirectories' -e 'telegram' -e 'SUMMARY_' server/README.md` | Referências de fluxo, persistência e configuração |
+| Âncoras | `rg -n -e '^## Privacy and security$' -e '^## Privacidade e segurança$' -e '^## Privacidad y seguridad$' -e '^## Confidentialité et sécurité$' README*.md` | Quatro títulos, um por arquivo |
+
+Não rode `npm install`, builds ou testes de runtime: o corte é exclusivamente Markdown e a prova é documental.
+Não crie testes permanentes que fixem redação.
 
 ## Git workflow
 
-- Branch: `docs/readme-chamadas-externas` a partir de `main`.
-- Um commit: `docs: a introdução não promete "nenhuma chamada externa" (versão nova, World e omp usage consultam fora)`.
-- Do NOT push or open a PR unless the operator instructed it.
+- Branch sugerido: `advisor/006-privacidade-fork`, a partir da `producao` atual.
+- Worktree temporária somente em `/tmp/habblaud-006-docs`, nunca em `~/Desenvolvimento`.
+- Commit sugerido, se autorizado: `docs: esclarece privacidade e fluxos de dados do fork`.
+- Este plano não autoriza merge, push, deploy, reinícios ou acesso a aparelhos.
 
 ## Steps
 
-### Step 1: Reescrever a frase nos 4 idiomas
+### Step 1: Remover as promessas absolutas nos quatro idiomas
 
-Troque só a segunda frase (a partir de "Nothing leaves" / "Nada sai" / "Nada sale" / "Rien ne quitte") por:
+Reescreva o parágrafo de abertura: processamento e armazenamento locais não significam ausência de rede.
+Informe que integrações habilitadas podem enviar conteúdo e utilizar tokens configurados pelo operador.
+Inclua link para a seção de privacidade do próprio arquivo, sem prometer “suas sessões ficam no computador”.
+Não afirme que todas as chamadas são opt-in: a verificação de versão é ligada por padrão.
 
-- en: `Your sessions stay on the computer: Habblaud doesn't read credentials and has no telemetry; the few requests it makes (new-version check, Habblaud World after you sign in) are listed in [Privacy and security](#privacy-and-security).`
-- pt-BR: `Suas sessões ficam no computador: o Habblaud não lê credenciais nem tem telemetria; as poucas consultas que faz (versão nova, Habblaud World depois do login) estão em [Privacidade e segurança](#privacidade-e-segurança).`
-- es: `Tus sesiones se quedan en tu computadora: Habblaud no lee credenciales ni tiene telemetría; las pocas consultas que hace (versión nueva, Habblaud World después de iniciar sesión) están en [Privacidad y seguridad](#privacidad-y-seguridad).`
-- fr: `Vos sessions restent sur l'ordinateur : Habblaud ne lit aucun identifiant et n'a pas de télémétrie ; les rares requêtes qu'il fait (nouvelle version, Habblaud World après connexion) sont décrites dans [Confidentialité et sécurité](#confidentialité-et-sécurité).`
+**Verify:** execute o bloco abaixo; saída esperada `introducoes: OK`.
 
-Reflua as linhas do parágrafo para ~120 colunas.
+```sh
+python3 - <<'PY'
+from pathlib import Path
+for name, anchor, forbidden in [
+    ("README.md", "#privacy-and-security", "Nothing leaves the computer"),
+    ("README.pt-BR.md", "#privacidade-e-segurança", "Nada sai do computador"),
+    ("README.es.md", "#privacidad-y-seguridad", "Nada sale de tu computadora"),
+    ("README.fr.md", "#confidentialité-et-sécurité", "Rien ne quitte l'ordinateur"),
+]:
+    intro = Path(name).read_text().split("\n## ", 1)[0]
+    assert forbidden not in intro, name
+    assert anchor in intro, name
+print("introducoes: OK")
+PY
+```
 
-**Verify**: `grep -n "external calls\|chamadas externas\|llamadas externas\|appel externe" README*.md` → nenhuma linha
-na faixa 35-42 de cada arquivo.
+### Step 2: Descrever os fluxos reais e os limites de cada credencial
 
-### Step 2: Conferir os links
+Em cada seção de privacidade, substitua “única chamada externa” e “sem credenciais” por afirmações delimitadas.
+Não diga que o Habblaud lê credenciais privadas do OMP ou Antigravity: a autenticação dessas ferramentas
+continua nelas. Diferencie isso dos tokens explicitamente fornecidos ao Habblaud.
 
-**Verify**: para cada arquivo, o título da tabela acima existe:
-`grep -n "^## Privacy and security" README.md; grep -n "^## Privacidade e segurança" README.pt-BR.md; grep -n "^## Privacidad y seguridad" README.es.md; grep -n "^## Confidentialité et sécurité" README.fr.md` → 1 linha cada.
+Inclua uma tabela por idioma com recurso, dado/destino, ativação e persistência:
+
+1. GitHub: IP e versão no User-Agent, sem conteúdo da conversa; `HABBLAUD_UPDATE_CHECK=0` desliga.
+2. World após login: apenas projeção documentada, link para `docs/world/privacidade.md`; `HABBLAUD_WORLD=0`.
+3. OMP usage: o subprocesso consulta provedores com suas próprias credenciais; `HABBLAUD_OMP_USAGE=0`.
+4. Resumo: texto da resposta ao endpoint/modelo configurado, por HTTP ou RPC Tiny; no HTTP lê
+   `HABBLAUD_SUMMARY_TOKEN_FILE`. Recomendar HTTPS para endpoints externos; o parser aceita HTTP e não impõe
+   essa regra ao operador. Não confundir gateway local com destino final. A mesma distinção vale para cota.
+5. Cota: GET na URL configurada, lendo `HABBLAUD_QUOTA_TOKEN_FILE`; não envia conversa nesse pedido.
+6. Telegram: pedido em `<HABBLAUD_DATA_DIR>/telegram/<alias>.json`, arquivo 0600 e pasta 0700; aplicação pelo host
+   pode reiniciar personagens. Não recebe de volta o token pelo GET. Não prometer criptografia em repouso.
+7. Troca omp/Antigravity: `<dataDir>/handoff`, envio cumulativo ao provedor de destino na próxima mensagem humana;
+   mascaramento não garante anonimização. Raciocínio e eventos de sistema ficam de fora.
+8. Inferência normal: Claude Code, Codex, omp e `agy` enviam pedidos aos provedores configurados nas próprias
+   ferramentas; Habblaud não torna essas sessões offline. ZeroClaw recebe texto e persona pelo gateway HTTP
+   loopback habilitado com `HABBLAUD_ZEROCLAW_URL`, sem token nesse transporte isolado, e o gateway pode usar
+   provedores externos com suas próprias credenciais. O Habblaud não lê as credenciais privadas desses runtimes.
+
+Preserve avisos HTTP, poder do usuário local e isolamento de acesso remoto já existentes.
+
+**Verify:** execute o bloco abaixo; saída esperada `fluxos: OK`. Os identificadores técnicos devem aparecer
+dentro da seção de privacidade, não apenas nas tabelas de configuração de outra seção.
+
+```sh
+python3 - <<'PY'
+from pathlib import Path
+headings = {
+    "README.md": "## Privacy and security",
+    "README.pt-BR.md": "## Privacidade e segurança",
+    "README.es.md": "## Privacidad y seguridad",
+    "README.fr.md": "## Confidentialité et sécurité",
+}
+for name, heading in headings.items():
+    body = Path(name).read_text().split(heading + "\n", 1)[1].split("\n## ", 1)[0]
+    for term in ("HABBLAUD_UPDATE_CHECK", "HABBLAUD_WORLD", "HABBLAUD_OMP_USAGE",
+                 "HABBLAUD_ZEROCLAW_URL", "HABBLAUD_SUMMARY_TOKEN_FILE", "HABBLAUD_QUOTA_TOKEN_FILE",
+                 "telegram/", "handoff", "0600", "0700"):
+        assert term in body, (name, term)
+print("fluxos: OK")
+PY
+```
+
+### Step 3: Revisar fronteiras e concluir a linha 006
+
+Leia os quatro textos como operador: cada saída de dados precisa informar destino e condição; nenhuma credencial
+real pode estar em exemplos. Registre na linha 006 os comandos documentais executados e o commit, quando existir.
+Não marque outros planos como concluídos nem repita o estado em um novo relatório.
+
+**Verify:** repita os dois blocos e o comando de âncoras; todos passam. O diff da execução deve conter somente
+os quatro READMEs e a atualização permitida em `plans/README.md`. `git status --short` deve mostrar somente
+esses caminhos da execução; arquivos de planejamento já presentes no início não são alterações da execução.
 
 ## Test plan
 
-- Documentação: sem testes. A prova são os greps acima.
+Sem testes novos ou chamadas de rede. Os dois blocos Python são verificações descartáveis de documentação.
+Eles cobrem localização e presença; a revisão humana verifica o significado e os limites, não apenas palavras.
 
 ## Done criteria
 
-- [ ] Os greps dos Steps 1 e 2 dão o resultado esperado
-- [ ] `git diff --stat` mostra só os 4 READMEs (mais `plans/README.md`)
-- [ ] `plans/README.md` status row updated
+- [ ] `introducoes: OK`, `fluxos: OK` e quatro âncoras válidas.
+- [ ] Não há promessa geral de ausência de rede ou de leitura de qualquer token.
+- [ ] Credenciais dos CLIs e tokens configurados para Habblaud estão claramente separados.
+- [ ] Texto transferido, destino e retenção de handoff estão explicados nos quatro idiomas.
+- [ ] Somente arquivos de Scope alterados; linha 006 atualizada.
 
 ## STOP conditions
 
-- A frase atual não bate com as citações acima.
-- Um dos títulos de seção não existe mais (o link ficaria quebrado).
+- Surgiu outra integração que lê/envia dados e contradiz a tabela: reportar antes de prometer completude.
+- Seria necessário ler tokens, `.env` ou chamar provedores reais para escrever o texto.
+- O contrato de retenção, ativação ou autenticação diverge das fontes acima.
+- Uma verificação continua falhando após duas tentativas de correção documental.
 
 ## Maintenance notes
 
-- Toda nova chamada para fora do computador precisa entrar na seção de privacidade dos 4 READMEs; a introdução só
-  aponta para lá, então não precisa mudar de novo.
+Qualquer integração nova deve atualizar esta fronteira de privacidade em todos os idiomas. A abertura aponta para
+ela; não replique um inventário completo na introdução. A implementação continua sendo a evidência do contrato.
