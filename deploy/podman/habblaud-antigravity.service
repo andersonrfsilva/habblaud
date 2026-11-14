@@ -1,0 +1,13 @@
+[Unit]
+Description=Habblaud Antigravity ACP relay
+
+[Service]
+WorkingDirectory=%h/apps/habblaud
+Environment=HABBLAUD_ANTIGRAVITY_BIN=%h/.local/bin/agy
+# Environment=HABBLAUD_ANTIGRAVITY_SKIP_PERMISSIONS=1
+ExecStart=/usr/bin/env npm run antigravity:relay
+Restart=on-failure
+TimeoutStopSec=10
+
+[Install]
+WantedBy=default.target

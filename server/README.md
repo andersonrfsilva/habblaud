@@ -25,6 +25,39 @@ cópia da chamada `Agent` do pai (mesmo `tool_use` id do `.meta.json`) e o resul
 com a instrução do fork. O parser ignora essa cópia — senão o resultado herdado parece o fim do subagente e o fork
 nunca entra no escritório — e usa o texto depois de `</fork-boilerplate>` como o pedido dele.
 
+## Antigravity
+
+`HABBLAUD_ANTIGRAVITY=1` liga a integração pessoal pelo ACP do `agy` oficial (medido no 1.5.9).
+Desligada por padrão; não habilitar nos tenants SaaS. O cliente (`antigravity/acp.ts`) abre uma conexão preguiçosa
+por subprocesso `agy acp` ou por soquete Unix. Multiplexa sessões, turnos e pedidos JSON-RPC; identifica-se como
+`habblaud`, não tenta autenticar e não acessa credenciais.
+
+- `sources/antigravity/source.ts` registra a conta e mantém agentes, status, título, modelo e contexto no escritório.
+- `sources/antigravity/mirror.ts` grava JSONL compatível com o leitor de terminal existente, com segredos mascarados,
+  diretórios `0700` e arquivos `0600`.
+- `messages/antigravity.ts` entrega prompts pela fila compartilhada, STOP e conversa nova. A troca abre a nova
+  sessão antes de fechar a antiga e preserva o id do agente.
+- `antigravity/permissions.ts` registra pedidos no `PermissionRegistry` e só responde permitir/negar após decisão
+  humana. Sem página, o pedido fica esperando; pedidos liberados são registrados novamente.
+- `antigravity/http.ts` atende `GET /api/antigravity` e `GET|POST /api/antigravity/sessions`, sob a trava `spawn`.
+  Abrir aceita `{folder, prompt?, session?}`; `session` retoma um UUID. Falta de login devolve 409.
+  Dispensar usa a trava `terminal`, sem depender do launcher do elenco.
+- `scripts/antigravity-relay.ts`, iniciado no host por `npm run antigravity:relay`, atende uma conexão local por vez.
+  O soquete é `0600`; a pasta precisa pertencer ao usuário e não permitir escrita de outros.
+  O relé importa a mesma `agyArgs`; nada recebido pelo soquete vira argumento, ambiente ou caminho.
+
+| Variável | Padrão | Efeito |
+| --- | --- | --- |
+| `HABBLAUD_ANTIGRAVITY` | desligado | `1` liga a fonte e suas rotas. |
+| `HABBLAUD_ANTIGRAVITY_BIN` | `agy` | Executável oficial; no modo soquete, vale no ambiente do relé. |
+| `HABBLAUD_ANTIGRAVITY_SOCKET` | ausente | Caminho absoluto; preenchido, usa o relé em vez de abrir processo. O relé usa `~/.habblaud/antigravity-acp.sock` por padrão. |
+| `HABBLAUD_ANTIGRAVITY_SKIP_PERMISSIONS` | desligado | Acrescenta apenas `--dangerously-skip-permissions`; no modo soquete, só o relé controla a flag. |
+
+O quadlet tem apenas instruções opt-in comentadas: não monta credenciais nem binário do Antigravity.
+O uso de cliente ACP próprio não garante conformidade com os Termos do Antigravity; o risco de bloqueio é do usuário.
+A flag de permissões permite executar comandos e editar arquivos sem perguntar: use apenas em ambiente descartável.
+Sem elenco, histórico na interface, cota, troca de modelo, anexos ou steer. Testes usam `fake-agy.mjs`, nunca o binário real.
+
 ## ZeroClaw (opt-in)
 
 `HABBLAUD_ZEROCLAW_URL=http://127.0.0.1:42617` liga a fonte do gateway ZeroClaw Gluon.

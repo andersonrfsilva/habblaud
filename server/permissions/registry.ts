@@ -178,8 +178,8 @@ function isQuestion(info: { tool: string; provider?: string }): boolean {
 }
 
 /** Codex e omp: o hook só aprova ou recusa com motivo (e o omp responde perguntas), sem sugestões. */
-function isCli(provider: string | undefined): provider is 'codex' | 'omp' {
-  return provider === 'codex' || provider === 'omp';
+function isCli(provider: string | undefined): provider is 'codex' | 'omp' | 'antigravity' {
+  return provider === 'codex' || provider === 'omp' || provider === 'antigravity';
 }
 
 /** Nomes de ferramenta do omp no vocabulário que o Habblaud descreve (o nome bruto segue em `tool`). */
@@ -278,7 +278,7 @@ export function applyPermission(a: AgentInfo, p: PermissionRequestInfo | undefin
  * `agent_id` é o thread do subagente (e `session_id`, o thread raiz).
  */
 export function parseHookInput(raw: unknown): {
-  provider?: 'codex' | 'omp';
+  provider?: 'codex' | 'omp' | 'antigravity';
   account?: string;
   codexHome?: string;
   sessionId: string;
@@ -295,7 +295,7 @@ export function parseHookInput(raw: unknown): {
   const tool = shortStr(r?.tool_name, 200);
   if (!r || !sessionId || !tool) throw new InvalidRequest(tr('esperado o JSON do hook PermissionRequest (session_id e tool_name)'));
   const t = typeof r.timeout_ms === 'number' && Number.isFinite(r.timeout_ms) ? r.timeout_ms : DEFAULT_TIMEOUT_MS;
-  const provider = r.provider === 'codex' || r.provider === 'omp' ? r.provider : undefined;
+  const provider = r.provider === 'codex' || r.provider === 'omp' || r.provider === 'antigravity' ? r.provider : undefined;
   const codex = provider === 'codex';
   return {
     ...(provider ? { provider } : {}),
@@ -411,7 +411,7 @@ export class PermissionRegistry {
     const req = parseHookInput(raw);
     const codex = req.provider === 'codex';
     const omp = req.provider === 'omp';
-    const cli = codex || omp;
+    const cli = codex || omp || req.provider === 'antigravity';
     const desc = codex ? codexToolView(req.tool, req.input, req.cwd) : describeTool(omp ? (OMP_TOOLS[req.tool] ?? req.tool) : req.tool, req.input);
     const questions = 'questions' in desc ? desc.questions : undefined;
     const ask = isQuestion(req);
@@ -422,7 +422,9 @@ export class PermissionRegistry {
       ? this.resolveCodexAgent(req.sessionId, req.agentId, req.agentType, this.opts.codexAccount?.(req.account, req.codexHome) ?? req.account)
       : omp
         ? this.resolveOmpAgent(req.sessionId)
-        : this.resolveAgent(req.sessionId, req.agentId, req.agentType);
+        : req.provider === 'antigravity'
+          ? this.resolveAntigravityAgent(req.sessionId)
+          : this.resolveAgent(req.sessionId, req.agentId, req.agentType);
     if (!target) return { skip: 'unknown-session' };
     if (this.size >= this.maxPending) return { skip: 'too-many' };
 
@@ -620,6 +622,11 @@ export class PermissionRegistry {
   /** Agente do omp de um pedido: o da sessão `session_id` (a extensão fala só da sessão dela, sem subagentes). */
   private resolveOmpAgent(sessionId: string): { id: string; subagent?: string } | undefined {
     const main = this.opts.office.list().find((a) => a.kind === 'main' && a.provider === 'omp' && a.sessionId === sessionId && present(a));
+    return main ? { id: main.id } : undefined;
+  }
+
+  private resolveAntigravityAgent(sessionId: string): { id: string; subagent?: string } | undefined {
+    const main = this.opts.office.list().find(a => a.kind === 'main' && a.provider === 'antigravity' && a.sessionId === sessionId && present(a));
     return main ? { id: main.id } : undefined;
   }
 

@@ -1107,6 +1107,10 @@ Tudo funciona sem configurar nada. Se precisar ajustar, use variáveis de ambien
 | `HABBLAUD_CODEX_DIRS` | detecção automática | Pastas do Codex, separadas por vírgula (no lugar de `~/.codex*` e `CODEX_HOME`). |
 | `HABBLAUD_CODEX_BIN` | `codex` do PATH (no Windows, `codex.exe`) | O binário do Codex que entrega as mensagens (`codex queue`), no modo Node ou no `npm run codex:bridge`. |
 | `HABBLAUD_OMP` | ligado | `0` desliga o omp (oh-my-pi) no escritório. |
+| `HABBLAUD_ANTIGRAVITY` | desligado | `1` liga o Antigravity pelo ACP. Apenas uso pessoal; mantenha desligado nos tenants SaaS. |
+| `HABBLAUD_ANTIGRAVITY_BIN` | `agy` no PATH | Binário oficial usado no modo direto; no modo soquete, configure no ambiente do relé do host. |
+| `HABBLAUD_ANTIGRAVITY_SOCKET` | — | Caminho absoluto do soquete Unix do relé; preenchido, substitui o subprocesso direto. |
+| `HABBLAUD_ANTIGRAVITY_SKIP_PERMISSIONS` | desligado | `1` permite comandos sem perguntar. No modo soquete, só o ambiente do relé decide. |
 | `HABBLAUD_OMP_DIRS` | detecção automática | Pastas do omp, separadas por vírgula (no lugar de `PI_CODING_AGENT_DIR` e `~/.omp/agent`). |
 | `HABBLAUD_OMP_USAGE` | ligado (desligado no Docker) | `0` desliga o uso do plano das contas do omp (o Habblaud deixa de rodar `omp usage --json`). |
 | `HABBLAUD_OMP_BIN` | `omp` no PATH, senão `~/.bun/bin/omp` | Executável do omp usado para o uso do plano (caminho ou nome no PATH). |
@@ -1123,6 +1127,46 @@ Tudo funciona sem configurar nada. Se precisar ajustar, use variáveis de ambien
 `HABBLAUD_OMP_DIRS`, `HABBLAUD_USAGE_DIR` e `HABBLAUD_ACCOUNTS` (lidas pelo `docker:up` no host); as demais ficam fixas
 dentro do container. Opções: `npm run docker:up -- --no-build` (sobe sem reconstruir),
 `npm run docker:down` (para) e `npm run docker:logs` (acompanha os logs).
+
+## Antigravity
+
+Integração pessoal, desligada por padrão, pelo ACP do `agy` oficial (medido na versão 1.5.9). Nunca habilite nos
+tenants SaaS. O escritório não lê nem monta credenciais do Antigravity. O login deve ser feito pelo dono no host,
+usando o próprio `agy`.
+
+**Modo direto:** instale o `agy` oficial, faça o login nele e inicie o Habblaud:
+
+```sh
+HABBLAUD_ANTIGRAVITY=1 npm start
+```
+
+Use `HABBLAUD_ANTIGRAVITY_BIN=/caminho/agy` se o binário não estiver no PATH. Uma conexão é aberta sob demanda,
+serve todas as conversas e termina quando a última é dispensada.
+
+**Podman / modo soquete:** no host, rode:
+
+```sh
+npm run antigravity:relay
+```
+
+O soquete padrão é `~/.habblaud/antigravity-acp.sock`, com modo `0600`. Para outro caminho, use
+`npm run antigravity:relay -- --socket /caminho/absoluto/acp.sock`; a pasta precisa pertencer ao usuário e não
+permitir escrita de outros. O dono pode instalar `deploy/podman/habblaud-antigravity.service` como unit de usuário.
+No quadlet `deploy/podman/habblaud.container`, descomente as duas variáveis de Antigravity e aplique a alteração
+na instalação. O volume de estado existente leva o soquete ao contêiner; não monte o login nem o binário.
+
+Na página, abra **Novo agente**, escolha **Antigravity**, a pasta e o pedido opcional. A conversa aceita mensagens
+enfileiradas, aprovar/negar ferramentas, STOP, conversa nova, Dispensar e leitura do terminal. Os controles continuam
+sujeitos às permissões locais/remotas do escritório. Não inclui elenco, histórico na interface, cota, troca de modelo,
+anexos, steer, conversa paralela ou integração própria no Zaplaud.
+
+O Habblaud abre o `agy` oficial pelo protocolo ACP e não usa o login dele por conta própria. Os Termos do
+Antigravity proíbem acessar o serviço com software de terceiros; se um cliente ACP próprio está dentro ou fora
+dessa regra é interpretação, e o risco de bloqueio da conta é de quem usa. `HABBLAUD_ANTIGRAVITY_SKIP_PERMISSIONS=1`
+faz o `agy` rodar comandos e editar arquivos sem perguntar: use só em pasta ou máquina descartável.
+
+No modo direto, a flag de permissões pertence ao ambiente do Habblaud. No modo soquete, pertence exclusivamente
+ao ambiente do relé do host; configurá-la apenas no contêiner não a liga.
 
 ## Habblaud World
 
