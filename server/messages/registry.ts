@@ -106,6 +106,7 @@ export interface MessageRegistryOptions {
   zeroclaw?: ZeroClawDelivery;
   antigravity?: PushDelivery;
   handoff?: HandoffStore;
+  switchTool?(agent: AgentInfo, model: string): Promise<void>;
   attachments?: AttachmentStore;
   writeAttachments?: (files: readonly Attachment[]) => Promise<{ paths: string[] } | { error: string; status: number }>;
   now?: () => number;
@@ -145,6 +146,7 @@ interface Entry {
   /** O texto como foi digitado; esvazia quando a mensagem se resolve. */
   text: string;
   handoff?: { cast: string; path: string };
+  switching?: true;
   /** Atividade do feed quando a entrega se confirma (o começo do texto, mascarado e cortado). */
   activity?: ReturnType<typeof describeMessage>;
   /** Controle da sessão omp (modelo/raciocínio, /new, /shake, STOP, /resume): sem texto e sem atividade no feed. */
@@ -450,6 +452,24 @@ export class MessageRegistry {
   control(raw: unknown): SendResult {
     const input = rec(raw);
     const target = typeof input?.agentId === 'string' ? this.opts.office.get(input.agentId.trim()) : undefined;
+    if (target && (target.provider === 'omp' || target.provider === 'antigravity') && typeof input?.model === 'string'
+      && isAgyModel(input.model) !== (target.provider === 'antigravity')) {
+      const { agentId, expectedSessionId: expected, ...change } = parseControl(raw);
+      if (expected !== undefined && expected !== target.sessionId) return { error: 'unavailable', reason: ERR_SESSION_CHANGED, code: 'session_changed' };
+      if (Object.keys(change).length !== 1) throw new InvalidRequest(tr('troca de ferramenta aceita somente o modelo, sem combinações'));
+      if (!this.opts.switchTool) return { error: 'unavailable', reason: tr('troca de ferramenta indisponível neste Habblaud') };
+      if (this.openCount(agentId) >= MAX_OPEN) return { error: 'too-many' };
+      const entry = this.entry(agentId, target.sessionId, { text: '', control: change });
+      entry.switching = true;
+      this.messages.set(entry.msg.id, entry);
+      this.setStatus(entry, 'sent', this.now());
+      const out = { ...entry.msg };
+      void Promise.resolve().then(() => this.opts.switchTool!(target, change.model!)).then(
+        () => this.finish(entry, 'delivered', this.now()),
+        (error: unknown) => this.fail(entry, this.now(), errMsg(error)),
+      );
+      return { message: out };
+    }
     if (target?.provider === 'zeroclaw' || target?.provider === 'antigravity') {
       const expected = expectedSessionId(input!);
       if (expected !== undefined && expected !== target.sessionId) return { error: 'unavailable', reason: ERR_SESSION_CHANGED, code: 'session_changed' };
@@ -468,6 +488,7 @@ export class MessageRegistry {
       const reason = this.zeroClawReason(agent, true);
       if (reason) return { error: 'unavailable', reason };
       if (this.openCount(agentId) >= MAX_OPEN) return { error: 'too-many' };
+      if (change.command === 'new' && agent.cast) this.opts.handoff?.forget(agent.cast);
       const entry = this.entry(agentId, agent.sessionId, { text: '', control: change });
       entry.zeroclaw = true;
       entry.pushProvider = agent.provider;
@@ -480,6 +501,7 @@ export class MessageRegistry {
     const reason = unavailableReason(agent, real ? this.canMessage(agentId) : false);
     if (reason) return { error: 'unavailable', reason };
     if (this.openCount(agentId) >= MAX_OPEN) return { error: 'too-many' };
+    if (change.command === 'new' && agent.cast) this.opts.handoff?.forget(agent.cast);
     const entry = this.entry(agentId, agent.sessionId, { text: '', control: change });
     this.messages.set(entry.msg.id, entry);
     return { message: { ...entry.msg } };
@@ -652,6 +674,7 @@ export class MessageRegistry {
         if (now - e.msg.updatedAt >= this.keepMs) this.messages.delete(id);
         continue;
       }
+      if (e.switching) continue;
       if (e.demo) {
         if (!present(this.opts.demoAgent?.(e.msg.agentId))) this.fail(e, now, ERR_GONE);
         else if (e.preparing && now - e.msg.createdAt >= this.queuedTimeoutMs) this.fail(e, now, ERR_NOT_FETCHED);

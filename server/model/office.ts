@@ -59,7 +59,7 @@ const FEED_LIMIT = 200;
 export interface OfficeDeps {
   names: NameStore;
   cast?: CastStore;
-  castLauncher?: () => { state(id: string): 'calling' | 'dismissing' | undefined; isOpened(id: string): boolean; available(): boolean } | undefined;
+  castLauncher?: () => { state(id: string): 'calling' | 'dismissing' | undefined; isOpened(id: string): boolean; available(): boolean; handoffPending?(cast: string): boolean } | undefined;
   /** Nome escolhido pelo usuário para a sala da pasta (model/room-aliases.ts), se houver. */
   roomAlias?: (path: string) => string | undefined;
   version: string;
@@ -1043,7 +1043,10 @@ export class Office {
     const perms = this.deps.permissions?.();
     const real = [...this.agents.values()].map((r) => applyPermission(cloneAgent(r.info), perms?.get(r.info.id)));
     const launcher = this.deps.castLauncher?.();
-    for (const a of real) if (a.kind === 'main' && a.cast && launcher?.isOpened(a.cast)) a.castOpened = true;
+    for (const a of real) if (a.kind === 'main' && a.cast && launcher?.isOpened(a.cast)) {
+      a.castOpened = true;
+      if (launcher.handoffPending?.(a.cast)) a.handoff = true;
+    }
     for (const a of real) if (a.kind === 'main' && a.provider === 'antigravity' && !a.cast && a.status !== 'offline' && a.status !== 'done') a.castOpened = true;
     const occupied = new Set(real.filter((a) => a.status !== 'offline' && a.status !== 'done').map((a) => a.cast));
     const reserve = this.cast.list().filter((m) => m.kind === 'main' && !occupied.has(m.id)).map((m) => ({

@@ -207,6 +207,11 @@ import { AntigravityMirror } from '../sources/antigravity/mirror';
 import { AntigravitySource } from '../sources/antigravity/source';
 import { AntigravityCast } from './antigravity';
 import type { CastJobInfo } from '../../shared/types';
+import { HandoffStore } from './handoff';
+import { createOmpTerminalParser } from '../sources/omp/terminal';
+import { createTerminalParser } from '../sources/terminal';
+import { appendFileSync, existsSync } from 'node:fs';
+import type { CastJob } from '../../shared/types';
 
 const agyCleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const cleanup of agyCleanups.splice(0).reverse()) await cleanup(); });
@@ -392,5 +397,251 @@ describe('elenco Antigravity junto do omp', () => {
     s.children[0].kill('SIGKILL');
     await expect.poll(() => s.client.sessions()).toEqual([]);
     expect(s.launcher.isOpened('ana')).toBe(false);
+  });
+});
+
+function switchingSetup() {
+  const directory = mkdtempSync(join(tmpdir(), 'tool-switch-'));
+  const trace = join(directory, 'trace.ndjson');
+  const children: ChildProcess[] = [];
+  const client = new AntigravityClient({ bin: 'unused', version: 'test', skipPermissions: false, connect: () => {
+    const child = spawn(process.execPath, [fileURLToPath(new URL('../antigravity/fake-agy.mjs', import.meta.url))],
+      { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, FAKE_AGY_TRACE_FILE: trace } });
+    children.push(child);
+    return Duplex.from({ readable: child.stdout, writable: child.stdin });
+  } });
+  const accounts = new AccountsService({ dirs: [], home: directory, env: {}, onChange() {} });
+  const cast = new CastStore(null);
+  cast.put({ ...member, model: 'omp/saved' });
+  let launcher: CastLauncher;
+  let handoff = new HandoffStore({ dir: join(directory, 'handoff') });
+  const office = new Office({ names: new NameStore(null), cast, version: 'test', startedAt: Date.now(),
+    accounts: sources => accounts.list(sources), sources: () => [], accountName: () => 'test', castLauncher: () => launcher });
+  const catalog = new AntigravityCatalog(directory);
+  const source = new AntigravitySource({ accounts, office, client, catalog, mirror: new AntigravityMirror({ dataDir: directory }) });
+  source.start();
+  let delivery = new AntigravityDelivery({ client, source, handoff });
+  let registry = new MessageRegistry({ office, antigravity: delivery, handoff, switchTool: (agent, model) => launcher.switchTool(agent, model) });
+  const runtime = new AntigravityCast({ client: () => client, delivery: () => delivery, messages: () => registry, catalog, home: directory, dataDir: directory });
+  const paths = new Map<string, string>();
+  const jobs: CastJob[] = [];
+  const switched = vi.fn(() => office.markDirty());
+  const makeLauncher = () => new CastLauncher({ dataDir: directory, member: id => cast.get(id), agents: () => office.list(), account: () => directory,
+    changed: () => { office.markDirty(); queueMicrotask(() => pump()); }, handoff, antigravity: runtime, switched,
+    transcriptPathOf: id => paths.get(id) ?? source.transcriptPathOf(id),
+    cwdOf: a => office.roomPath(a.roomId),
+    terminalParser: id => office.get(id)?.provider === 'omp' ? createOmpTerminalParser() : createTerminalParser() });
+  launcher = makeLauncher();
+  let sequence = 0;
+  const present = () => office.list().filter(a => a.kind === 'main' && a.status !== 'offline' && a.status !== 'done');
+  const current = () => present()[0]!;
+  const pump = () => {
+    for (const job of launcher.poll({ open: present().filter(a => a.provider === 'omp').map(a => a.cast) })) {
+      jobs.push(job);
+      if (job.op === 'stop') {
+        for (const a of present().filter(a => a.cast === job.cast)) office.closeMain(a.id);
+      }
+      if (job.op === 'start') {
+        const sessionId = `omp-session-${++sequence}`;
+        const id = `omp:${sessionId}`;
+        office.addMain({ id, provider: 'omp', account: 'omp', sessionId, cast: job.cast, cwd: job.folder ?? '/project/original',
+          startedAt: Date.now(), status: 'idle', role: 'main' });
+        const path = join(directory, `${sessionId}.jsonl`);
+        writeFileSync(path, '');
+        paths.set(id, path);
+        if (job.model) office.get(id)!.model = job.model;
+      }
+      launcher.ack({ results: [{ id: job.id, ok: true }] });
+    }
+    launcher.tick();
+  };
+  pump();
+  const requests = () => existsSync(trace) ? readFileSync(trace, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line)) : [];
+  const transcript = (text: string, response = 'resposta omp') => {
+    const a = current();
+    if (a.provider !== 'omp') throw new Error('expected omp');
+    appendFileSync(paths.get(a.id)!, [
+      { type: 'message', id: `u-${++sequence}`, message: { role: 'user', content: [{ type: 'text', text }] } },
+      { type: 'message', id: `a-${++sequence}`, message: { role: 'assistant', content: [{ type: 'text', text: response }] } },
+    ].map(value => JSON.stringify(value)).join('\n') + '\n');
+  };
+  async function done(result: { job: CastJobInfo } | { status: number; error: string }) {
+    if (!('job' in result)) throw new Error(result.error);
+    await expect.poll(() => launcher.jobs().find(j => j.id === result.job.id)?.status).toBe('done');
+    return result.job;
+  }
+  async function switchTo(model: string, success = true) {
+    await source.flush();
+    const result = registry.control({ agentId: current().id, model });
+    if (!('message' in result)) throw new Error('control unavailable');
+    expect(result.message).toMatchObject({ id: expect.any(String), agentId: expect.any(String), status: 'sent', createdAt: expect.any(Number), updatedAt: expect.any(Number) });
+    await expect.poll(() => registry.get(result.message.id)?.status).toBe(success ? 'delivered' : 'failed');
+    return registry.get(result.message.id)!;
+  }
+  async function human(text: string) {
+    const a = current();
+    if (a.provider === 'omp') registry.inbox({ session: a.sessionId });
+    const result = registry.send({ agentId: a.id, text });
+    if (!('message' in result)) throw new Error('send unavailable');
+    if (a.provider === 'omp') {
+      const message = registry.inbox({ session: a.sessionId }).find(m => m.id === result.message.id)!;
+      transcript(text);
+      registry.ack({ session: a.sessionId, results: [{ id: message.id, ok: true }] });
+      return message.text;
+    }
+    await expect.poll(() => registry.get(result.message.id)?.status).toBe('delivered');
+    await expect.poll(() => client.session(a.sessionId)?.busy).toBe(false);
+    await source.flush();
+    return text;
+  }
+  agyCleanups.push(async () => {
+    registry.stop(); source.stop(); client.stop();
+    await Promise.all(children.filter(child => child.exitCode === null && child.signalCode === null).map(child => {
+      const exit = Promise.withResolvers<void>(); child.once('exit', () => exit.resolve()); return exit.promise;
+    }));
+    await source.flush(); rmSync(directory, { recursive: true, force: true });
+  });
+  return { office, cast, client, source, current, transcript, done, switchTo, human, requests, jobs, switched,
+    get launcher() { return launcher; }, get registry() { return registry; }, get handoff() { return handoff; },
+    restart() {
+      registry.stop();
+      handoff = new HandoffStore({ dir: join(directory, 'handoff') });
+      delivery = new AntigravityDelivery({ client, source, handoff });
+      registry = new MessageRegistry({ office, antigravity: delivery, handoff, switchTool: (a, m) => launcher.switchTool(a, m) });
+      launcher = makeLauncher();
+      pump();
+    },
+  };
+}
+
+describe('troca de ferramenta com contexto', () => {
+  it('1, 2, 3: mantém pasta, não manda prompt na troca e entrega contexto uma vez nas duas direções', async () => {
+    const s = switchingSetup();
+    await s.done(s.launcher.start('ana', { mode: 'new' }));
+    s.transcript('ALFA');
+    await s.switchTo('agy/fake-b');
+    expect(s.current()).toMatchObject({ provider: 'antigravity', model: 'agy/fake-b' });
+    expect(s.office.roomPath(s.current().roomId)).toBe('/project/original');
+    expect(s.office.commit().snapshot.agents.find(a => a.id === s.current().id)?.handoff).toBe(true);
+    expect(s.requests().filter(r => r.method === 'session/prompt')).toEqual([]);
+    await s.human('BETA');
+    const prompts = () => s.requests().filter(r => r.method === 'session/prompt');
+    expect(prompts()[0].params.prompt[0]).toMatchObject({ type: 'resource_link', name: 'conversa-anterior.md' });
+    const path = fileURLToPath(prompts()[0].params.prompt[0].uri);
+    expect(readFileSync(path, 'utf8')).toContain('ALFA');
+    s.office.markDirty();
+    expect(s.office.commit().snapshot.agents.find(a => a.id === s.current().id)?.handoff).toBeUndefined();
+    await s.human('GAMA');
+    expect(prompts()[1].params.prompt).toEqual([{ type: 'text', text: 'GAMA' }]);
+    await s.switchTo('omp/requested');
+    expect(s.jobs.filter(j => j.op === 'start').at(-1)).toMatchObject({ model: 'omp/requested', folder: '/project/original' });
+    expect(s.current()).toMatchObject({ provider: 'omp', model: 'omp/requested' });
+    expect(s.office.roomPath(s.current().roomId)).toBe('/project/original');
+    const text = await s.human('DELTA');
+    expect(text).toContain(s.handoff.last('ana'));
+    expect(s.cast.get('ana')?.model).toBe('omp/saved');
+  });
+  it('4: ida e volta antes da mensagem mantém ambas as conversas', async () => {
+    const s = switchingSetup();
+    await s.done(s.launcher.start('ana', { mode: 'new' }));
+    s.transcript('ALFA');
+    await s.switchTo('agy/fake-b');
+    await s.switchTo('omp/returned');
+    const text = readFileSync(s.handoff.pending('ana')!, 'utf8');
+    expect(text).toContain('ALFA');
+    expect(text).toContain('Ferramenta: Antigravity');
+    expect(s.requests().filter(r => r.method === 'session/prompt')).toEqual([]);
+  });
+  it.each(['omp', 'antigravity'])('4b: %s → mensagem entregue → volta conserva ALFA, mensagem e resposta em ordem', async start => {
+    const s = switchingSetup();
+    await s.done(s.launcher.start('ana', { mode: 'new', ...(start === 'antigravity' ? { model: 'agy/fake-b' } : {}) }));
+    if (start === 'omp') s.transcript('ALFA'); else await s.human('ALFA');
+    await s.switchTo(start === 'omp' ? 'agy/fake-b' : 'omp/next');
+    await s.human('BETA');
+    expect(s.handoff.pending('ana')).toBeUndefined();
+    await s.switchTo(start === 'omp' ? 'omp/returned' : 'agy/fake-a');
+    const text = readFileSync(s.handoff.pending('ana')!, 'utf8');
+    expect(text.indexOf('ALFA')).toBeLessThan(text.indexOf('BETA'));
+    expect(text.indexOf('BETA')).toBeLessThan(text.lastIndexOf(start === 'omp' ? 'ok' : 'resposta omp'));
+  });
+  it('4c: conversa nova pedida pela pessoa esquece contexto entregue', async () => {
+    const s = switchingSetup();
+    await s.done(s.launcher.start('ana', { mode: 'new' }));
+    s.transcript('ALFA');
+    await s.switchTo('agy/fake-b');
+    await s.human('BETA');
+    const old = s.current().sessionId;
+    const result = s.registry.control({ agentId: s.current().id, command: 'new' });
+    if (!('message' in result)) throw new Error('new unavailable');
+    await expect.poll(() => s.registry.get(result.message.id)?.status).toBe('delivered');
+    expect(s.current().sessionId).not.toBe(old);
+    expect(s.handoff.last('ana')).toBeUndefined();
+    await s.human('NOVA');
+    await s.switchTo('omp/returned');
+    const text = readFileSync(s.handoff.pending('ana')!, 'utf8');
+    expect(text).toContain('NOVA');
+    expect(text).not.toContain('ALFA');
+    expect(text).not.toContain('BETA');
+  });
+  it('4d: reiniciar HandoffStore não perde o anexo da primeira mensagem', async () => {
+    const s = switchingSetup();
+    await s.done(s.launcher.start('ana', { mode: 'new' }));
+    s.transcript('ALFA');
+    await s.switchTo('agy/fake-b');
+    const path = s.handoff.pending('ana');
+    s.restart();
+    expect(s.handoff.pending('ana')).toBe(path);
+    await s.human('BETA');
+    const prompt = s.requests().find(r => r.method === 'session/prompt');
+    expect(fileURLToPath(prompt.params.prompt[0].uri)).toBe(path);
+    expect(s.handoff.pending('ana')).toBeUndefined();
+  });
+  it('5: recusa ocupado, permissão, terminal, subagente, pasta e modelo inválidos sem fechar', async () => {
+    const s = switchingSetup();
+    await s.done(s.launcher.start('ana', { mode: 'new' }));
+    for (const status of ['working', 'waiting'] as const) await expect(s.launcher.switchTool({ ...s.current(), status }, 'agy/fake-b')).rejects.toThrow('espere o turno');
+    await expect(s.launcher.switchTool({ ...s.current(), cast: undefined }, 'agy/fake-b')).rejects.toThrow('elenco');
+    await expect(s.launcher.switchTool({ ...s.current(), kind: 'sub' }, 'agy/fake-b')).rejects.toThrow('elenco');
+    for (const cwd of [undefined, 'relative', '/tmp/\ninvalid']) {
+      vi.spyOn(s.office, 'roomPath').mockReturnValueOnce(cwd);
+      await expect(s.launcher.switchTool(s.current(), 'agy/fake-b')).rejects.toThrow('determinar a pasta');
+    }
+    await expect(s.launcher.switchTool(s.current(), 'agy/bad model')).rejects.toThrow('inválido');
+    expect(s.jobs.filter(j => j.op === 'stop')).toEqual([]);
+    expect(s.current().provider).toBe('omp');
+  });
+  it('6: falha ao abrir deixa fechado e contexto pendente para a próxima chamada', async () => {
+    const s = switchingSetup();
+    await s.done(s.launcher.start('ana', { mode: 'new' }));
+    s.transcript('ALFA');
+    expect((await s.switchTo('agy/missing', false)).error).toContain('desconhecido');
+    expect(s.current()).toBeUndefined();
+    expect(readFileSync(s.handoff.pending('ana')!, 'utf8')).toContain('ALFA');
+    await s.done(s.launcher.start('ana', { mode: 'new', model: 'agy/fake-b' }));
+    await s.human('BETA');
+    expect(s.requests().find(r => r.method === 'session/prompt').params.prompt[0].type).toBe('resource_link');
+  });
+  it('7: Novo muda id e leva contexto em ambas as direções, inclusive modelo omp explícito', async () => {
+    const s = switchingSetup();
+    await s.done(s.launcher.startNew({}));
+    const first = s.current().cast!;
+    s.transcript('ALFA');
+    await s.switchTo('agy/fake-b');
+    const second = s.current().cast!;
+    expect(second).not.toBe(first);
+    expect(s.handoff.last(first)).toBeUndefined();
+    expect(s.handoff.pending(second)).toBeDefined();
+    await s.switchTo('omp/explicit');
+    expect(s.current().cast).not.toBe(second);
+    expect(s.jobs.filter(j => j.op === 'start').at(-1)?.model).toBe('omp/explicit');
+    expect(readFileSync(s.handoff.pending(s.current().cast!)!, 'utf8')).toContain('ALFA');
+  });
+  it('8: conversa vazia troca sem arquivo nem handoff', async () => {
+    const s = switchingSetup();
+    await s.done(s.launcher.start('ana', { mode: 'new' }));
+    await s.switchTo('agy/fake-b');
+    expect(s.handoff.last('ana')).toBeUndefined();
+    expect(s.office.commit().snapshot.agents.find(a => a.id === s.current().id)?.handoff).toBeUndefined();
+    expect(s.switched).toHaveBeenCalledWith(expect.any(Object), 'omp', 'Antigravity', false);
   });
 });

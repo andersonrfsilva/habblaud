@@ -23,6 +23,7 @@ import { errMsg, log } from './log';
 import { NameStore } from './model/names';
 import { CastStore } from './model/cast';
 import { CastLauncher } from './cast/launcher';
+import { HandoffStore } from './cast/handoff';
 import { ZeroClawCast } from './cast/zeroclaw';
 import { NamedAgentSettings } from './cast/named';
 import { Office } from './model/office';
@@ -168,6 +169,8 @@ const office = new Office({
   ompRoomByProject: config.ompDirs.length ? () => ompSettings.roomByProject : undefined,
 });
 const antigravityCatalog = config.antigravity ? new AntigravityCatalog(config.dataDir) : undefined;
+const handoff = new HandoffStore({ dir: join(config.dataDir, 'handoff') });
+handoff.sweep();
 const castLauncher: CastLauncher | undefined = config.terminal ? new CastLauncher({
   dataDir: config.dataDir,
   member: (id) => cast.get(id),
@@ -178,6 +181,16 @@ const castLauncher: CastLauncher | undefined = config.terminal ? new CastLaunche
   },
   changed: () => office.markDirty(),
   idle: (agent) => office.castIdle(agent),
+  handoff,
+  transcriptPathOf: id => late.agents?.transcriptPathOf(id),
+  terminalParser: id => late.agents!.terminalParser(id),
+  cwdOf: agent => office.roomPath(agent.roomId),
+  switched: (agent, from, to, pending) => office.addActivity(agent.id, {
+    id: `${agent.id}:handoff:${Date.now()}`, at: Date.now(), kind: 'communicate', icon: '↔',
+    text: pending
+      ? tr('Ferramenta trocada: {0} → {1}. A conversa anterior vai anexada à sua próxima mensagem.', [from, to])
+      : tr('Ferramenta trocada: {0} → {1}. Conversa nova.', [from, to]),
+  }, false),
   zeroclaw: config.zeroclawCatalog ? new ZeroClawCast({
     catalog: config.zeroclawCatalog,
     home: config.home,
@@ -389,7 +402,7 @@ const zeroclawDelivery: ZeroClawDelivery | undefined = config.messages && zerocl
   onReplacementFailed: (agentId) => office.closeMain(agentId),
 }) : undefined;
 const antigravityDelivery = antigravityClient && antigravity
-  ? new AntigravityDelivery({ client: antigravityClient, source: antigravity, diagnostic: message => log.warn(message) }) : undefined;
+  ? new AntigravityDelivery({ client: antigravityClient, source: antigravity, handoff, diagnostic: message => log.warn(message) }) : undefined;
 const messages = config.messages
   ? new MessageRegistry({
       office,
@@ -401,6 +414,8 @@ const messages = config.messages
       },
       zeroclaw: zeroclawDelivery,
       antigravity: antigravityDelivery,
+      handoff,
+      switchTool: castLauncher ? (agent, model) => castLauncher.switchTool(agent, model) : undefined,
       attachments,
       writeAttachments: (files) => deliveryFiles!.writeAttachments(files),
       onSettled: (id, status, error) => asides?.settled(id, status, error),

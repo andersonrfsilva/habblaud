@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { CAST_IDLE_MINUTES, NEW_CAST_PREFIX, OMP_EDITABLE_ROLES, type AgentInfo, type CastJob, type CastJobInfo, type CastMember, type OmpRoles } from '../../shared/types';
 import { tr } from '../../shared/i18n';
@@ -9,6 +9,9 @@ import { HOST_PRESENCE_MS, KEEP_MS, PROMPT_MAX, QUEUED_TIMEOUT_MS, SENT_TIMEOUT_
 import { normalizeCwd } from '../model/rooms';
 import { ZeroClawCast, type ZeroClawCatalog, type ZeroClawCastJob } from './zeroclaw';
 import type { ConnectorEvent } from '../sources/zeroclaw/connector';
+import { setTimeout as delay } from 'node:timers/promises';
+import { HandoffStore, readEntries, renderHandoff } from './handoff';
+import type { TerminalParser } from '../sources/terminal';
 
 type Entry = ({ runtime: 'omp'; job: CastJob } | { runtime: 'zeroclaw'; job: ZeroClawCastJob } | { runtime: 'antigravity'; job: AntigravityCastJob }) & {
   info: CastJobInfo; at: number; started: number; delivering?: boolean; opening?: boolean;
@@ -25,6 +28,11 @@ interface Options {
   max?: number;
   zeroclaw?: ZeroClawCast;
   antigravity?: AntigravityCast;
+  handoff?: HandoffStore;
+  transcriptPathOf?(id: string): string | undefined;
+  terminalParser?(id: string): TerminalParser;
+  cwdOf?(agent: AgentInfo): string | undefined;
+  switched?(agent: AgentInfo, from: string, to: string, pending: boolean): void;
 }
 
 export class CastLauncher {
@@ -36,6 +44,7 @@ export class CastLauncher {
   private readonly cleaningZeroClaw = new Set<string>();
   private hostSeen = -Infinity;
   private readonly now: () => number;
+  private readonly switching = new Set<string>();
   constructor(private readonly opts: Options) { this.now = opts.now ?? Date.now; }
   available(): boolean { return this.opts.zeroclaw ? this.opts.zeroclaw.available() : this.now() - this.hostSeen <= HOST_PRESENCE_MS; }
   models(): ((ZeroClawCatalog & { provider: 'zeroclaw' }) | { provider: 'omp'; models: []; named?: never }) & { agyModels?: string[] } {
@@ -54,10 +63,15 @@ export class CastLauncher {
     return active ? active.job.op === 'start' ? 'calling' : 'dismissing' : undefined;
   }
   jobs(): CastJobInfo[] { return [...this.entries.values()].map((e) => ({ ...e.info })); }
+  handoffPending(cast: string): boolean { return !!this.opts.handoff?.pending(cast); }
   start(id: string, raw: unknown): { job: CastJobInfo } | { status: number; error: string } {
+    return this.startMember(id, raw);
+  }
+  private startMember(id: string, raw: unknown, internal?: { model: string; room: string }): { job: CastJobInfo } | { status: number; error: string } {
     const member = this.opts.member(id);
     const body = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
-    if (!member || member.kind !== 'main' || (member.agent !== undefined && (!this.opts.zeroclaw || !this.namedAliases().includes(member.agent))) || (body.mode !== 'new' && body.mode !== 'resume') || (body.mode === 'new' && body.session !== undefined) || (member.agent === undefined && !validModel(body, this.opts.zeroclaw, member.model)) || (body.prompt !== undefined && (typeof body.prompt !== 'string' || body.prompt.length > PROMPT_MAX || /^\s*-/.test(body.prompt))) || (member.agent === undefined && member.model !== undefined && member.model.startsWith('-'))) return { status: 422, error: tr('pedido inválido') };
+    if (!member || member.kind !== 'main' || (member.agent !== undefined && (!this.opts.zeroclaw || !this.namedAliases().includes(member.agent))) || (body.mode !== 'new' && body.mode !== 'resume') || (body.mode === 'new' && body.session !== undefined) || (member.agent === undefined && !(internal ? ROLE_VALUE.test(internal.model) && !!resumeRoom(internal.room) : validModel(body, this.opts.zeroclaw, member.model))) || (body.prompt !== undefined && (typeof body.prompt !== 'string' || body.prompt.length > PROMPT_MAX || /^\s*-/.test(body.prompt))) || (member.agent === undefined && member.model !== undefined && member.model.startsWith('-'))) return { status: 422, error: tr('pedido inválido') };
+    if (!internal && this.switching.has(id)) return { status: 409, error: tr('personagem ocupado') };
     if (this.state(id) || this.opts.agents().some((a) => a.cast === id && a.status !== 'offline' && a.status !== 'done')) return { status: 409, error: tr('personagem ocupado') };
     const limit = this.limitError();
     if (limit) return limit;
@@ -65,7 +79,7 @@ export class CastLauncher {
     // Nova sessão: sempre na pasta pessoal (o `room` de clientes antigos é ignorado).
     // Retomar: `session` escolhida no histórico (pode ser de outro agente) vem com a pasta dela; sem ela, a conversa
     // mais recente do personagem (a última chave de `last`).
-    let room: string | undefined;
+    let room: string | undefined = internal?.room;
     let resume: string | undefined;
     if (body.mode === 'resume') {
       if (body.session !== undefined) {
@@ -79,7 +93,8 @@ export class CastLauncher {
       }
       if (!/^[0-9a-f][0-9a-f-]{7,199}$/i.test(resume!)) return { status: 422, error: tr('pedido inválido') };
     }
-    const model = member.agent === undefined ? (body.model as string | undefined) ?? member.model : undefined;
+    const model = member.agent === undefined ? internal?.model ?? (body.model as string | undefined) ?? member.model : undefined;
+    if (!internal && body.mode === 'new') this.opts.handoff?.forget(id);
     if (this.useAntigravity(model, resume)) {
       if (member.agent !== undefined || body.account !== undefined) return { status: 422, error: tr('pedido inválido') };
       return this.startAntigravity({ cast: id, room, model: resume ? member.model : model, resume,
@@ -112,25 +127,72 @@ export class CastLauncher {
    * Com `session`, retoma essa conversa do histórico na pasta dela (`room`).
    */
   startNew(raw: unknown): { job: CastJobInfo } | { status: number; error: string } {
+    return this.startNewInternal(raw);
+  }
+  private startNewInternal(raw: unknown, internal?: { model: string; room: string }): { job: CastJobInfo } | { status: number; error: string } {
     const body = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
-    if ((body.account !== undefined && typeof body.account !== 'string') || !validModel(body, this.opts.zeroclaw) || (body.prompt !== undefined && (typeof body.prompt !== 'string' || body.prompt.length > PROMPT_MAX || /^\s*-/.test(body.prompt)))) return { status: 422, error: tr('pedido inválido') };
+    if ((body.account !== undefined && typeof body.account !== 'string') || !(internal ? ROLE_VALUE.test(internal.model) && !!resumeRoom(internal.room) : validModel(body, this.opts.zeroclaw)) || (body.prompt !== undefined && (typeof body.prompt !== 'string' || body.prompt.length > PROMPT_MAX || /^\s*-/.test(body.prompt)))) return { status: 422, error: tr('pedido inválido') };
     if (body.session !== undefined && (typeof body.session !== 'string' || !/^[0-9a-f][0-9a-f-]{7,199}$/i.test(body.session))) return { status: 422, error: tr('pedido inválido') };
     const limit = this.limitError();
     if (limit) return limit;
-    const room = body.session === undefined ? undefined : resumeRoom(body.room);
+    const room = internal?.room ?? (body.session === undefined ? undefined : resumeRoom(body.room));
     if (body.session !== undefined && !room) return { status: 422, error: tr('informe a pasta do projeto (caminho absoluto)') };
-    if (this.useAntigravity(body.model as string | undefined, body.session as string | undefined)) {
+    const model = internal?.model ?? body.model as string | undefined;
+    const cast = `${NEW_CAST_PREFIX}${randomUUID().slice(0, 8)}`;
+    if (!internal && body.session === undefined) this.opts.handoff?.forget(cast);
+    if (this.useAntigravity(model, body.session as string | undefined)) {
       if (body.account !== undefined) return { status: 422, error: tr('pedido inválido') };
-      return this.startAntigravity({ cast: `${NEW_CAST_PREFIX}${randomUUID().slice(0, 8)}`, room,
-        model: body.model as string | undefined, resume: body.session as string | undefined, prompt: body.prompt as string | undefined });
+      return this.startAntigravity({ cast, room,
+        model, resume: body.session as string | undefined, prompt: body.prompt as string | undefined });
     }
-    if (this.opts.zeroclaw) return this.startZeroClaw({ cast: `${NEW_CAST_PREFIX}${randomUUID().slice(0, 8)}`,
-      name: 'Novo', room, model: body.model as string | undefined, resume: body.session as string | undefined, prompt: body.prompt as string | undefined, account: body.account });
+    if (this.opts.zeroclaw) return this.startZeroClaw({ cast,
+      name: 'Novo', room, model, resume: body.session as string | undefined, prompt: body.prompt as string | undefined, account: body.account });
     if (!this.available()) return { status: 503, error: tr('auxiliar do host desligado (npm run codex:bridge)') };
     const agentDir = this.opts.account(body.account as string | undefined);
     if (!agentDir) return { status: 422, error: tr('conta não encontrada') };
-    const cast = `${NEW_CAST_PREFIX}${randomUUID().slice(0, 8)}`;
-    return { job: this.enqueue({ id: randomUUID(), op: 'start', cast, ...(room ? { folder: room } : {}), agentDir, ...(body.session ? { resume: body.session as string } : {}), ...(body.prompt ? { prompt: body.prompt as string } : {}) }) };
+    return { job: this.enqueue({ id: randomUUID(), op: 'start', cast, ...(room ? { folder: room } : {}), agentDir, ...(internal ? { model: internal.model } : {}), ...(body.session ? { resume: body.session as string } : {}), ...(body.prompt ? { prompt: body.prompt as string } : {}) }) };
+  }
+  async switchTool(agent: AgentInfo, model: string): Promise<void> {
+    const cast = agent.cast;
+    if (!cast || !this.isOpened(cast) || agent.kind !== 'main' || (!cast.startsWith(NEW_CAST_PREFIX) && this.opts.member(cast)?.kind !== 'main') || !['omp', 'antigravity'].includes(agent.provider ?? '')) {
+      throw new Error(tr('só agentes abertos pelo elenco trocam de ferramenta; dispense e chame de novo com o outro modelo'));
+    }
+    if (agent.status === 'working' || agent.status === 'waiting') throw new Error(tr('espere o turno terminar (ou use STOP) para trocar de ferramenta'));
+    if (this.switching.has(cast) || this.state(cast)) throw new Error(tr('personagem ocupado'));
+    const cwd = this.opts.cwdOf?.(agent);
+    if (!cwd || !resumeRoom(cwd) || /[\x00-\x1f\x7f-\x9f]/.test(cwd)) throw new Error(tr('não foi possível determinar a pasta desta conversa'));
+    if (!ROLE_VALUE.test(model) || isAgyModel(model) === (agent.provider === 'antigravity')) throw new Error(tr('pedido inválido'));
+    if (isAgyModel(model) ? !this.opts.antigravity?.available() : !this.available() || !!this.opts.zeroclaw) {
+      throw new Error(isAgyModel(model) ? tr('Antigravity desligado neste Habblaud') : tr('auxiliar do host desligado (npm run codex:bridge)'));
+    }
+    if (!this.opts.handoff || !this.opts.terminalParser || !this.opts.transcriptPathOf) throw new Error(tr('troca de ferramenta indisponível neste Habblaud'));
+    this.switching.add(cast);
+    try {
+      const path = this.opts.transcriptPathOf(agent.id);
+      const entries = path ? await readEntries(path, this.opts.terminalParser(agent.id)) : [];
+      const last = this.opts.handoff.last(cast);
+      const previous = last ? readFileSync(last, 'utf8') : undefined;
+      const from = agent.provider === 'antigravity' ? 'Antigravity' : 'omp';
+      const to = isAgyModel(model) ? 'Antigravity' : 'omp';
+      if (entries.length || previous) this.opts.handoff.put(cast, renderHandoff({ from, model: agent.model, cwd, at: this.now(), entries, previous }));
+      await this.waitJob(this.dismiss(agent));
+      const input = { model, room: cwd };
+      const opening = cast.startsWith(NEW_CAST_PREFIX) ? this.startNewInternal({}, input) : this.startMember(cast, { mode: 'new' }, input);
+      if ('job' in opening && opening.job.cast !== cast) this.opts.handoff.move(cast, opening.job.cast);
+      const job = await this.waitJob(opening);
+      const next = this.opts.agents().find(a => a.cast === job.cast && a.kind === 'main' && a.status !== 'offline' && a.status !== 'done');
+      if (next) this.opts.switched?.(next, from, to, !!this.opts.handoff.pending(job.cast));
+    } finally { this.switching.delete(cast); }
+  }
+  private async waitJob(result: { job: CastJobInfo } | { status: number; error: string }): Promise<CastJobInfo> {
+    if ('error' in result) throw new Error(result.error);
+    for (;;) {
+      this.tick();
+      const job = this.entries.get(result.job.id)?.info;
+      if (!job || job.status === 'failed') throw new Error(job?.error ?? tr('o auxiliar não confirmou a sessão'));
+      if (job.status === 'done') return job;
+      await delay(25);
+    }
   }
   private limitError(): { status: number; error: string } | undefined {
     if (this.opts.max === undefined || this.openCount() < this.opts.max) return undefined;
