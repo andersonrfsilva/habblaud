@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { describeTool, maskSecrets } from '../../../shared/activity';
+import { toAgyModel } from '../../../shared/agy-model';
 import { tr } from '../../../shared/i18n';
 import type { SourceInfo } from '../../../shared/types';
 import type { AccountsService } from '../../accounts/service';
@@ -9,6 +10,7 @@ import type { Office } from '../../model/office';
 import type { AgentSource } from '../source';
 import { createTranscriptState } from '../transcript';
 import { antigravityTool, AntigravityMirror } from './mirror';
+import type { AntigravityCatalog } from './catalog';
 
 type Tracker = { id: string; info: SessionInfo; title?: string; context?: { tokens: number; window: number }; open: boolean; replaced?: boolean };
 export class AntigravitySource implements AgentSource {
@@ -18,7 +20,7 @@ export class AntigravitySource implements AgentSource {
   private unsubscribe?: () => void;
   private pending = Promise.resolve();
   private readonly replacing = new Set<string>();
-  constructor(private readonly opts: { accounts: AccountsService; office: Office; client: Pick<AntigravityClient, 'onEvent' | 'session'>; mirror: AntigravityMirror }) {}
+  constructor(private readonly opts: { accounts: AccountsService; office: Office; client: Pick<AntigravityClient, 'onEvent' | 'session'>; mirror: AntigravityMirror; catalog: AntigravityCatalog }) {}
   start(): void {
     if (this.unsubscribe) return;
     this.accountId = this.opts.accounts.setProviderAccounts('antigravity', [{ dir: this.opts.mirror.root,
@@ -56,6 +58,7 @@ export class AntigravitySource implements AgentSource {
     if (event.type === 'diagnostic') return;
     const { office } = this.opts;
     if (event.type === 'session-open') {
+      this.opts.catalog.learn(event.info.modelOptions);
       const oldSession = event.replaces && this.replacing.has(event.replaces) ? this.trackers.get(event.replaces) : undefined;
       const previous = oldSession?.open && !oldSession.replaced && office.has(oldSession.id) ? oldSession : undefined;
       const id = previous?.id ?? `antigravity:${event.sessionId}`;
@@ -65,7 +68,7 @@ export class AntigravitySource implements AgentSource {
         previous.replaced = true;
         previous.open = false;
       }
-      else office.addMain({ id, provider: 'antigravity', account: this.accountId, sessionId: event.sessionId, cwd: event.cwd,
+      else office.addMain({ id, provider: 'antigravity', account: this.accountId, sessionId: event.sessionId, cwd: event.cwd, cast: event.cast,
         role: tr('Agente principal (Antigravity)'), startedAt: Date.now(), status: 'idle' });
       this.summary(event.sessionId);
       return;
@@ -88,7 +91,8 @@ export class AntigravitySource implements AgentSource {
   }
   private summary(sessionId: string): void {
     const tracker = this.trackers.get(sessionId)!;
-    this.opts.office.applyTranscript(tracker.id, { title: tracker.title, model: tracker.info.model, models: tracker.info.models,
+    this.opts.office.applyTranscript(tracker.id, { title: tracker.title, model: tracker.info.model ? toAgyModel(tracker.info.model) : undefined,
+      models: tracker.info.modelOptions.map(option => toAgyModel(option.value)),
       context: tracker.context, tasks: [], stats: createTranscriptState().stats });
   }
 }
