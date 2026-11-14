@@ -5,10 +5,11 @@ import type { AgentInfo, RecentSession, RoomInfo } from '../../../shared/types';
 import { parseRecentSessions } from './recent-sessions';
 
 export const FAVORITES_KEY = 'habblaud.history.favorites';
+export const PINS_KEY = 'habblaud.history.pins';
 export const MAX_FAVORITES = 100;
 
 export function sessionKey(s: Pick<RecentSession, 'account' | 'sessionId' | 'provider'>): string {
-  return `${s.provider && s.provider !== 'claude' ? `${s.provider}:` : ''}${s.account}:${s.sessionId}`;
+  return JSON.stringify([s.provider ?? 'claude', s.account, s.sessionId]);
 }
 
 /** Retratos válidos do JSON salvo (reusa parseRecentSessions({ sessions: raw })), sem duplicados. */
@@ -52,6 +53,11 @@ export function toggleFavorite(saved: readonly RecentSession[], s: RecentSession
   return capFavorites([...saved, snapshotOf(s)]);
 }
 
+/** Fixadas primeiro; a atividade mantém a ordem dentro de cada partição. */
+export function pinnedFirst(list: readonly RecentSession[], pinned: ReadonlySet<string>): RecentSession[] {
+  return [...list].sort((a, b) => Number(pinned.has(sessionKey(b))) - Number(pinned.has(sessionKey(a))) || b.lastAt - a.lastAt);
+}
+
 /**
  * Retrato da sessão de um agente para a estrela da gaveta; null quando não há sessão própria no histórico (subagente)
  * ou o agente é fictício (demo). Conta e sessionId são os mesmos que /api/sessions/recent devolve: o servidor casa
@@ -82,7 +88,7 @@ export class FavoritesStore {
   private listeners = new Set<() => void>();
   private watching = false;
 
-  constructor(private storage: () => StorageLike | undefined) {}
+  constructor(private storage: () => StorageLike | undefined, private key = FAVORITES_KEY) {}
 
   /** Retratos salvos (carrega do armazenamento na primeira leitura). */
   all(): readonly RecentSession[] {
@@ -94,16 +100,25 @@ export class FavoritesStore {
   }
 
   /** Liga/desliga a sessão e avisa os assinantes. */
-  toggle(s: RecentSession): void {
-    this.list = toggleFavorite(this.all(), s);
-    this.save();
+  toggle(s: RecentSession): boolean {
+    const next = toggleFavorite(this.all(), s);
+    if (!this.save(next)) return false;
+    this.list = next;
     this.notify();
+    return true;
   }
 
   /** Grava a lista atualizada pela junção com o servidor (retratos novos); não avisa: quem chama já está desenhando. */
-  replace(list: RecentSession[]): void {
+  replace(list: RecentSession[]): boolean {
+    if (!this.save(list)) return false;
     this.list = list;
-    this.save();
+    return true;
+  }
+
+  clear(): boolean {
+    if (!this.replace([])) return false;
+    this.notify();
+    return true;
   }
 
   /** Assina as mudanças (toggle aqui ou em outra aba); devolve o cancelamento. */
@@ -121,7 +136,7 @@ export class FavoritesStore {
     if (this.watching || typeof window === 'undefined') return;
     this.watching = true;
     window.addEventListener('storage', (e) => {
-      if (e.key !== FAVORITES_KEY && e.key !== null) return;
+      if (e.key !== this.key && e.key !== null) return;
       this.list = this.load();
       this.notify();
     });
@@ -129,20 +144,24 @@ export class FavoritesStore {
 
   private load(): RecentSession[] {
     try {
-      return parseFavorites(JSON.parse(this.storage()?.getItem(FAVORITES_KEY) ?? '[]'));
+      return parseFavorites(JSON.parse(this.storage()?.getItem(this.key) ?? '[]'));
     } catch {
       return [];
     }
   }
 
-  private save(): void {
+  private save(list: readonly RecentSession[]): boolean {
     try {
-      this.storage()?.setItem(FAVORITES_KEY, JSON.stringify(this.list ?? []));
+      const storage = this.storage();
+      if (!storage) return false;
+      storage.setItem(this.key, JSON.stringify(list));
+      return true;
     } catch {
-      // sem armazenamento: as favoritas valem só até recarregar
+      return false;
     }
   }
 }
 
 /** As favoritas do navegador. */
 export const favorites = new FavoritesStore(() => (typeof localStorage === 'undefined' ? undefined : localStorage));
+export const pins = new FavoritesStore(() => (typeof localStorage === 'undefined' ? undefined : localStorage), PINS_KEY);

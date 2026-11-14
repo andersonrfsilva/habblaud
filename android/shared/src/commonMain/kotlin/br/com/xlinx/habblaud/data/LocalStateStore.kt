@@ -8,6 +8,21 @@ internal data class ConversationWrite(val origin: String, val epoch: Long, val s
 data class MessageDraft(val text: String = "", val revision: Long = 0, val attachments: List<Attachment> = emptyList())
 data class MessageOperation(val id: String? = null, val status: String = "unknown", val revision: Long = 0, val error: String? = null)
 data class MessageLocalState(val draft: MessageDraft = MessageDraft(), val operation: MessageOperation? = null, val control: MessageOperation? = null)
+
+data class SessionMarks(val pinned: Boolean = false, val favorite: Boolean = false)
+
+internal fun decodeSessionMarks(value: JsonElement?): SessionMarks {
+    val objectValue = value as? JsonObject ?: return SessionMarks()
+    return SessionMarks(
+        (objectValue["pinned"] as? JsonPrimitive)?.booleanOrNull == true,
+        (objectValue["favorite"] as? JsonPrimitive)?.booleanOrNull == true,
+    )
+}
+
+internal fun encodeSessionMarks(marks: SessionMarks): JsonObject = buildJsonObject {
+    put("pinned", marks.pinned)
+    put("favorite", marks.favorite)
+}
 interface MessageStore {
     suspend fun message(key: SessionKey): MessageLocalState
     suspend fun updateMessage(key: SessionKey, update: (MessageLocalState) -> MessageLocalState): MessageLocalState
@@ -84,6 +99,8 @@ expect class LocalStateStore() : MessageStore {
     suspend fun setSessionView(key: SessionKey, view: String)
     suspend fun sessionDeliverAs(key: SessionKey): String
     suspend fun setSessionDeliverAs(key: SessionKey, mode: String)
+    suspend fun sessionMarks(origin: String): Map<String, SessionMarks>
+    suspend fun setSessionMarks(key: SessionKey, marks: SessionMarks)
     fun seenId(key: SessionKey): String
     suspend fun seenReplies(origin: String): Map<String, Long>
     suspend fun setSeenReplies(origin: String, seen: Map<String, Long>)

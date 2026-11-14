@@ -207,6 +207,24 @@ actual class LocalStateStore(private val context: Context) : MessageStore {
         }
     }
 
+    actual suspend fun sessionMarks(origin: String): Map<String, SessionMarks> {
+        migrateServers()
+        val prefix = "marks_${tag(origin)}_"
+        return context.localState.data.first().asMap().entries.mapNotNull { (key, value) ->
+            if (!key.name.startsWith(prefix) || value !is String) null
+            else key.name.removePrefix(prefix) to decodeSessionMarks(wireJson.parseToJsonElement(value))
+        }.toMap()
+    }
+
+    actual suspend fun setSessionMarks(key: SessionKey, marks: SessionMarks) {
+        migrateServers()
+        context.localState.edit { data ->
+            check(key.origin in serverList(data)) { "Connection changed" }
+            val name = hashed("marks_", key)
+            if (marks == SessionMarks()) data.remove(name) else data[name] = encodeSessionMarks(marks).toString()
+        }
+    }
+
     actual suspend fun removeServer(origin: String) = withContext(kotlinx.coroutines.NonCancellable) {
         migrateServers()
         coordinator.lock.withLock {
@@ -214,7 +232,7 @@ actual class LocalStateStore(private val context: Context) : MessageStore {
             context.localState.edit { data ->
                 data[serversKey] = org.json.JSONArray(serverList(data) - origin).toString()
                 data.asMap().keys.toList().forEach { key ->
-                    if (listOf("message_", "view_", "deliver_").any { key.name.startsWith(it + tag(origin) + "_") } || key.name == seenKey(origin).name) {
+                    if (listOf("message_", "view_", "deliver_", "marks_").any { key.name.startsWith(it + tag(origin) + "_") } || key.name == seenKey(origin).name) {
                         data.remove(stringPreferencesKey(key.name))
                     }
                 }

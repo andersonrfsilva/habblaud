@@ -23,6 +23,12 @@ pub enum StoreError {
     ConnectionChanged,
 }
 type Result<T, E = StoreError> = std::result::Result<T, E>;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SessionMarks {
+    pub pinned: bool,
+    pub favorite: bool,
+}
 #[derive(Clone, Debug)]
 pub struct ConversationWrite {
     pub origin: String,
@@ -384,6 +390,39 @@ impl LocalStateStore {
             true,
         )
     }
+    pub fn session_marks(&self, origin: &str) -> Result<HashMap<String, SessionMarks>> {
+        let prefix = format!("marks_{}_", tag(origin));
+        self.state(
+            |data| {
+                Ok(data.iter().filter_map(|(key, value)| {
+                    let id = key.strip_prefix(&prefix)?;
+                    if id.len() != 64 || !id.bytes().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()) {
+                        return None;
+                    }
+                    Some((id.to_owned(), SessionMarks {
+                        pinned: value.get("pinned").and_then(Value::as_bool).unwrap_or(false),
+                        favorite: value.get("favorite").and_then(Value::as_bool).unwrap_or(false),
+                    }))
+                }).collect())
+            },
+            false,
+        )
+    }
+    pub fn set_session_marks(&self, key: &SessionKey, marks: SessionMarks) -> Result<()> {
+        self.state(
+            |data| {
+                require(data, &key.origin)?;
+                let name = hash("marks_", key)?;
+                if marks == SessionMarks::default() {
+                    data.remove(&name);
+                } else {
+                    data.insert(name, json!({"pinned": marks.pinned, "favorite": marks.favorite}));
+                }
+                Ok(())
+            },
+            true,
+        )
+    }
     fn session_setting(
         &self,
         key: &SessionKey,
@@ -696,7 +735,7 @@ impl LocalStateStore {
                 );
                 let t = tag(origin);
                 d.retain(|k, _| {
-                    !(["message_", "view_", "deliver_"]
+                    !(["message_", "view_", "deliver_", "marks_"]
                         .iter()
                         .any(|p| k.starts_with(&format!("{p}{t}_")))
                         || k == &format!("seen_replies_{t}"))

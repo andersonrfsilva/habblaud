@@ -10,6 +10,8 @@
     <string name="role_default">Padrão do omp</string>
     <string name="role_pick_model">Modelo</string>
     <string name="role_pick_thinking">Raciocínio</string>
+    <string name="filter_models">Filtrar modelos</string>
+    <string name="models_no_results">Nenhum modelo encontrado.</string>
     <string name="role_no_models">Nenhum agente omp aberto anunciou modelos agora.</string>
     <string name="roles_saving">Gravando no computador…</string>
     <string name="roles_error">Não foi possível gravar o papel.</string>
@@ -38,6 +40,12 @@
     <string name="add_server">Adicionar servidor</string>
     <string name="relogin">Entrar de novo</string>
     <string name="filter_all">Todos</string>
+    <string name="pin_session">Fixar sessão</string>
+    <string name="unpin_session">Desafixar sessão</string>
+    <string name="favorite_session">Favoritar sessão</string>
+    <string name="unfavorite_session">Tirar dos favoritos</string>
+    <string name="favorite_sessions">Favoritas</string>
+    <string name="pinned_sessions">Fixadas</string>
     <string name="logout_server_warning">Sair apaga deste aparelho os dados de %1$s, incluindo rascunhos não enviados. Os outros servidores continuam conectados.</string>
     <string name="http_login_title">Autenticação sem criptografia?</string>
     <string name="http_login_warning">Em %1$s, a senha e a sessão trafegam sem criptografia HTTP. Terceiros na rede podem interceptá-las. HTTPS é recomendado.</string>

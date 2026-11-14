@@ -4,6 +4,7 @@ use zaplaud_core::{
     controller::reading::ReadingController,
     model::{Access, SessionCollection, SessionKey},
 };
+use zaplaud_store::SessionMarks;
 
 /// Adaptador síncrono: chamado somente pela thread de fundo, nunca pelo event loop.
 pub trait AppPersistence: Send {
@@ -22,6 +23,8 @@ pub trait AppPersistence: Send {
     fn set_default_view(&mut self, view: &str) -> Result<(), String>;
     fn session_view(&self, key: &SessionKey) -> Result<String, String>;
     fn set_session_view(&mut self, key: &SessionKey, view: &str) -> Result<(), String>;
+    fn session_marks(&self, origin: &str) -> Result<HashMap<String, SessionMarks>, String>;
+    fn set_session_marks(&mut self, key: &SessionKey, marks: SessionMarks) -> Result<(), String>;
 }
 impl AppPersistence for zaplaud_store::LocalStateStore {
     fn servers(&self) -> Result<Vec<String>, String> {
@@ -83,6 +86,13 @@ impl AppPersistence for zaplaud_store::LocalStateStore {
         zaplaud_store::LocalStateStore::set_session_view(self, key, view)
             .map_err(|error| error.to_string())
     }
+    fn session_marks(&self, origin: &str) -> Result<HashMap<String, SessionMarks>, String> {
+        self.session_marks(origin).map_err(|error| error.to_string())
+    }
+    fn set_session_marks(&mut self, key: &SessionKey, marks: SessionMarks) -> Result<(), String> {
+        zaplaud_store::LocalStateStore::set_session_marks(self, key, marks)
+            .map_err(|error| error.to_string())
+    }
 }
 
 #[derive(Clone)]
@@ -136,8 +146,10 @@ pub enum Event {
         origin: String,
         query: String,
         recent: bool,
+        favorites: bool,
     },
     Avatar(String),
+    ToggleMark { key: String, pin: bool },
     AvatarFinished {
         key: String,
         failed: bool,
@@ -160,12 +172,14 @@ pub struct ServerState {
     pub reading: ReadingController,
     pub generation: u64,
     pub task: tokio::task::JoinHandle<()>,
+    pub marks: HashMap<String, SessionMarks>,
 }
 pub struct AppState {
     pub servers: Vec<ServerState>,
     pub filter: Option<String>,
     pub query: String,
     pub recent: bool,
+    pub favorites: bool,
     pub persistence: Persistence,
     pub next_generation: u64,
 }
@@ -176,6 +190,7 @@ impl AppState {
             filter: None,
             query: String::new(),
             recent: false,
+            favorites: false,
             persistence: Persistence(std::sync::Arc::new(std::sync::Mutex::new(persistence))),
             next_generation: 0,
         }

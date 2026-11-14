@@ -10,6 +10,7 @@ export struct SessionRow {
     selected: bool, sub: bool, sub-last: bool, permission: string,
     working: bool, since: string, activity-text: string, codex: bool,
     avatar-key: string, unread-label: string,
+    pinned: bool, favorite: bool,
 }
 export struct ServerRow { origin: string, label: string, connection: string, needs-login: bool, error: string }
 export global ListState {
@@ -20,6 +21,7 @@ export global ListState {
     in-out property <string> query;
     in-out property <bool> search-open;
     in-out property <int> tab;
+    in-out property <bool> favorites;
     in-out property <bool> menu-open;
     in-out property <int> focus-request;
     in property <bool> loading;
@@ -31,6 +33,8 @@ export global ListState {
     in property <image> cast-icon;
     callback open(string);
     callback avatar(string);
+    callback toggle-pin(string);
+    callback toggle-favorite(string);
     callback changed();
     callback settings();
     callback add-server();
@@ -38,6 +42,17 @@ export global ListState {
     callback permission(string);
     callback cast();
 }
+
+component SessionActions inherits Rectangle {
+    in property <SessionRow> session;
+    width: 32px; height: 40px;
+    IconButton { width: 32px; icon: MaterialIcons.more-vert; label: Labels.menu + ": " + root.session.title; clicked => { row-menu.show(); } }
+    row-menu := Menu { x: root.width - self.width; y: 40px; width: 220px;
+        TextButton { text: root.session.pinned ? Labels.unpin-session : Labels.pin-session; horizontal-alignment: left; clicked => { row-menu.close(); ListState.toggle-pin(root.session.key); } }
+        TextButton { text: root.session.favorite ? Labels.unfavorite-session : Labels.favorite-session; horizontal-alignment: left; clicked => { row-menu.close(); ListState.toggle-favorite(root.session.key); } }
+    }
+}
+
 export component ListPane inherits Rectangle {
     body-metrics := Text { visible: false; text: "M"; font-size: 16px; }
     subtitle-metrics := Text { visible: false; text: "M"; font-size: 14px; }
@@ -90,6 +105,11 @@ export component ListPane inherits Rectangle {
             }
         }
         Rectangle { height: 48px; SegmentedControl { x: 0px; y: 4px; width: parent.width; height: 40px; labels: [Labels.open-sessions, Labels.recent-sessions]; selected <=> ListState.tab; chosen(index) => { if ListState.query == "" { ListState.search-open = false; } ListState.changed(); } } }
+        HorizontalLayout { height: 40px; spacing: 8px;
+            Chip { text: Labels.filter-all; selected: !ListState.favorites; clicked => { ListState.favorites = false; ListState.changed(); } }
+            Chip { text: Labels.favorite-sessions; selected: ListState.favorites; clicked => { ListState.favorites = true; ListState.changed(); } }
+            Rectangle { horizontal-stretch: 1; }
+        }
         if ListState.search-open: TextField {
             text <=> ListState.query; placeholder: Labels.search-sessions; autofocus: ListState.query == "";
             leading-icon: MaterialIcons.search; trailing-icon: MaterialIcons.close; trailing-label: Labels.search-close;
@@ -118,7 +138,7 @@ export component ListPane inherits Rectangle {
                     border-width: root.keyboard-index == index && list-focus.has-focus ? 2px : 0px; border-color: Theme.primary;
                 }
                 if row.selected: Rectangle { x: 0px; y: 0px; width: parent.width; height: parent.body-height; border-radius: 12px; background: row-touch.pressed ? Theme.on-surface.with-alpha(0.12) : row-touch.has-hover ? Theme.on-surface.with-alpha(0.08) : transparent; }
-                accessible-role: list-item; accessible-label: row.title + ", " + row.subtitle + (row.activity == "" ? "" : ", " + row.activity) + (row.permission == "" ? "" : ", " + row.permission) + (row.unread-label == "" ? "" : ", " + row.unread-label);
+                accessible-role: list-item; accessible-label: row.title + ", " + row.subtitle + (row.pinned ? ", " + Labels.pinned-sessions : "") + (row.favorite ? ", " + Labels.favorite-sessions : "") + (row.activity == "" ? "" : ", " + row.activity) + (row.permission == "" ? "" : ", " + row.permission) + (row.unread-label == "" ? "" : ", " + row.unread-label);
                 accessible-action-default => { ListState.open(row.key); }
                 row-touch := TouchArea { x: 0px; y: 0px; width: parent.width; height: parent.body-height; clicked => { root.keyboard-index = index; list-focus.focus(); ListState.open(row.key); } }
                 content := HorizontalLayout { x: 0px; y: 0px; width: parent.width; height: parent.body-height; padding-top: row.sub ? 0px : 6px; padding-bottom: row.sub ? 0px : 6px; spacing: row.sub ? 0px : 12px;
@@ -133,6 +153,7 @@ export component ListPane inherits Rectangle {
                             title := Text { x: 0px; y: 0px; width: parent.width; height: parent.height; text: row.title; color: Theme.on-surface; font-size: row.sub ? 14px : 16px; letter-spacing: 0.5px; line-height-factor: row.sub ? 20px / subtitle-metrics.preferred-height : 24px / body-metrics.preferred-height; font-weight: row.unread != "" ? 700 : 400; wrap: word-wrap; overflow: elide; }
                         }
                         Text { text: row.subtitle; color: Theme.on-surface-variant; font-size: row.sub ? 12px : 14px; letter-spacing: 0.25px; line-height-factor: 20px / subtitle-metrics.preferred-height; overflow: elide; font-weight: row.unread != "" ? 700 : 400; }
+                        if row.pinned || row.favorite: Text { text: (row.pinned ? Labels.pinned-sessions : "") + (row.pinned && row.favorite ? " · " : "") + (row.favorite ? Labels.favorite-sessions : ""); color: Theme.primary; font-size: 12px; overflow: elide; }
                         if row.activity != "": HorizontalLayout {
                             height: 20px; spacing: 3px;
                             Text { height: 20px; text: Clock.spinner(row.codex, Clock.tick, Clock.focused); font-family: "DejaVu Sans"; color: Theme.primary; font-size: 12px; vertical-alignment: center; horizontal-stretch: 0; }
@@ -143,6 +164,9 @@ export component ListPane inherits Rectangle {
                     if !row.sub: VerticalLayout { alignment: center; spacing: 6px; width: max(32px, time-label.preferred-width);
                         time-label := Text { height: 16px; text: row.time; color: row.unread != "" ? Theme.primary : Theme.on-surface-variant; font-size: 11px; letter-spacing: 0.5px; horizontal-alignment: right; }
                         if row.unread != "": Rectangle { height: 16px; Badge { x: parent.width - self.width; y: 0px; text: row.unread; } }
+                    }
+                    if !row.sub: VerticalLayout { width: 32px; alignment: center;
+                        SessionActions { session: row; }
                     }
                 }
             }

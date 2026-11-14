@@ -9,7 +9,7 @@ import { access } from '../net/access';
 import type { AgentInfo, CastMember, RecentSession } from '../../../shared/types';
 import type { UiComponent, UiContext } from './context';
 import { h, iconButton, setAttr, setHidden, setText, setTitle } from './dom';
-import { favorites, sessionKey, splitFavorites } from './favorites';
+import { favorites, pins, pinnedFirst, sessionKey, splitFavorites } from './favorites';
 import { calendarDayDiff, formatClock, formatDateTime, normalizeSearch, plural, shortPath } from './format';
 import { ICONS } from './icons';
 import { PROVIDER_NAME, providerOf, parseCastModelCatalog, type CastModelCatalog } from './provider';
@@ -155,6 +155,9 @@ export class HistoryPopover implements UiComponent {
   ) {
     // Estrela marcada aqui, na gaveta ou em outra aba: refaz a lista se estiver aberta.
     favorites.subscribe(() => {
+      if (this.isOpen) this.renderList();
+    });
+    pins.subscribe(() => {
       if (this.isOpen) this.renderList();
     });
     this.button = iconButton(ICONS.clock, tr('Histórico de sessões'), () => this.toggle(), 'ui-hist-btn');
@@ -316,17 +319,24 @@ export class HistoryPopover implements UiComponent {
   private renderList(): void {
     const now = this.ctx.now();
     const pick = this.picking ? this.ctx.agent(this.picking) : undefined;
-    const split = splitFavorites(favorites.all(), this.sessions);
+    const pinKeys = new Set(pins.all().map(sessionKey));
+    const withPins = splitFavorites(pins.all(), this.sessions);
+    const sessions = [...withPins.favorites, ...withPins.rest];
+    const split = splitFavorites(favorites.all(), sessions);
     if (this.state === 'ready' && JSON.stringify(split.updated) !== JSON.stringify(favorites.all())) favorites.replace(split.updated);
+    if (this.state === 'ready' && JSON.stringify(withPins.updated) !== JSON.stringify(pins.all())) pins.replace(withPins.updated);
     const usable = (list: RecentSession[]) => (pick ? list.filter((s) => pick.provider === 'omp' && canResume(s, pick.sessionId)) : list);
     const favPool = usable(split.favorites);
     const pool = usable(split.rest);
     setText(this.hintEl, pick ? tr('Escolha a conversa do omp para retomar em {0}. A atual dele continua no histórico.', [pick.name]) : tr('Últimos 7 dias, de todas as contas. Clique para ler a conversa no terminal.'));
     const accountLabel = (id: string) => this.accountLabel(id);
-    const shownFavs = filterSessions(favPool, this.query, accountLabel);
-    const shownRest = filterSessions(pool, this.query, accountLabel);
+    const filteredFavs = filterSessions(favPool, this.query, accountLabel);
+    const filteredRest = filterSessions(pool, this.query, accountLabel);
+    const shownPins = pinnedFirst([...filteredFavs, ...filteredRest].filter((s) => pinKeys.has(sessionKey(s))), pinKeys);
+    const shownFavs = filteredFavs.filter((s) => !pinKeys.has(sessionKey(s)));
+    const shownRest = filteredRest.filter((s) => !pinKeys.has(sessionKey(s)));
     const total = favPool.length + pool.length;
-    const shownCount = shownFavs.length + shownRest.length;
+    const shownCount = shownPins.length + shownFavs.length + shownRest.length;
     const days = groupSessionsByDay(shownRest, now);
     const q = this.query.trim();
     const loading = this.state === 'loading' || this.state === 'idle';
@@ -342,11 +352,16 @@ export class HistoryPopover implements UiComponent {
     setHidden(this.footEl, !total);
 
     // Refaz o DOM só quando o conteúdo muda (a lista é pequena: no máximo ~150 sessões).
-    const sig = JSON.stringify([pick?.id, this.catalog, this.members, this.ctx.store.snapshot?.agents, favorites.all().map(sessionKey), days.map((d) => [d.key, d.label]), [...shownFavs, ...shownRest].map((s) => [sessionKey(s), s.title, s.lastAt, s.open, s.agentId && !!this.ctx.agent(s.agentId)])]);
+    const sig = JSON.stringify([pick?.id, this.catalog, this.members, this.ctx.store.snapshot?.agents, favorites.all().map(sessionKey), [...pinKeys], days.map((d) => [d.key, d.label]), [...shownPins, ...shownFavs, ...shownRest].map((s) => [sessionKey(s), s.title, s.lastAt, s.open, s.agentId && !!this.ctx.agent(s.agentId)])]);
     if (sig === this.drawn) return;
     const focusedKey = (document.activeElement as HTMLElement | null)?.dataset?.session;
     this.drawn = sig;
     const frag = document.createDocumentFragment();
+    if (shownPins.length) {
+      const group = h('section', { class: 'ui-hist__day', attrs: { 'aria-label': tr('Fixadas') } }, h('h3', { class: 'ui-hist__day-label', text: tr('Fixadas') }));
+      for (const s of shownPins) group.append(this.row(s, now, pick?.id, true));
+      frag.append(group);
+    }
     if (shownFavs.length) {
       const group = h('section', { class: 'ui-hist__day ui-hist__favs', attrs: { 'aria-label': tr('Favoritas') } }, h('h3', { class: 'ui-hist__day-label', text: tr('Favoritas') }));
       for (const s of shownFavs) group.append(this.row(s, now, pick?.id, true));
@@ -365,20 +380,29 @@ export class HistoryPopover implements UiComponent {
   private row(s: RecentSession, now: number, pick: string | undefined, fav = false): HTMLElement {
     const btn = this.item(s, now, pick, fav);
     const key = sessionKey(s);
-    const pinned = favorites.has(key);
-    const star = iconButton(pinned ? ICONS.starFilled : ICONS.star, pinned ? tr('Tirar dos favoritos') : tr('Favoritar sessão'), () => {
-      favorites.toggle(s);
+    const favorite = favorites.has(key);
+    const star = iconButton(favorite ? ICONS.starFilled : ICONS.star, favorite ? tr('Tirar dos favoritos') : tr('Favoritar sessão'), (ev) => {
+      ev.stopPropagation();
+      if (!favorites.toggle(s)) this.ctx.announce(tr('Não foi possível salvar as marcações da sessão.'));
       this.listEl.querySelector<HTMLElement>(`.ui-hist__fav[data-fav="${CSS.escape(key)}"]`)?.focus();
-    }, `ui-hist__fav${pinned ? ' is-on' : ''}`);
+    }, `ui-hist__fav${favorite ? ' is-on' : ''}`);
     star.dataset.fav = key;
-    setAttr(star, 'aria-pressed', String(pinned));
+    setAttr(star, 'aria-pressed', String(favorite));
+    const pinned = pins.has(key);
+    const pin = iconButton(ICONS.pin, pinned ? tr('Desafixar sessão') : tr('Fixar sessão'), (ev) => {
+      ev.stopPropagation();
+      if (!pins.toggle(s)) this.ctx.announce(tr('Não foi possível salvar as marcações da sessão.'));
+      this.listEl.querySelector<HTMLElement>(`.ui-hist__fav[data-pin="${CSS.escape(key)}"]`)?.focus();
+    }, `ui-hist__fav${pinned ? ' is-on' : ''}`);
+    pin.dataset.pin = key;
+    setAttr(pin, 'aria-pressed', String(pinned));
     const row = h('div', { class: 'ui-hist__row' }, btn);
     if (!pick && (canResume(s) || this.canCastResume(s))) {
       const resume = h('button', { class: 'ui-link-btn ui-hist__resume', type: 'button', text: tr('Retomar em…'), title: s.provider === 'omp' ? tr('Retomar esta conversa num agente do omp livre (a conversa atual dele continua no histórico)') : tr('Retomar em qual agente') });
       row.append(resume);
       resume.addEventListener('click', () => this.toggleResumeMenu(row, s));
     }
-    row.append(star);
+    row.append(pin, star);
     return row;
   }
 

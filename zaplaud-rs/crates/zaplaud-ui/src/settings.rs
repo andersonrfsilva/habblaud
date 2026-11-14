@@ -9,7 +9,10 @@ use zaplaud_core::{
     api::HabblaudApi,
     model::{AccountQuota, EDITABLE_ROLES, ModelRoles, THINKING_LEVELS},
     rules::{
-        composer::{join_role, role_model_groups, snapshot_models, split_role},
+        composer::{
+            join_role, model_label, model_option_label, provider_label, role_model_groups,
+            role_model_groups_filtered, snapshot_models, split_role,
+        },
         list::server_label,
         time::entry_time,
     },
@@ -68,6 +71,7 @@ enum Command {
     Activate(String, String, bool),
     Edit(String),
     CancelEdit,
+    Filter(String),
     Model(String),
     Thinking(String),
     Loaded(u64, Result<Loaded, zaplaud_core::Error>),
@@ -95,6 +99,7 @@ struct State {
     error: Option<&'static str>,
     editing: String,
     model: String,
+    filter: String,
     generation: u64,
     snapshot_at: Option<tokio::time::Instant>,
     saving: HashSet<String>,
@@ -121,15 +126,6 @@ fn thinking_label(level: &str) -> String {
     strings::lookup(&format!("thinking_{level}"))
         .unwrap_or(strings::ROLE_DEFAULT)
         .into()
-}
-fn provider_label(provider: &str) -> &str {
-    match provider {
-        "anthropic" => "Anthropic",
-        "openai-codex" => "OpenAI Codex",
-        "google-antigravity" => "Google Antigravity",
-        "openrouter" => "OpenRouter",
-        _ => provider,
-    }
 }
 fn typed_model_valid(value: &str) -> bool {
     let value = value.trim();
@@ -257,12 +253,7 @@ impl State {
                             .and_then(|m| m.get(role))
                             .map(|v| {
                                 let (model, level) = split_role(v);
-                                let label = model.split_once('/').map_or_else(
-                                    || model.to_owned(),
-                                    |(provider, model)| {
-                                        format!("{} · {model}", provider_label(provider))
-                                    },
-                                );
+                                let label = model_label(model);
                                 level.map_or(label.clone(), |l| {
                                     format!("{label} · {}", thinking_label(l))
                                 })
@@ -460,15 +451,19 @@ impl State {
             .map(String::as_str)
             .unwrap_or("");
         let (current_model, current_level) = split_role(current);
+        let all_groups = role_model_groups(&self.models, Some(current_model));
+        let filter_visible =
+            choosing && all_groups.iter().map(|(_, m)| m.len()).sum::<usize>() > 15;
         if choosing {
-            for (provider, models) in role_model_groups(&self.models, Some(current_model)) {
-                choices.push(row("section", "", provider_label(&provider)));
+            let groups = if self.filter.is_empty() {
+                all_groups
+            } else {
+                role_model_groups_filtered(&self.models, Some(current_model), &self.filter)
+            };
+            for (provider, models) in groups {
+                choices.push(row("section", "", &provider_label(&provider)));
                 for model in models {
-                    let mut r = row(
-                        "radio",
-                        "",
-                        model.split_once('/').map_or(model.as_str(), |(_, m)| m),
-                    );
+                    let mut r = row("radio", "", &model_option_label(&model));
                     r.checked = model == current_model;
                     r.value = model.into();
                     choices.push(r);
@@ -476,6 +471,8 @@ impl State {
             }
             if self.models.is_empty() {
                 choices.push(row("hint", "", strings::ROLE_NO_MODELS));
+            } else if choices.is_empty() {
+                choices.push(row("hint", "", strings::MODELS_NO_RESULTS));
             }
         } else {
             for level in std::iter::once("").chain(THINKING_LEVELS) {
@@ -503,6 +500,7 @@ impl State {
                 .into(),
             );
             ui.set_choosing_model(choosing);
+            ui.set_filter_visible(filter_visible);
             ui.set_choices(ModelRc::new(VecModel::from(choices)));
         });
     }
@@ -566,6 +564,7 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
     ui.set_cancel(strings::CANCEL.into());
     ui.set_use_label(strings::ROLE_USE.into());
     ui.set_model_placeholder(strings::ROLE_TYPE_MODEL.into());
+    ui.set_filter_placeholder(strings::FILTER_MODELS.into());
     let (send, mut receive) = mpsc::unbounded_channel();
     let s = send.clone();
     window.global::<AppEvents>().on_settings(move || {
@@ -606,6 +605,10 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
     let s = send.clone();
     ui.on_cancel_edit(move || {
         let _ = s.send(Command::CancelEdit);
+    });
+    let s = send.clone();
+    ui.on_filter_changed(move |value| {
+        let _ = s.send(Command::Filter(value.into()));
     });
     let s = send.clone();
     ui.on_model(move |model| {
@@ -733,15 +736,26 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
                             if state.runtime.as_deref() == Some("omp") && state.roles.available && !state.roles.pending && !state.saving.contains(&state.origin) && state.status == "ready" {
                                 state.editing = role;
                                 state.model.clear();
+                                state.filter.clear();
                                 update_ui(&weak, |w| {
-                                    w.global::<SettingsState>().set_typed("".into());
-                                    w.global::<SettingsState>().set_typed_valid(false);
+                                    let ui = w.global::<SettingsState>();
+                                    ui.set_typed("".into());
+                                    ui.set_typed_valid(false);
+                                    ui.set_filter("".into());
                                 });
                             }
                         }
-                        Some(Command::CancelEdit) => state.editing.clear(),
+                        Some(Command::CancelEdit) => {
+                            state.editing.clear();
+                            state.filter.clear();
+                        }
+                        Some(Command::Filter(filter)) => {
+                            state.filter = filter;
+                        }
                         Some(Command::Model(model)) => {
-                            if typed_model_valid(&model) { state.model = model.trim().into(); }
+                            if typed_model_valid(&model) {
+                                state.model = model.trim().into();
+                            }
                         }
                         Some(Command::Thinking(level)) => {
                             if state.runtime.as_deref() == Some("omp") && !state.model.is_empty() && (level.is_empty() || THINKING_LEVELS.contains(&level.as_str()))

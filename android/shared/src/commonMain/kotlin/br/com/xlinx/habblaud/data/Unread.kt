@@ -17,6 +17,18 @@ fun updatedSeen(seen: Map<String, Long>, ids: List<String>, openId: String?, now
 /** Tela principal: a conversa com a resposta mais nova no topo; sem resposta conhecida, vale o último evento. */
 fun byLastMessage(sessions: List<SessionItem>): List<SessionItem> = sessions.sortedByDescending { it.replies.lastOrNull() ?: it.lastAt ?: 0L }
 
+internal fun markedSessions(
+    sessions: List<SessionItem>,
+    marks: Map<SessionKey, SessionMarks>,
+    recent: Boolean,
+    query: String,
+    favoritesOnly: Boolean,
+): List<SessionItem> = byLastMessage(sessions.filter { item ->
+    (recent || item.agentId != null) && (!favoritesOnly || marks[item.key]?.favorite == true) &&
+        listOfNotNull(item.title, item.characterName, item.agentName, item.project, item.key.provider, item.key.account)
+            .any { it.contains(query, true) }
+}).sortedByDescending { marks[it.key]?.pinned == true }
+
 fun mergeSessions(states: Map<String, ReadingState>, filter: String?): List<SessionItem> =
     states.filterKeys { filter == null || it == filter }.values.flatMap { it.sessions }
 

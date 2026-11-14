@@ -21,6 +21,7 @@ export const FR: Readonly<Record<string, string>> = {
   "Vale para o ZeroClaw: enfileirar espera o fim do turno; mudar direção envia durante o turno. Parado, ambos começam na hora.": "S'applique à ZeroClaw : mettre en file attend la fin du tour ; changer de direction envoie pendant le tour. Au repos, les deux démarrent immédiatement.",
   "ao ZeroClaw": "à ZeroClaw",
   "Escolha o modelo": "Choisissez le modèle",
+  "Filtrar…": "Filtrer…",
   "Mensagens": "Messages",
   "a sessão ZeroClaw está indisponível ou em substituição": "la session ZeroClaw est indisponible ou en cours de remplacement",
   "a continuidade do turno ZeroClaw foi perdida: interrompa ou abra uma conversa nova": "la continuité du tour ZeroClaw a été perdue : interrompez-le ou ouvrez une nouvelle conversation",
@@ -3563,6 +3564,10 @@ export const FR: Readonly<Record<string, string>> = {
   "Favoritas": "Favorites",
   "Favoritar sessão": "Mettre la session en favori",
   "Tirar dos favoritos": "Retirer des favoris",
+  "Fixadas": "Épinglées",
+  "Fixar sessão": "Épingler la session",
+  "Desafixar sessão": "Désépingler la session",
+  "Não foi possível salvar as marcações da sessão.": "Impossible d’enregistrer les marques de la session.",
   // client/src/ui/omp-bar.ts (olho do advisor)
   "Advisor do omp": "Advisor d'omp",
   "Advisor do omp ligado nesta sessão. Clique para desligar (/advisor off)": "L'advisor d'omp est activé dans cette session. Cliquez pour le désactiver (/advisor off)",

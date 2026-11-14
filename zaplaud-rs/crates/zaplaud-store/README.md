@@ -20,6 +20,18 @@ A JVM não adquire esses locks: não execute escritores JVM e Rust simultaneamen
 
 `SecureSessionStorage` oferece load/save/clear por origem. Kotlin usa um único account `remote-session`, service `br.com.xlinx.zaplaud`, contendo `{v:2,cookies:{origin:Set-Cookie}}`; este formato é preservado, incluindo leitura do formato legado origin/cookie. Não existem contas individuais por origem no código Kotlin atual. Secret Service Linux usa backend Rust e criptografia Rust; macOS usa Keychain. Sem chaveiro funcional, cookies ficam apenas na memória do processo. `ZAPLAUD_KEYRING=memory` força esse modo. Cookies nunca são gravados em arquivos ou incluídos em Debug/logs.
 
+Quando não há uma coleção explícita, o backend nativo escolhe seu armazenamento padrão. No macOS isso seleciona
+o domínio `User` (chaveiro de login); o nome `default` do Secret Service não é um domínio válido do Keychain.
+Limpar uma origem que não está salva é uma operação sem efeito. A persistência macOS foi exercitada na sessão
+gráfica com uma credencial fictícia isolada, incluindo restauração e exclusão entre processos; o SSH não oferece
+o mesmo acesso interativo ao Keychain.
+
+As marcações locais de sessão usam `marks_<sha256(origin)[:16]>_<sha256(SessionKey.serialize())>` em
+`local_state.json`, com objeto `{"pinned":true,"favorite":true}`. Cada flag é independente; ausente equivale a
+`false`, e ambas falsas removem a entrada. Kotlin e Rust usam o mesmo formato. A lista lê as marcas por origem
+em lote; gravar exige servidor cadastrado, e remover um servidor apaga somente suas marcas. Não há sincronização
+dessas preferências entre aparelhos.
+
 ## Avatar
 
 `AvatarDiskCache` retorna bytes PNG validados por decodificação completa, dimensões 60x60, até 1 MiB, validade de 24 horas e nomes SHA-256 hex lowercase da chave exata. Após cada gravação, mantém no máximo 16 MiB, conservando arquivos mais novos primeiro como JVM. Não mantém cache de imagens decodificadas: o LRU de 4 MiB pertence à interface. Erros de disco são retornados para que o chamador decida continuar exibindo os bytes recebidos da rede.

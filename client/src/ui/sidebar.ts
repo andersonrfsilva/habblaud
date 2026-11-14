@@ -12,6 +12,8 @@ import { officeIsEmpty } from './overlays';
 import { createAgentRow, updateAgentRow } from './rows';
 import { createAccountChip, createProgress, updateAccountChip, updateProgress } from './widgets';
 import { tr } from '../../../shared/i18n';
+import { pins, sessionKey } from './favorites';
+import { favoriteSessionOf } from './favstar';
 
 interface RoomRefs {
   head: HTMLButtonElement;
@@ -55,8 +57,10 @@ export class Sidebar implements UiComponent {
   private emptyText: HTMLElement;
   private clearBtn: HTMLButtonElement;
   private lastSelKey = '';
+  private pinnedAgents = new Set<string>();
 
   constructor(private ctx: UiContext) {
+    pins.subscribe(() => this.render());
     this.input = h('input', {
       class: 'ui-search__input',
       type: 'search',
@@ -149,7 +153,14 @@ export class Sidebar implements UiComponent {
     setHidden(this.filters, accounts.length <= 1);
 
     // Ordem das salas escolhida pelo usuário (arrastando o cabeçalho da sala).
+    const pinKeys = new Set(pins.all().map(sessionKey));
+    this.pinnedAgents = new Set((snap?.agents ?? []).filter((a) => {
+      const session = favoriteSessionOf(this.ctx, a);
+      return !!session && pinKeys.has(sessionKey(session));
+    }).map((a) => a.id));
     const groups = orderRooms(groupRooms(snap, { query: this.query, hiddenAccounts: hidden }), (g) => g.room.id);
+    const pinnedRooms = new Set(groups.filter((g) => g.nodes.some((n) => this.pinnedAgents.has(n.agent.id))).map((g) => g.room.id));
+    groups.sort((a, b) => Number(pinnedRooms.has(b.room.id)) - Number(pinnedRooms.has(a.room.id)));
     this.shownRooms = groups.map((g) => g.room.id);
     this.rooms.sync(groups);
 
@@ -264,7 +275,8 @@ export class Sidebar implements UiComponent {
       setText(r.tasksText, tr('{0}/{1} tarefas', [t.completed, t.total]));
     }
     // Ordem escolhida pelo usuário (arrastando as linhas), guardada no navegador.
-    const ordered = orderAgents(g.room.id, g.nodes, (n) => n.agent.sessionId);
+    const ordered = orderAgents(g.room.id, g.nodes, (n) => n.agent.sessionId)
+      .sort((a, b) => Number(this.pinnedAgents.has(b.agent.id)) - Number(this.pinnedAgents.has(a.agent.id)));
     this.shown.set(g.room.id, ordered);
     r.nodes.sync(ordered);
   }
@@ -386,6 +398,7 @@ export class Sidebar implements UiComponent {
     const r = this.nodeRefs.get(li)!;
     this.updateRow(r.row, n.agent);
     r.head.dataset.id = n.agent.id;
+    r.head.classList.toggle('is-pinned', this.pinnedAgents.has(n.agent.id));
     r.head.dataset.room = n.agent.roomId;
     const router = this.ctx.terminals;
     const a = n.agent;

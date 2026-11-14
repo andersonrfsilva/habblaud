@@ -7,7 +7,7 @@ mod cookies;
 mod state;
 pub use avatar::AvatarDiskCache;
 pub use cookies::{SecureSessionStorage, SessionPersistence};
-pub use state::{ConversationWrite, LocalStateStore, StoreError, storage_hash};
+pub use state::{ConversationWrite, LocalStateStore, SessionMarks, StoreError, storage_hash};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DesktopDirs {

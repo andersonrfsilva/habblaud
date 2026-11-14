@@ -31,6 +31,18 @@ export function pixelIcon(rows: readonly string[], palette: Readonly<Record<stri
 }
 
 export const ICONS = {
+  pin: pixelIcon([
+    '..######..',
+    '...####...',
+    '...####...',
+    '...####...',
+    '..######..',
+    '.########.',
+    '....##....',
+    '....##....',
+    '....##....',
+    '....#.....',
+  ]),
   overview: pixelIcon([
     '###....###',
     '#........#',

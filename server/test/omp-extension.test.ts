@@ -275,13 +275,13 @@ describe('omp extension: mensagens', () => {
     await t0.fire('session_shutdown', makeCtx({ id: 'b' }));
   });
 
-  it('session_start leva a lista de modelos do omp (provedor/id)', async () => {
+  it('session_start leva a lista de modelos do omp (provedor/id), sem :batch, :free, :extended nem ~alias do OpenRouter', async () => {
     const t = setup({ home: tmp.dir });
-    const ctx = makeCtx({ models: [{ provider: 'anthropic', id: 'a' }, { provider: 'openai', id: 'b' }] });
+    const ctx = makeCtx({ models: [{ provider: 'anthropic', id: 'a' }, { provider: 'openai', id: 'b' }, { provider: 'openrouter', id: '~anthropic/claude-opus-latest' }, { provider: 'openrouter', id: 'anthropic/claude-opus-5.5:batch' }, { provider: 'openrouter', id: 'deepseek/deepseek-v4:free' }, { provider: 'openrouter', id: 'anthropic/claude-opus-5.5' }] });
     t.fire('session_start', ctx);
     await vi.waitFor(() => expect(t.habblaud.of('/api/omp/events')).toHaveLength(1));
     await t.fire('session_shutdown', ctx);
-    expect(t.habblaud.of('/api/omp/events')[0].body?.models).toEqual(['anthropic/a', 'openai/b']);
+    expect(t.habblaud.of('/api/omp/events')[0].body?.models).toEqual(['anthropic/a', 'openai/b', 'openrouter/anthropic/claude-opus-5.5']);
   });
 
   it('control: troca o modelo (resolve → setModel) e o raciocínio; desconhecido ou recusado vira falha com motivo', async () => {

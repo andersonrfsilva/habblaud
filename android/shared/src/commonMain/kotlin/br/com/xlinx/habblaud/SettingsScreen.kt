@@ -37,6 +37,8 @@ import br.com.xlinx.habblaud.data.EDITABLE_ROLES
 import br.com.xlinx.habblaud.data.ROLE_MODEL
 import br.com.xlinx.habblaud.data.joinRole
 import br.com.xlinx.habblaud.data.parseAccounts
+import br.com.xlinx.habblaud.data.modelLabel
+import br.com.xlinx.habblaud.data.modelOptionLabel
 import br.com.xlinx.habblaud.data.roleModelGroups
 import br.com.xlinx.habblaud.data.providerLabel
 import br.com.xlinx.habblaud.data.snapshotModels
@@ -205,7 +207,7 @@ fun SettingsScreen(apis: Map<String, HabblaudApi>, store: LocalStateStore, onClo
                         Row(Modifier.fillMaxWidth().clickable(enabled = rolesStatus == "available" && !rolesPending) { editingRole = role }.padding(horizontal = 16.dp, vertical = 10.dp)) {
                             Column(Modifier.weight(1f)) {
                                 Text(stringResource(roleLabel(role)), style = MaterialTheme.typography.bodyLarge)
-                                Text(listOfNotNull(model?.let { "${providerLabel(it.substringBefore('/'))} · ${it.substringAfter('/')}" } ?: stringResource(Res.string.role_default), level?.let { thinkingLabel(it) }).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(listOfNotNull(model?.let(::modelLabel) ?: stringResource(Res.string.role_default), level?.let { thinkingLabel(it) }).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }
@@ -299,14 +301,18 @@ private fun roleLabel(role: String) = when (role) {
 private fun RoleDialog(role: String, current: String?, models: List<String>, onDismiss: () -> Unit, onSave: (String) -> Unit) {
     val (currentModel, currentLevel) = current?.let(::splitRole) ?: (null to null)
     var model by remember { mutableStateOf<String?>(null) }
+    var filter by remember { mutableStateOf("") }
     var typed by remember { mutableStateOf("") }
     AlertDialog(onDismissRequest = onDismiss, title = { Text(stringResource(roleLabel(role))) }, text = {
         Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
             if (model == null) {
                 Text(stringResource(Res.string.role_pick_model), style = MaterialTheme.typography.titleSmall)
-                roleModelGroups(models, keep = currentModel).forEach { (provider, list) ->
+                OutlinedTextField(filter, { filter = it }, Modifier.fillMaxWidth().padding(top = 8.dp), label = { Text(stringResource(Res.string.filter_models)) }, singleLine = true)
+                val groups = roleModelGroups(models, keep = currentModel, query = filter)
+                if (groups.isEmpty() && filter.isNotBlank()) Text(stringResource(Res.string.models_no_results), style = MaterialTheme.typography.bodySmall)
+                groups.forEach { (provider, list) ->
                     Text(providerLabel(provider), Modifier.padding(top = 12.dp, bottom = 2.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                    list.forEach { m -> RadioRow(m.substringAfter('/'), m == currentModel) { model = m } }
+                    list.forEach { m -> RadioRow(modelOptionLabel(m), m == currentModel) { model = m } }
                 }
                 if (models.isEmpty()) Text(stringResource(Res.string.role_no_models), style = MaterialTheme.typography.bodySmall)
                 // Sem agente aberto não há lista: o modelo também pode ser digitado (o servidor confere o formato).

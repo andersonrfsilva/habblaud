@@ -226,7 +226,7 @@ export function prettyModel(model: string | undefined): string {
     return [`GPT-${gpt[1]}`, ...words].join(' ');
   }
   // Formatos: "claude-opus-5-5", "claude-sonnet-4-5-20250929", "claude-opus-4-20250514", "claude-3-5-sonnet-20241022".
-  const m = /claude-(?:(\d{1,2}(?:-\d{1,2})?)-)?([a-z]+)(?:-(\d{1,2})(?!\d)(?:-(\d{1,2})(?!\d))?)?/i.exec(model);
+  const m = /claude-(?:(\d{1,2}(?:[.-]\d{1,2})?)-)?([a-z]+)(?:-(\d{1,2})(?!\d)(?:[.-](\d{1,2})(?!\d))?)?/i.exec(model);
   if (!m) return model;
   const family = m[2].charAt(0).toUpperCase() + m[2].slice(1).toLowerCase();
   const version = m[1] ? m[1].replace('-', '.') : m[3] ? (m[4] ? `${m[3]}.${m[4]}` : m[3]) : '';
@@ -261,6 +261,19 @@ const PROVIDER_LABELS: Record<string, string> = {
   'openai-codex': 'OpenAI Codex',
   google: 'Google',
   'google-antigravity': 'Google Antigravity',
+  openrouter: 'OpenRouter',
+  deepseek: 'DeepSeek',
+  meta: 'Meta',
+  'meta-llama': 'Meta Llama',
+  mistralai: 'Mistral',
+  moonshotai: 'Moonshot',
+  qwen: 'Qwen',
+  'x-ai': 'xAI',
+  'z-ai': 'Z.ai',
+  cohere: 'Cohere',
+  minimax: 'MiniMax',
+  nvidia: 'NVIDIA',
+  xiaomi: 'Xiaomi',
 };
 
 const titleWords = (s: string) =>
@@ -270,8 +283,35 @@ const titleWords = (s: string) =>
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(' ');
 
-/** Nome legível de um provedor do omp: `openai-codex` -> "OpenAI Codex"; desconhecido -> palavras com maiúscula. */
+const MODEL_WORDS: Record<string, string> = { deepseek: 'DeepSeek', minimax: 'MiniMax', glm: 'GLM', vl: 'VL', gpt: 'GPT' };
+const modelWords = (s: string) => s.split(/[-_]/).filter(Boolean).map((word) =>
+  MODEL_WORDS[word.toLowerCase()] ?? (/^\d+(?:\.\d+)?b$/i.test(word) ? word.toUpperCase() : word.charAt(0).toUpperCase() + word.slice(1)),
+).join(' ');
+
+/** Rótulo completo do seletor; datas e variantes distinguem IDs sem alterar o valor enviado. */
+export function modelOptionLabel(model: string | undefined): string {
+  if (!model) return '—';
+  const [raw, ...variants] = model.slice(model.lastIndexOf('/') + 1).split(':');
+  const date = /-(\d{8})$/.exec(raw);
+  const id = date ? raw.slice(0, -9) : raw;
+  const claude = /^claude-(?:(\d{1,2}(?:[.-]\d{1,2})?)-)?(opus|sonnet|haiku|fable)(?:-(\d{1,2}(?:[.-]\d{1,2})?))?(.*)$/i.exec(id);
+  let label: string;
+  if (claude) {
+    const version = (claude[1] || claude[3] || '').replace('-', '.');
+    label = ['Claude', modelWords(claude[2]), version, modelWords(claude[4])].filter(Boolean).join(' ');
+  } else if (/^gpt-/i.test(id)) {
+    const [version, ...words] = id.slice(4).split('-');
+    label = [`GPT-${version}`, modelWords(words.join('-'))].filter(Boolean).join(' ');
+  } else {
+    label = modelWords(id);
+  }
+  return [label, ...(date ? [date[1]] : []), ...variants.map(modelWords)].join(' · ');
+}
+
+/** Nome legível de um provedor do omp (`openai-codex` -> "OpenAI Codex", `openrouter/anthropic` -> "OpenRouter · Anthropic"). */
 export function providerLabel(provider: string): string {
+  const slash = provider.indexOf('/');
+  if (slash > 0) return `${providerLabel(provider.slice(0, slash))} · ${providerLabel(provider.slice(slash + 1))}`;
   return PROVIDER_LABELS[provider] ?? titleWords(provider);
 }
 
@@ -280,24 +320,43 @@ export interface ModelGroup {
   options: { value: string; label: string }[];
 }
 
+/** Partes alfanuméricas em ordem; texto A–Z, número do maior para o menor (`5.5` antes de `4.8`). */
+function compareModels(a: string, b: string): number {
+  const x = a.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  const y = b.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  for (let i = 0; i < Math.min(x.length, y.length); i++) {
+    const p = /^\d+$/.test(x[i]) ? Number(x[i]) : null;
+    const q = /^\d+$/.test(y[i]) ? Number(y[i]) : null;
+    const c = p !== null && q !== null ? q - p : p !== null ? -1 : q !== null ? 1 : x[i].localeCompare(y[i]);
+    if (c !== 0) return c;
+  }
+  if (x.length === y.length) return a.localeCompare(b);
+  const longerFirst = /^\d+$/.test(x.length > y.length ? x[y.length] : y[x.length]);
+  return (x.length > y.length) === longerFirst ? -1 : 1;
+}
+
 /**
- * Seletor de modelos do omp (`provedor/id`): agrupa por provedor, usa o nome curto (prettyModel), esconde os
- * snapshots datados (`-20250514`) e os ids internos com `_`, e ordena por família (A–Z) e versão (mais nova primeiro).
- * `keep` (o modelo atual) nunca some, mesmo datado.
+ * Seletor de modelos do omp (`provedor/id`): agrupa por provedor (e por fabricante em `openrouter/fabricante/id`),
+ * usa nomes legíveis completos, esconde snapshots datados (`-20250514`), ids internos com `_`, variantes `:batch`/
+ * `:free`/`:extended` e apelidos `~fabricante/...-latest`, e ordena por família (A–Z) e versão (mais nova primeiro).
+ * `keep` (o modelo atual) nunca some, mesmo escondido.
  */
 export function modelGroups(models: readonly string[], keep?: string): ModelGroup[] {
-  const groups = new Map<string, (ModelGroup['options'][number] & { family: string })[]>();
-  for (const value of models) {
+  const groups = new Map<string, (ModelGroup['options'][number] & { sortKey: string })[]>();
+  for (const value of new Set(keep ? [...models, keep] : models)) {
     const slash = value.indexOf('/');
-    const provider = slash > 0 ? value.slice(0, slash) : '';
-    const id = value.slice(slash + 1);
-    // shortcut: esconde por padrão de id (data no fim, `_`); se o omp passar a marcar modelos internos, usar a marca.
-    if (value !== keep && (/-\d{8}$/.test(id) || id.includes('_'))) continue;
+    const root = slash > 0 ? value.slice(0, slash) : '';
+    const rest = value.slice(slash + 1);
+    const subSlash = root === 'openrouter' ? rest.indexOf('/') : -1;
+    const vendor = subSlash > 0 ? rest.slice(0, subSlash) : '';
+    const provider = vendor ? `${root}/${vendor.replace(/^~/, '')}` : root;
+    const id = subSlash > 0 ? rest.slice(subSlash + 1) : rest;
+    // shortcut: esconde por padrão de id (data no fim, `_`, variantes e apelidos `~`); se o omp marcar internos, usar a marca.
+    if (value !== keep && (/-\d{8}$/.test(id) || id.includes('_') || (root === 'openrouter' && (/:(?:batch|free|extended)$/.test(id) || vendor.startsWith('~'))))) continue;
     const pretty = prettyModel(id);
-    const label = pretty === id ? titleWords(id) : pretty;
+    const label = modelOptionLabel(id);
     const list = groups.get(provider) ?? [];
-    if (list.some((o) => o.label === label)) continue;
-    list.push({ value, label, family: label.replace(/\s*[\d.]+.*$/, '') });
+    list.push({ value, label, sortKey: pretty === id ? id : pretty });
     groups.set(provider, list);
   }
   return [...groups]
@@ -305,9 +364,25 @@ export function modelGroups(models: readonly string[], keep?: string): ModelGrou
     .map(([provider, list]) => ({
       label: providerLabel(provider),
       options: list
-        .sort((a, b) => a.family.localeCompare(b.family) || b.label.localeCompare(a.label, undefined, { numeric: true }))
+        .sort((a, b) => compareModels(a.sortKey, b.sortKey) || a.value.localeCompare(b.value))
         .map(({ value, label }) => ({ value, label })),
     }));
+}
+
+/** Filtra grupos de modelos por busca (nome, provedor/fabricante ou id completo), sem diferenciar caixa nem acentos. */
+export function filterModelGroups(groups: readonly ModelGroup[], query: string, keep?: string): ModelGroup[] {
+  const terms = normalizeSearch(query).split(/\s+/).filter(Boolean);
+  if (!terms.length) return groups.map((g) => ({ label: g.label, options: [...g.options] }));
+  const out: ModelGroup[] = [];
+  for (const g of groups) {
+    const options = g.options.filter((o) => {
+      if (o.value === keep) return true;
+      const hay = normalizeSearch(`${g.label} ${o.label} ${o.value}`);
+      return terms.every((t) => hay.includes(t));
+    });
+    if (options.length) out.push({ label: g.label, options });
+  }
+  return out;
 }
 
 const PERMISSION_LABELS: Record<string, string> = {

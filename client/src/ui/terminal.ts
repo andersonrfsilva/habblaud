@@ -24,7 +24,7 @@ import { TermTabs } from './termtabs';
 import { renderMarkdown } from './markdown';
 import { roleLabel, shellWaitIn } from './model';
 import { providerOf } from './provider';
-import { favorites } from './favorites';
+import { favorites, pins } from './favorites';
 import { createFavStar, favoriteSessionOf, updateFavStar } from './favstar';
 import {
   clearHits,
@@ -659,6 +659,7 @@ export class TerminalPanel implements UiComponent, TerminalControl {
   private filesBtn: HTMLButtonElement;
   /** Estrela: favorita a sessão aberta (a do histórico ou a do agente), a mesma lista do Histórico. */
   private favStar = createFavStar('ui-icon-btn--sm');
+  private pinButton = createFavStar('ui-icon-btn--sm', true);
   private chat: AsideChat;
   private alertEl: HTMLElement;
   private alertText: HTMLElement;
@@ -712,6 +713,7 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     this.filesBtn.hidden = true;
     const close = iconButton(ICONS.close, tr('Fechar terminal (Esc)'), () => this.close(), 'ui-icon-btn--sm ui-term__close');
     favorites.subscribe(() => this.render());
+    pins.subscribe(() => this.render());
     this.ompBar = new OmpBar(ctx);
     const bar = h(
       'div',
@@ -722,6 +724,7 @@ export class TerminalPanel implements UiComponent, TerminalControl {
       this.reconnEl,
       this.findBtn,
       this.favStar,
+      this.pinButton,
       this.ompBar.eyeBtn,
       this.chatBtn,
       this.filesBtn,
@@ -907,6 +910,7 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     // Arquivos: só com o agente ao vivo (no histórico não há sala certa).
     setHidden(this.filesBtn, !live || !filesAvailable(this.ctx));
     updateFavStar(this.favStar, this.session ?? (this.last ? favoriteSessionOf(this.ctx, this.last) : null));
+    updateFavStar(this.pinButton, this.session ?? (this.last ? favoriteSessionOf(this.ctx, this.last) : null));
   }
 
   private toggleChat(): void {

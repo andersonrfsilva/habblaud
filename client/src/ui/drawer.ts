@@ -17,10 +17,12 @@ import {
   formatInt,
   formatTokens,
   formatUSD,
+  filterModelGroups,
   modelGroups,
+  type ModelGroup,
   permissionLabel,
   plural,
-  prettyModel,
+  modelOptionLabel,
   relativeTime,
   shortPath,
 } from './format';
@@ -46,7 +48,7 @@ import { PermissionCard } from './permission';
 import { canRenameRoom } from './roomrename';
 import { accountChipLabel, accountProvider, CODEX_LIVE_HINT, codexApprovalLabel, PROVIDER_NAME, providerOf } from './provider';
 import { ptyControllable } from './ptyapi';
-import { favorites } from './favorites';
+import { favorites, pins, sessionKey } from './favorites';
 import { createFavStar, favoriteSessionOf, updateFavStar } from './favstar';
 import { createAgentRow, updateAgentRow } from './rows';
 import { SocialSection } from './social';
@@ -270,6 +272,7 @@ class AgentView {
   private teamSec: ReturnType<typeof section>;
   private team: KeyedList<AgentInfo>;
   private favStar = createFavStar();
+  private pinButton = createFavStar('', true);
   private teamEmpty: HTMLElement;
   private timeline: KeyedList<Activity>;
   private timelineSec: ReturnType<typeof section>;
@@ -280,12 +283,20 @@ class AgentView {
   private stats: KvList<StatKey>;
   /** Modelo e raciocínio: texto, ou seletor quando o agente é do omp e aceita o controle (a extensão aplica). */
   private modelText = h('span');
+  private modelFilter = h('input', {
+    class: 'ui-ctl-filter',
+    type: 'search',
+    hidden: true,
+    attrs: { placeholder: tr('Filtrar…'), 'aria-label': tr('Filtrar…'), autocomplete: 'off', spellcheck: 'false' },
+  });
   private modelSel = h('select', { class: 'ui-ctl-select', attrs: { 'aria-label': tr('Modelo') } });
   private thinkText = h('span');
   private thinkSel = h('select', { class: 'ui-ctl-select', attrs: { 'aria-label': tr('Raciocínio') } });
   private ctlStatus = h('p', { class: 'ui-msg__status', role: 'status', hidden: true, attrs: { 'aria-live': 'polite' } });
   private ctlTimer: ReturnType<typeof setTimeout> | null = null;
   private modelOptions = '';
+  private modelCurrent = '';
+  private modelAllGroups: ModelGroup[] = [];
   /**
    * Último estado do servidor (agente + valor) aplicado a cada seletor. O seletor só é reescrito quando esse estado
    * muda: renderizar de novo (snapshot, foco, blur) não desfaz a escolha que o usuário acabou de fazer, em qualquer
@@ -308,6 +319,7 @@ class AgentView {
   ) {
     // Estrela marcada no Histórico ou em outra aba: atualiza a daqui.
     favorites.subscribe(() => this.render());
+    pins.subscribe(() => this.render());
     this.avatar = createAvatarPlaceholder('lg');
     this.name = h('h2', { class: 'ui-hero__name' });
     this.role = h('span', { class: 'ui-role' });
@@ -444,16 +456,25 @@ class AgentView {
       ['cost', tr('Custo estimado')],
       ['lines', tr('Linhas'), h('span', { class: 'ui-lines' }, this.linesPlus, this.linesMinus)],
       ['subs', tr('Subagentes disparados')],
-      ['model', tr('Modelo'), h('span', {}, this.modelText, this.modelSel)],
+      ['model', tr('Modelo'), h('span', { class: 'ui-ctl-model' }, this.modelText, this.modelFilter, this.modelSel)],
       ['thinking', tr('Raciocínio'), h('span', {}, this.thinkText, this.thinkSel)],
       ['branch', 'Branch'],
       ['perm', tr('Permissões')],
-      ['session', tr('Sessão'), h('span', { class: 'ui-copy-row' }, this.sessionValue, this.favStar, copyButton(() => this.last?.sessionId ?? '', tr('Copiar id da sessão')))],
+      ['session', tr('Sessão'), h('span', { class: 'ui-copy-row' }, this.sessionValue, this.pinButton, this.favStar, copyButton(() => this.last?.sessionId ?? '', tr('Copiar id da sessão')))],
       ['start', tr('Início')],
       ['duration', tr('Duração')],
       ['bg', tr('Execução')],
     ]);
     for (const level of OMP_THINKING_LEVELS) this.thinkSel.append(h('option', { text: level, attrs: { value: level } }));
+    this.modelFilter.addEventListener('input', () => this.rebuildModelOptions());
+    this.modelFilter.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Escape' && this.modelFilter.value) {
+        e.preventDefault();
+        this.modelFilter.value = '';
+        this.rebuildModelOptions();
+      }
+    });
     this.modelSel.addEventListener('change', () => void this.control({ model: this.modelSel.value }));
     this.thinkSel.addEventListener('change', () => void this.control({ thinking: this.thinkSel.value }));
     const statsSec = section(tr('Estatísticas'), this.stats.el, this.ctlStatus);
@@ -497,6 +518,7 @@ class AgentView {
     this.character.open(id);
     this.id = id;
     this.last = null;
+    this.modelFilter.value = '';
     this.sayControl('');
     this.history = [];
     this.timelineShown = TIMELINE_STEP;
@@ -799,35 +821,38 @@ class AgentView {
     const st = this.stats;
     st.show('model', true);
     st.show('thinking', editable || !!a.thinking);
-    setText(this.modelText, prettyModel(a.model));
+    setText(this.modelText, modelOptionLabel(a.model));
     setText(this.thinkText, a.thinking ?? '');
     for (const [text, sel] of [[this.modelText, this.modelSel], [this.thinkText, this.thinkSel]] as const) {
       setHidden(text, editable);
       setHidden(sel, !editable);
     }
-    if (!editable) return;
+    if (!editable) {
+      setHidden(this.modelFilter, true);
+      return;
+    }
     const models = a.models ?? [];
-    const current = models.find((m) => m.replace(/^[^/]+\//, '') === a.model) ?? '';
+    const current = models.find((m) => m === a.model || m.replace(/^[^/]+\//, '') === a.model) ?? '';
     // Sem lista da extensão (ou modelo fora dela): só o atual, para o seletor nunca mentir.
     const options = current ? models : [...(a.model ? [''] : []), ...models];
     // A lista só é recriada quando as opções mudam (raro): recriar volta a seleção para a primeira opção, e o
     // navegador pode mandá-la como `change` ao fechar uma lista aberta.
-    const key = `${options.join('\n')}|${current ? '' : (a.model ?? '')}`;
+    const key = `${options.join('\n')}|${current}|${a.model ?? ''}|${editable}`;
     if (key !== this.modelOptions) {
       this.modelOptions = key;
+      this.modelCurrent = current;
+      this.modelAllGroups = modelGroups(models, current);
+      const total = this.modelAllGroups.reduce((n, g) => n + g.options.length, 0);
+      setHidden(this.modelFilter, total <= 15);
+      if (total <= 15) this.modelFilter.value = '';
       this.modelSynced = '';
-      this.modelSel.replaceChildren(
-        ...(current ? [] : [h('option', { text: prettyModel(a.model), attrs: { value: '' } })]),
-        ...modelGroups(models, current).map((g) => {
-          const group = h('optgroup', { attrs: { label: g.label } });
-          group.append(...g.options.map((o) => h('option', { text: o.label, attrs: { value: o.value } })));
-          return group;
-        }),
-      );
+      this.rebuildModelOptions(a.model);
     }
+    setHidden(this.modelFilter, this.modelAllGroups.reduce((n, g) => n + g.options.length, 0) <= 15);
     const modelState = `${a.id}|${current}`;
     if (modelState !== this.modelSynced) {
       this.modelSynced = modelState;
+      this.modelCurrent = current;
       this.modelSel.value = current;
     }
     const thinkState = `${a.id}|${a.thinking ?? ''}`;
@@ -835,6 +860,20 @@ class AgentView {
       this.thinkSynced = thinkState;
       this.thinkSel.value = a.thinking ?? '';
     }
+  }
+
+  private rebuildModelOptions(fallbackModel = this.last?.model): void {
+    const current = this.modelCurrent;
+    const filtered = filterModelGroups(this.modelAllGroups, this.modelFilter.value, current);
+    this.modelSel.replaceChildren(
+      ...(current ? [] : [h('option', { text: modelOptionLabel(fallbackModel), attrs: { value: '' } })]),
+      ...filtered.map((g) => {
+        const group = h('optgroup', { attrs: { label: g.label } });
+        group.append(...g.options.map((o) => h('option', { text: o.label, attrs: { value: o.value } })));
+        return group;
+      }),
+    );
+    this.modelSel.value = current;
   }
 
   /** A troca não vingou: o próximo render volta os seletores ao estado do servidor. */
@@ -907,6 +946,7 @@ class AgentView {
     );
 
     updateFavStar(this.favStar, favoriteSessionOf(this.ctx, a));
+    updateFavStar(this.pinButton, favoriteSessionOf(this.ctx, a));
     setText(this.sessionValue, a.sessionId);
     setTitle(this.sessionValue, a.sessionId);
     st.set('start', formatDateTime(a.startedAt));
@@ -981,6 +1021,7 @@ class RoomView {
     private pty: PtyControl,
   ) {
     favorites.subscribe(() => this.render());
+    pins.subscribe(() => this.render());
     this.newBtn = h('button', { class: 'ui-btn', type: 'button', text: tr('Nova sessão'), title: tr('Abre um Claude Code novo nesta pasta, num terminal interativo'), on: { click: () => this.newSession() } });
     this.filesBtn = filesButton(tr('Ver e baixar os arquivos da pasta desta sala'), () => this.last && this.ctx.openFiles?.(this.last.id));
     this.newMsg = h('p', { class: 'ui-actions__msg is-error', role: 'status', hidden: true });
@@ -1021,10 +1062,11 @@ class RoomView {
     this.agents = new KeyedList<AgentInfo>(agentsList, {
       key: (a) => a.id,
       // A estrela fica ao lado da linha (botão dentro de botão não vale) e não seleciona o agente.
-      create: (a) => h('div', { class: 'ui-agent-slot' }, createAgentRow(a, (id) => ctx.select({ type: 'agent', id }, { focus: true }), 'sm'), createFavStar('ui-agent-slot__star')),
+      create: (a) => h('div', { class: 'ui-agent-slot' }, createAgentRow(a, (id) => ctx.select({ type: 'agent', id }, { focus: true }), 'sm'), createFavStar('ui-agent-slot__star', true), createFavStar('ui-agent-slot__star')),
       update: (slot, a) => {
         updateAgentRow(slot.firstElementChild as HTMLElement, a, ctx.account(a.account), false, ctx.now(), ctx.store.snapshot?.agents);
         updateFavStar(slot.lastElementChild as HTMLButtonElement, favoriteSessionOf(ctx, a));
+        updateFavStar(slot.children[1] as HTMLButtonElement, favoriteSessionOf(ctx, a));
       },
     });
 
@@ -1102,7 +1144,12 @@ class RoomView {
     const snap = this.ctx.store.snapshot;
     const agents = (snap?.agents ?? []).filter((a) => a.roomId === r.id);
     this.accs.sync(accountsOf(agents, snap?.accounts ?? []));
-    const ordered = sortByUrgency(agents);
+    const pinKeys = new Set(pins.all().map(sessionKey));
+    const pinnedAgents = new Set(agents.filter((a) => {
+      const session = favoriteSessionOf(this.ctx, a);
+      return !!session && pinKeys.has(sessionKey(session));
+    }).map((a) => a.id));
+    const ordered = sortByUrgency(agents).sort((a, b) => Number(pinnedAgents.has(b.id)) - Number(pinnedAgents.has(a.id)));
     setText(this.agentsSec.extra, agents.length ? String(agents.length) : '');
     setHidden(this.agentsEmpty, agents.length > 0);
     this.agents.sync(ordered);

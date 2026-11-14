@@ -21,6 +21,7 @@ export const EN: Readonly<Record<string, string>> = {
   "Vale para o ZeroClaw: enfileirar espera o fim do turno; mudar direção envia durante o turno. Parado, ambos começam na hora.": "Applies to ZeroClaw: queue waits for the turn to finish; steer sends during the turn. When idle, both start immediately.",
   "ao ZeroClaw": "to ZeroClaw",
   "Escolha o modelo": "Choose a model",
+  "Filtrar…": "Filter…",
   "Mensagens": "Messages",
   "a sessão ZeroClaw está indisponível ou em substituição": "the ZeroClaw session is unavailable or being replaced",
   "a continuidade do turno ZeroClaw foi perdida: interrompa ou abra uma conversa nova": "ZeroClaw turn continuity was lost: stop it or start a new conversation",
@@ -3546,6 +3547,10 @@ export const EN: Readonly<Record<string, string>> = {
   "Favoritas": "Favorites",
   "Favoritar sessão": "Favorite session",
   "Tirar dos favoritos": "Remove from favorites",
+  "Fixadas": "Pinned",
+  "Fixar sessão": "Pin session",
+  "Desafixar sessão": "Unpin session",
+  "Não foi possível salvar as marcações da sessão.": "Could not save session marks.",
   // client/src/ui/omp-bar.ts (olho do advisor)
   "Advisor do omp": "Advisor of omp",
   "Advisor do omp ligado nesta sessão. Clique para desligar (/advisor off)": "omp advisor is on in this session. Click to turn off (/advisor off)",

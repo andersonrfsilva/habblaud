@@ -12,6 +12,17 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Sessões:** fixar e favoritar são ações independentes no Habblaud web e no Zaplaud Android/iOS e desktop Rust.
+  Sessões fixadas aparecem primeiro sem ignorar os filtros; favoritas ficam acessíveis pela seção do Histórico
+  no web e pelo filtro Favoritas nos clientes nativos. As marcações persistem localmente, por identidade completa
+  da sessão, e não são sincronizadas entre aparelhos. Favoritos web existentes são preservados.
+- **Modelos:** busca por nome, provedor ou fabricante na gaveta e no Elenco do Habblaud web, e nos seletores de sessão
+  e papéis do Zaplaud Kotlin/Rust. OpenRouter aparece dividido por fabricante; variantes `:batch`, `:free`,
+  `:extended` e aliases `~` deixam de poluir a lista, preservando o modelo atual. IDs enviados não mudam.
+  A extensão passa a anunciar até 1.000 modelos, em vez de truncar em 200. Corrigida a ordenação de versões
+  numéricas e sufixos alfanuméricos, que podia interromper a montagem do seletor Kotlin com catálogos grandes.
+  Os seletores agora normalizam também os nomes completos (`Claude Opus 5.5`, `DeepSeek V4 Flash`, `GLM 4.6`),
+  mantendo datas e variantes visíveis quando selecionadas; a busca aceita tanto o nome legível quanto o ID original.
 - **Zaplaud:** com "Resumir respostas" desligado, a resposta longa mostra na hora o começo dela em texto corrido,
   sem chamar modelo; tocar mostra a resposta completa. Vale no Android, iOS e desktop Rust.
 - **Zaplaud desktop:** O desktop Rust agora reconhece os controles disponíveis no ZeroClaw, permite interromper e iniciar conversas sem misturar rascunhos e esconde indicadores de contexto não confiáveis. Resumos HTTP funcionam sem Tiny. Aprovações e perguntas também mostram o resumo enviado pelo servidor.
@@ -130,6 +141,9 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Zaplaud macOS:** a sessão autenticada volta a ser salva no Keychain e restaurada ao reabrir o app.
+  O backend escolhe o chaveiro de login sem receber o alvo inválido `default`; limpar uma sessão ausente não
+  desativa mais a persistência. Senhas não são gravadas: somente o cookie de sessão fica no armazenamento seguro.
 - **Zaplaud:** tocar num resumo abre a resposta completa sem perder o cabeçalho de vista, tanto na última resposta
   quanto no histórico. A posição acompanha a medida do texto, inclusive quando o Markdown demora a ficar pronto.
 - **Zaplaud desktop:** respostas e saídas de ferramenta muito longas não fecham mais o app. Em telas de alta

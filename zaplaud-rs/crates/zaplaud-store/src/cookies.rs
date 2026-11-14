@@ -98,11 +98,12 @@ impl SecureSessionStorage {
         if self.memory_only || UNAVAILABLE.load(Ordering::Relaxed) {
             None
         } else {
-            match keyring::Entry::new_with_target(
-                TARGET.as_deref().unwrap_or("default"),
-                "br.com.xlinx.zaplaud",
-                "remote-session",
-            ) {
+            // Sem coleção explícita, deixe o backend escolher: "default" não é um domínio do Keychain do macOS.
+            let entry = match TARGET.as_deref() {
+                Some(target) => keyring::Entry::new_with_target(target, "br.com.xlinx.zaplaud", "remote-session"),
+                None => keyring::Entry::new("br.com.xlinx.zaplaud", "remote-session"),
+            };
+            match entry {
                 Ok(entry) => Some(entry),
                 Err(_) => {
                     UNAVAILABLE.store(true, Ordering::Relaxed);
@@ -153,8 +154,9 @@ impl SecureSessionStorage {
         let Ok(mut cookies) = self.read() else {
             return;
         };
-        cookies.remove(origin);
-        self.write(cookies);
+        if cookies.remove(origin).is_some() {
+            self.write(cookies);
+        }
     }
 }
 impl SessionPersistence for SecureSessionStorage {
@@ -171,6 +173,15 @@ impl SessionPersistence for SecureSessionStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_uses_the_persistent_user_keychain() {
+        let storage = SecureSessionStorage { memory_only: false };
+        let entry = storage.entry().expect("macOS must not fall back to process memory");
+        let credential = entry.get_credential().downcast_ref::<keyring::macos::MacCredential>().unwrap();
+        assert_eq!(credential.domain, keyring::macos::MacKeychainDomain::User);
+    }
+
     #[test]
     fn malformed_or_unknown_keyring_entries_refuse_mutation() {
         for value in [

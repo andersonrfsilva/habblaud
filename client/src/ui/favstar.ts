@@ -2,7 +2,7 @@
 import type { AgentInfo, RecentSession } from '../../../shared/types';
 import type { UiContext } from './context';
 import { iconButton, setAttr, setHidden, setTitle } from './dom';
-import { agentSession, favorites, sessionKey } from './favorites';
+import { agentSession, favorites, pins, sessionKey } from './favorites';
 import { ICONS } from './icons';
 import { tr } from '../../../shared/i18n';
 
@@ -16,12 +16,16 @@ export function favoriteSessionOf(ctx: UiContext, a: AgentInfo): RecentSession |
 const starTarget = new WeakMap<HTMLElement, RecentSession>();
 
 /** Estrela de favoritar a sessão: a mesma lista "Favoritas" do Histórico. Não seleciona a linha em que está. */
-export function createFavStar(extraClass = ''): HTMLButtonElement {
-  const b = iconButton(ICONS.star, tr('Favoritar sessão'), (ev) => {
+export function createFavStar(extraClass = '', pin = false): HTMLButtonElement {
+  const b = iconButton(pin ? ICONS.pin : ICONS.star, pin ? tr('Fixar sessão') : tr('Favoritar sessão'), (ev) => {
     ev.stopPropagation();
     const s = starTarget.get(b);
-    if (s) favorites.toggle(s);
+    if (s && !(pin ? pins : favorites).toggle(s)) {
+      setTitle(b, tr('Não foi possível salvar as marcações da sessão.'));
+      setAttr(b, 'aria-label', tr('Não foi possível salvar as marcações da sessão.'));
+    }
   }, `ui-fav-star ${extraClass}`.trim());
+  b.dataset.mark = pin ? 'pin' : 'favorite';
   setHidden(b, true);
   return b;
 }
@@ -33,11 +37,12 @@ export function updateFavStar(b: HTMLButtonElement, s: RecentSession | null): vo
     return;
   }
   starTarget.set(b, s);
-  const on = favorites.has(sessionKey(s));
-  const label = on ? tr('Tirar dos favoritos') : tr('Favoritar sessão');
+  const pin = b.dataset.mark === 'pin';
+  const on = (pin ? pins : favorites).has(sessionKey(s));
+  const label = pin ? (on ? tr('Desafixar sessão') : tr('Fixar sessão')) : (on ? tr('Tirar dos favoritos') : tr('Favoritar sessão'));
   if (b.dataset.on !== String(on)) {
     b.dataset.on = String(on);
-    b.innerHTML = on ? ICONS.starFilled : ICONS.star;
+    b.innerHTML = pin ? ICONS.pin : on ? ICONS.starFilled : ICONS.star;
   }
   b.classList.toggle('is-on', on);
   setAttr(b, 'aria-pressed', String(on));

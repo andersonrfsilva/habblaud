@@ -4,13 +4,13 @@ import { parseOmpEvent } from './omp-events';
 const base = { sessionId: 's1', at: 1 };
 
 describe('parseOmpEvent: models', () => {
-  it('aceita models em session_start, descarta itens grandes ou não-texto e limita a 200', () => {
-    const models = ['a/b', 'x'.repeat(201), 5, ...Array.from({ length: 300 }, (_, i) => `p/m${i}`)];
+  it('aceita models em session_start, descarta itens grandes ou não-texto e limita a 1000', () => {
+    const models = ['a/b', 'x'.repeat(201), 5, ...Array.from({ length: 1_100 }, (_, i) => `p/m${i}`)];
     const ev = parseOmpEvent({ ...base, event: 'session_start', models });
     expect(ev?.models?.[0]).toBe('a/b');
     expect(ev?.models?.includes('x'.repeat(201))).toBe(false);
-    // o corte de 200 vem antes do filtro: 3 itens iniciais + 197 válidos, 2 deles inválidos
-    expect(ev!.models!.length).toBe(198);
+    // o corte de 1000 vem antes do filtro: 3 itens iniciais + 997 válidos, 2 deles inválidos
+    expect(ev!.models!.length).toBe(998);
   });
 
   it('aceita models no heartbeat e ignora nos outros eventos', () => {

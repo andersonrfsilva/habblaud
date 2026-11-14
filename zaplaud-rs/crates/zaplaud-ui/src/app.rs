@@ -313,6 +313,14 @@ pub async fn run(
                     login_error(&weak, message);
                     continue;
                 }
+                let origin = api.origin().to_owned();
+                let marks = match state.persistence.call(move |store| store.session_marks(&origin)).await {
+                    Ok(marks) => marks,
+                    Err(_) => {
+                        login_error(&weak, strings::STORAGE_ERROR.into());
+                        continue;
+                    }
+                };
                 flush_seen(&mut state, &mut seen_writes, true).await;
                 seen_writes.remove(api.origin());
                 if let Some(index) = state
@@ -348,6 +356,7 @@ pub async fn run(
                     reading,
                     generation,
                     task,
+                    marks,
                 });
                 update_ui(&weak, |window| {
                     let login = window.global::<LoginState>();
@@ -434,10 +443,20 @@ pub async fn run(
                 origin,
                 query,
                 recent,
+                favorites,
             } => {
                 state.filter = (!origin.is_empty()).then_some(origin);
                 state.query = query;
                 state.recent = recent;
+                state.favorites = favorites;
+            }
+            Event::ToggleMark { key, pin } => {
+                let Ok(key) = SessionKey::deserialize(&key) else { continue };
+                if update_marks(&mut state, key, pin).await.is_err() {
+                    update_ui(&weak, |window| {
+                        window.global::<crate::ShellState>().set_message(strings::STORAGE_ERROR.into());
+                    });
+                }
             }
             Event::Open(key) => {
                 if let Ok(key) = SessionKey::deserialize(&key) {
@@ -606,6 +625,29 @@ pub async fn run(
         server.task.abort();
     }
 }
+async fn update_marks(state: &mut AppState, key: SessionKey, pin: bool) -> Result<(), String> {
+    let Some(server) = state.servers.iter_mut().find(|server| server.api.origin() == key.origin) else {
+        return Ok(());
+    };
+    if find_session(&server.reading, &key).is_none() {
+        return Ok(());
+    }
+    let id = zaplaud_store::storage_hash(&key.serialize().map_err(|error| error.to_string())?);
+    let mut marks = server.marks.get(&id).copied().unwrap_or_default();
+    if pin {
+        marks.pinned = !marks.pinned;
+    } else {
+        marks.favorite = !marks.favorite;
+    }
+    state.persistence.call(move |store| store.set_session_marks(&key, marks)).await?;
+    if marks == zaplaud_store::SessionMarks::default() {
+        server.marks.remove(&id);
+    } else {
+        server.marks.insert(id, marks);
+    }
+    Ok(())
+}
+
 #[derive(Default)]
 struct SeenWrite {
     revision: u64,
@@ -720,6 +762,37 @@ fn find_session(
 mod tests {
     use super::*;
     #[tokio::test]
+    async fn marks_publish_only_after_persistence_and_preserve_other_toggle() {
+        let root = tempfile::tempdir().unwrap();
+        let data = root.path().join("data");
+        let store = zaplaud_store::LocalStateStore::with_dirs(zaplaud_store::DesktopDirs {
+            data: data.clone(), cache: root.path().join("cache"),
+        }).unwrap();
+        let key = SessionKey {
+            origin: "https://a".into(), provider: "omp".into(),
+            account: "account".into(), session_id: "session".into(),
+        };
+        store.add_server(&key.origin).unwrap();
+        let mut reading = ReadingController::new(key.origin.clone(), HashMap::new(), None);
+        reading.state.sessions.push(zaplaud_core::model::SessionItem {
+            key: key.clone(), ..Default::default()
+        });
+        let mut state = AppState::new(Box::new(store));
+        state.servers.push(ServerState {
+            api: HabblaudApi::new(&key.origin).unwrap(), reading, generation: 1,
+            task: tokio::spawn(async {}), marks: HashMap::new(),
+        });
+        let id = zaplaud_store::storage_hash(&key.serialize().unwrap());
+        update_marks(&mut state, key.clone(), true).await.unwrap();
+        update_marks(&mut state, key.clone(), false).await.unwrap();
+        assert_eq!(state.servers[0].marks[&id], zaplaud_store::SessionMarks { pinned: true, favorite: true });
+        std::fs::write(data.join("local_state.json"), b"malformed").unwrap();
+        assert!(update_marks(&mut state, key, true).await.is_err());
+        assert_eq!(state.servers[0].marks[&id], zaplaud_store::SessionMarks { pinned: true, favorite: true });
+        state.servers.remove(0).task.abort();
+    }
+
+    #[tokio::test]
     async fn snapshot_mailbox_keeps_only_latest_per_origin() {
         let latest = LatestSnapshots::default();
         for generation in 0..1000 {
@@ -760,6 +833,7 @@ mod tests {
             reading: ReadingController::new("https://a".into(), HashMap::new(), None),
             generation: 1,
             task: tokio::spawn(async {}),
+            marks: HashMap::new(),
         });
         std::fs::write(data.join("local_state.json"), b"malformed").unwrap();
         assert!(!remove_logged_out(&mut state, "https://a").await);
@@ -785,6 +859,7 @@ mod tests {
             reading,
             generation: 1,
             task: tokio::spawn(async {}),
+            marks: HashMap::new(),
         });
         let mut writes = HashMap::new();
         schedule_seen(&state, &mut writes);

@@ -3,6 +3,7 @@
 import { access, remoteLogout } from '../net/access';
 import type { UiComponent, UiContext } from './context';
 import { h, iconButton, setAttr, setHidden, setText } from './dom';
+import { favorites, pins } from './favorites';
 import { ICONS } from './icons';
 import { notificationState, type Notifier } from './notify';
 import type { UiPrefs } from './prefs';
@@ -327,7 +328,11 @@ export class SettingsPopover implements UiComponent {
 
   private async logout(): Promise<void> {
     this.logoutBtn.disabled = true;
-    if (!(await remoteLogout())) {
+    if (!(await remoteLogout(fetch, (url) => {
+      favorites.clear();
+      pins.clear();
+      location.assign(url);
+    }))) {
       this.logoutBtn.disabled = false;
       this.ctx.announce(tr('Não foi possível sair: sem resposta do servidor.'));
     }

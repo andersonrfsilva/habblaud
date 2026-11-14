@@ -38,6 +38,10 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.PushPin
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material3.*
@@ -87,6 +91,7 @@ import kotlinx.coroutines.flow.takeWhile
 
 internal fun readingErrorResource(error: String): StringResource = when (error) {
     "changed" -> Res.string.session_changed
+    "storage" -> Res.string.storage_error
     "forbidden" -> Res.string.terminal_blocked
     "missing" -> Res.string.reading_missing
     "oversize" -> Res.string.reading_oversize
@@ -161,6 +166,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
     fun mergedFrom(base: String) = states.getValue(base).copy(
         sessions = mergeSessions(states, filter),
         unread = states.values.flatMap { it.unread.entries }.associate { it.toPair() },
+        marks = states.values.flatMap { it.marks.entries }.associate { it.toPair() },
         connection = combinedConnection,
         terminalAllowed = states.values.any { it.terminalAllowed },
         error = null
@@ -218,6 +224,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
     var query by remember { mutableStateOf("") }
     var searchOpen by remember { mutableStateOf(false) }
     var recent by remember { mutableStateOf(false) }
+    var favoritesOnly by rememberSaveable { mutableStateOf(false) }
     // A busca fica acima da lista, oculta até uma puxada longa para baixo no topo.
     val sessionsList = rememberLazyListState()
     /** Conversa que estava no topo na última composição (sem ser estado: mudar não recompõe). */
@@ -250,11 +257,12 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
     CastActions(api, selected, actionsAvailable(states.getValue(actionOrigin), actionOrigin in needsLogin, selected?.permission == true) && (selected != null || filter != null || apis.size == 1), state.sessions.filter { it.agentId != null }.mapNotNull { it.cast }.toSet(), { onUnauthorized(api.origin) }, { permissionSession = selected }, menu = { close, dismissItem ->
         // Menu em páginas: a principal lista os grupos; tocar num grupo troca o conteúdo pela lista dele, com "‹ Voltar".
         var page by remember(selected?.key) { mutableStateOf("") }
+        var modelQuery by remember(selected?.key) { mutableStateOf("") }
         val agentId = selected?.agentId
         val omp = selected?.key?.provider == "omp" && agentId != null && !selected.sub
         val sessionControls = supportsSessionControl(selected?.key?.provider) && agentId != null && selected?.sub == false
         val canControl = sessionControlsAvailable(selected, state)
-        @Composable fun Back() = DropdownMenuItem(text = { Text(stringResource(Res.string.back), style = MaterialTheme.typography.labelLarge) }, leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(20.dp)) }, onClick = { page = "" })
+        @Composable fun Back() = DropdownMenuItem(text = { Text(stringResource(Res.string.back), style = MaterialTheme.typography.labelLarge) }, leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(20.dp)) }, onClick = { modelQuery = ""; page = "" })
         @Composable fun Group(label: StringResource, value: String?, target: String, enabled: Boolean = true) = DropdownMenuItem(
             text = { Column { Text(stringResource(label)); value?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) } } },
             trailingIcon = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) }, enabled = enabled, onClick = { page = target })
@@ -263,7 +271,9 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
         val deliverLabels = listOf("aside" to Res.string.deliver_aside, "followUp" to Res.string.deliver_follow_up, "steer" to Res.string.deliver_steer)
             .filter { it.first in deliveryModes(selected?.key?.provider) }
         // O modelo da sessão pode vir sem o provedor: o da lista que bate com ele, com o provedor.
-        val currentModel = selected?.models?.firstOrNull { it == selected.model || it.substringAfter('/') == selected.model } ?: selected?.model?.takeIf { '/' in it }
+        val currentModel = selected?.model?.let { model ->
+            if ('/' in model) model else selected?.models?.firstOrNull { it.substringAfter('/') == model }
+        }
         when (page) {
             "view" -> { Back(); viewLabels.forEach { (value, label) -> Choice(stringResource(label), view == value) {
                 selected?.key?.let { key -> viewFor = key to value; scope.launch { store.setSessionView(key, value) } }
@@ -275,10 +285,18 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
             } } }
             "model" -> {
                 Back()
-                // Como no seletor dos papéis: por provedor, a versão mais nova primeiro, sem `:batch` nem cópias datadas.
-                roleModelGroups(selected!!.models, keep = currentModel).forEach { (provider, list) ->
+                OutlinedTextField(
+                    modelQuery, { modelQuery = it },
+                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                    label = { Text(stringResource(Res.string.filter_models)) },
+                    singleLine = true,
+                )
+                // Como no seletor dos papéis: por provedor/fabricante, a versão mais nova primeiro, sem variantes ocultas nem cópias datadas.
+                val groups = roleModelGroups(selected!!.models, keep = currentModel, query = modelQuery)
+                if (groups.isEmpty()) Text(stringResource(Res.string.models_no_results), Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
+                groups.forEach { (provider, list) ->
                     Text(providerLabel(provider), Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                    list.forEach { model -> Choice(model.substringAfter('/'), model == currentModel) { controller.messages.setModel(agentId!!, model); close() } }
+                    list.forEach { model -> Choice(modelOptionLabel(model), model == currentModel) { controller.messages.setModel(agentId!!, model); modelQuery = ""; close() } }
                 }
             }
             "thinking" -> { Back(); THINKING_LEVELS.forEach { level -> Choice(thinkingLabel(level), level == selected!!.thinking) { controller.messages.setThinking(agentId!!, level); close() } } }
@@ -383,9 +401,14 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                     Text(stringResource(Res.string.recent_sessions))
                 }
             }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = !favoritesOnly, onClick = { favoritesOnly = false }, label = { Text(stringResource(Res.string.filter_all)) })
+                FilterChip(selected = favoritesOnly, onClick = { favoritesOnly = true }, label = { Text(stringResource(Res.string.favorite_sessions)) },
+                    leadingIcon = { Icon(Icons.Default.Star, contentDescription = null, modifier = Modifier.size(18.dp)) })
+            }
             if (!state.terminalAllowed) Text(stringResource(Res.string.terminal_blocked))
             // Como num chat: a conversa com a resposta mais nova no topo.
-            val items = byLastMessage(state.sessions.filter { (recent || it.agentId != null) && listOfNotNull(it.title, it.characterName, it.agentName, it.project, it.key.provider, it.key.account).any { value -> value.contains(query, true) } })
+            val items = markedSessions(state.sessions, state.marks, recent, query, favoritesOnly)
             // Outra conversa subiu para o topo com a lista no topo: sem isto, a lista segura a que estava em cima (pela
             // chave) e a nova fica escondida acima dela.
             val top = items.firstOrNull()?.key?.serialize()
@@ -447,6 +470,10 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                             // Não lida: título, personagem e linha de status em negrito, como num chat.
                             val weight = if (state.unread[session.key] != null) FontWeight.Bold else null
                             Text(session.title, style = MaterialTheme.typography.titleMedium, fontWeight = weight, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                if (state.marks[session.key]?.pinned == true) Icon(Icons.Default.PushPin, contentDescription = stringResource(Res.string.pinned_sessions), modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                                if (state.marks[session.key]?.favorite == true) Icon(Icons.Default.Star, contentDescription = stringResource(Res.string.favorite_sessions), modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                            }
                             Text(listOfNotNull(session.characterName?.takeIf { it != session.title }, session.project?.substringAfterLast('/'), statusLabel(session.status ?: session.activity), serverLabel(session.key.origin).takeIf { apis.size > 1 && filter == null }).joinToString(" · "), modifier = if (apis.size > 1 && filter == null) Modifier.testTag("session-server:${serverLabel(session.key.origin)}") else Modifier, style = MaterialTheme.typography.bodyMedium, fontWeight = weight, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             if (session.agentId != null && session.status == "working") StatusLine(session)
                             if (session.permission) TextButton(onClick = { permissionSession = session }) { Text(stringResource(Res.string.permission_pending), color = MaterialTheme.colorScheme.error) }
@@ -458,6 +485,25 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                                 Badge(Modifier.semantics { contentDescription = label }, containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary) {
                                     Text(if (count >= REPLIES_SHOWN) "$REPLIES_SHOWN+" else count.toString(), style = MaterialTheme.typography.labelMedium)
                                 }
+                            }
+                        }
+                        val marks = state.marks[session.key] ?: SessionMarks()
+                        var marksMenu by remember(session.key) { mutableStateOf(false) }
+                        Box {
+                            IconButton(onClick = { marksMenu = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = stringResource(Res.string.menu))
+                            }
+                            DropdownMenu(expanded = marksMenu, onDismissRequest = { marksMenu = false }) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(if (marks.pinned) Res.string.unpin_session else Res.string.pin_session)) },
+                                    leadingIcon = { Icon(if (marks.pinned) Icons.Default.PushPin else Icons.Outlined.PushPin, contentDescription = null) },
+                                    onClick = { marksMenu = false; controllers.getValue(session.key.origin).toggleMark(session.key, pin = true) },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(if (marks.favorite) Res.string.unfavorite_session else Res.string.favorite_session)) },
+                                    leadingIcon = { Icon(if (marks.favorite) Icons.Default.Star else Icons.Outlined.StarBorder, contentDescription = null) },
+                                    onClick = { marksMenu = false; controllers.getValue(session.key.origin).toggleMark(session.key, pin = false) },
+                                )
                             }
                         }
                     }

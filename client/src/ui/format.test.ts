@@ -11,7 +11,9 @@ import {
   formatResetAt,
   formatTokens,
   formatUSD,
+  filterModelGroups,
   modelGroups,
+  modelOptionLabel,
   normalizeSearch,
   permissionLabel,
   plural,
@@ -125,7 +127,7 @@ describe('textos', () => {
   it('normalizeSearch remove acentos e caixa', () => {
     expect(normalizeSearch('  João Ávila ')).toBe('joao avila');
   });
-  it('modelGroups agrupa por provedor, esconde datados e internos, ordena família A–Z e versão decrescente', () => {
+  it('modelGroups agrupa por provedor (e fabricante no OpenRouter), esconde datados, internos e variantes, e ordena versão decrescente', () => {
     const groups = modelGroups([
       'openai-codex/gpt-6-luna',
       'anthropic/claude-opus-4-20250514',
@@ -136,24 +138,74 @@ describe('textos', () => {
       'google-antigravity/tab_flash_lite_preview',
       'google-antigravity/gemini-2.5-flash',
       'openai-codex/gpt-6.1-sol',
+      'openrouter/~anthropic/claude-opus-latest',
+      'openrouter/anthropic/claude-opus-5.5:batch',
+      'openrouter/anthropic/claude-opus-5.5',
+      'openrouter/deepseek/deepseek-v4-flash:free',
+      'openrouter/deepseek/deepseek-v4-flash',
     ]);
-    expect(groups).toEqual([
-      { label: 'Anthropic', options: [
-        { value: 'anthropic/claude-opus-5-5', label: 'Opus 5.5' },
-        { value: 'anthropic/claude-opus-4-6', label: 'Opus 4.6' },
-        { value: 'anthropic/claude-sonnet-5-5', label: 'Sonnet 5.5' },
-        { value: 'anthropic/claude-sonnet-5', label: 'Sonnet 5' },
-      ] },
-      { label: 'Google Antigravity', options: [{ value: 'google-antigravity/gemini-2.5-flash', label: 'Gemini 2.5 Flash' }] },
-      { label: 'OpenAI Codex', options: [
-        { value: 'openai-codex/gpt-6.1-sol', label: 'GPT-6.1 Sol' },
-        { value: 'openai-codex/gpt-6-luna', label: 'GPT-6 Luna' },
-      ] },
+    expect(groups.map((group) => ({ label: group.label, values: group.options.map((option) => option.value) }))).toEqual([
+      { label: 'Anthropic', values: ['anthropic/claude-opus-5-5', 'anthropic/claude-opus-4-6', 'anthropic/claude-sonnet-5-5', 'anthropic/claude-sonnet-5'] },
+      { label: 'Google Antigravity', values: ['google-antigravity/gemini-2.5-flash'] },
+      { label: 'OpenAI Codex', values: ['openai-codex/gpt-6.1-sol', 'openai-codex/gpt-6-luna'] },
+      { label: 'OpenRouter · Anthropic', values: ['openrouter/anthropic/claude-opus-5.5'] },
+      { label: 'OpenRouter · DeepSeek', values: ['openrouter/deepseek/deepseek-v4-flash'] },
     ]);
-    // O modelo atual fica, mesmo datado.
-    expect(modelGroups(['anthropic/claude-opus-4-20250514'], 'anthropic/claude-opus-4-20250514')[0].options).toEqual([
-      { value: 'anthropic/claude-opus-4-20250514', label: 'Opus 4' },
+    for (const current of ['anthropic/claude-opus-4-20250514', 'openrouter/deepseek/deepseek-v4-flash:free']) {
+      expect(modelGroups([current], current)[0].options.map((option) => option.value)).toEqual([current]);
+    }
+  });
+
+  it('mantém IDs distintos com o mesmo rótulo e inclui o modelo atual ausente do catálogo', () => {
+    const selected = 'openrouter/anthropic/claude-opus-5-5';
+    const groups = modelGroups(['openrouter/anthropic/claude-opus-5.5'], selected);
+    expect(groups.flatMap((group) => group.options.map((option) => option.value))).toEqual(
+      expect.arrayContaining(['openrouter/anthropic/claude-opus-5.5', selected]),
+    );
+    expect(filterModelGroups(groups, 'sem-correspondencia', selected).flatMap((group) => group.options.map((option) => option.value))).toEqual([selected]);
+    expect(filterModelGroups(groups, 'sem-correspondencia')).toEqual([]);
+    expect(modelGroups(['outro/modelo:free'])[0].options[0].value).toBe('outro/modelo:free');
+  });
+
+  it('ordena versões numéricas e sufixos alfanuméricos sem ciclos', () => {
+    const expected = ['openrouter/vendor/model-2', 'openrouter/vendor/model-1', 'openrouter/vendor/model-1b'];
+    for (let offset = 0; offset < expected.length; offset++) {
+      const input = [...expected.slice(offset), ...expected.slice(0, offset)];
+      for (const models of [input, [...input].reverse()]) {
+        expect(modelGroups(models)[0].options.map((option) => option.value)).toEqual(expected);
+      }
+    }
+  });
+
+  it('filterModelGroups filtra por nome, provedor/fabricante ou id e mantém o modelo atual', () => {
+    const groups = modelGroups([
+      'anthropic/claude-opus-5-5',
+      'openai-codex/gpt-6-luna',
+      'openrouter/deepseek/deepseek-v4-pro',
     ]);
+    expect(filterModelGroups(groups, 'deepseek').flatMap((group) => group.options.map((option) => option.value))).toEqual([
+      'openrouter/deepseek/deepseek-v4-pro',
+    ]);
+    expect(filterModelGroups(groups, 'deepseek', 'anthropic/claude-opus-5-5').flatMap((group) => group.options.map((option) => option.value))).toEqual([
+      'anthropic/claude-opus-5-5', 'openrouter/deepseek/deepseek-v4-pro',
+    ]);
+  });
+
+  it.each([
+    ['openrouter/anthropic/claude-opus-5.5', 'Claude Opus 5.5'],
+    ['anthropic/claude-sonnet-4-5-20250929', 'Claude Sonnet 4.5 · 20250929'],
+    ['claude-3-5-sonnet-20241022', 'Claude Sonnet 3.5 · 20241022'],
+    ['openai-codex/gpt-6.1-sol', 'GPT-6.1 Sol'],
+    ['openrouter/google/gemini-3.8-flash', 'Gemini 3.8 Flash'],
+    ['openrouter/deepseek/deepseek-v4-flash:free', 'DeepSeek V4 Flash · Free'],
+    ['openrouter/meta-llama/llama-3.3-70b-instruct', 'Llama 3.3 70B Instruct'],
+    ['openrouter/z-ai/glm-4.6', 'GLM 4.6'],
+    ['openrouter/minimax/minimax-m2.5', 'MiniMax M2.5'],
+    ['openrouter/qwen/qwen3-vl-235b-a22b-instruct', 'Qwen3 VL 235B A22b Instruct'],
+    ['vendor/custom_model-v2:exact', 'Custom Model V2 · Exact'],
+  ])('normaliza %s sem reescrever o ID escolhido', (id, label) => {
+    expect(modelOptionLabel(id)).toBe(label);
+    expect(filterModelGroups(modelGroups([id], id), label).flatMap((group) => group.options)).toEqual([{ value: id, label }]);
   });
 
   it('prettyModel reconhece os formatos de id', () => {

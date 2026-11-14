@@ -510,7 +510,7 @@ fn kotlin_model_picker_cases() {
                 "google-antigravity/gemini-3.5-flash-lite",
             ],
         ),
-        ("openrouter", vec!["openrouter/google/gemini-2.5-flash"]),
+        ("openrouter/google", vec!["openrouter/google/gemini-2.5-flash"]),
     ]
     .into_iter()
     .map(|(p, ms)| (p.to_owned(), ms.into_iter().map(str::to_owned).collect()))
@@ -527,6 +527,130 @@ fn kotlin_model_picker_cases() {
             "anthropic/claude-haiku-4-5-20251001"
         ]
     );
+}
+#[test]
+fn openrouter_model_picker_filters_and_keeps_exact_selection() {
+    let models = [
+        "openrouter/anthropic/claude-opus-5",
+        "openrouter/anthropic/claude-opus-5",
+        "openrouter/anthropic/claude-opus-5-20261001",
+        "openrouter/anthropic/claude-sonnet-5-20261001",
+        "openrouter/anthropic/claude-opus-5:batch",
+        "openrouter/anthropic/claude-opus-5:free",
+        "openrouter/anthropic/claude-opus-5:extended",
+        "openrouter/anthropic/claude-opus-5:thinking",
+        "openrouter/anthropic/claude-opus-5:exact",
+        "openrouter/~anthropic/claude-opus-5",
+        "openrouter/google/gemini-3-pro",
+        "openrouter/auto",
+        "anthropic/claude-opus-5",
+        "local/model:free",
+        "local/model:extended",
+        "local/model:batch",
+        "local/model:thinking",
+        "local/model:exact",
+        "invalid",
+    ]
+    .map(str::to_owned);
+    let groups = role_model_groups(&models, None);
+    assert_eq!(
+        groups.iter().map(|(group, _)| group.as_str()).collect::<Vec<_>>(),
+        ["anthropic", "local", "openrouter", "openrouter/anthropic", "openrouter/google"]
+    );
+    let shown: Vec<_> = groups.iter().flat_map(|(_, models)| models.iter().map(String::as_str)).collect();
+    for hidden in [
+        "openrouter/anthropic/claude-opus-5-20261001",
+        "openrouter/anthropic/claude-opus-5:batch",
+        "openrouter/anthropic/claude-opus-5:free",
+        "openrouter/anthropic/claude-opus-5:extended",
+        "openrouter/~anthropic/claude-opus-5",
+        "local/model:batch",
+        "invalid",
+    ] {
+        assert!(!shown.contains(&hidden), "{hidden}");
+        if hidden.contains('/') {
+            let kept = role_model_groups_filtered(&models, Some(hidden), "no match");
+            assert_eq!(kept.len(), 1);
+            assert_eq!(kept[0].1, [hidden]);
+        }
+    }
+    for visible in [
+        "openrouter/anthropic/claude-sonnet-5-20261001",
+        "openrouter/anthropic/claude-opus-5:thinking",
+        "openrouter/anthropic/claude-opus-5:exact",
+        "local/model:free",
+        "local/model:extended",
+        "local/model:thinking",
+        "local/model:exact",
+    ] {
+        assert!(shown.contains(&visible), "{visible}");
+    }
+    assert_eq!(shown.iter().filter(|model| **model == "openrouter/anthropic/claude-opus-5").count(), 1);
+    let filtered = role_model_groups_filtered(&models, None, "  OPENROUTER \t Google\n gemini ");
+    assert_eq!(filtered, vec![("openrouter/google".into(), vec!["openrouter/google/gemini-3-pro".into()])]);
+    assert!(role_model_groups_filtered(&models, None, "unknown model").is_empty());
+    let selected = "openrouter/absent/model:free";
+    assert_eq!(
+        role_model_groups_filtered(&models, Some(selected), "unknown model"),
+        vec![("openrouter/absent".into(), vec![selected.into()])]
+    );
+    for (model, label) in [
+        ("openrouter/anthropic/claude-opus-5", "Claude Opus 5"),
+        ("openrouter/~anthropic/claude-opus-5", "Claude Opus 5"),
+        ("openrouter/auto", "Auto"),
+        ("custom/vendor/model", "Model"),
+        ("local/model:exact", "Model · Exact"),
+        ("model", "Model"),
+    ] {
+        assert_eq!(model_option_label(model), label);
+    }
+    assert_eq!(provider_label("openrouter/anthropic"), "OpenRouter · Anthropic");
+    assert_eq!(model_label("openrouter/anthropic/claude-opus-5"), "OpenRouter · Anthropic · Claude Opus 5");
+}
+#[test]
+fn model_display_names_preserve_versions_variants_and_raw_ids() {
+    let cases = [
+        ("openrouter/anthropic/claude-opus-5.5", "Claude Opus 5.5"),
+        ("anthropic/claude-sonnet-4-5-20250929", "Claude Sonnet 4.5 · 20250929"),
+        ("claude-3-5-sonnet-20241022", "Claude Sonnet 3.5 · 20241022"),
+        ("openai-codex/gpt-6.1-sol", "GPT-6.1 Sol"),
+        ("openrouter/google/gemini-3.8-flash", "Gemini 3.8 Flash"),
+        ("openrouter/deepseek/deepseek-v4-flash:free", "DeepSeek V4 Flash · Free"),
+        ("openrouter/meta-llama/llama-3.3-70b-instruct", "Llama 3.3 70B Instruct"),
+        ("openrouter/z-ai/glm-4.6", "GLM 4.6"),
+        ("openrouter/minimax/minimax-m2.5", "MiniMax M2.5"),
+        ("openrouter/qwen/qwen3-vl-235b-a22b-instruct", "Qwen3 VL 235B A22b Instruct"),
+        ("vendor/custom_model-v2:exact", "Custom Model V2 · Exact"),
+        ("anthropic/claude-3-5-sonnet-20241022:thinking", "Claude Sonnet 3.5 · 20241022 · Thinking"),
+        ("claude-sonnet-4-5:thinking", "Claude Sonnet 4.5 · Thinking"),
+        ("deepseek/deepseek-v4-flash:free", "DeepSeek V4 Flash · Free"),
+    ];
+    for (model, expected) in cases {
+        assert_eq!(model_option_label(model), expected, "{model}");
+        let selected = model_label(model);
+        assert!(selected.ends_with(expected), "{model}: {selected}");
+        if !model.contains('/') {
+            assert_eq!(selected, expected);
+            continue;
+        }
+        let models = [model.to_owned()];
+        let expected_group = vec![(model_group_key(model), vec![model.to_owned()])];
+        assert_eq!(role_model_groups(&models, Some(model)), expected_group);
+        assert_eq!(
+            role_model_groups_filtered(&models, Some(model), expected),
+            expected_group
+        );
+        if !(model.starts_with("openrouter/") && model.ends_with(":free")) {
+            assert_eq!(
+                role_model_groups_filtered(&models, None, expected),
+                expected_group
+            );
+            assert_eq!(
+                role_model_groups_filtered(&models, None, model),
+                expected_group
+            );
+        }
+    }
 }
 #[test]
 fn kotlin_status_and_clock_cases() {
@@ -795,5 +919,19 @@ fn kotlin_platform_golden() {
     ]);
     for (name, expected) in golden["mime"].as_object().unwrap() {
         assert_eq!(guess_mime(name, &mime), expected.as_str().unwrap());
+    }
+}
+
+#[test]
+fn model_numeric_versions_and_alphanumeric_suffixes_have_consistent_order() {
+    let expected: Vec<String> = ["openrouter/vendor/model-2", "openrouter/vendor/model-1", "openrouter/vendor/model-1b"]
+        .into_iter().map(str::to_owned).collect();
+    for offset in 0..expected.len() {
+        let mut input = expected.clone();
+        input.rotate_left(offset);
+        for _ in 0..2 {
+            assert_eq!(zaplaud_core::rules::composer::role_model_groups(&input, None)[0].1, expected);
+            input.reverse();
+        }
     }
 }

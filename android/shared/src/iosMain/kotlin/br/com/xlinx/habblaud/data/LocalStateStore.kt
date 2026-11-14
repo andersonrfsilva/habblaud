@@ -154,7 +154,7 @@ actual class LocalStateStore actual constructor() : MessageStore {
             val data = readState()
             val tag = tag(origin)
             data["servers"] = JsonArray(origins(data).filterNot { it == origin }.map(::JsonPrimitive))
-            data.keys.filter { key -> listOf("message_", "view_", "deliver_").any { key.startsWith("${it}${tag}_") } || key == "seen_replies_$tag" }.forEach { data.remove(it) }
+            data.keys.filter { key -> listOf("message_", "view_", "deliver_", "marks_").any { key.startsWith("${it}${tag}_") } || key == "seen_replies_$tag" }.forEach { data.remove(it) }
             val last = data.string("last_session")?.let { runCatching { SessionKey.deserialize(it) }.getOrNull() }
             if (last?.origin == origin) data.remove("last_session")
             StateDisk.save(data)
@@ -197,6 +197,15 @@ actual class LocalStateStore actual constructor() : MessageStore {
     actual suspend fun setSessionView(key: SessionKey, view: String) { if (view in VIEWS) change { check(key.origin in origins(it)) { "Connection changed" }; it[hash("view_", key)] = JsonPrimitive(view) } }
     actual suspend fun sessionDeliverAs(key: SessionKey): String = read { it.string(hash("deliver_", key)) }?.takeIf { it in DELIVER_MODES } ?: deliverAs()
     actual suspend fun setSessionDeliverAs(key: SessionKey, mode: String) { if (mode in DELIVER_MODES) change { check(key.origin in origins(it)) { "Connection changed" }; it[hash("deliver_", key)] = JsonPrimitive(mode) } }
+    actual suspend fun sessionMarks(origin: String): Map<String, SessionMarks> = read { data ->
+        val prefix = "marks_${tag(origin)}_"
+        data.filterKeys { it.startsWith(prefix) }.mapKeys { it.key.removePrefix(prefix) }.mapValues { decodeSessionMarks(it.value) }
+    }
+    actual suspend fun setSessionMarks(key: SessionKey, marks: SessionMarks) = change {
+        check(key.origin in origins(it)) { "Connection changed" }
+        val name = hash("marks_", key)
+        if (marks == SessionMarks()) it.remove(name) else it[name] = encodeSessionMarks(marks)
+    }
     actual fun seenId(key: SessionKey): String = storageHash(key.serialize())
     actual suspend fun seenReplies(origin: String): Map<String, Long> = read { (it["seen_replies_${tag(origin)}"] as? JsonObject)?.mapNotNull { (key, value) -> (value as? JsonPrimitive)?.longOrNull?.let { key to it } }?.toMap().orEmpty() }
     actual suspend fun setSeenReplies(origin: String, seen: Map<String, Long>) = change {

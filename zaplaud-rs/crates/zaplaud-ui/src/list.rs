@@ -19,10 +19,24 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
     labels.set_reading_connecting(strings::READING_CONNECTING.into());
     labels.set_reading_offline(strings::READING_OFFLINE.into());
     labels.set_cast_start(strings::CAST_START.into());
+    labels.set_pin_session(strings::PIN_SESSION.into());
+    labels.set_unpin_session(strings::UNPIN_SESSION.into());
+    labels.set_favorite_session(strings::FAVORITE_SESSION.into());
+    labels.set_unfavorite_session(strings::UNFAVORITE_SESSION.into());
+    labels.set_favorite_sessions(strings::FAVORITE_SESSIONS.into());
+    labels.set_pinned_sessions(strings::PINNED_SESSIONS.into());
     let sender = &context.commands;
     let send = sender.clone();
     window.global::<ListState>().on_open(move |key| {
         let _ = send.send(Event::Open(key.into()));
+    });
+    let send = sender.clone();
+    window.global::<ListState>().on_toggle_pin(move |key| {
+        let _ = send.send(Event::ToggleMark { key: key.into(), pin: true });
+    });
+    let send = sender.clone();
+    window.global::<ListState>().on_toggle_favorite(move |key| {
+        let _ = send.send(Event::ToggleMark { key: key.into(), pin: false });
     });
     let send = sender.clone();
     let weak = window.as_weak();
@@ -33,6 +47,7 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
                 origin: list.get_filter().into(),
                 query: list.get_query().into(),
                 recent: list.get_tab() == 1,
+                favorites: list.get_favorites(),
             });
         }
     });
@@ -140,6 +155,7 @@ struct Row {
     subtitle: String,
     activity: String,
     time: String,
+    marks: zaplaud_store::SessionMarks,
 }
 
 pub fn publish(state: &AppState, weak: &slint::Weak<AppWindow>) {
@@ -151,6 +167,16 @@ pub fn publish(state: &AppState, weak: &slint::Weak<AppWindow>) {
         state.filter.as_deref(),
     );
     let sessions = visible_sessions(&sessions, state.recent, &state.query);
+    let mut marked: Vec<_> = sessions.into_iter().map(|item| {
+        let marks = item.key.serialize().ok()
+            .map(|serialized| zaplaud_store::storage_hash(&serialized))
+            .and_then(|id| state.servers.iter()
+                .find(|server| server.api.origin() == item.key.origin)
+                .and_then(|server| server.marks.get(&id)).copied())
+            .unwrap_or_default();
+        (item, marks)
+    }).collect();
+    order_marked_sessions(&mut marked, state.favorites);
     let selected = state
         .servers
         .iter()
@@ -158,7 +184,7 @@ pub fn publish(state: &AppState, weak: &slint::Weak<AppWindow>) {
     let now = now_millis();
     let multiple = state.servers.len() > 1 && state.filter.is_none();
     let mut rows = Vec::new();
-    for item in sessions {
+    for (item, marks) in marked {
         let unread = state
             .servers
             .iter()
@@ -178,6 +204,7 @@ pub fn publish(state: &AppState, weak: &slint::Weak<AppWindow>) {
             rows.push(Row {
                 selected: selected.as_ref().is_some_and(|s| s.key == session.key),
                 sub_last,
+                marks: if is_sub { Default::default() } else { marks },
                 unread: if is_sub { 0 } else { unread },
                 subtitle: if is_sub {
                     session.activity.clone().unwrap_or_default()
@@ -263,6 +290,11 @@ pub fn publish(state: &AppState, weak: &slint::Weak<AppWindow>) {
         crate::conversation::publish(&window, selected);
     });
 }
+fn order_marked_sessions(sessions: &mut Vec<(SessionItem, zaplaud_store::SessionMarks)>, favorites: bool) {
+    sessions.retain(|(_, marks)| !favorites || marks.favorite);
+    sessions.sort_by_key(|(_, marks)| !marks.pinned);
+}
+
 fn error_text(error: &str) -> String {
     match error {
         "changed" => strings::SESSION_CHANGED,
@@ -341,6 +373,8 @@ fn row_model(window: &AppWindow, row: Row) -> SessionRow {
         brand_color,
         fallback_color: fallback,
         selected: row.selected,
+        pinned: row.marks.pinned,
+        favorite: row.marks.favorite,
         sub: item.sub,
         sub_last: row.sub_last,
         permission: if item.permission {
@@ -387,6 +421,38 @@ pub fn apply_avatar(window: &AppWindow, key: &str, cache_key: String, rgba: Vec<
 #[cfg(test)]
 mod tests {
     use super::activity_text;
+    use super::order_marked_sessions;
+    use zaplaud_core::{model::SessionItem, rules::list::visible_sessions};
+    use zaplaud_store::SessionMarks;
+
+    #[test]
+    fn marks_partition_activity_order_without_overriding_filters() {
+        let sessions: Vec<_> = (1..=4).map(|last| SessionItem {
+            title: last.to_string(),
+            last_at: Some(last),
+            agent_id: (last != 1).then(|| "agent".into()),
+            ..Default::default()
+        }).collect();
+        let marked = |sessions: Vec<SessionItem>| sessions.into_iter().map(|item| {
+            let marks = SessionMarks {
+                pinned: item.title == "1" || item.title == "3",
+                favorite: item.title != "2",
+            };
+            (item, marks)
+        }).collect::<Vec<_>>();
+        let mut rows = marked(visible_sessions(&sessions, true, ""));
+        order_marked_sessions(&mut rows, false);
+        assert_eq!(rows.iter().map(|(item, _)| item.title.as_str()).collect::<Vec<_>>(), ["3", "1", "4", "2"]);
+        order_marked_sessions(&mut rows, true);
+        assert_eq!(rows.iter().map(|(item, _)| item.title.as_str()).collect::<Vec<_>>(), ["3", "1", "4"]);
+        let mut rows = marked(visible_sessions(&sessions, false, ""));
+        order_marked_sessions(&mut rows, false);
+        assert_eq!(rows.iter().map(|(item, _)| item.title.as_str()).collect::<Vec<_>>(), ["3", "4", "2"]);
+        let mut rows = marked(visible_sessions(&sessions, true, "4"));
+        order_marked_sessions(&mut rows, true);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].0.title, "4");
+    }
 
     #[test]
     fn working_line_normalizes_ellipsis_and_clamps_elapsed_time() {

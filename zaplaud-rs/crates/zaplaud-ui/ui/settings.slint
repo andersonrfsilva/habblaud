@@ -19,6 +19,9 @@ export global SettingsState {
     in property <string> cancel;
     in property <string> use-label;
     in property <string> model-placeholder;
+    in property <string> filter-placeholder;
+    in-out property <string> filter;
+    in property <bool> filter-visible;
     in property <[SettingsRow]> rows;
     in property <[SettingsRow]> servers;
     in-out property <string> origin;
@@ -39,6 +42,7 @@ export global SettingsState {
     callback model(string);
     callback thinking(string);
     callback typed-changed(string);
+    callback filter-changed(string);
 }
 component Section inherits Rectangle {
     in property <string> text;
@@ -116,6 +120,12 @@ export component SettingsPane inherits Rectangle {
         ScrollContainer { height: min(360px, role-content.preferred-height); content-width: self.width;
             role-content := VerticalLayout { width: parent.width; spacing: 2px;
                 Text { text: SettingsState.role-prompt; font-size: 14px; color: Theme.on-surface-variant; }
+                if SettingsState.choosing-model && SettingsState.filter-visible: Rectangle { height: 64px;
+                    TextField {
+                        y: 4px; width: parent.width; height: 56px; placeholder: SettingsState.filter-placeholder; text <=> SettingsState.filter; outlined: true;
+                        edited(value) => { SettingsState.filter-changed(value); }
+                    }
+                }
                 for row in SettingsState.choices: Rectangle { height: row.kind == "hint" ? max(20px, role-hint.preferred-height) : row.kind == "section" ? 32px : 44px;
                     role-hint := Text { visible: row.kind == "hint"; width: parent.width; text: row.text; color: Theme.on-surface-variant; font-size: 12px; wrap: word-wrap; }
                     if row.kind == "section": Text { text: row.text; color: Theme.primary; font-size: 14px; vertical-alignment: center; }

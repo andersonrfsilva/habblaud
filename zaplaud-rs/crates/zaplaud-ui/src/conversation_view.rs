@@ -29,6 +29,7 @@ enum Command {
     Position(bool),
     Metadata(Box<SessionItem>),
     Preferences,
+    ModelQuery,
 }
 thread_local! { static ROWS: RefCell<Option<Rc<VecModel<RenderRow>>>> = const { RefCell::new(None) }; }
 
@@ -270,30 +271,55 @@ fn publish_info(
         }
         .into(),
     );
-    let choices =
-        zaplaud_core::rules::composer::role_model_groups(&item.models, item.model.as_deref())
-            .into_iter()
-            .flat_map(|(provider, models)| {
-                let mut choices = vec![crate::ModelChoice {
-                    value: String::new().into(),
-                    label: provider.into(),
-                    header: true,
-                }];
-                choices.extend(models.into_iter().map(|value| {
-                    crate::ModelChoice {
-                        label: value
-                            .split_once('/')
-                            .map_or(value.as_str(), |(_, name)| name)
-                            .into(),
-                        value: value.into(),
-                        header: false,
-                    }
-                }));
-                choices
-            })
-            .collect::<Vec<_>>();
+    let current_model = item
+        .model
+        .as_deref()
+        .and_then(|cur| {
+            if cur.contains('/') {
+                return Some(cur);
+            }
+            item.models
+                .iter()
+                .find(|m| {
+                    m.as_str() == cur || m.split_once('/').is_some_and(|(_, name)| name == cur)
+                })
+                .map(String::as_str)
+        });
+    let all_groups = zaplaud_core::rules::composer::role_model_groups(&item.models, current_model);
+    let total_models: usize = all_groups.iter().map(|(_, list)| list.len()).sum();
+    let query = state.get_model_query();
+    let groups = if query.is_empty() {
+        all_groups
+    } else {
+        zaplaud_core::rules::composer::role_model_groups_filtered(
+            &item.models,
+            current_model,
+            &query,
+        )
+    };
+    let mut choices = Vec::new();
+    for (provider, models) in groups {
+        choices.push(crate::ModelChoice {
+            value: slint::SharedString::default(),
+            label: zaplaud_core::rules::composer::provider_label(&provider).into(),
+            header: true,
+        });
+        choices.extend(models.into_iter().map(|value| crate::ModelChoice {
+            label: zaplaud_core::rules::composer::model_option_label(&value).into(),
+            value: value.into(),
+            header: false,
+        }));
+    }
+    state.set_model_filter_visible(total_models > 15);
     state.set_models(ModelRc::new(VecModel::from(choices)));
-    state.set_model(item.model.clone().unwrap_or_default().into());
+    state.set_model(current_model.unwrap_or_default().into());
+    state.set_model_detail(
+        current_model
+            .or(item.model.as_deref())
+            .map(zaplaud_core::rules::composer::model_label)
+            .unwrap_or_default()
+            .into(),
+    );
     state.set_thinking(item.thinking.clone().unwrap_or_default().into());
     state.set_working(item.agent_id.is_some() && item.status.as_deref() == Some("working"));
     state.set_codex(item.key.provider == "codex");
@@ -441,6 +467,16 @@ async fn run_session(
                             update_ui(&weak,move |window| { if let Some(item) = item { publish_info(&window,&item,&entries,partial); } });
                         }
                     }
+                    Some(Command::ModelQuery) => {
+                        let item = run.controller.selected.clone();
+                        let entries = run.controller.entries();
+                        let partial = run.controller.conversation.truncated;
+                        update_ui(&weak, move |window| {
+                            if let Some(item) = item {
+                                publish_info(&window, &item, &entries, partial);
+                            }
+                        });
+                    }
                     None => break,
                 }
             }
@@ -510,6 +546,8 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
     state.set_deliver_label(strings::DELIVER_MODE.into());
     state.set_model_label(strings::MODEL_MENU.into());
     state.set_thinking_label(strings::THINKING_MENU.into());
+    state.set_model_filter_placeholder(strings::FILTER_MODELS.into());
+    state.set_models_no_results(strings::MODELS_NO_RESULTS.into());
     state.set_shake_label(strings::SHAKE.into());
     state.set_aside_label(strings::ASIDE_MENU.into());
     state.set_thinking_labels(ModelRc::new(VecModel::from(
@@ -560,6 +598,10 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
     state.on_observe(move |id| {
         let _ = send.send(Command::Observe(id.into()));
     });
+    let send = sender.clone();
+    state.on_model_query_changed(move |_| {
+        let _ = send.send(Command::ModelQuery);
+    });
     let weak = window.as_weak();
     let commands = context.commands.clone();
     state.on_position(move |following| {
@@ -609,7 +651,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                     stop_session(&mut task).await;
                     selected = key;
                     current = None;
-                    update_ui(&weak,|w| { let state = w.global::<ConversationViewState>(); state.set_info_open(false);state.set_menu_open(false);state.set_details_open(false); set_rows(&w,Vec::new(),true); });
+                    update_ui(&weak,|w| { let state = w.global::<ConversationViewState>(); state.set_info_open(false);state.set_menu_open(false);state.set_details_open(false);state.set_model_query("".into()); set_rows(&w,Vec::new(),true); });
                     if let Some(item) = &snapshot.selected && let Some(server) = snapshot.servers.iter().find(|s| s.api.origin() == item.key.origin) {
                         if !server.reading.terminal_allowed || server.needs_login { update_ui(&weak,|w| w.global::<ConversationViewState>().set_notice(strings::TERMINAL_BLOCKED.into()));continue; }
                         let (sender,receiver) = mpsc::unbounded_channel(); current = Some(sender);

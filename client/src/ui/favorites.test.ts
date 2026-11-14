@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentInfo, RecentSession } from '../../../shared/types';
-import { agentSession, FAVORITES_KEY, FavoritesStore, MAX_FAVORITES, parseFavorites, sessionKey, splitFavorites, toggleFavorite, type StorageLike } from './favorites';
+import { agentSession, FAVORITES_KEY, PINS_KEY, FavoritesStore, MAX_FAVORITES, parseFavorites, pinnedFirst, sessionKey, splitFavorites, toggleFavorite, type StorageLike } from './favorites';
 
 function session(p: Partial<RecentSession> & Pick<RecentSession, 'sessionId' | 'lastAt'>): RecentSession {
   return { account: '.claude', projectDir: '-p', size: 1_000, open: false, ...p };
@@ -11,7 +11,14 @@ describe('favoritas', () => {
     const a = session({ sessionId: 'a', lastAt: 1 });
     expect(parseFavorites(null)).toEqual([]);
     expect(parseFavorites('x')).toEqual([]);
-    expect(parseFavorites([null, 'x', { account: '.claude', lastAt: 1 }, a, a]).map(sessionKey)).toEqual(['.claude:a']);
+    expect(parseFavorites([null, 'x', { account: '.claude', lastAt: 1 }, a, a]).map(sessionKey)).toEqual([sessionKey(a)]);
+  });
+
+  it('identidade separa provedor e delimitadores da conta e da sessão', () => {
+    const base = session({ account: 'one', sessionId: 'two:three', lastAt: 1 });
+    expect(sessionKey(base)).not.toBe(sessionKey({ ...base, account: 'one:two', sessionId: 'three' }));
+    expect(sessionKey({ ...base, provider: 'omp' })).not.toBe(sessionKey({ ...base, account: 'omp:one' }));
+    expect(sessionKey({ ...base, provider: 'claude' })).toBe(sessionKey(base));
   });
 
   it('splitFavorites: versão do servidor vence, retrato antigo fica encerrado, favoritas saem de rest', () => {
@@ -83,7 +90,7 @@ describe('agentSession (estrela da gaveta)', () => {
       size: 0,
       open: false,
     });
-    expect(sessionKey(agentSession(agent(), room, false)!)).toBe('.claude:s1');
+    expect(sessionKey(agentSession(agent(), room, false)!)).toBe(JSON.stringify(['claude', '.claude', 's1']));
   });
 
   it('provider codex/omp vai no retrato; claude fica sem; sem sala nem título, só o essencial', () => {
@@ -114,23 +121,23 @@ describe('FavoritesStore', () => {
     const store = new FavoritesStore(() => mem);
     let calls = 0;
     const off = store.subscribe(() => calls++);
-    expect(store.has('.claude:a')).toBe(true);
+    expect(store.has(sessionKey(session({ sessionId: 'a', lastAt: 1 })))).toBe(true);
 
     store.toggle(session({ sessionId: 'b', lastAt: 2 }));
     expect(calls).toBe(1);
-    expect(store.has('.claude:b')).toBe(true);
-    expect(parseFavorites(JSON.parse(mem.data.get(FAVORITES_KEY)!)).map(sessionKey)).toEqual(['.claude:b', '.claude:a']);
+    expect(store.has(sessionKey(session({ sessionId: 'b', lastAt: 2 })))).toBe(true);
+    expect(parseFavorites(JSON.parse(mem.data.get(FAVORITES_KEY)!)).map((s) => s.sessionId)).toEqual(['b', 'a']);
 
     store.toggle(session({ sessionId: 'a', lastAt: 1 }));
     expect(calls).toBe(2);
-    expect(store.has('.claude:a')).toBe(false);
+    expect(store.has(sessionKey(session({ sessionId: 'a', lastAt: 1 })))).toBe(false);
 
     off();
     store.toggle(session({ sessionId: 'c', lastAt: 3 }));
     expect(calls).toBe(2);
   });
 
-  it('replace grava sem avisar; sem armazenamento ou com JSON ruim, funciona só em memória', () => {
+  it('replace grava sem avisar; JSON ruim é ignorado e falta de armazenamento não altera marcações', () => {
     const mem = memory();
     const store = new FavoritesStore(() => mem);
     let calls = 0;
@@ -142,7 +149,73 @@ describe('FavoritesStore', () => {
     const broken = new FavoritesStore(() => memory('{não é json'));
     expect(broken.all()).toEqual([]);
     const none = new FavoritesStore(() => undefined);
-    none.toggle(session({ sessionId: 'y', lastAt: 1 }));
-    expect(none.has('.claude:y')).toBe(true);
+    expect(none.toggle(session({ sessionId: 'y', lastAt: 1 }))).toBe(false);
+    expect(none.has(sessionKey(session({ sessionId: 'y', lastAt: 1 })))).toBe(false);
+  });
+
+  it('fixadas e favoritas são independentes, recarregam e preservam retratos existentes', () => {
+    const saved = session({ sessionId: 'same', account: 'one', lastAt: 1, title: 'Retrato salvo' });
+    const mem = memory(JSON.stringify([saved]));
+    const favorites = new FavoritesStore(() => mem);
+    const pins = new FavoritesStore(() => mem, PINS_KEY);
+    const otherAccount = { ...saved, account: 'two' };
+    const otherProvider = { ...saved, provider: 'omp' as const };
+    expect(pins.toggle(saved)).toBe(true);
+    expect(pins.toggle(otherAccount)).toBe(true);
+    expect(pins.toggle(otherProvider)).toBe(true);
+    expect(favorites.all()).toEqual([saved]);
+    expect(JSON.parse(mem.data.get(FAVORITES_KEY)!)).toEqual([saved]);
+    const reloaded = new FavoritesStore(() => mem, PINS_KEY);
+    expect(reloaded.all().map(sessionKey).sort()).toEqual([sessionKey(saved), sessionKey(otherAccount), sessionKey(otherProvider)].sort());
+    expect(reloaded.toggle(saved)).toBe(true);
+    expect(favorites.has(sessionKey(saved))).toBe(true);
+    expect(reloaded.has(sessionKey(otherAccount))).toBe(true);
+    expect(reloaded.has(sessionKey(otherProvider))).toBe(true);
+    expect(reloaded.clear()).toBe(true);
+    expect(new FavoritesStore(() => mem, PINS_KEY).all()).toEqual([]);
+    expect(new FavoritesStore(() => mem).all()).toEqual([saved]);
+  });
+
+  it('limpa apenas o armazenamento da origem atual', () => {
+    const saved = session({ sessionId: 'same', lastAt: 1 });
+    const originA = memory(JSON.stringify([saved]));
+    const originB = memory(JSON.stringify([saved]));
+    const pinsA = new FavoritesStore(() => originA, PINS_KEY);
+    const pinsB = new FavoritesStore(() => originB, PINS_KEY);
+    pinsA.toggle(saved);
+    pinsB.toggle(saved);
+    new FavoritesStore(() => originA).clear();
+    pinsA.clear();
+    expect(new FavoritesStore(() => originA).all()).toEqual([]);
+    expect(new FavoritesStore(() => originA, PINS_KEY).all()).toEqual([]);
+    expect(new FavoritesStore(() => originB).all()).toEqual([saved]);
+    expect(new FavoritesStore(() => originB, PINS_KEY).all()).toEqual([saved]);
+  });
+
+  it('falha ao gravar não muda a lista nem notifica assinantes', () => {
+    const saved = session({ sessionId: 'saved', lastAt: 1 });
+    const store = new FavoritesStore(() => ({
+      getItem: () => JSON.stringify([saved]),
+      setItem: () => { throw new Error('quota'); },
+    }));
+    let calls = 0;
+    store.subscribe(() => calls++);
+    expect(store.toggle(saved)).toBe(false);
+    expect(store.replace([])).toBe(false);
+    expect(store.all()).toEqual([saved]);
+    expect(calls).toBe(0);
+  });
+
+  it('ordena fixadas antes das demais, por atividade em cada grupo, sem duplicar ou alterar a lista', () => {
+    const list = [
+      session({ sessionId: 'old', lastAt: 1 }),
+      session({ sessionId: 'new', lastAt: 4 }),
+      session({ sessionId: 'pinned-old', lastAt: 2 }),
+      session({ sessionId: 'pinned-new', lastAt: 3 }),
+    ];
+    const pinned = new Set(list.slice(2).map(sessionKey));
+    expect(pinnedFirst(list, pinned).map((s) => s.sessionId)).toEqual(['pinned-new', 'pinned-old', 'new', 'old']);
+    expect(pinnedFirst(list.filter((s) => s.lastAt > 2), pinned).map((s) => s.sessionId)).toEqual(['pinned-new', 'new']);
+    expect(list[0].sessionId).toBe('old');
   });
 });

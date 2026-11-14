@@ -53,7 +53,7 @@ export interface OmpEvent {
 
 const ID_MAX = 200;
 const PATH_MAX = 4_096;
-const MODELS_MAX = 200;
+const MODELS_MAX = 1_000;
 
 type Rec = Record<string, unknown>;
 

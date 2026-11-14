@@ -2,7 +2,7 @@ import { Clock } from "clock.slint";
 import { Theme } from "resources.slint";
 import { ConversationState } from "conversation.slint";
 import { MarkdownView, MdBlock, MeasuredInput } from "markdown/markdown.slint";
-import { ScrollList, ScrollContainer, TextButton, Banner, Sheet, Avatar, Pill, Divider } from "widgets/kit.slint";
+import { ScrollList, ScrollContainer, TextButton, TextField, Banner, Sheet, Avatar, Pill, Divider } from "widgets/kit.slint";
 import { ComposerState } from "composer.slint";
 import { CastState } from "cast.slint";
 import { AsideState } from "aside.slint";
@@ -39,6 +39,11 @@ export global ConversationViewState {
     in property <string> aside-label;
     in property <[ModelChoice]> models;
     in property <string> model;
+    in property <string> model-detail;
+    in property <string> model-filter-placeholder;
+    in property <string> models-no-results;
+    in-out property <string> model-query;
+    in property <bool> model-filter-visible;
     in property <string> thinking;
     in property <[string]> thinking-labels;
     in-out property <string> menu-page;
@@ -66,6 +71,7 @@ export global ConversationViewState {
     callback position(bool);
     callback open-link(string);
     callback copy(string);
+    callback model-query-changed(string);
 }
 
 component EntryBubble inherits Rectangle {
@@ -281,8 +287,8 @@ export component ConversationMenu inherits Rectangle {
                 label: ConversationViewState.deliver-label; group: true; detail: ComposerState.mode-labels[ComposerState.mode-index];
                 clicked => { ConversationViewState.menu-page = "deliver"; }
             }
-            if ComposerState.omp-tools && ConversationViewState.models.length > 0: MenuAction {
-                label: ConversationViewState.model-label; detail: ConversationViewState.model; group: true; enabled: ComposerState.can-shake;
+            if ComposerState.omp-tools && (ConversationViewState.models.length > 0 || ConversationViewState.model-filter-visible): MenuAction {
+                label: ConversationViewState.model-label; detail: ConversationViewState.model-detail; group: true; enabled: ComposerState.can-shake;
                 clicked => { ConversationViewState.menu-page = "model"; }
             }
             if ComposerState.omp-tools: MenuAction {
@@ -312,7 +318,7 @@ export component ConversationMenu inherits Rectangle {
         }
         if ConversationViewState.menu-page != "": MenuAction {
             vertical-stretch: 0;
-            label: "‹ " + ConversationViewState.back; clicked => { ConversationViewState.menu-page = ""; }
+            label: "‹ " + ConversationViewState.back; clicked => { if ConversationViewState.model-query != "" { ConversationViewState.model-query = ""; ConversationViewState.model-query-changed(""); } ConversationViewState.menu-page = ""; }
         }
         if ConversationViewState.menu-page == "view": VerticalLayout {
             vertical-stretch: 0;
@@ -330,11 +336,26 @@ export component ConversationMenu inherits Rectangle {
         }
         if ConversationViewState.menu-page == "model": VerticalLayout {
             vertical-stretch: 0;
+            if ConversationViewState.model-filter-visible: Rectangle { height: 64px;
+                TextField {
+                    x: 12px; y: 4px; width: parent.width - 24px; height: 56px;
+                    placeholder: ConversationViewState.model-filter-placeholder;
+                    text <=> ConversationViewState.model-query;
+                    outlined: true;
+                    edited(value) => { ConversationViewState.model-query-changed(value); }
+                }
+            }
+            if ConversationViewState.models.length == 0: Text {
+                text: ConversationViewState.models-no-results;
+                color: Theme.on-surface-variant;
+                font-size: 14px;
+                wrap: word-wrap;
+            }
             for choice in ConversationViewState.models: VerticalLayout {
-                if choice.header: Text { text: choice.label; color: Theme.primary; font-size: 14px; }
+                if choice.header: Text { text: "   " + choice.label; color: Theme.primary; font-size: 14px; }
                 if !choice.header: MenuAction {
                     label: (choice.value == ConversationViewState.model ? "◉  " : "○  ") + choice.label;
-                    clicked => { ComposerState.command("model", choice.value); ConversationViewState.menu-open = false; ConversationViewState.menu-page = ""; }
+                    clicked => { if ConversationViewState.model-query != "" { ConversationViewState.model-query = ""; ConversationViewState.model-query-changed(""); } ComposerState.command("model", choice.value); ConversationViewState.menu-open = false; ConversationViewState.menu-page = ""; }
                 }
             }
         }

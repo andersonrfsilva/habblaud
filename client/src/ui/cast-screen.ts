@@ -9,7 +9,7 @@ import { h, iconButton } from './dom';
 import { ICONS } from './icons';
 import { createAvatar } from './avatar';
 import { shortPath } from './spawn';
-import { modelGroups } from './format';
+import { filterModelGroups, modelGroups } from './format';
 import { castDefaultModel, castModelOptions, parseCastModelCatalog, validCastModel, type CastModelCatalog } from './provider';
 
 const HOST_OFF = (): string => tr('auxiliar do host desligado (npm run codex:bridge)');
@@ -203,21 +203,41 @@ export class CastScreen {
     const current = member?.model ?? '';
     const known = [...this.knownModels];
     let model: HTMLInputElement | HTMLSelectElement;
+    let modelControl: HTMLElement;
     if (zeroclaw) {
       model = h('select', { class: 'ui-rename__input', attrs: { required: '' } });
       model.append(h('option', { text: tr('Escolha o modelo'), attrs: { value: '', disabled: '' } }));
       for (const option of castModelOptions(this.catalog)) model.append(h('option', { text: option.label, attrs: { value: option.value } }));
+      modelControl = model;
     } else if (known.length) {
-      model = h('select', { class: 'ui-rename__input' });
-      model.append(h('option', { text: tr('Padrão do omp'), attrs: { value: '' } }));
-      if (current && !known.includes(current)) model.append(h('option', { text: current, attrs: { value: current } }));
-      for (const g of modelGroups(known, current)) {
-        const group = h('optgroup', { attrs: { label: g.label } });
-        group.append(...g.options.map((o) => h('option', { text: o.label, attrs: { value: o.value } })));
-        model.append(group);
+      const sel = h('select', { class: 'ui-rename__input', attrs: { 'aria-label': tr('Modelo') } });
+      const allGroups = modelGroups(known, current);
+      const total = allGroups.reduce((n, g) => n + g.options.length, 0);
+      const fill = (query: string, chosen = sel.value) => {
+        sel.replaceChildren(h('option', { text: tr('Padrão do omp'), attrs: { value: '' } }));
+        for (const g of filterModelGroups(allGroups, query, chosen)) {
+          const group = h('optgroup', { attrs: { label: g.label } });
+          group.append(...g.options.map((o) => h('option', { text: o.label, attrs: { value: o.value } })));
+          sel.append(group);
+        }
+        sel.value = chosen;
+      };
+      fill('', current);
+      model = sel;
+      if (total > 15) {
+        const search = h('input', {
+          class: 'ui-rename__input',
+          type: 'search',
+          attrs: { placeholder: tr('Filtrar…'), 'aria-label': tr('Filtrar…'), autocomplete: 'off', spellcheck: 'false' },
+        });
+        search.addEventListener('input', () => fill(search.value));
+        modelControl = h('div', { class: 'ui-cast__model-pick' }, search, sel);
+      } else {
+        modelControl = sel;
       }
     } else {
       model = h('input', { class: 'ui-rename__input', type: 'text', attrs: { maxlength: '200', placeholder: tr('provedor/modelo (vazio = padrão do omp)') } });
+      modelControl = model;
     }
     model.value = zeroclaw ? (current ? (validCastModel(this.catalog, current) ? current : '') : castDefaultModel(this.catalog) ?? '') : current;
     const instructions = h('textarea', { class: 'ui-rename__input ui-spawn__prompt', attrs: { maxlength: '8000' } });
@@ -251,7 +271,7 @@ export class CastScreen {
     })() } });
     const cancel = h('button', { class: 'ui-btn', type: 'button', text: tr('Cancelar'), on: { click: () => this.showList() } });
     const group = (title: string, ...children: HTMLElement[]) => h('section', { class: 'ui-set-group' }, h('h3', { text: title }), ...children);
-    const execution = group(tr('Execução'), field(tr('Modelo'), model), field(tr('Instruções'), instructions),
+    const execution = group(tr('Execução'), field(tr('Modelo'), modelControl), field(tr('Instruções'), instructions),
       field(tr('Ociosidade em minutos (0 = nunca)'), idle), ...(!zeroclaw ? [field(tr('Conta'), account)] : []));
     const sub = group(tr('Subagente'), field(tr('Tipos de subagente (separados por vírgula; vazio = qualquer)'), match), suggestions);
     const syncKind = () => {

@@ -182,6 +182,8 @@ fn compare_models(
     for ((x, p), (y, q)) in x.iter().zip(y) {
         let order = match (p, q) {
             (Some(p), Some(q)) => q.cmp(p),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
             _ => x.cmp(y),
         };
         if !order.is_eq() {
@@ -202,7 +204,165 @@ fn compare_models(
         x.len().cmp(&y.len())
     }
 }
-pub fn role_model_groups(models: &[String], keep: Option<&str>) -> Vec<(String, Vec<String>)> {
+pub fn provider_label(id: &str) -> String {
+    if let Some((root, rest)) = id.split_once('/') {
+        return format!("{} · {}", provider_label(root), provider_label(rest));
+    }
+    match id {
+        "anthropic" => "Anthropic",
+        "openai" => "OpenAI",
+        "openai-codex" => "OpenAI Codex",
+        "google" => "Google",
+        "google-antigravity" => "Google Antigravity",
+        "openrouter" => "OpenRouter",
+        "deepseek" => "DeepSeek",
+        "meta" => "Meta",
+        "meta-llama" => "Meta Llama",
+        "mistralai" => "Mistral",
+        "moonshotai" => "Moonshot",
+        "qwen" => "Qwen",
+        "x-ai" => "xAI",
+        "z-ai" => "Z.ai",
+        "cohere" => "Cohere",
+        "minimax" => "MiniMax",
+        "nvidia" => "NVIDIA",
+        "xiaomi" => "Xiaomi",
+        _ => id,
+    }
+    .into()
+}
+pub fn model_group_key(model: &str) -> String {
+    let Some((root, rest)) = model.split_once('/') else {
+        return model.into();
+    };
+    if root == "openrouter"
+        && let Some((vendor, _)) = rest.split_once('/')
+    {
+        let vendor = vendor.strip_prefix('~').unwrap_or(vendor);
+        if !vendor.is_empty() {
+            return format!("{root}/{vendor}");
+        }
+    }
+    root.into()
+}
+fn model_sort_name(model: &str) -> &str {
+    let Some((root, rest)) = model.split_once('/') else {
+        return model;
+    };
+    if root == "openrouter"
+        && let Some((vendor, name)) = rest.split_once('/')
+        && !vendor.is_empty()
+        && !vendor.starts_with('~')
+    {
+        return name;
+    }
+    rest
+}
+fn push_model_word(label: &mut String, word: &str) {
+    let known = [
+        ("deepseek", "DeepSeek"),
+        ("minimax", "MiniMax"),
+        ("glm", "GLM"),
+        ("vl", "VL"),
+        ("gpt", "GPT"),
+    ];
+    if let Some((_, name)) = known.iter().find(|(name, _)| word.eq_ignore_ascii_case(name)) {
+        label.push_str(name);
+    } else if let Some(size) = word.strip_suffix('b').or_else(|| word.strip_suffix('B'))
+        && !size.is_empty()
+        && size.bytes().all(|b| b.is_ascii_digit())
+    {
+        label.push_str(size);
+        label.push('B');
+    } else {
+        let mut chars = word.chars();
+        if let Some(first) = chars.next() {
+            label.extend(first.to_uppercase());
+            label.push_str(chars.as_str());
+        }
+    }
+}
+fn model_version_word(word: &str) -> bool {
+    !word.is_empty()
+        && word.bytes().all(|b| b.is_ascii_digit() || b == b'.')
+        && word.bytes().any(|b| b.is_ascii_digit())
+}
+pub fn model_option_label(model: &str) -> String {
+    let name = model.rsplit('/').next().unwrap_or(model);
+    let mut variants = name.split(':');
+    let dated = variants.next().unwrap_or_default();
+    let name = undated(dated);
+    let mut words = name.split(['-', '_']).filter(|word| !word.is_empty()).peekable();
+    let mut label = String::with_capacity(model.len());
+    let first = words.next().unwrap_or_default();
+    push_model_word(&mut label, first);
+    let claude = first.eq_ignore_ascii_case("claude");
+    if claude && words.peek().is_some_and(|word| model_version_word(word)) {
+        let versions = words.clone().take_while(|word| model_version_word(word));
+        let count = versions.clone().count();
+        for _ in 0..count {
+            words.next();
+        }
+        if let Some(family) = words.next() {
+            label.push(' ');
+            push_model_word(&mut label, family);
+        }
+        for (index, version) in versions.enumerate() {
+            label.push(if index == 0 { ' ' } else { '.' });
+            label.push_str(version);
+        }
+    }
+    let mut previous_version = false;
+    for (index, word) in words.enumerate() {
+        let version = model_version_word(word);
+        label.push(if claude && previous_version && version {
+            '.'
+        } else if index == 0 && first.eq_ignore_ascii_case("gpt") {
+            '-'
+        } else {
+            ' '
+        });
+        push_model_word(&mut label, word);
+        previous_version = version;
+    }
+    if name.len() != dated.len() {
+        label.push_str(" · ");
+        label.push_str(&dated[name.len() + 1..]);
+    }
+    for variant in variants {
+        label.push_str(" · ");
+        for (index, word) in variant.split(['-', '_']).filter(|word| !word.is_empty()).enumerate() {
+            if index != 0 {
+                label.push(' ');
+            }
+            push_model_word(&mut label, word);
+        }
+    }
+    label
+}
+pub fn model_label(model: &str) -> String {
+    if model.contains('/') {
+        format!(
+            "{} · {}",
+            provider_label(&model_group_key(model)),
+            model_option_label(model)
+        )
+    } else {
+        model_option_label(model)
+    }
+}
+fn hidden_variant(model: &str) -> bool {
+    model.ends_with(":batch")
+        || (model.starts_with("openrouter/")
+            && (model.ends_with(":free")
+                || model.ends_with(":extended")
+                || model.starts_with("openrouter/~")))
+}
+pub fn role_model_groups_filtered(
+    models: &[String],
+    keep: Option<&str>,
+    query: &str,
+) -> Vec<(String, Vec<String>)> {
     let mut seen = HashSet::new();
     let all: Vec<_> = models
         .iter()
@@ -210,19 +370,32 @@ pub fn role_model_groups(models: &[String], keep: Option<&str>) -> Vec<(String, 
         .chain(keep)
         .filter(|m| m.contains('/') && seen.insert(*m))
         .collect();
+    let query = query.to_lowercase();
+    let terms: Vec<_> = query.split_whitespace().collect();
     let mut groups: Vec<(String, Vec<String>)> = Vec::new();
     for model in &all {
         if Some(*model) != keep
-            && (model.ends_with(":batch")
+            && (hidden_variant(model)
                 || (undated(model) != *model && seen.contains(undated(model))))
         {
             continue;
         }
-        let provider = model.split_once('/').map_or("", |(provider, _)| provider);
-        if let Some((_, list)) = groups.iter_mut().find(|(p, _)| p == provider) {
+        let provider = model_group_key(model);
+        if Some(*model) != keep && !terms.is_empty() {
+            let hay = format!(
+                "{} {} {model}",
+                provider_label(&provider),
+                model_option_label(model)
+            )
+            .to_lowercase();
+            if !terms.iter().all(|t| hay.contains(*t)) {
+                continue;
+            }
+        }
+        if let Some((_, list)) = groups.iter_mut().find(|(p, _)| p == &provider) {
             list.push((*model).into());
         } else {
-            groups.push((provider.into(), vec![(*model).into()]));
+            groups.push((provider, vec![(*model).into()]));
         }
     }
     groups.sort_by_cached_key(|(p, _)| p.to_lowercase().encode_utf16().collect::<Vec<_>>());
@@ -230,12 +403,7 @@ pub fn role_model_groups(models: &[String], keep: Option<&str>) -> Vec<(String, 
         let mut keyed: Vec<_> = list
             .drain(..)
             .map(|model| {
-                let key = undated(
-                    model
-                        .split_once('/')
-                        .map_or(model.as_str(), |(_, name)| name),
-                )
-                .to_owned();
+                let key = undated(model_sort_name(&model)).to_owned();
                 let tokens: Vec<_> = key
                     .to_lowercase()
                     .split(|c: char| !c.is_ascii_alphanumeric())
@@ -252,6 +420,9 @@ pub fn role_model_groups(models: &[String], keep: Option<&str>) -> Vec<(String, 
         list.extend(keyed.into_iter().map(|(model, _, _)| model));
     }
     groups
+}
+pub fn role_model_groups(models: &[String], keep: Option<&str>) -> Vec<(String, Vec<String>)> {
+    role_model_groups_filtered(models, keep, "")
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

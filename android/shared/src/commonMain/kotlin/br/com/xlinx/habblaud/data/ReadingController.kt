@@ -15,6 +15,8 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import io.ktor.http.encodeURLPathPart
 import kotlinx.io.IOException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** Gravações do cache de conversas: duram o processo, não a tela (o descarte cancela o escopo da tela). */
 private val persistScope = CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
@@ -37,6 +39,7 @@ internal fun launchPersist(scope: CoroutineScope, block: suspend () -> Unit): Jo
     val readingError: String? = null,
     /** Respostas não lidas por sessão (só as com alguma), para o balão da tela principal. */
     val unread: Map<SessionKey, Int> = emptyMap(),
+    val marks: Map<SessionKey, SessionMarks> = emptyMap(),
 )
 
 internal fun ReadingState.streamFailure(status: Int?, conversation: Boolean): ReadingState {
@@ -84,6 +87,45 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
             current.selected?.key == key && current.sessions.any { it.key == key && it.agentId == agentId && it.canMessage }
     }
 
+    private val marksLock = Mutex()
+    private var savedMarks: Map<String, SessionMarks>? = null
+    private suspend fun loadMarks() {
+        if (savedMarks == null) savedMarks = store.sessionMarks(api.origin)
+        publishMarks()
+    }
+    private fun publishMarks() {
+        val current = mutable.value
+        mutable.value = current.copy(marks = current.sessions.associate { it.key to (savedMarks?.get(store.seenId(it.key)) ?: SessionMarks()) })
+    }
+    init {
+        scope.launch {
+            try { marksLock.withLock { loadMarks() } }
+            catch (e: Exception) {
+                if (e is CancellationException) throw e
+                mutable.value = mutable.value.copy(error = "storage")
+            }
+        }
+    }
+    fun toggleMark(key: SessionKey, pin: Boolean) {
+        if (key.origin != api.origin) return
+        scope.launch {
+            try {
+                marksLock.withLock {
+                    loadMarks()
+                    val id = store.seenId(key)
+                    val previous = savedMarks?.get(id) ?: SessionMarks()
+                    val next = if (pin) previous.copy(pinned = !previous.pinned) else previous.copy(favorite = !previous.favorite)
+                    store.setSessionMarks(key, next)
+                    savedMarks = savedMarks.orEmpty().toMutableMap().apply { if (next == SessionMarks()) remove(id) else put(id, next) }
+                    publishMarks()
+                    if (mutable.value.error == "storage") mutable.value = mutable.value.copy(error = null)
+                }
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                mutable.value = mutable.value.copy(error = "storage")
+            }
+        }
+    }
     private var restore: SessionKey? = null
     private var restoreLoaded = false
     fun start() {
@@ -120,6 +162,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                                     .let { live -> selectedItem.copy(status = if (live != null) "working" else "done", activity = live?.activity ?: selectedItem.activity) }
                                 else sessions.find { it.key == selectedItem.key } ?: selectedItem.copy(agentId = null, canMessage = false)
                             })
+                            publishMarks()
                             accessReady = true
                             restore?.let { key -> sessions.find { it.key == key }?.let { item -> restore = null; open(item) } }
                             if (firstSnapshot && conversationJob?.isActive != true) mutable.value.selected?.let(::open)

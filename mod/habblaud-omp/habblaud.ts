@@ -558,7 +558,9 @@ export function create(pi: OmpApi, deps: Deps): void {
   function sessionFields(ctx: OmpContext): Partial<OmpEvent> {
     const out = location(ctx);
     try {
-      const all = ctx.models?.list().map((m) => `${m.provider}/${m.id}`);
+      const cur = ctx.models?.current?.();
+      const curRef = cur ? `${cur.provider}/${cur.id}` : '';
+      const all = ctx.models?.list().map((m) => `${m.provider}/${m.id}`).filter((m) => m === curRef || !(/:(?:batch|free|extended)$/.test(m) || m.startsWith('openrouter/~')));
       models = all && allowedModels(all, env);
     } catch {
       models = undefined; // sem lista de modelos: o seletor da gaveta usa só o atual
