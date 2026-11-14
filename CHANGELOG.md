@@ -12,6 +12,14 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Trocar de modelo troca de ferramenta (servidor).** Num agente principal aberto pelo elenco e parado, escolher
+  `agy/…` passa do omp para o Antigravity; escolher um modelo do omp faz o caminho inverso, na mesma pasta,
+  sem alterar o modelo salvo do personagem. A conversa anterior vai anexada à próxima mensagem da pessoa:
+  a troca nunca envia um turno sozinha. Dentro do Antigravity, outro modelo `agy/…` mantém a conversa aberta.
+  O contexto é cumulativo, sem raciocínio nem eventos de sistema; saídas de ferramentas são cortadas e o arquivo
+  fica limitado a 150 mil caracteres. Os arquivos são apagados depois de 7 dias na limpeza de inicialização.
+  O arquivo de contexto leva a conversa de uma ferramenta para o provedor da outra (do omp para o Google, ou do
+  `agy` para o provedor do modelo do omp). Conversa nova pedida pela pessoa esquece contexto já entregue.
 - **Elenco com Antigravity (servidor).** Modelos `agy/…` no personagem ou na chamada de "Novo" abrem pelo ACP,
   junto dos personagens do omp ou ZeroClaw, com limite compartilhado e dispensa por ociosidade.
   `agy/default` usa o padrão do CLI; o catálogo é aprendido após a primeira sessão.
@@ -21,8 +29,8 @@ do meio (0.**3**.0).
 - **Antigravity pelo escritório.** Em **Novo agente → Antigravity**, abra uma conversa com terminal, mensagens,
   aprovar/negar ferramentas, STOP, conversa nova e Dispensar. Desligado por padrão: ligue com
   `HABBLAUD_ANTIGRAVITY=1`. No Podman, rode o relé do host com `npm run antigravity:relay` e configure
-  `HABBLAUD_ANTIGRAVITY_SOCKET`. Protocolo medido no `agy` 1.5.9. Não inclui histórico na interface, troca de
-  modelo de agente aberto, anexos, mensagem no meio do turno nem controles próprios nos clientes Zaplaud. Cada mensagem aguarda
+  `HABBLAUD_ANTIGRAVITY_SOCKET`. Protocolo medido no `agy` 1.5.9. Não inclui histórico na interface, anexos
+  arbitrários, mensagem no meio do turno nem controles próprios nos clientes Zaplaud. Cada mensagem aguarda
   o fim do turno; nenhuma permissão é concedida sem decisão humana, salvo a flag explícita do dono.
   Abrir agentes e trocar conversas ao mesmo tempo preserva a identidade de cada agente, mesmo com respostas fora de ordem.
 - **Sessões:** fixar e favoritar são ações independentes no Habblaud web e no Zaplaud Android/iOS e desktop Rust.

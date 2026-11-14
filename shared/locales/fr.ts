@@ -2,6 +2,16 @@
 // As lacunas {0}, {1}... (e as nomeadas, como {sala}) precisam aparecer na tradução, em qualquer ordem.
 // Chave ausente = o texto fica em PT. `npm run i18n:check` lista os textos sem tradução e as chaves que sobraram.
 export const FR: Readonly<Record<string, string>> = {
+  "A conversa anterior, feita em outra ferramenta, está no arquivo anexo. Leia antes de responder.": "La conversation précédente, tenue dans un autre outil, est dans le fichier joint. Lisez-le avant de répondre.",
+  "Conversa anterior, feita em outra ferramenta (leia antes de responder):": "Conversation précédente, tenue dans un autre outil (à lire avant de répondre) :",
+  "escolha um modelo do Antigravity; não é possível voltar ao padrão numa conversa aberta": "choisissez un modèle Antigravity ; une conversation ouverte ne peut pas revenir au modèle par défaut",
+  "só agentes abertos pelo elenco trocam de ferramenta; dispense e chame de novo com o outro modelo": "seuls les agents ouverts depuis la distribution peuvent changer d'outil ; fermez puis rappelez avec l'autre modèle",
+  "espere o turno terminar (ou use STOP) para trocar de ferramenta": "attendez la fin du tour (ou utilisez STOP) pour changer d'outil",
+  "troca de ferramenta indisponível neste Habblaud": "changement d'outil indisponible dans ce Habblaud",
+  "troca de ferramenta aceita somente o modelo, sem combinações": "le changement d'outil accepte uniquement le modèle, sans combinaison",
+  "não foi possível determinar a pasta desta conversa": "impossible de déterminer le dossier de cette conversation",
+  "Ferramenta trocada: {0} → {1}. A conversa anterior vai anexada à sua próxima mensagem.": "Outil changé : {0} → {1}. La conversation précédente sera jointe à votre prochain message.",
+  "Ferramenta trocada: {0} → {1}. Conversa nova.": "Outil changé : {0} → {1}. Nouvelle conversation.",
   "Antigravity desligado neste Habblaud": "Antigravity est désactivé dans ce Habblaud",
   "modelo do Antigravity desconhecido: {0}": "modèle Antigravity inconnu : {0}",
   "Antigravity não confirmou a sessão dentro do prazo": "Antigravity n'a pas confirmé la session dans le délai imparti",
@@ -16,7 +26,7 @@ export const FR: Readonly<Record<string, string>> = {
   "Agente do Antigravity (Google)": "Agent Antigravity (Google)",
   "Antigravity: falha ao gravar o terminal": "Antigravity : échec de l'enregistrement du terminal",
   "a sessão Antigravity está indisponível ou em substituição": "la session Antigravity est indisponible ou en cours de remplacement",
-  "Antigravity aceita somente STOP ou conversa nova, sem combinações": "Antigravity accepte uniquement STOP ou une nouvelle conversation, sans combinaison",
+  "Antigravity aceita somente modelo, STOP ou conversa nova, sem combinações": "Antigravity accepte uniquement un modèle, STOP ou une nouvelle conversation, sans combinaison",
   "Antigravity só recebe a mensagem quando o turno termina": "Antigravity reçoit le message uniquement à la fin du tour",
   "Antigravity não confirmou a entrega da mensagem": "Antigravity n'a pas confirmé la remise du message",
   "a mensagem Antigravity expirou esperando a sessão ficar disponível": "le message Antigravity a expiré en attendant que la session soit disponible",

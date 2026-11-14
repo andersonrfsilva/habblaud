@@ -183,7 +183,7 @@ const castLauncher: CastLauncher | undefined = config.terminal ? new CastLaunche
   idle: (agent) => office.castIdle(agent),
   handoff,
   transcriptPathOf: id => late.agents?.transcriptPathOf(id),
-  terminalParser: id => late.agents!.terminalParser(id),
+  terminalParser: id => late.agents!.parserFor(id),
   cwdOf: agent => office.roomPath(agent.roomId),
   switched: (agent, from, to, pending) => office.addActivity(agent.id, {
     id: `${agent.id}:handoff:${Date.now()}`, at: Date.now(), kind: 'communicate', icon: '↔',

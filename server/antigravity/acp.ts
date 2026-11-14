@@ -1,8 +1,8 @@
+import { isAbsolute } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { connect } from 'node:net';
 import type { Duplex, Readable, Writable } from 'node:stream';
-import { isAbsolute } from 'node:path';
-import { pathToFileURL } from 'node:url';
 
 /** A linha de comando inteira do agy. Nada além disto pode chegar ao binário (regra 3). */
 export function agyArgs(opts: { skipPermissions: boolean }): string[] {

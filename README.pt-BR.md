@@ -1157,9 +1157,19 @@ na instalação. O volume de estado existente leva o soquete ao contêiner; não
 
 Na página, abra **Novo agente**, escolha **Antigravity**, a pasta e o pedido opcional. A conversa aceita mensagens
 enfileiradas, aprovar/negar ferramentas, STOP, conversa nova, Dispensar e leitura do terminal. Os controles continuam
-sujeitos às permissões locais/remotas do escritório. Não inclui histórico na interface, troca de modelo de agente aberto,
-anexos, steer, conversa paralela ou integração própria no Zaplaud.
+sujeitos às permissões locais/remotas do escritório. Não inclui histórico na interface, anexos arbitrários,
+steer, conversa paralela ou integração própria no Zaplaud.
 A API do elenco aceita modelos `agy/…` (inclusive `agy/default`) junto do omp ou ZeroClaw; as instruções do personagem aguardam a primeira mensagem humana.
+Num agente principal aberto pelo elenco e parado, escolher um modelo `agy/…` passa do omp para o Antigravity;
+escolher um modelo do omp faz o caminho inverso. O servidor fecha a sessão antiga e abre conversa nova na mesma
+pasta, sem mudar o modelo salvo do personagem nem enviar pedido. Dentro do Antigravity, outro modelo `agy/…`
+mantém a conversa (`agy/default` não restaura o padrão numa sessão aberta).
+
+A conversa anterior vai anexada uma vez à próxima mensagem da pessoa e é cumulativa entre trocas.
+O arquivo de contexto leva a conversa de uma ferramenta para o provedor da outra (do omp para o Google, ou do
+`agy` para o provedor do modelo do omp). Não leva raciocínio nem eventos de sistema, corta saídas de ferramentas
+e conserva até 150 mil caracteres. Os arquivos vencem depois de 7 dias e são limpos ao iniciar o servidor.
+Conversa nova pedida pela pessoa esquece contexto já entregue; pendências sobrevivem a reinícios e falhas de entrega.
 
 O Habblaud abre o `agy` oficial pelo protocolo ACP e não usa o login dele por conta própria. Os Termos do
 Antigravity proíbem acessar o serviço com software de terceiros; se um cliente ACP próprio está dentro ou fora

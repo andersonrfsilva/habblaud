@@ -6,7 +6,7 @@ import type { PushDelivery } from './registry';
 import type { HandoffStore } from '../cast/handoff';
 
 export const ERR_ANTIGRAVITY_UNAVAILABLE = tr('a sessão Antigravity está indisponível ou em substituição');
-export const ERR_ANTIGRAVITY_CONTROL = tr('Antigravity aceita somente STOP ou conversa nova, sem combinações');
+export const ERR_ANTIGRAVITY_CONTROL = tr('Antigravity aceita somente modelo, STOP ou conversa nova, sem combinações');
 export const ERR_ANTIGRAVITY_MODES = tr('Antigravity só recebe a mensagem quando o turno termina');
 export const ERR_ANTIGRAVITY_DELIVERY = tr('Antigravity não confirmou a entrega da mensagem');
 export const ERR_ANTIGRAVITY_QUEUED = tr('a mensagem Antigravity expirou esperando a sessão ficar disponível');

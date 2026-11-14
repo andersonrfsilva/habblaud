@@ -903,9 +903,18 @@ configuration to the installation. The existing state volume carries the socket;
 
 Open **New agent**, select **Antigravity**, choose a folder and optionally enter a prompt. Supported: queued messages,
 human tool approvals, STOP, new conversation, Dismiss and terminal reading. Local/remote office access rules still
-apply. Not included: history UI, switching an open agent's model, attachments, steer, parallel conversations,
-or dedicated Zaplaud integration.
+apply. Not included: history UI, arbitrary attachments, steer, parallel conversations, or dedicated Zaplaud integration.
 The server cast API accepts `agy/…` models (including `agy/default`) alongside omp or ZeroClaw; character instructions wait for the first human message.
+For an idle main agent opened through the cast, selecting an `agy/…` model switches from omp to Antigravity;
+selecting an omp model switches back. The server closes the old session and opens a new conversation in the same
+folder without changing the character's saved model or sending a prompt. Within Antigravity, another `agy/…`
+model keeps the current conversation (`agy/default` cannot reset an open session).
+
+The previous conversation is attached to the person's next message, once, and remains cumulative across switches.
+The context file sends the conversation from one tool to the other tool's provider (from omp to Google, or from
+`agy` to the omp model's provider). It excludes reasoning and system events, clips tool output, and keeps at most
+150,000 characters. Files expire after seven days and are cleaned on server startup. A person-requested new
+conversation forgets already delivered context; pending context survives restarts and failed delivery.
 
 Habblaud opens the official `agy` through ACP and does not use its login independently. Antigravity's Terms prohibit
 accessing the service with third-party software; whether a custom ACP client falls within that rule is a matter of
