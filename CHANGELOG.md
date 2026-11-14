@@ -182,6 +182,9 @@ do meio (0.**3**.0).
 - **Permissões Antigravity:** ler arquivo mostra qual arquivo será lido; ferramentas desconhecidas mostram a descrição e os argumentos, com segredos mascarados.
 - **Fala da pessoa:** o histórico Antigravity mostra apenas o texto digitado, sem instruções do personagem, avisos de contexto ou mensagens vazias do anexo.
 - **Contexto Antigravity:** a pasta dos arquivos de contexto é declarada na sessão para evitar um pedido extra de permissão de leitura, sem aprovar ferramentas automaticamente.
+- **Página:** ao confirmar uma troca entre omp e Antigravity, a conversa acompanha automaticamente o mesmo contato
+  quando ele reabre, inclusive os agentes chamados como "Novo". O acompanhamento dura até 90 segundos e é cancelado
+  se o pedido falhar ou se a pessoa escolher outra conversa.
 - **Elenco:** agente chamado como "Novo" (nome e visual sorteados) não perde mais o botão Dispensar ao trocar de
   pasta ou de sessão. O servidor apagava o id `novo-…` nessas trocas, e sem ele a sessão deixava de contar como
   aberta pelo Habblaud.
