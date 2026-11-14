@@ -14,6 +14,9 @@ import { AntigravitySource } from '../sources/antigravity/source';
 import { AntigravityCatalog } from '../sources/antigravity/catalog';
 import { AntigravityDelivery } from './antigravity';
 import { InvalidRequest, MessageRegistry } from './registry';
+import { HandoffStore } from '../cast/handoff';
+import { readFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -112,5 +115,34 @@ describe('instruções pendentes Antigravity', () => {
     expect(prompt).not.toHaveBeenCalled();
     await s.delivery.sendMessage(next, 'Depois');
     expect(prompt).toHaveBeenLastCalledWith(next, 'Instruções do personagem:\nSeja breve.\n\nPedido inicial:\nDepois');
+  });
+});
+
+describe('anexo de contexto Antigravity', () => {
+  it('envia resource_link antes do texto uma vez e restaura após falha', async () => {
+    const s = await setup();
+    const directory = await mkdtemp(join(tmpdir(), 'antigravity-handoff-'));
+    cleanups.push(() => rm(directory, { recursive: true, force: true }));
+    const handoff = new HandoffStore({ dir: directory });
+    const delivery = new AntigravityDelivery({ client: s.client, source: s.source, handoff });
+    const { sessionId } = await s.client.open({ cwd: '/tmp', cast: 'nina' });
+    const path = handoff.put('nina', 'ALFA');
+    const blocks: Record<string, unknown>[] = [];
+    s.client.onEvent(event => { if (event.type === 'update' && event.sessionId === sessionId && event.update.sessionUpdate === 'user_message_chunk') blocks.push(event.update.content as Record<string, unknown>); });
+    const prompt = vi.spyOn(s.client, 'prompt').mockRejectedValueOnce(new Error('write failed'));
+    expect(await delivery.sendMessage(sessionId, 'primeira')).toMatchObject({ ok: false });
+    expect(handoff.pending('nina')).toBe(path);
+    expect(await delivery.sendMessage(sessionId, 'segunda')).toEqual({ ok: true });
+    await expect.poll(() => s.client.session(sessionId)?.busy).toBe(false);
+    expect(blocks[0]).toEqual({ type: 'resource_link', uri: pathToFileURL(path).href, name: 'conversa-anterior.md', mimeType: 'text/markdown' });
+    expect(blocks[1]).toMatchObject({ type: 'text', text: expect.stringContaining('Leia antes de responder.') });
+    expect(readFileSync(path, 'utf8')).toBe('ALFA');
+    expect(handoff.pending('nina')).toBeUndefined();
+    blocks.length = 0;
+    await delivery.sendMessage(sessionId, 'terceira');
+    await expect.poll(() => s.client.session(sessionId)?.busy).toBe(false);
+    expect(blocks).toEqual([{ type: 'text', text: 'terceira' }]);
+    await expect(s.client.prompt(sessionId, 'bad', [{ path: 'relative.md', name: 'bad' }])).rejects.toThrow('absolute');
+    expect(prompt).toHaveBeenCalled();
   });
 });

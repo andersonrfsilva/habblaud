@@ -70,8 +70,8 @@ lines.on('line', line => {
       const sessionId = params.sessionId;
       const session = sessions.get(sessionId);
       session.turn = id;
-      const text = params.prompt[0].text;
-      update(sessionId, { sessionUpdate: 'user_message_chunk', content: { type: 'text', text } });
+      const text = params.prompt.filter(block => block.type === 'text').map(block => block.text).join('\n');
+      for (const content of params.prompt) update(sessionId, { sessionUpdate: 'user_message_chunk', content });
       if (text === 'sleep') break;
       if (text.startsWith('tool:')) {
         const toolCall = { sessionUpdate: 'tool_call', toolCallId: `call_${++sequence}`, name: 'run_command', kind: 'execute', title: text.slice(5), rawInput: { CommandLine: text.slice(5) }, status: 'in_progress' };

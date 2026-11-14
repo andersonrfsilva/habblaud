@@ -30,6 +30,7 @@ import type { IncomingMessage } from 'node:http';
 import { AttachmentStore, promptWithAttachments, type Attachment } from '../spawn/attachments';
 import { ZeroClawDelivery, ERR_ZEROCLAW_UNAVAILABLE, ERR_ZEROCLAW_CONTINUITY, ERR_ZEROCLAW_CONTROL, ERR_ZEROCLAW_ASIDE, ERR_ZEROCLAW_DELIVERY, ERR_ZEROCLAW_QUEUED } from './zeroclaw';
 import { ERR_ANTIGRAVITY_UNAVAILABLE, ERR_ANTIGRAVITY_CONTROL, ERR_ANTIGRAVITY_MODES, ERR_ANTIGRAVITY_DELIVERY, ERR_ANTIGRAVITY_QUEUED } from './antigravity';
+import type { HandoffStore } from '../cast/handoff';
 
 /** Sessão que perguntou pela caixa de entrada há até este tempo: recebe mensagens (canMessage). */
 export const PRESENCE_MS = 10_000;
@@ -102,6 +103,7 @@ export interface MessageRegistryOptions {
   codex?: CodexDeliveryOptions;
   zeroclaw?: ZeroClawDelivery;
   antigravity?: PushDelivery;
+  handoff?: HandoffStore;
   attachments?: AttachmentStore;
   writeAttachments?: (files: readonly Attachment[]) => Promise<{ paths: string[] } | { error: string; status: number }>;
   now?: () => number;
@@ -140,6 +142,7 @@ interface Entry {
   msg: OutboxMessage;
   /** O texto como foi digitado; esvazia quando a mensagem se resolve. */
   text: string;
+  handoff?: { cast: string; path: string };
   /** Atividade do feed quando a entrega se confirma (o começo do texto, mascarado e cortado). */
   activity?: ReturnType<typeof describeMessage>;
   /** Controle da sessão omp (modelo/raciocínio, /new, /shake, STOP, /resume): sem texto e sem atividade no feed. */
@@ -387,6 +390,13 @@ export class MessageRegistry {
     if ('error' in files) throw new InvalidRequest(files.error, files.attachmentsExpired);
 
     const entry = this.entry(agentId, agent.sessionId, { text, activity: describeMessage(text) });
+    if (agent.provider === 'omp' && agent.cast) {
+      const path = this.opts.handoff?.take(agent.cast);
+      if (path) {
+        entry.handoff = { cast: agent.cast, path };
+        entry.text += `\n\n${tr('Conversa anterior, feita em outra ferramenta (leia antes de responder):')}\n- ${path}`;
+      }
+    }
     if (agent.provider === 'omp' || agent.provider === 'zeroclaw' || agent.provider === 'antigravity') entry.msg.deliverAs = deliverAs ?? 'followUp';
     if (demo) entry.demo = true;
     else if (real?.provider === 'codex') entry.codex = true;
@@ -797,6 +807,11 @@ export class MessageRegistry {
   /** Resolve a mensagem: o texto não é mais necessário. */
   private finish(e: Entry, status: 'delivered' | 'failed', now: number): void {
     this.setStatus(e, status, now);
+    if (e.handoff) {
+      if (status === 'failed') this.opts.handoff?.restore(e.handoff.cast, e.handoff.path);
+      else delete e.handoff;
+      this.opts.office.markDirty();
+    }
     delete e.late;
     if (status === 'delivered') {
       delete e.msg.error;

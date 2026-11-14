@@ -1,6 +1,8 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { connect } from 'node:net';
 import type { Duplex, Readable, Writable } from 'node:stream';
+import { isAbsolute } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 /** A linha de comando inteira do agy. Nada além disto pode chegar ao binário (regra 3). */
 export function agyArgs(opts: { skipPermissions: boolean }): string[] {
@@ -191,11 +193,15 @@ export class AntigravityClient {
       info: { model, models: available.flatMap(entry => object(entry) && typeof entry.modelId === 'string' ? [entry.modelId] : []), modelOptions, tier } });
     return { sessionId };
   }
-  async prompt(sessionId: string, text: string): Promise<void> {
+  async prompt(sessionId: string, text: string, links?: { path: string; name: string }[]): Promise<void> {
+    if (links?.some(link => !isAbsolute(link.path))) throw new Error('ACP resource path must be absolute');
     const session = this.opened.get(sessionId);
     if (!session || session.busy) throw new Error('ACP session unavailable');
     session.busy = true; this.emit({ type: 'turn-state', sessionId, busy: true });
-    session.turn = this.call('session/prompt', { sessionId, prompt: [{ type: 'text', text }] }, false).then(result => {
+    session.turn = this.call('session/prompt', { sessionId, prompt: [
+      ...(links ?? []).map(link => ({ type: 'resource_link', uri: pathToFileURL(link.path).href, name: link.name, mimeType: 'text/markdown' })),
+      { type: 'text', text },
+    ] }, false).then(result => {
       this.finishTurn(session, object(result) && typeof result.stopReason === 'string' ? result.stopReason : undefined);
     }, () => this.finishTurn(session));
     // Writes complete in order; this marker resolves only after the prompt write has completed.

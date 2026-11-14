@@ -2,6 +2,7 @@ import { tr } from '../../shared/i18n';
 import type { AntigravityClient } from '../antigravity/acp';
 import type { AntigravitySource } from '../sources/antigravity/source';
 import type { PushDelivery } from './registry';
+import type { HandoffStore } from '../cast/handoff';
 
 export const ERR_ANTIGRAVITY_UNAVAILABLE = tr('a sessão Antigravity está indisponível ou em substituição');
 export const ERR_ANTIGRAVITY_CONTROL = tr('Antigravity aceita somente STOP ou conversa nova, sem combinações');
@@ -12,7 +13,7 @@ export const ERR_ANTIGRAVITY_QUEUED = tr('a mensagem Antigravity expirou esperan
 export class AntigravityDelivery implements PushDelivery {
   private readonly replacing = new Set<string>();
   private readonly instructions = new Map<string, { text: string; pending: boolean }>();
-  constructor(private readonly opts: { client: AntigravityClient; source: Pick<AntigravitySource, 'replace'>; diagnostic?: (message: string) => void }) {
+  constructor(private readonly opts: { client: AntigravityClient; source: Pick<AntigravitySource, 'replace'>; handoff?: HandoffStore; diagnostic?: (message: string) => void }) {
     opts.client.onEvent(event => { if (event.type === 'session-close') this.instructions.delete(event.sessionId); });
   }
   setInstructions(sessionId: string, instructions: string | undefined): void {
@@ -30,13 +31,20 @@ export class AntigravityDelivery implements PushDelivery {
   async sendMessage(id: string, content: string): Promise<{ ok: true } | { ok: false; error: string }> {
     if (!this.available(id)) return { ok: false, error: ERR_ANTIGRAVITY_UNAVAILABLE };
     const instructions = this.instructions.get(id);
-    const text = instructions?.pending ? `Instruções do personagem:\n${instructions.text}\n\nPedido inicial:\n${content}` : content;
+    const cast = this.opts.client.session(id)?.cast;
+    const path = cast ? this.opts.handoff?.take(cast) : undefined;
+    const request = instructions?.pending ? `Instruções do personagem:\n${instructions.text}\n\nPedido inicial:\n${content}` : content;
+    const text = path ? `${tr('A conversa anterior, feita em outra ferramenta, está no arquivo anexo. Leia antes de responder.')}\n\n${request}` : request;
     try {
-      await this.opts.client.prompt(id, text);
+      if (path) await this.opts.client.prompt(id, text, [{ path, name: 'conversa-anterior.md' }]);
+      else await this.opts.client.prompt(id, text);
       if (instructions) instructions.pending = false;
       return { ok: true };
     }
-    catch { return { ok: false, error: ERR_ANTIGRAVITY_DELIVERY }; }
+    catch {
+      if (cast && path) this.opts.handoff?.restore(cast, path);
+      return { ok: false, error: ERR_ANTIGRAVITY_DELIVERY };
+    }
   }
   stopSession(id: string): Promise<void> { return this.opts.client.cancel(id); }
   async newSession(id: string): Promise<string> {
