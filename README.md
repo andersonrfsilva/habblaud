@@ -905,6 +905,8 @@ Open **New agent**, select **Antigravity**, choose a folder and optionally enter
 human tool approvals, STOP, new conversation, Dismiss and terminal reading. Local/remote office access rules still
 apply. Not included: history UI, arbitrary attachments, steer, parallel conversations, or dedicated Zaplaud integration.
 The server cast API accepts `agy/…` models (including `agy/default`) alongside omp or ZeroClaw; character instructions wait for the first human message.
+To use it, choose an `agy/…` model in a character (**Cast → Edit**) or in an open agent's drawer.
+Remote access supports this with both `terminal` and `messages` in `HABBLAUD_REMOTE_ALLOW`.
 For an idle main agent opened through the cast, selecting an `agy/…` model switches from omp to Antigravity;
 selecting an omp model switches back. The server closes the old session and opens a new conversation in the same
 folder without changing the character's saved model or sending a prompt. Within Antigravity, another `agy/…`

@@ -12,6 +12,9 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Antigravity na página.** Modelos `agy/…` aparecem no editor de personagem e na gaveta do agente.
+  Trocar de ferramenta pede confirmação; o contexto pendente aparece acima da caixa de mensagem.
+  O cartão de uso explica que o Antigravity não informa cota e não mostra o botão "Como ativar".
 - **Trocar de modelo troca de ferramenta (servidor).** Num agente principal aberto pelo elenco e parado, escolher
   `agy/…` passa do omp para o Antigravity; escolher um modelo do omp faz o caminho inverso, na mesma pasta,
   sem alterar o modelo salvo do personagem. A conversa anterior vai anexada à próxima mensagem da pessoa:

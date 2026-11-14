@@ -2,6 +2,14 @@
 // As lacunas {0}, {1}... (e as nomeadas, como {sala}) precisam aparecer na tradução, em qualquer ordem.
 // Chave ausente = o texto fica em PT. `npm run i18n:check` lista os textos sem tradução e as chaves que sobraram.
 export const ES: Readonly<Record<string, string>> = {
+  "Chamando…": "Llamando…",
+  "Padrão do Antigravity": "Predeterminado de Antigravity",
+  "Este personagem roda no Antigravity (agy). As instruções vão junto da primeira mensagem.": "Este personaje se ejecuta en Antigravity (agy). Las instrucciones acompañan al primer mensaje.",
+  "Trocar para {0} muda de ferramenta: a conversa atual fecha e abre outra. A conversa anterior vai anexada à sua próxima mensagem. Continuar?": "Cambiar a {0} cambia de herramienta: la conversación actual se cierra y se abre otra. La conversación anterior se adjuntará a tu próximo mensaje. ¿Continuar?",
+  "A conversa anterior vai anexada à sua próxima mensagem.": "La conversación anterior se adjuntará a tu próximo mensaje.",
+  "o Antigravity não informa cota": "Antigravity no informa de la cuota",
+  "sem cota informada": "sin cuota informada",
+  "O agy não entrega cota nem uso do plano ao Habblaud; o contexto de cada conversa aparece na gaveta do agente.": "agy no comunica la cuota ni el uso del plan a Habblaud; el contexto de cada conversación aparece en el panel del agente.",
   "A conversa anterior, feita em outra ferramenta, está no arquivo anexo. Leia antes de responder.": "La conversación anterior, realizada en otra herramienta, está en el archivo adjunto. Léelo antes de responder.",
   "Conversa anterior, feita em outra ferramenta (leia antes de responder):": "Conversación anterior, realizada en otra herramienta (lee antes de responder):",
   "escolha um modelo do Antigravity; não é possível voltar ao padrão numa conversa aberta": "elige un modelo de Antigravity; no se puede volver al predeterminado en una conversación abierta",

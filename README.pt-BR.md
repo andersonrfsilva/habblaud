@@ -1160,6 +1160,8 @@ enfileiradas, aprovar/negar ferramentas, STOP, conversa nova, Dispensar e leitur
 sujeitos às permissões locais/remotas do escritório. Não inclui histórico na interface, anexos arbitrários,
 steer, conversa paralela ou integração própria no Zaplaud.
 A API do elenco aceita modelos `agy/…` (inclusive `agy/default`) junto do omp ou ZeroClaw; as instruções do personagem aguardam a primeira mensagem humana.
+Para usar, escolha um modelo `agy/…`: no personagem (**Elenco → Editar**) ou na gaveta de um agente aberto.
+Pelo acesso remoto, isso funciona com `terminal` e `messages` em `HABBLAUD_REMOTE_ALLOW`.
 Num agente principal aberto pelo elenco e parado, escolher um modelo `agy/…` passa do omp para o Antigravity;
 escolher um modelo do omp faz o caminho inverso. O servidor fecha a sessão antiga e abre conversa nova na mesma
 pasta, sem mudar o modelo salvo do personagem nem enviar pedido. Dentro do Antigravity, outro modelo `agy/…`

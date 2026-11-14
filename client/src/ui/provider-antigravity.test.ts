@@ -6,7 +6,7 @@ import { castBody, crossesTool, modelGroups, parseCastModelCatalog, runtimeAllow
 import { usageMessage } from './usage';
 
 it('explica a ausência de cota Antigravity', () => {
-  expect(usageMessage({ provider: 'antigravity', usageStatus: 'empty' })).toEqual(['o Antigravity não informa cota', 'o Antigravity não informa cota']);
+  expect(usageMessage({ provider: 'antigravity', usageStatus: 'disabled' })).toEqual(['o Antigravity não informa cota', 'o Antigravity não informa cota']);
 });
 
 describe('castBody', () => {
