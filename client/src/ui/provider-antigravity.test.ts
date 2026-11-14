@@ -2,7 +2,21 @@ import { describe, expect, it } from 'vitest';
 import { accountProvider, fallbackShort, isAntigravity, looksLikeAntigravityId, PROVIDER_NAME, runtimeAllowsControl, runtimeAllowsDeliveryModes, runtimeAllowsMessages, runtimeAllowsOmpTools } from './provider';
 import { barActions } from './omp-bar';
 import type { AgentInfo } from '../../../shared/types';
-import { crossesTool, modelGroups, parseCastModelCatalog, runtimeAllowsModelChoice, runtimeAllowsThinking } from './provider';
+import { castBody, crossesTool, modelGroups, parseCastModelCatalog, runtimeAllowsModelChoice, runtimeAllowsThinking } from './provider';
+
+describe('castBody', () => {
+  const base = { name: 'Nina', look: 'f' as const, seed: 1, kind: 'main' as const, account: '.omp', agent: 'fixed' };
+  it.each(['agy/gemini', 'agy/default'])('salva %s sem conta nem agente fixo', (model) => {
+    const body = castBody({ ...base, model });
+    expect(body.model).toBe(model);
+    expect(body.kind).toBe('main');
+    expect(body).not.toHaveProperty('account');
+    expect(body).not.toHaveProperty('agent');
+  });
+  it('preserva conta do omp', () => {
+    expect(castBody({ ...base, model: 'openai/gpt' }).account).toBe('.omp');
+  });
+});
 
 describe('modelos agy', () => {
   it('lê apenas modelos agy válidos sem rejeitar o catálogo', () => {

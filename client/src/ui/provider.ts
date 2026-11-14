@@ -4,7 +4,7 @@
 // Identidade visual do Codex e do omp (sem logotipo de ninguém): o chip da conta fica "vazado" (fundo escuro, borda e
 // letra na cor da conta, cantos em degrau; o do omp tem o canto cortado só em cima, para os dois não se confundirem) e,
 // onde há espaço, um selo de texto ("Codex", "omp") ao lado do nome.
-import type { AccountInfo, OfficeSnapshot, Provider } from '../../../shared/types';
+import type { AccountInfo, CastMember, OfficeSnapshot, Provider } from '../../../shared/types';
 import { shortcutHint } from './model';
 import { isNeutralBrand, tr, unbrand } from '../../../shared/i18n';
 import type { OmpDeliverAs } from '../../../shared/messages';
@@ -30,6 +30,12 @@ export function modelGroups(models: readonly string[], keep?: string): ModelGrou
     ? { label: agyGroupLabel(), options: group.options.map((option) => option.value === AGY_DEFAULT
       ? { ...option, label: isNeutralBrand() ? tr('Padrão') : tr('Padrão do Antigravity') } : option) }
     : group);
+}
+
+export function castBody(body: Omit<CastMember, 'id'>): Omit<CastMember, 'id'> {
+  if (!isAgyModel(body.model)) return body;
+  const { account: _account, agent: _agent, match: _match, ...rest } = body;
+  return { ...rest, kind: 'main' };
 }
 
 export function runtimeAllowsMessages(provider: unknown): boolean {
