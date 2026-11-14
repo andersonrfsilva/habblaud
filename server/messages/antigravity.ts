@@ -1,5 +1,6 @@
 import { tr } from '../../shared/i18n';
-import type { AntigravityClient } from '../antigravity/acp';
+import { UnknownModel, type AntigravityClient } from '../antigravity/acp';
+import { agyModelValue } from '../../shared/agy-model';
 import type { AntigravitySource } from '../sources/antigravity/source';
 import type { PushDelivery } from './registry';
 import type { HandoffStore } from '../cast/handoff';
@@ -44,6 +45,15 @@ export class AntigravityDelivery implements PushDelivery {
     catch {
       if (cast && path) this.opts.handoff?.restore(cast, path);
       return { ok: false, error: ERR_ANTIGRAVITY_DELIVERY };
+    }
+  }
+  async setModel(id: string, model: string): Promise<void> {
+    const value = agyModelValue(model);
+    if (value === undefined) throw new UnknownModel(tr('escolha um modelo do Antigravity; não é possível voltar ao padrão numa conversa aberta'));
+    try { await this.opts.client.setModel(id, value); }
+    catch (error) {
+      if (error instanceof UnknownModel) throw new UnknownModel(tr('modelo do Antigravity desconhecido: {0}', [value]));
+      throw error;
     }
   }
   stopSession(id: string): Promise<void> { return this.opts.client.cancel(id); }

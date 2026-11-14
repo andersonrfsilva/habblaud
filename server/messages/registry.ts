@@ -31,6 +31,7 @@ import { AttachmentStore, promptWithAttachments, type Attachment } from '../spaw
 import { ZeroClawDelivery, ERR_ZEROCLAW_UNAVAILABLE, ERR_ZEROCLAW_CONTINUITY, ERR_ZEROCLAW_CONTROL, ERR_ZEROCLAW_ASIDE, ERR_ZEROCLAW_DELIVERY, ERR_ZEROCLAW_QUEUED } from './zeroclaw';
 import { ERR_ANTIGRAVITY_UNAVAILABLE, ERR_ANTIGRAVITY_CONTROL, ERR_ANTIGRAVITY_MODES, ERR_ANTIGRAVITY_DELIVERY, ERR_ANTIGRAVITY_QUEUED } from './antigravity';
 import type { HandoffStore } from '../cast/handoff';
+import { isAgyModel } from '../../shared/agy-model';
 
 /** Sessão que perguntou pela caixa de entrada há até este tempo: recebe mensagens (canMessage). */
 export const PRESENCE_MS = 10_000;
@@ -91,6 +92,7 @@ export interface PushDelivery {
   sendMessage(id: string, content: string): Promise<{ ok: true } | { ok: false; error: string }>;
   stopSession(id: string): Promise<void>;
   newSession(id: string, officeAgentId?: string): Promise<string>;
+  setModel?(id: string, model: string): Promise<void>;
 }
 
 export interface MessageRegistryOptions {
@@ -453,7 +455,7 @@ export class MessageRegistry {
       if (expected !== undefined && expected !== target.sessionId) return { error: 'unavailable', reason: ERR_SESSION_CHANGED, code: 'session_changed' };
       const fields = ['stop', 'command', 'model', 'thinking', 'resume'].filter(key => input![key] !== undefined);
       for (const key of fields) parseControl({ agentId: input!.agentId, [key]: input![key] });
-      if (fields.length > 0 && (fields.length !== 1 || !(input!.stop === true || input!.command === 'new'))) return { error: 'unavailable', reason: target.provider === 'antigravity' ? ERR_ANTIGRAVITY_CONTROL : ERR_ZEROCLAW_CONTROL };
+      if (fields.length > 0 && (fields.length !== 1 || !(input!.stop === true || input!.command === 'new' || (target.provider === 'antigravity' && typeof input!.model === 'string' && isAgyModel(input!.model))))) return { error: 'unavailable', reason: target.provider === 'antigravity' ? ERR_ANTIGRAVITY_CONTROL : ERR_ZEROCLAW_CONTROL };
     }
     const { agentId, expectedSessionId: expectedTarget, ...change } = parseControl(raw);
     const real = this.opts.office.get(agentId);
@@ -462,7 +464,7 @@ export class MessageRegistry {
     if (!agent) return { error: 'not-found' };
     if (expectedTarget !== undefined && expectedTarget !== agent.sessionId) return { error: 'unavailable', reason: ERR_SESSION_CHANGED, code: 'session_changed' };
     if (agent.provider === 'zeroclaw' || agent.provider === 'antigravity') {
-      if (Object.keys(change).length !== 1 || !(change.stop === true || change.command === 'new')) return { error: 'unavailable', reason: agent.provider === 'antigravity' ? ERR_ANTIGRAVITY_CONTROL : ERR_ZEROCLAW_CONTROL };
+      if (Object.keys(change).length !== 1 || !(change.stop === true || change.command === 'new' || (agent.provider === 'antigravity' && isAgyModel(change.model)))) return { error: 'unavailable', reason: agent.provider === 'antigravity' ? ERR_ANTIGRAVITY_CONTROL : ERR_ZEROCLAW_CONTROL };
       const reason = this.zeroClawReason(agent, true);
       if (reason) return { error: 'unavailable', reason };
       if (this.openCount(agentId) >= MAX_OPEN) return { error: 'too-many' };
@@ -729,10 +731,11 @@ export class MessageRegistry {
       if (!e.control && (e.preparing || blocked.has(e.target))) { blocked.add(e.target); continue; }
       if (!delivery.available(e.target, !!e.control)) continue;
       if (!e.control && !steer && delivery.busy(e.target)) continue;
+      if (e.control?.model && delivery.busy(e.target)) continue;
       this.setStatus(e, 'sent', this.now());
       e.sentAt = this.now();
       const work = e.control
-        ? (e.control.stop ? delivery.stopSession(e.target) : delivery.newSession(e.target, agent.id)).then(() => ({ ok: true as const }))
+        ? (e.control.model ? delivery.setModel!(e.target, e.control.model) : e.control.stop ? delivery.stopSession(e.target) : delivery.newSession(e.target, agent.id)).then(() => ({ ok: true as const }))
         : delivery.sendMessage(e.target, e.text);
       void work.then(result => {
         if (e.msg.status !== 'sent') return;
@@ -740,8 +743,8 @@ export class MessageRegistry {
         else this.fail(e, this.now(), result.error);
         this.updateZeroClawPresence();
         this.pumpZeroClaw();
-      }, () => {
-        if (e.msg.status === 'sent') this.fail(e, this.now(), e.pushProvider === 'antigravity' ? ERR_ANTIGRAVITY_UNAVAILABLE : ERR_ZEROCLAW_UNAVAILABLE);
+      }, (error: unknown) => {
+        if (e.msg.status === 'sent') this.fail(e, this.now(), e.control?.model && error instanceof Error ? error.message : e.pushProvider === 'antigravity' ? ERR_ANTIGRAVITY_UNAVAILABLE : ERR_ZEROCLAW_UNAVAILABLE);
         this.updateZeroClawPresence();
         this.pumpZeroClaw();
       });

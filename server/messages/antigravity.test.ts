@@ -146,3 +146,32 @@ describe('anexo de contexto Antigravity', () => {
     expect(prompt).toHaveBeenCalled();
   });
 });
+
+describe('modelo numa conversa Antigravity aberta', () => {
+  it('aplica modelo sem abrir sessão e espera o turno terminar', async () => {
+    const s = await setup();
+    const first = s.registry.control({ agentId: s.id, model: 'agy/fake-b' });
+    if (!('message' in first)) throw new Error('controle recusado');
+    await expect.poll(() => s.registry.get(first.message.id)?.status).toBe('delivered');
+    await expect.poll(() => s.office.get(s.id)?.model).toBe('agy/fake-b');
+    expect(s.office.get(s.id)?.sessionId).toBe(s.sessionId);
+    await s.client.prompt(s.sessionId, 'sleep');
+    const next = s.registry.control({ agentId: s.id, model: 'agy/fake-a' });
+    if (!('message' in next)) throw new Error('controle recusado');
+    expect(next.message.status).toBe('queued');
+    expect(s.client.session(s.sessionId)?.model).toBe('fake-b');
+    await s.client.cancel(s.sessionId);
+    await expect.poll(() => s.registry.get(next.message.id)?.status).toBe('delivered');
+    expect(s.client.session(s.sessionId)?.model).toBe('fake-a');
+  });
+  it('modelo desconhecido e padrão falham com motivo; thinking permanece recusado', async () => {
+    const s = await setup();
+    for (const model of ['agy/missing', 'agy/default']) {
+      const result = s.registry.control({ agentId: s.id, model });
+      if (!('message' in result)) throw new Error('controle recusado');
+      await expect.poll(() => s.registry.get(result.message.id)?.status).toBe('failed');
+      expect(s.registry.get(result.message.id)?.error).toMatch(/modelo/);
+    }
+    expect(s.registry.control({ agentId: s.id, thinking: 'high' })).toHaveProperty('error', 'unavailable');
+  });
+});

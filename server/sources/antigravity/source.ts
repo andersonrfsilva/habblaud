@@ -85,6 +85,10 @@ export class AntigravitySource implements AgentSource {
     if (event.type === 'permission-gone' && this.opts.client.session(event.sessionId)?.busy) office.setStatus(tracker.id, 'working');
     if (event.type !== 'update') return;
     const update = event.update;
+    if (update.sessionUpdate === 'config_option_update' && Array.isArray(update.configOptions)) {
+      const model = update.configOptions.find(option => option && typeof option === 'object' && option.id === 'model');
+      if (model && typeof model.currentValue === 'string') tracker.info.model = model.currentValue;
+    }
     if (update.sessionUpdate === 'tool_call') {
       const tool = antigravityTool(update);
       office.addActivity(tracker.id, { ...describeTool(tool.name, tool.input), id: `${tracker.id}:${String(update.toolCallId)}`, at: Date.now(), tool: tool.name }, true);

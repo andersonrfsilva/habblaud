@@ -193,6 +193,12 @@ export class AntigravityClient {
       info: { model, models: available.flatMap(entry => object(entry) && typeof entry.modelId === 'string' ? [entry.modelId] : []), modelOptions, tier } });
     return { sessionId };
   }
+  async setModel(sessionId: string, value: string): Promise<void> {
+    const session = this.opened.get(sessionId);
+    if (!session) throw new Error('ACP session unavailable');
+    await this.call('session/set_config_option', { sessionId, configId: 'model', value });
+    session.model = value;
+  }
   async prompt(sessionId: string, text: string, links?: { path: string; name: string }[]): Promise<void> {
     if (links?.some(link => !isAbsolute(link.path))) throw new Error('ACP resource path must be absolute');
     const session = this.opened.get(sessionId);
