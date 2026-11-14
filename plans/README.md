@@ -100,6 +100,23 @@ conditions e atualize sua linha ao terminar.
 | 076 | [Antigravity CLI (`agy`) no escritório, só por observação: porta os commits próprios do PR #80 do upstream](076-antigravity-no-escritorio-so-observacao.md) | P2 | M | — | REJECTED (2026-11-14): substituído pelo caminho ACP (077, depois 078); a regra 1 dele ("o Habblaud nunca executa o `agy`") era mais rígida que os termos |
 | 077 | [Spike: o que o `agy acp` 1.5.9 entrega a um cliente ACP (sessão, avisos, permissão, cancelar, lista e retomada, processo e memória)](077-spike-agy-pelo-acp.md) | P1 | S | login e autorização do dono | DONE (2026-11-14): [077-resultado.md](077-resultado.md). 10 prompts pela conta do dono, sem aviso do `agy`. Uma conexão serve várias sessões e turnos simultâneos; permissão por `session/request_permission` (permitir/negar uma vez); `list`/`load`/`resume` funcionam; ~179 MiB por processo; sem campo de cota |
 | 078 | [Antigravity pelo ACP: "Novo agente" abre o `agy acp`, mensagens, aprovar/negar, STOP, conversa nova, Dispensar; relé no host para o Habblaud em contêiner; `--dangerously-skip-permissions` atrás de `HABBLAUD_ANTIGRAVITY_SKIP_PERMISSIONS`](078-antigravity-pelo-acp.md) | P2 | L | 077; `omp-tenant` 054 antes do release nos tenants | DONE (2026-11-14): mesclado em `producao` (`ecf3b94`) e enviado a `fork/main` a pedido do dono; 11 commits, revisado depois de uma rodada REVISE: typecheck ok, 2857 testes ok (ZeroClaw e registros sem diff nos testes), i18n estrito ok, build ok, escopo limpo. Duas correções do plano no Step 4: a ordem da troca de sessão, e a adoção amarrada à abertura que a pediu (`replaces`), porque a primeira versão adotava qualquer `session-open` durante uma "conversa nova" e um "Novo agente" simultâneo podia tomar o id do agente antigo (`7b7f45b`, com testes das duas ordens). Fumaça com o `agy` 1.5.9 real, modo processo, pela API: abrir com pedido, título/modelo/contexto, espelho do terminal, permitir (arquivo criado) e negar (não criado), conversa nova (mesmo agente, sessão nova), conversa nova com um "Novo agente" ao mesmo tempo (dois agentes, ids distintos), `steer` recusado, Dispensar (processo encerrado); linha de comando vista: `agy acp`. **Servidor pessoal publicado** como `deploy-ecf3b94` (rollback `rollback-d7f9e4c`): relé `habblaud-antigravity.service` ligado, variáveis no drop-in `~/.config/containers/systemd/habblaud.container.d/antigravity.conf`, permissões automáticas **desligadas**; conferido em produção pelo relé com o `agy` real: abrir (modo soquete), agente no escritório, Dispensar, processo encerrado. Tenants não atualizados. **Não conferido:** a página no navegador (o navegador de teste não abriu), mensagem e permissão pelo relé (só no modo processo), STOP no meio de um turno, a flag de permissões automáticas pelo servidor. Observado: sem nenhuma página aberta o agente à espera de permissão aparece como "trabalhando" |
+| 079 | [Elenco com Antigravity no servidor: modelo `agy/…` decide o runtime (personagem, "Novo", chamar, retomar), convivendo com o omp; instruções junto da primeira mensagem; catálogo aprendido; `agyModels` em `/api/cast/models`](079-elenco-com-antigravity.md) | P1 | L | 078 | DONE no branch `advisor/079-elenco-antigravity` (`3fc662a`, 8 commits), revisado e APROVADO em 2026-11-14: typecheck ok, 2889 testes ok, i18n e build ok, escopo limpo, testes antigos do lançador e do ZeroClaw sem edição. Fumaça com o `agy` 1.5.9 real pela API (1 turno): personagem com `agy/gemini-3.8-flash` criado; `agy` + `account` recusado; chamar sem pedido não mandou turno; a primeira mensagem levou as instruções; catálogo aprendido (7 modelos); dispensar; retomar a mesma sessão com o modelo reaplicado. Observado: conversa nova abre sempre na pasta pessoal (regra que já valia para o omp) |
+| 083 | [Trocar o modelo de um agente aberto troca de ferramenta (omp ⇄ Antigravity); a conversa anterior vai num arquivo anexado à próxima mensagem, sem turno automático](083-troca-de-ferramenta-com-contexto.md) | P1 | L | 079 | DONE no branch `advisor/083-troca-com-contexto` (`8670de8`, 6 commits sobre o 079), revisado e APROVADO em 2026-11-14: typecheck ok, 2917 testes ok (inclusive ida → mensagem → volta, conversa nova e reinício do índice), escopo limpo. Ajustes decididos na execução: a pasta vem de `cwdOf(agent)` (o `AgentInfo` não tem `cwd`); a troca usa um caminho interno do lançador que leva modelo e pasta (o HTTP ignora `room` em conversa nova); o parser é `parserFor`. Fumaça com o `agy` real pela API, **sem turno**: troca de modelo dentro do Antigravity (`delivered`), modelo desconhecido (`failed` com o motivo), troca para o omp sem auxiliar recusada sem fechar a sessão. **Não conferido com as ferramentas reais: a troca omp ⇄ Antigravity de ponta a ponta e a leitura do anexo pelo omp** (o servidor de teste não tem o auxiliar do omp; só os testes com o `agy` falso cobrem) |
+| 080 | [Página: modelos `agy/…` no editor de personagem e na gaveta, aviso antes de trocar de ferramenta, linha do contexto pendente, cartão de uso sem botão morto](080-antigravity-na-pagina.md) | P1 | M | 079, 083 | DONE no branch `advisor/080-antigravity-pagina` (`9dac4f0`, 5 commits sobre o 083), revisado e APROVADO em 2026-11-14: typecheck ok, 2930 testes ok, i18n e build ok; `agyModels` ficou opcional no catálogo do cliente para não editar teste existente. **Telas não conferidas: validação manual do dono** (roteiro no corpo do último commit) |
+| 081 | [Zaplaud Kotlin (Android/iOS): menu de modelo com `agy/…`, aviso de troca, contexto pendente, STOP e conversa nova; só compilação e testes no host](081-antigravity-no-zaplaud-kotlin.md) | P1 | M | 079, 083 | DONE no branch `advisor/081-antigravity-zaplaud-kotlin` (`fb57138`, 4 commits), revisado e APROVADO em 2026-11-14: `testAndroidHostTest`, `lintDebug` e `assembleDebug` com `BUILD SUCCESSFUL`. Uma correção do plano ("Current state" dizia `controlError`; o resultado do comando é `commandResult`, que ganhou `reason`). `canResumeCast` ganhou um terceiro parâmetro com padrão. **Sem aparelho, emulador nem iOS: validação manual do dono** (roteiro no último commit) |
+| 082 | [Zaplaud desktop Rust: o mesmo do 081; só clippy, build e testes sem tela](082-antigravity-no-zaplaud-rust.md) | P1 | M | 079, 083, 081 (chaves de texto) | DONE no branch `advisor/082-antigravity-zaplaud-rust` (`020e1de`, 6 commits sobre o 081), revisado e APROVADO em 2026-11-14 depois de uma rodada REVISE (`cast_availability` passava `agy = false`): clippy ok, 140 testes do núcleo ok, `cargo build --release` ok. Escopo ampliado na execução: `controller/message.rs` (texto do erro), `controller/cast.rs` (chamada), `conversation_view.{rs,slint}` (onde o menu de modelo mora); um `collapsible_if` que o clippy já recusava na base foi corrigido à parte (`535d79d`). **Janela não aberta: validação manual do dono** (roteiro no último commit) |
+
+Integração 079–083 (2026-11-14): branch `advisor/antigravity-079-083` (`cd6f384`, worktree `/tmp/habblaud-int`) junta
+os cinco planos: 080 (que contém 079 e 083) mais 082 (que contém 081); único conflito, `CHANGELOG.md`, resolvido
+mantendo as entradas dos dois lados. No conjunto: typecheck ok, 2930 testes ok, i18n estrito e build ok, clippy ok,
+140 testes do `zaplaud-core` ok, Gradle (`testAndroidHostTest`, `lintDebug`, `assembleDebug`) `BUILD SUCCESSFUL`.
+**Nada foi mesclado em `producao`, enviado ou publicado.** Falta validar com as ferramentas reais, em produção: a
+troca omp ⇄ Antigravity de ponta a ponta e a leitura do anexo de contexto pelo omp; e, à mão, as telas da página, do
+Android e do desktop.
+Sobre o mesmo branch, a pedido do dono e fora dos planos: `bafbf98`, pasta padrão das conversas novas do elenco
+(`HABBLAUD_CAST_FOLDER`, omp e Antigravity; ausente = pasta pessoal, como antes; retomar e a troca de ferramenta
+seguem na pasta da conversa; ZeroClaw inalterado). 2940 testes ok. Para valer no servidor do dono falta publicar
+com `Environment=HABBLAUD_CAST_FOLDER=%h/Desenvolvimento` no drop-in do contêiner.
 
 Integração 054–062 (2026-11-08): branch `advisor/zaplaud-modernizacao-054-062`, mesclada em `producao` e enviada a
 `fork/main` a pedido do dono. Instrumentados 141 testes, 0 falhas em `28efc0e` (antes de reverter o 062) e 142 em
@@ -126,6 +143,20 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 
 ## Dependency notes
 
+- 079, 083, 080–082: Antigravity pelo **modelo**, no elenco e em todos os clientes (variante `plan`, `deep`,
+  2026-11-14, commit `ba5a285`; baseline `npm test` 2857 ok). Reescritos no mesmo dia, antes de qualquer execução,
+  a pedido do dono: saiu o campo de "ferramenta" no personagem; um modelo `agy/…` roda no Antigravity CLI, e
+  trocar o modelo de um agente aberto troca de ferramenta levando o contexto. `agy/` não é `google-antigravity/`
+  (modelos do omp pelo login do Antigravity, que os termos citam como quebra). Ordem: 079 (contrato do nome e do
+  elenco) → 083 (troca com o agente aberto e arquivo de contexto) → 080 e 081 em paralelo (`client/` e `android/`)
+  → 082 (o Rust gera os textos do `strings.xml` que o 081 altera). Medido no `agy` 1.5.9 antes de planejar:
+  `session/set_config_option` troca o modelo; `session/resume` depois de `session/close` funciona, mas o modelo
+  volta ao padrão; um bloco `resource` embutido no prompt é **ignorado** (o `agy` o trata como link e tenta ler o
+  caminho); um `resource_link` para um arquivo real fora da pasta da sessão é lido com `read_file`, sem pedido de
+  permissão. Dois turnos curtos na conta do dono nessas medições. **Regra do dono para 080–082: nenhum teste em
+  navegador automatizado, emulador, simulador, Xvfb, aparelho ou VM**; terminam em compilação e testes de unidade
+  sem tela, e a validação das telas é manual, dele. As fumaças de 079 e 083 com o `agy` real (API, poucos turnos)
+  são do revisor.
 - 077–078: Antigravity CLI (`agy`) no escritório **só pelo ACP** (`agy acp`), decisão do dono em 2026-11-14
   (variante `plan`, `deep`, commit `d7f9e4c`; baseline: `npm run typecheck` ok, `npm test` 204 arquivos / 2806
   testes ok). Medido sem login: `initialize` devolve `protocolVersion` 1, `sessionCapabilities` com `resume`,
@@ -222,6 +253,20 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 
 ## Findings considered and rejected
 
+- Campo `runtime` no personagem, campo "Ferramenta" no editor e botão "Novo no Antigravity" (primeira versão dos
+  planos 079–082, 2026-11-14): recusados pelo dono no mesmo dia. O modelo `agy/…` decide.
+- Passar o contexto com um resumo feito pelo modelo ao trocar de ferramenta (2026-11-14): recusado. Seria um turno
+  que a pessoa não pediu, na conta dela; o 083 anexa a transcrição à próxima mensagem.
+- Passar o contexto embutido no prompt do ACP (bloco `resource`), 2026-11-14: não funciona no `agy` 1.5.9 (medido).
+- Ao voltar para a ferramenta de origem, retomar a sessão nativa antiga e anexar só o trecho feito na outra
+  (2026-11-14): adiado. Melhor para cache e contexto, mas dobra os caminhos do 083.
+- Trocar de ferramenta um agente aberto direto no terminal (2026-11-14): fora. O Habblaud não é dono do processo.
+- Antigravity no elenco trocando o runtime da instalação inteira (como o ZeroClaw faz), 2026-11-14: recusado. O dono
+  usa omp e Antigravity lado a lado; o 079 escolhe o runtime pelo modelo.
+- Criar e editar personagens pelo Zaplaud (2026-11-14): fora dos planos 081 e 082. Os clientes nativos nunca
+  editaram o elenco; o modelo do personagem é escolhido na página.
+- Liberar `spawn` no acesso remoto para o "Novo agente" do topo (2026-11-14): não planejado. Com o elenco e a troca
+  de modelo, o remoto e o Zaplaud chegam ao Antigravity com `terminal` e `messages`, que já estão liberados.
 - Antigravity por hooks (planos 075 e 076; PRs #80, #81 e #82 do upstream), 2026-11-14: recusado pelo dono em favor
   de um mecanismo só, o ACP. Os hooks só serviriam para ver ao vivo as conversas abertas direto no terminal; aprovar
   por hook quebrou entre versões do `agy` (`{}` aprovava no 1.3.3 e recusa no 1.4.1 e 1.4.2, medido nos comentários
