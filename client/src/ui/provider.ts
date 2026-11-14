@@ -39,6 +39,7 @@ export interface CastModelCatalog {
   provider: 'omp' | 'zeroclaw';
   models: { alias: string; model: string }[];
   defaultModel: string;
+  named?: { alias: string; model: string }[];
 }
 
 export function parseCastModelCatalog(raw: unknown): CastModelCatalog | undefined {
@@ -47,7 +48,13 @@ export function parseCastModelCatalog(raw: unknown): CastModelCatalog | undefine
   const defaultModel = value.provider === 'omp' && value.defaultModel === undefined ? '' : value.defaultModel;
   if ((value.provider !== 'omp' && value.provider !== 'zeroclaw') || typeof defaultModel !== 'string' || !Array.isArray(value.models)) return undefined;
   if (!value.models.every((item) => item && typeof item === 'object' && typeof item.alias === 'string' && !!item.alias && typeof item.model === 'string' && !!item.model)) return undefined;
-  return { provider: value.provider, models: value.models.map((item) => ({ alias: item.alias, model: item.model })), defaultModel };
+  const named = value.provider === 'zeroclaw' ? value.named : undefined;
+  if (named !== undefined && (!Array.isArray(named) || !named.every((item) => item && typeof item === 'object'
+    && typeof item.alias === 'string' && /^[a-z][a-z0-9]{1,23}$/.test(item.alias)
+    && typeof item.model === 'string' && !!item.model)
+    || new Set(named.map((item) => item.alias)).size !== named.length)) return undefined;
+  return { provider: value.provider, models: value.models.map((item) => ({ alias: item.alias, model: item.model })), defaultModel,
+    ...(Array.isArray(named) && named.length ? { named: named.map((item) => ({ alias: item.alias, model: item.model })) } : {}) };
 }
 
 export function castModelOptions(catalog: CastModelCatalog | undefined): { value: string; label: string }[] {

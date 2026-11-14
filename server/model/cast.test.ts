@@ -70,6 +70,63 @@ describe('CastStore', () => {
     for (let i = 1; i < 200; i++) expect(store.put({ ...ana, id: `n-${i}`, name: `N${i}` })).toBe(true);
     expect(store.put({ ...ana, id: 'overflow', name: 'Overflow' })).toBe(false);
   });
+  it('accepts only configured main agents and ignores their model and instructions', () => {
+    const bound = { ...ana, agent: 'financeiro' };
+    expect(parseCastMember(bound)).toBeNull();
+    expect(parseCastMember(bound, ['financeiro'])).toEqual(bound);
+    expect(parseCastMember({ ...bound, model: '--ignored', instructions: 123 }, ['financeiro'])).toEqual(bound);
+    for (const agent of ['', 'a', 'Financeiro', 'a_b', 'a-b', 'a'.repeat(25)]) {
+      expect(parseCastMember({ ...ana, agent }, ['financeiro', agent])).toBeNull();
+    }
+    expect(parseCastMember({ ...bound, agent: 'unknown' }, ['financeiro'])).toBeNull();
+    for (const kind of ['advisor', 'sub']) expect(parseCastMember({ ...bound, kind }, ['financeiro'])).toBeNull();
+  });
+  it('enforces unique named binding through updates, deletion and persistence', () => {
+    const file = join(folder(), 'cast.json');
+    const options = { namedAliases: ['financeiro', 'suporte'] };
+    const store = new CastStore(file, options);
+    const bound = { ...ana, agent: 'financeiro' };
+    const bia = { ...ana, id: 'bia', name: 'Bia', agent: 'financeiro' };
+    expect(store.put(bound)).toBe(true);
+    expect(store.agentConflict('financeiro', 'ana')).toBe(false);
+    expect(store.agentConflict('financeiro', 'bia')).toBe(true);
+    expect(store.put({ ...bound, instructions: 'ignored' })).toBe(true);
+    expect(store.put(bia)).toBe(false);
+    expect(store.put({ ...bia, agent: 'suporte' })).toBe(true);
+    expect(store.put({ ...bound, agent: 'suporte' })).toBe(false);
+    store.flush();
+    const loaded = new CastStore(file, options);
+    loaded.load();
+    expect(loaded.get('ana')).toEqual(bound);
+    expect(loaded.delete('ana')).toBe(true);
+    expect(loaded.put(bia)).toBe(true);
+    loaded.flush();
+  });
+  it('drops unknown and duplicate bindings from disk without affecting unbound members', () => {
+    const file = join(folder(), 'cast.json');
+    writeFileSync(file, JSON.stringify({ version: 1, bindings: {}, members: [
+      { ...ana, agent: 'financeiro' },
+      { ...ana, id: 'bia', name: 'Bia', agent: 'financeiro' },
+      { ...ana, id: 'caio', name: 'Caio', agent: 'unknown' },
+      { ...ana, id: 'dani', name: 'Dani' },
+    ] }));
+    const store = new CastStore(file, { namedAliases: ['financeiro'] });
+    store.load();
+    expect(store.list().map((member) => member.id)).toEqual(['ana', 'dani']);
+    const legacy = new CastStore(file);
+    legacy.load();
+    expect(legacy.list().map((member) => member.id)).toEqual(['dani']);
+  });
+  it('keeps the first named binding when migrating legacy rooms', () => {
+    const dir = folder();
+    writeFileSync(join(dir, 'names.json'), JSON.stringify({ rooms: {
+      '/a': { ...ana, agent: 'financeiro' },
+      '/b': { ...ana, name: 'Bia', agent: 'financeiro' },
+    } }));
+    const store = new CastStore(join(dir, 'cast.json'), { namedAliases: ['financeiro'] });
+    store.load();
+    expect(store.list()).toEqual([{ ...ana, agent: 'financeiro' }]);
+  });
   it('expires bindings after 60 days and retains the newest 4000', () => {
     let now = 1;
     const store = new CastStore(null, { now: () => now });

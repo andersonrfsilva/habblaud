@@ -295,11 +295,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
   const remote = parseRemoteConfig(env, inDocker);
   const omp = !env.HABBLAUD_OMP?.trim() || isTruthy(env.HABBLAUD_OMP);
   const zeroclawUrl = parseZeroClawUrl(env.HABBLAUD_ZEROCLAW_URL);
-  if (!zeroclawUrl && (env.HABBLAUD_ZEROCLAW_AGENTS !== undefined || env.HABBLAUD_ZEROCLAW_DEFAULT_AGENT !== undefined)) {
+  if (!zeroclawUrl && (env.HABBLAUD_ZEROCLAW_AGENTS !== undefined || env.HABBLAUD_ZEROCLAW_DEFAULT_AGENT !== undefined || env.HABBLAUD_ZEROCLAW_NAMED !== undefined)) {
     throw new Error('HABBLAUD_ZEROCLAW_URL obrigatória com catálogo ZeroClaw');
   }
   const zeroclawCatalog = zeroclawUrl
-    ? parseZeroClawCatalog(env.HABBLAUD_ZEROCLAW_AGENTS, env.HABBLAUD_ZEROCLAW_DEFAULT_AGENT)
+    ? parseZeroClawCatalog(env.HABBLAUD_ZEROCLAW_AGENTS, env.HABBLAUD_ZEROCLAW_DEFAULT_AGENT, env.HABBLAUD_ZEROCLAW_NAMED)
     : undefined;
   const quotaUrl = env.HABBLAUD_QUOTA_URL?.trim();
   const tokenFile = env.HABBLAUD_QUOTA_TOKEN_FILE?.trim();

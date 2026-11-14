@@ -23,6 +23,8 @@ do meio (0.**3**.0).
   numéricas e sufixos alfanuméricos, que podia interromper a montagem do seletor Kotlin com catálogos grandes.
   Os seletores agora normalizam também os nomes completos (`Claude Opus 5.5`, `DeepSeek V4 Flash`, `GLM 4.6`),
   mantendo datas e variantes visíveis quando selecionadas; a busca aceita tanto o nome legível quanto o ID original.
+- **Elenco web / ZeroClaw:** personagens podem usar agentes fixos declarados pelo administrador, editar a persona
+  e solicitar vínculo de bot Telegram; a aplicação pelo host reinicia brevemente os personagens abertos.
 - **Zaplaud:** com "Resumir respostas" desligado, a resposta longa mostra na hora o começo dela em texto corrido,
   sem chamar modelo; tocar mostra a resposta completa. Vale no Android, iOS e desktop Rust.
 - **Zaplaud desktop:** O desktop Rust agora reconhece os controles disponíveis no ZeroClaw, permite interromper e iniciar conversas sem misturar rascunhos e esconde indicadores de contexto não confiáveis. Resumos HTTP funcionam sem Tiny. Aprovações e perguntas também mostram o resumo enviado pelo servidor.

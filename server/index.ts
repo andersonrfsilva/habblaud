@@ -24,6 +24,7 @@ import { NameStore } from './model/names';
 import { CastStore } from './model/cast';
 import { CastLauncher } from './cast/launcher';
 import { ZeroClawCast } from './cast/zeroclaw';
+import { NamedAgentSettings } from './cast/named';
 import { Office } from './model/office';
 import { RoomAliases } from './model/room-aliases';
 import { OmpSettings } from './sources/omp/settings';
@@ -93,7 +94,7 @@ if (legacyEnv) log.warn(legacyEnv);
 
 const names = new NameStore(join(config.dataDir, 'names.json'));
 names.load();
-const cast = new CastStore(join(config.dataDir, 'cast.json'));
+const cast = new CastStore(join(config.dataDir, 'cast.json'), { namedAliases: config.zeroclawCatalog?.named?.map((entry) => entry.alias) });
 cast.load();
 // Nomes de sala escolhidos pelo usuário (botão direito > Renomear).
 const roomAliases = new RoomAliases(join(config.dataDir, 'rooms.json'));
@@ -495,6 +496,7 @@ const api = createApiHandler({
   pty: ptys ? createPtyRoutes(ptys) : undefined,
   spawn,
   castLauncher,
+  castNamed: zeroclawConnector ? new NamedAgentSettings(config.dataDir, zeroclawConnector) : undefined,
   attachments,
   dictation,
   deliveries,

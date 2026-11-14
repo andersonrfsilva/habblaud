@@ -198,6 +198,26 @@ describe('recursos por runtime e catálogo do elenco', () => {
     expect(parseCastModelCatalog({ provider: 'omp', models: [], defaultModel: 42 })).toBeUndefined();
   });
 
+  it('expõe agentes fixos somente no ZeroClaw, mantendo a resposta antiga sem named', () => {
+    const base = { provider: 'zeroclaw', models: [], defaultModel: '' };
+    const named = [{ alias: 'editor01', model: 'openai/gpt-5' }];
+    expect(parseCastModelCatalog({ ...base, named })?.named).toEqual(named);
+    expect(parseCastModelCatalog(base)).not.toHaveProperty('named');
+    expect(parseCastModelCatalog({ ...base, named: [] })).not.toHaveProperty('named');
+    expect(parseCastModelCatalog({ ...base, provider: 'omp', named })).not.toHaveProperty('named');
+  });
+
+  it('rejeita catálogo com aliases fixos inválidos, repetidos ou modelos ausentes', () => {
+    const base = { provider: 'zeroclaw', models: [], defaultModel: '' };
+    for (const named of [
+      null, {}, [{ alias: 'a', model: 'x' }], [{ alias: 'Uppercase', model: 'x' }],
+      [{ alias: 'a_b', model: 'x' }], [{ alias: 'a'.repeat(25), model: 'x' }],
+      [{ alias: 'ok', model: '' }], [{ alias: 'ok' }],
+      [{ alias: 'ok', model: 'x' }, { alias: 'ok', model: 'y' }],
+    ]) expect(parseCastModelCatalog({ ...base, named })).toBeUndefined();
+    expect(parseCastModelCatalog({ ...base, named: [{ alias: 'a'.repeat(24), model: 'x' }] })?.named).toHaveLength(1);
+  });
+
   it('catálogo ausente ou inválido nunca inventa runtime ou opções OMP', () => {
     for (const raw of [null, {}, { provider: 'unknown', models: [], defaultModel: '' }, { provider: 'zeroclaw', models: [{ alias: 'm_1' }], defaultModel: 'm_1' }]) {
       expect(parseCastModelCatalog(raw)).toBeUndefined();

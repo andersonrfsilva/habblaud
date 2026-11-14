@@ -47,6 +47,18 @@ describe('ações do elenco', () => {
       expect(fetcher).toHaveBeenCalledWith('/api/agents/a%3A1/dismiss', expect.objectContaining({ method: 'POST' }));
     } finally { vi.unstubAllGlobals(); }
   });
+  it('envia agent null ao remover um vínculo fixo', async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    vi.stubGlobal('fetch', fetcher);
+    try {
+      const store = new OfficeStore();
+      const member = { id: 'ana', name: 'Ana', kind: 'main' as const, seed: 1, look: 'f' as const };
+      expect(await store.saveCast(member)).toBeUndefined();
+      expect(fetcher).toHaveBeenCalledWith('/api/cast/ana', expect.objectContaining({
+        method: 'PUT', body: JSON.stringify({ ...member, agent: null, match: null, model: null, instructions: null, idleMinutes: null, account: null }),
+      }));
+    } finally { vi.unstubAllGlobals(); }
+  });
 });
 
 describe('mensagens (store)', () => {

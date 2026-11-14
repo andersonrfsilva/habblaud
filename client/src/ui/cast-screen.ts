@@ -11,6 +11,7 @@ import { createAvatar } from './avatar';
 import { shortPath } from './spawn';
 import { filterModelGroups, modelGroups } from './format';
 import { castDefaultModel, castModelOptions, parseCastModelCatalog, validCastModel, type CastModelCatalog } from './provider';
+import { NamedCastSettings } from './cast-named';
 
 const HOST_OFF = (): string => tr('auxiliar do host desligado (npm run codex:bridge)');
 const active = (jobs: readonly CastJobInfo[], cast: string): CastJobInfo | undefined =>
@@ -195,6 +196,18 @@ export class CastScreen {
     const kind = h('select', { class: 'ui-rename__input' });
     for (const [value, label] of zeroclaw ? [['main', tr('Principal')]] : [['main', tr('Principal')], ['advisor', tr('Advisor')], ['sub', tr('Subagente')]]) kind.append(h('option', { text: label, attrs: { value } }));
     kind.value = member?.kind ?? 'main';
+    const binding = h('select', { class: 'ui-rename__input' });
+    binding.append(h('option', { text: tr('Sem agente fixo'), attrs: { value: '' } }));
+    const named = zeroclaw ? this.catalog.named ?? [] : [];
+    for (const item of named) {
+      const owner = this.members.find((other) => other.id !== member?.id && other.agent === item.alias);
+      const option = h('option', { text: owner
+        ? tr('{0} — em uso por {1}', [item.alias, owner.name])
+        : `${item.alias} · ${item.model}`, attrs: { value: item.alias } });
+      option.disabled = !!owner;
+      binding.append(option);
+    }
+    binding.value = member?.agent ?? '';
     const match = h('input', { class: 'ui-rename__input', type: 'text', attrs: { list: 'ui-cast-types' } });
     match.value = member?.match?.join(', ') ?? '';
     const suggestions = h('datalist', { attrs: { id: 'ui-cast-types' } });
@@ -257,22 +270,74 @@ export class CastScreen {
     lookSelect.append(h('option', { text: tr('Feminino'), attrs: { value: 'f' } }), h('option', { text: tr('Masculino'), attrs: { value: 'm' } }));
     lookSelect.value = look;
     lookSelect.addEventListener('change', () => { look = lookSelect.value === 'm' ? 'm' : 'f'; base = appearanceFromSeed(seed, { look }); fields.set({ ...base }); });
+    let persistedBinding: string | undefined;
     const save = h('button', { class: 'ui-btn ui-btn--primary', type: 'button', text: tr('Salvar'), on: { click: () => void (async () => {
+      if (persistedBinding) {
+        save.disabled = cancel.disabled = true;
+        try {
+          const result = await this.ctx.store.castList();
+          if ('error' in result) { error.textContent = result.error; return; }
+          this.members = result.members;
+          const saved = this.members.find((item) => item.agent === persistedBinding);
+          if (saved) this.edit(saved);
+          else error.textContent = tr('Erro ao carregar o elenco.');
+        } catch {
+          error.textContent = tr('Erro ao carregar o elenco.');
+        } finally {
+          save.disabled = cancel.disabled = false;
+        }
+        return;
+      }
       const types = match.value.split(',').map((v) => v.trim()).filter(Boolean);
       const problem = validateCast(name.value, types);
       if (problem || !fields.value) { error.textContent = problem ?? tr('Aparência inválida.'); return; }
-      if (zeroclaw && !validCastModel(this.catalog, model.value)) { error.textContent = tr('Escolha o modelo'); return; }
-      const body: Omit<CastMember, 'id'> = { name: name.value.trim(), look, seed, kind: kind.value as CastMember['kind'], parts: changedParts(base, fields.value), ...(kind.value === 'sub' ? { match: types } : {}), ...(kind.value === 'main' ? { ...(model.value ? { model: model.value } : {}), ...(instructions.value ? { instructions: instructions.value } : {}), idleMinutes: Number(idle.value), ...(!zeroclaw && account.value ? { account: account.value } : {}) } : {}) };
-      save.disabled = true;
-      const failure = await this.ctx.store.saveCast(member ? { ...body, id: member.id } : body, member ? undefined : agent?.id);
-      save.disabled = false;
-      if (failure) { error.textContent = failure; return; }
-      await this.open();
+      const bound = zeroclaw && binding.value;
+      if (bound && (!named.some((item) => item.alias === bound)
+        || this.members.some((other) => other.id !== member?.id && other.agent === bound))) {
+        error.textContent = tr('Este agente fixo não está disponível.'); return;
+      }
+      if (zeroclaw && !bound && !validCastModel(this.catalog, model.value)) { error.textContent = tr('Escolha o modelo'); return; }
+      const body: Omit<CastMember, 'id'> = { name: name.value.trim(), look, seed, kind: kind.value as CastMember['kind'], parts: changedParts(base, fields.value), ...(kind.value === 'sub' ? { match: types } : {}), ...(kind.value === 'main' ? { ...(bound ? { agent: bound } : { ...(model.value ? { model: model.value } : {}), ...(instructions.value ? { instructions: instructions.value } : {}) }), idleMinutes: Number(idle.value), ...(!zeroclaw && account.value ? { account: account.value } : {}) } : {}) };
+      save.disabled = binding.disabled = cancel.disabled = true;
+      try {
+        const failure = await this.ctx.store.saveCast(member ? { ...body, id: member.id } : body, member ? undefined : agent?.id);
+        if (failure) { error.textContent = failure; return; }
+        if (bound) {
+          persistedBinding = bound;
+          save.textContent = tr('Tentar novamente');
+          for (const control of this.content.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLButtonElement>('input, select, textarea, button')) control.disabled = true;
+          const result = await this.ctx.store.castList();
+          if ('error' in result) { error.textContent = result.error; return; }
+          this.members = result.members;
+          const saved = this.members.find((item) => item.agent === bound);
+          if (!saved) { error.textContent = tr('Erro ao carregar o elenco.'); return; }
+          this.edit(saved);
+        } else await this.open();
+      } catch {
+        error.textContent = tr('Não foi possível salvar as configurações do agente.');
+      } finally {
+        save.disabled = cancel.disabled = false;
+        binding.disabled = !!persistedBinding;
+      }
     })() } });
-    const cancel = h('button', { class: 'ui-btn', type: 'button', text: tr('Cancelar'), on: { click: () => this.showList() } });
+    const cancel = h('button', { class: 'ui-btn', type: 'button', text: tr('Cancelar'), on: { click: () => persistedBinding ? void this.open() : this.showList() } });
     const group = (title: string, ...children: HTMLElement[]) => h('section', { class: 'ui-set-group' }, h('h3', { text: title }), ...children);
-    const execution = group(tr('Execução'), field(tr('Modelo'), modelControl), field(tr('Instruções'), instructions),
-      field(tr('Ociosidade em minutos (0 = nunca)'), idle), ...(!zeroclaw ? [field(tr('Conta'), account)] : []));
+    const modelField = field(tr('Modelo'), modelControl);
+    const instructionsField = field(tr('Instruções'), instructions);
+    const settings = new NamedCastSettings(member?.id, member?.agent, (busy) => {
+      save.disabled = binding.disabled = cancel.disabled = busy;
+    });
+    const execution = group(tr('Execução'), ...(named.length ? [field(tr('Agente fixo'), binding)] : []), modelField, instructionsField,
+      field(tr('Ociosidade em minutos (0 = nunca)'), idle), ...(!zeroclaw ? [field(tr('Conta'), account)] : []),
+      ...(named.length ? [settings.el] : []));
+    const syncBinding = () => {
+      const bound = zeroclaw && !!binding.value;
+      modelField.hidden = instructionsField.hidden = bound;
+      model.disabled = instructions.disabled = bound;
+      settings.setBinding(binding.value);
+    };
+    binding.addEventListener('change', syncBinding);
+    syncBinding();
     const sub = group(tr('Subagente'), field(tr('Tipos de subagente (separados por vírgula; vazio = qualquer)'), match), suggestions);
     const syncKind = () => {
       execution.hidden = kind.value !== 'main';

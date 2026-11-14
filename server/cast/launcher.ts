@@ -5,7 +5,7 @@ import { CAST_IDLE_MINUTES, NEW_CAST_PREFIX, OMP_EDITABLE_ROLES, type AgentInfo,
 import { tr } from '../../shared/i18n';
 import { HOST_PRESENCE_MS, KEEP_MS, PROMPT_MAX, QUEUED_TIMEOUT_MS, SENT_TIMEOUT_MS } from '../spawn/spawn';
 import { normalizeCwd } from '../model/rooms';
-import { ZeroClawCast, type ZeroClawCastJob } from './zeroclaw';
+import { ZeroClawCast, type ZeroClawCatalog, type ZeroClawCastJob } from './zeroclaw';
 import type { ConnectorEvent } from '../sources/zeroclaw/connector';
 
 type Entry = ({ runtime: 'omp'; job: CastJob } | { runtime: 'zeroclaw'; job: ZeroClawCastJob }) & {
@@ -33,9 +33,10 @@ export class CastLauncher {
   private readonly now: () => number;
   constructor(private readonly opts: Options) { this.now = opts.now ?? Date.now; }
   available(): boolean { return this.opts.zeroclaw ? this.opts.zeroclaw.available() : this.now() - this.hostSeen <= HOST_PRESENCE_MS; }
-  models(): { provider: 'zeroclaw'; models: { alias: string; model: string }[]; defaultModel: string } | { provider: 'omp'; models: [] } {
+  models(): (ZeroClawCatalog & { provider: 'zeroclaw' }) | { provider: 'omp'; models: []; named?: never } {
     return this.opts.zeroclaw?.models() ?? { provider: 'omp', models: [] };
   }
+  namedAliases(): string[] { return this.opts.zeroclaw?.models().named?.map((entry) => entry.alias) ?? []; }
   isOpened(cast: string): boolean { this.syncZeroClaw(); return this.opened.has(cast); }
   isClosing(sessionId: string): boolean {
     return this.cleaningZeroClaw.has(sessionId) || [...this.entries.values()].some((e) =>
@@ -50,7 +51,7 @@ export class CastLauncher {
   start(id: string, raw: unknown): { job: CastJobInfo } | { status: number; error: string } {
     const member = this.opts.member(id);
     const body = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
-    if (!member || member.kind !== 'main' || (body.mode !== 'new' && body.mode !== 'resume') || (body.mode === 'new' && body.session !== undefined) || !validModel(body, this.opts.zeroclaw) || (body.prompt !== undefined && (typeof body.prompt !== 'string' || body.prompt.length > PROMPT_MAX || /^\s*-/.test(body.prompt))) || (member.model !== undefined && member.model.startsWith('-'))) return { status: 422, error: tr('pedido inválido') };
+    if (!member || member.kind !== 'main' || (member.agent !== undefined && (!this.opts.zeroclaw || !this.namedAliases().includes(member.agent))) || (body.mode !== 'new' && body.mode !== 'resume') || (body.mode === 'new' && body.session !== undefined) || (member.agent === undefined && !validModel(body, this.opts.zeroclaw)) || (body.prompt !== undefined && (typeof body.prompt !== 'string' || body.prompt.length > PROMPT_MAX || /^\s*-/.test(body.prompt))) || (member.agent === undefined && member.model !== undefined && member.model.startsWith('-'))) return { status: 422, error: tr('pedido inválido') };
     if (this.state(id) || this.opts.agents().some((a) => a.cast === id && a.status !== 'offline' && a.status !== 'done')) return { status: 409, error: tr('personagem ocupado') };
     const limit = this.limitError();
     if (limit) return limit;
@@ -73,8 +74,9 @@ export class CastLauncher {
       if (!/^[0-9a-f][0-9a-f-]{7,199}$/i.test(resume!)) return { status: 422, error: tr('pedido inválido') };
     }
     // ZeroClaw: `model` do pedido vale só nesta conversa nova; retomar segue o modelo em que a conversa começou.
-    if (this.opts.zeroclaw) return this.startZeroClaw({ cast: id, name: member.name, room, model: resume ? undefined : (body.model as string | undefined) ?? member.model,
-      resume, instructions: body.mode === 'new' ? member.instructions : undefined, prompt: body.prompt as string | undefined, account: body.account });
+    if (this.opts.zeroclaw) return this.startZeroClaw({ cast: id, name: member.name, room, agent: member.agent,
+      model: member.agent || resume ? undefined : (body.model as string | undefined) ?? member.model,
+      resume, instructions: member.agent === undefined && body.mode === 'new' ? member.instructions : undefined, prompt: body.prompt as string | undefined, account: body.account });
     if (!this.available()) return { status: 503, error: tr('auxiliar do host desligado (npm run codex:bridge)') };
     // A conversa mora na conta em que foi gravada: `account` do histórico vence a do personagem.
     if (body.account !== undefined && typeof body.account !== 'string') return { status: 422, error: tr('pedido inválido') };

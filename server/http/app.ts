@@ -4,6 +4,7 @@ import { gzipSync } from 'node:zlib';
 import { isAbsolute, join } from 'node:path';
 import { parseCastMember } from '../model/cast';
 import type { CastLauncher } from '../cast/launcher';
+import { NamedAgentSettings, PERSONA_MAX_CHARS, parseTelegramRequest } from '../cast/named';
 import type { AccessInfo, AgentInfo, ModSummary, OfficeSnapshot, SourceInfo, UpdateStatus } from '../../shared/types';
 import type { AccountsService } from '../accounts/service';
 import { handleCodexEvent } from '../codex/http';
@@ -91,6 +92,7 @@ export interface ApiDeps {
   /** Novo agente pelo escritório (/api/spawn e, para o auxiliar do host, /api/host/spawn/*; server/spawn/spawn.ts). */
   spawn?: SpawnService;
   castLauncher?: CastLauncher;
+  castNamed?: NamedAgentSettings;
   /** Pastas sugeridas no "Novo agente" (GET /api/spawn/folders; spawn/folders.ts): projetos recentes. */
   spawnFolders?: () => Promise<SpawnFolder[]>;
   /** Anexos do "Novo agente" (POST /api/spawn/attachments; spawn/attachments.ts). */
@@ -362,15 +364,16 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
     const data = body as Record<string, unknown>;
     if (data.match === null) delete old?.match;
     if (data.match === null) delete data.match;
-    for (const key of ['model', 'instructions', 'idleMinutes', 'account']) if (data[key] === null) {
+    for (const key of ['agent', 'model', 'instructions', 'idleMinutes', 'account']) if (data[key] === null) {
       if (old) delete (old as unknown as Record<string, unknown>)[key];
       delete data[key];
     }
     if (data.kind !== undefined && data.kind !== 'main' && old) delete old.last;
     // "Criar a partir deste agente": o nome dele não conta como conflito e ele já veste o personagem criado.
     const from = method === 'POST' && typeof data.from === 'string' ? data.from : undefined;
-    const member = parseCastMember({ ...old, ...data, id: id ?? office.cast.nextId(typeof data.name === 'string' ? data.name : '') });
+    const member = parseCastMember({ ...old, ...data, id: id ?? office.cast.nextId(typeof data.name === 'string' ? data.name : '') }, deps.castLauncher?.namedAliases());
     if (!member) throw new HttpError(400, tr('membro do elenco inválido'));
+    if (member.agent && office.cast.agentConflict(member.agent, member.id)) return sendJson(res, 409, { error: tr('Agente fixo já vinculado a outro personagem') });
     if (office.putCast(member, from) === 'conflict') return sendJson(res, 409, { error: tr('nome já está em uso') });
     return sendJson(res, method === 'POST' ? 201 : 200, { member });
   };
@@ -575,6 +578,36 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
           if ('error' in result) sendJson(res, result.status, { error: result.error });
           else sendJson(res, 202, result);
         }).catch((err) => fail(res, err));
+      }
+      return true;
+    }
+    const namedMatch = /^\/api\/cast\/([a-z0-9-]{1,40})\/(persona|telegram)$/.exec(path);
+    if (namedMatch) {
+      const allow = namedMatch[2] === 'persona' ? 'GET, PUT' : 'GET, PUT, DELETE';
+      if (!allow.split(', ').includes(method)) methodNotAllowed(res, allow);
+      else if (!deps.terminal || !trusted(req, 'terminal')) sendJson(res, 403, { error: denied(req, tr('o elenco só pode ser editado pelo próprio computador')) });
+      else {
+        const member = office.cast.get(namedMatch[1]);
+        const settings = deps.castNamed;
+        if (!member) sendJson(res, 404, { error: tr('membro do elenco não encontrado') });
+        else if (!settings || !member.agent || !deps.castLauncher?.namedAliases().includes(member.agent)) sendJson(res, 400, { error: tr('Personagem sem agente fixo configurado') });
+        else void (async () => {
+          if (namedMatch[2] === 'persona') {
+            if (method === 'GET') return sendJson(res, 200, { text: await settings.persona(member.agent!) });
+            const body = await readJson(req, 128_000);
+            if (!body || typeof body !== 'object' || !('text' in body) || typeof body.text !== 'string') throw new HttpError(400, tr('Persona inválida'));
+            if ([...body.text].length > PERSONA_MAX_CHARS) throw new HttpError(413, tr('Persona excede 20000 caracteres'));
+            return sendJson(res, 200, { text: await settings.persona(member.agent!, body.text) });
+          }
+          if (method === 'GET') return sendJson(res, 200, await settings.telegram(member.agent!));
+          if (method === 'DELETE') await settings.unlink(member.agent!);
+          else {
+            const request = parseTelegramRequest(await readJson(req, 4096));
+            if (!request) throw new HttpError(400, tr('Pedido Telegram inválido'));
+            await settings.link(member.agent!, request);
+          }
+          sendJson(res, 200, { ok: true });
+        })().catch((error) => fail(res, error));
       }
       return true;
     }
