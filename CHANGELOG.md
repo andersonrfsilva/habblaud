@@ -145,6 +145,9 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Elenco:** agente chamado como "Novo" (nome e visual sorteados) não perde mais o botão Dispensar ao trocar de
+  pasta ou de sessão. O servidor apagava o id `novo-…` nessas trocas, e sem ele a sessão deixava de contar como
+  aberta pelo Habblaud.
 - **Zaplaud:** quando o servidor recusa chamar um personagem, o Android/iOS e o desktop Rust mostram o motivo que
   ele mandou (por exemplo "só 1 personagem trabalha por vez: dispense o atual antes de chamar outro") em vez do
   genérico "Este contato está ocupado."; sem motivo no corpo, o texto genérico continua.
