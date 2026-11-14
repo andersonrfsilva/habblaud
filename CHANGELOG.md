@@ -176,6 +176,9 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Página:** ao confirmar uma troca entre omp e Antigravity, a conversa acompanha automaticamente o mesmo contato
+  quando ele reabre, inclusive os agentes chamados como "Novo". O acompanhamento dura até 90 segundos e é cancelado
+  se o pedido falhar ou se a pessoa escolher outra conversa.
 - **Elenco:** agente chamado como "Novo" (nome e visual sorteados) não perde mais o botão Dispensar ao trocar de
   pasta ou de sessão. O servidor apagava o id `novo-…` nessas trocas, e sem ele a sessão deixava de contar como
   aberta pelo Habblaud.
