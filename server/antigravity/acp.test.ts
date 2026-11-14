@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { Duplex } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
-import { agyArgs, AntigravityClient, AuthRequired, type AcpEvent } from './acp';
+import { agyArgs, AntigravityClient, AuthRequired, UnknownModel, type AcpEvent } from './acp';
 
 const fake = fileURLToPath(new URL('./fake-agy.mjs', import.meta.url));
 const clients: AntigravityClient[] = [];
@@ -158,5 +158,42 @@ describe('Antigravity ACP', () => {
       expect(JSON.parse(await readFile(argv, 'utf8'))).toEqual(agyArgs({ skipPermissions }));
       await client.close(sessionId);
     }
+  });
+});
+
+describe('Antigravity cast metadata', () => {
+  it('applies model after new and exposes cast and model options', async () => {
+    const trace = join(await folder(), 'trace.ndjson');
+    const { client, events } = fixture({ FAKE_AGY_TRACE_FILE: trace });
+    const { sessionId } = await client.open({ cwd: '/tmp', model: 'fake-b', cast: 'alice' });
+    expect(events.find(event => event.type === 'session-open')).toMatchObject({
+      cast: 'alice', info: { model: 'fake-b', modelOptions: [{ value: 'fake-a', name: 'Fake A' }, { value: 'fake-b', name: 'Fake B' }] },
+    });
+    expect(client.session(sessionId)).toMatchObject({ cast: 'alice', model: 'fake-b' });
+    expect(client.sessions()).toContainEqual(client.session(sessionId));
+    const requests = (await readFile(trace, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+    expect(requests.map(message => message.method)).toEqual(['initialize', 'session/new', 'session/set_config_option']);
+    expect(requests[2].params).toEqual({ sessionId, configId: 'model', value: 'fake-b' });
+  });
+  it('closes unknown models without publishing an open session', async () => {
+    const trace = join(await folder(), 'trace.ndjson');
+    const { client, events } = fixture({ FAKE_AGY_TRACE_FILE: trace });
+    await expect(client.open({ cwd: '/tmp', model: 'missing' })).rejects.toBeInstanceOf(UnknownModel);
+    expect(events.some(event => event.type === 'session-open')).toBe(false);
+    expect(client.sessions()).toEqual([]);
+    const requests = (await readFile(trace, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+    expect(requests.map(message => message.method)).toEqual(['initialize', 'session/new', 'session/set_config_option', 'session/close']);
+  });
+  it('reapplies model after resume resets the CLI default', async () => {
+    const { client, events } = fixture();
+    const first = await client.open({ cwd: '/tmp', model: 'fake-b' });
+    await client.close(first.sessionId);
+    await client.open({ cwd: '/tmp', resume: first.sessionId, model: 'fake-b', cast: 'alice' });
+    expect(events.filter(event => event.type === 'session-open').at(-1)).toMatchObject({
+      resumed: true, cast: 'alice', info: { model: 'fake-b' },
+    });
+    await client.close(first.sessionId);
+    await client.open({ cwd: '/tmp', resume: first.sessionId });
+    expect(client.session(first.sessionId)?.model).toBe('fake-a');
   });
 });

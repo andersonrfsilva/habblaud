@@ -6,6 +6,7 @@ if (process.env.FAKE_AGY_ARGV_FILE) writeFileSync(process.env.FAKE_AGY_ARGV_FILE
 const send = message => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\n');
 const sessions = new Map();
 const permissions = new Map();
+const configOptions = currentValue => [{ id: 'model', currentValue, options: [{ value: 'fake-a', name: 'Fake A' }, { value: 'fake-b', name: 'Fake B' }] }];
 let sequence = 0;
 let delayedNew;
 const update = (sessionId, value) => send({ method: 'session/update', params: { sessionId, update: value } });
@@ -40,14 +41,23 @@ lines.on('line', line => {
     case 'session/resume': {
       if (process.env.FAKE_AGY_AUTH === '0') { send({ id, error: { code: -32000, message: 'Authentication required' } }); break; }
       const sessionId = params.sessionId ?? randomUUID();
-      sessions.set(sessionId, { cwd: params.cwd });
-      const response = { id, result: { sessionId, models: { currentModelId: 'fake-model', availableModels: [{ modelId: 'fake-model', name: 'Fake' }] }, _meta: { antigravity: { tier: { name: 'Test' } } } } };
+      sessions.set(sessionId, { cwd: params.cwd, model: 'fake-a' });
+      const response = { id, result: { sessionId, configOptions: configOptions('fake-a'), models: { currentModelId: 'fake-model', availableModels: [{ modelId: 'fake-model', name: 'Fake' }] }, _meta: { antigravity: { tier: { name: 'Test' } } } } };
       if (method === 'session/new' && process.env.FAKE_AGY_REVERSE_NEW_PAIR === '1') {
         if (!delayedNew) { delayedNew = response; break; }
         send(response);
         send(delayedNew);
         delayedNew = undefined;
       } else send(response);
+      break;
+    }
+    case 'session/set_config_option': {
+      if (!['fake-a', 'fake-b'].includes(params.value)) {
+        send({ id, error: { code: -32602, message: `Unknown model ID: ${params.value}` } }); break;
+      }
+      sessions.get(params.sessionId).model = params.value;
+      send({ id, result: { configOptions: configOptions(params.value) } });
+      update(params.sessionId, { sessionUpdate: 'config_option_update', configOptions: configOptions(params.value) });
       break;
     }
     case 'session/list':
