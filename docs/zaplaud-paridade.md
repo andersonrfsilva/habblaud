@@ -46,3 +46,8 @@ vai para a tabela abaixo, com o motivo. Textos ficam em `android/shared/src/comm
   `cargo test -p zaplaud-store -j 4` e `cargo build --release -j 4`, em `zaplaud-rs/`.
   Os testes de `zaplaud-ui` e os roteiros com display **não foram rodados**; a validação é manual, do dono.
 - Os dois usam o mesmo servidor de teste, `scripts/android-smoke.ts`.
+
+No Rust, confirmar a troca de ferramenta acompanha automaticamente o contato pelo mesmo `cast` e origem,
+inclusive contatos “Novo”, usando a seleção existente de conversa. A espera dura até 90 segundos e termina
+quando o sucessor aberto aparece, o comando falha ou a pessoa seleciona outra conversa. Sem `cast`, não há espera.
+Essa mudança foi verificada com clippy, testes do núcleo e compilação release, sem abrir janela.
