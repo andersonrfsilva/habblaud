@@ -428,7 +428,7 @@ function switchingSetup(folder?: string) {
   const directory = mkdtempSync(join(tmpdir(), 'tool-switch-'));
   const trace = join(directory, 'trace.ndjson');
   const children: ChildProcess[] = [];
-  const client = new AntigravityClient({ bin: 'unused', version: 'test', skipPermissions: false, connect: () => {
+  const client = new AntigravityClient({ bin: 'unused', version: 'test', skipPermissions: false, additionalDirectories: [join(directory, 'handoff')], connect: () => {
     const child = spawn(process.execPath, [fileURLToPath(new URL('../antigravity/fake-agy.mjs', import.meta.url))],
       { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, FAKE_AGY_TRACE_FILE: trace } });
     children.push(child);
