@@ -287,8 +287,8 @@ export component ConversationMenu inherits Rectangle {
                 label: ConversationViewState.deliver-label; group: true; detail: ComposerState.mode-labels[ComposerState.mode-index];
                 clicked => { ConversationViewState.menu-page = "deliver"; }
             }
-            if ComposerState.omp-tools && (ConversationViewState.models.length > 0 || ConversationViewState.model-filter-visible): MenuAction {
-                label: ConversationViewState.model-label; detail: ConversationViewState.model-detail; group: true; enabled: ComposerState.can-shake;
+            if ComposerState.model-choice && (ConversationViewState.models.length > 0 || ConversationViewState.model-filter-visible): MenuAction {
+                label: ConversationViewState.model-label; detail: ConversationViewState.model-detail; group: true; enabled: ComposerState.stop-enabled;
                 clicked => { ConversationViewState.menu-page = "model"; }
             }
             if ComposerState.omp-tools: MenuAction {

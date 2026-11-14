@@ -27,6 +27,7 @@ fun snapshotModels(snapshot: String): List<String> =
     }.distinct().sorted()
 
 private val PROVIDER_LABELS = mapOf(
+    "agy" to "Antigravity",
     "anthropic" to "Anthropic",
     "openai" to "OpenAI",
     "openai-codex" to "OpenAI Codex",

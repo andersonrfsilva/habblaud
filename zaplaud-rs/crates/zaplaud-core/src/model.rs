@@ -153,6 +153,7 @@ pub struct SessionItem {
     pub avatar: Option<Avatar>,
     pub cast: Option<String>,
     pub cast_opened: bool,
+    pub handoff: bool,
     pub permission_question: bool,
     pub character_name: Option<String>,
     pub context_tokens: Option<i64>,
@@ -206,6 +207,7 @@ impl SessionItem {
             avatar: Avatar::parse(o),
             cast: string(o, "cast"),
             cast_opened: flag(o, "castOpened"),
+            handoff: flag(o, "handoff"),
             permission_question: permission
                 .is_some_and(|v| objects(v, "questions").next().is_some()),
             character_name: if string(o, "kind").as_deref() == Some("main") {
@@ -423,9 +425,9 @@ impl SessionCollection {
                         .cast
                         .iter()
                         .filter(|v| {
-                            matches!(item.key.provider.as_str(), "omp" | "zeroclaw")
+                            matches!(item.key.provider.as_str(), "omp" | "zeroclaw" | "antigravity")
                                 && string(v, "provider").is_none_or(|p| p == item.key.provider)
-                                && string(v, "account").is_none_or(|a| a == item.key.account)
+                                && (item.key.provider == "antigravity" || string(v, "account").is_none_or(|a| a == item.key.account))
                                 && v.get("last")
                                     .and_then(Value::as_object)
                                     .is_some_and(|last| {
@@ -695,6 +697,7 @@ pub struct CachedConversation {
 pub struct CommandResult {
     pub kind: String,
     pub status: String,
+    pub reason: Option<String>,
 }
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ComposerState {
@@ -1094,6 +1097,7 @@ pub struct CastCatalog {
     pub runtime: Option<String>,
     pub models: Vec<CastModel>,
     pub default_model: Option<String>,
+    pub agy: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CastModel {
@@ -1113,6 +1117,7 @@ impl CastCatalog {
                 })
                 .collect(),
             default_model: string(value, "defaultModel"),
+            agy: value.get("agyModels").and_then(Value::as_array).is_some_and(|models| !models.is_empty()),
         }
     }
 }
