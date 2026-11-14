@@ -97,7 +97,7 @@ impl State {
         choices
     }
     pub fn can_resume(&self, selected: &SessionItem) -> bool {
-        crate::rules::composer::can_resume_cast(selected, self.runtime.as_deref())
+        crate::rules::composer::can_resume_cast(selected, self.runtime.as_deref(), self.catalog.agy)
     }
     pub fn can_dismiss(&self, selected: &SessionItem) -> bool {
         selected.agent_id.is_some()

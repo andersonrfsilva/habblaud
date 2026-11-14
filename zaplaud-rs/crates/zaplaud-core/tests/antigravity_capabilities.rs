@@ -74,3 +74,56 @@ fn command_reasons_come_from_server_and_switch_disappearance_is_silent() {
     assert!(effects.is_empty());
     assert!(state.composer.command_result.is_none());
 }
+
+#[test]
+fn historical_owner_requires_unique_matching_last_but_not_account() {
+    use serde_json::json;
+    let session = item();
+    let owner = json!({"id":"owner", "provider":"antigravity", "account":"different", "last":{"/fixture/project":session.key.session_id}});
+    let mut collection = SessionCollection {
+        recent: vec![session],
+        cast: vec![owner.clone()],
+        ..SessionCollection::default()
+    };
+    assert_eq!(collection.sessions()[0].cast.as_deref(), Some("owner"));
+    collection.cast.push(owner);
+    assert!(collection.sessions()[0].cast.is_none());
+    collection.cast.pop();
+    collection.cast[0]["provider"] = json!("omp");
+    assert!(collection.sessions()[0].cast.is_none());
+    collection.cast[0]["provider"] = json!("antigravity");
+    collection.cast[0]["last"] = json!({});
+    assert!(collection.sessions()[0].cast.is_none());
+}
+#[test]
+fn resume_uses_antigravity_catalog_independently_of_runtime() {
+    use serde_json::json;
+    use zaplaud_core::controller::cast;
+    let mut closed = item();
+    closed.agent_id = None;
+    for runtime in [None, Some("omp"), Some("zeroclaw")] {
+        let mut state = cast::State {
+            runtime: runtime.map(str::to_owned),
+            catalog: CastCatalog::parse(&json!({"agyModels":["agy/default"]})),
+            ..cast::State::default()
+        };
+        assert!(state.can_resume(&closed));
+        assert!(!state.can_resume(&item()));
+        state.catalog = CastCatalog::parse(&json!({"agyModels":[]}));
+        assert!(!state.can_resume(&closed));
+    }
+    for value in [json!({}), json!({"agyModels":null}), json!({"agyModels":"agy/default"})] {
+        assert!(!CastCatalog::parse(&value).agy);
+    }
+    for provider in ["omp", "zeroclaw"] {
+        closed.key.provider = provider.into();
+        assert!(can_resume_cast(&closed, Some(provider), false));
+        assert!(!can_resume_cast(&closed, None, true));
+    }
+    closed.key.provider = "antigravity".into();
+    closed.project = Some("relative".into());
+    assert!(!can_resume_cast(&closed, None, true));
+    closed.project = Some("/fixture/project".into());
+    closed.key.session_id = "invalid".into();
+    assert!(!can_resume_cast(&closed, None, true));
+}

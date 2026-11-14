@@ -425,9 +425,9 @@ impl SessionCollection {
                         .cast
                         .iter()
                         .filter(|v| {
-                            matches!(item.key.provider.as_str(), "omp" | "zeroclaw")
+                            matches!(item.key.provider.as_str(), "omp" | "zeroclaw" | "antigravity")
                                 && string(v, "provider").is_none_or(|p| p == item.key.provider)
-                                && string(v, "account").is_none_or(|a| a == item.key.account)
+                                && (item.key.provider == "antigravity" || string(v, "account").is_none_or(|a| a == item.key.account))
                                 && v.get("last")
                                     .and_then(Value::as_object)
                                     .is_some_and(|last| {
@@ -1097,6 +1097,7 @@ pub struct CastCatalog {
     pub runtime: Option<String>,
     pub models: Vec<CastModel>,
     pub default_model: Option<String>,
+    pub agy: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CastModel {
@@ -1116,6 +1117,7 @@ impl CastCatalog {
                 })
                 .collect(),
             default_model: string(value, "defaultModel"),
+            agy: value.get("agyModels").and_then(Value::as_array).is_some_and(|models| !models.is_empty()),
         }
     }
 }

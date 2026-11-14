@@ -1674,11 +1674,11 @@ pub struct CastAvailability {
     pub free: Vec<CastChoice>,
     pub resume_choices: Vec<CastChoice>,
 }
-pub fn can_resume_cast(selected: &SessionItem, runtime: Option<&str>) -> bool {
+pub fn can_resume_cast(selected: &SessionItem, runtime: Option<&str>, agy: bool) -> bool {
     let id = selected.key.session_id.as_bytes();
     selected.agent_id.is_none()
         && supports_session_control(&selected.key.provider)
-        && runtime == Some(selected.key.provider.as_str())
+        && if selected.key.provider == "antigravity" { agy } else { runtime == Some(selected.key.provider.as_str()) }
         && selected
             .project
             .as_deref()
@@ -1717,7 +1717,7 @@ pub fn cast_availability(
         .collect();
     let mut resume_choices = free.clone();
     resume_choices.sort_by_key(|character| std::cmp::Reverse(Some(character) == current));
-    let resume = selected.is_some_and(|selected| can_resume_cast(selected, runtime));
+    let resume = selected.is_some_and(|selected| can_resume_cast(selected, runtime, false));
     let dismiss = selected.is_some_and(|selected| {
         selected.agent_id.is_some() && selected.cast_opened && (current.is_some() || new_agent)
     });
