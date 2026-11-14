@@ -45,7 +45,7 @@ import {
 import { access } from '../net/access';
 import { PermissionCard } from './permission';
 import { canRenameRoom } from './roomrename';
-import { accountChipLabel, accountProvider, CODEX_LIVE_HINT, codexApprovalLabel, crossesTool, modelGroups, PROVIDER_NAME, providerOf, runtimeAllowsModelChoice, runtimeAllowsThinking } from './provider';
+import { accountChipLabel, accountProvider, CODEX_LIVE_HINT, codexApprovalLabel, crossesTool, modelGroups, PROVIDER_NAME, providerOf, runtimeAllowsModelChoice, runtimeAllowsThinking, switchSuccessor } from './provider';
 import { ptyControllable } from './ptyapi';
 import { favorites, pins, sessionKey } from './favorites';
 import { createFavStar, favoriteSessionOf, updateFavStar } from './favstar';
@@ -203,6 +203,7 @@ class AgentView {
   readonly el: HTMLElement;
   private id = '';
   private last: AgentInfo | null = null;
+  private pendingSwitch: { id: string; cast: string; expiresAt: number } | null = null;
   private history: Activity[] = [];
   private historyReq = 0;
   /** Sobe ao trocar ao vivo ↔ replay ou ao retroceder: a resposta da geração anterior não entra. */
@@ -515,6 +516,21 @@ class AgentView {
 
   get agentId(): string {
     return this.id;
+  }
+
+  followSwitch(): void {
+    const pending = this.pendingSwitch;
+    if (!pending) return;
+    const selected = this.ctx.selection();
+    if (Date.now() >= pending.expiresAt || selected?.type !== 'agent' || selected.id !== pending.id) {
+      this.pendingSwitch = null;
+      return;
+    }
+    const successor = switchSuccessor(this.ctx.store.snapshot?.agents ?? [], pending);
+    if (successor) {
+      this.pendingSwitch = null;
+      this.ctx.select({ type: 'agent', id: successor.id });
+    }
   }
 
   open(id: string): void {
@@ -905,10 +921,15 @@ class AgentView {
   private async control(change: { model?: string; thinking?: string }): Promise<void> {
     const agentId = this.id;
     if (!agentId || (change.model !== undefined && !change.model)) return;
+    const pending = change.model && crossesTool(this.last?.provider, change.model) && this.last?.cast
+      ? { id: agentId, cast: this.last.cast, expiresAt: Date.now() + 90_000 }
+      : null;
+    if (pending) this.pendingSwitch = pending;
     this.sayControl(tr('Enviando…'));
     try {
       const r = await this.ctx.store.controlAgent(agentId, change);
       if ('error' in r) {
+        if (this.pendingSwitch === pending) this.pendingSwitch = null;
         this.resyncControls();
         return this.sayControl(r.error, true);
       }
@@ -917,12 +938,14 @@ class AgentView {
         const m = await this.ctx.store.messageStatus(r.message.id);
         if (!m || m.status === 'delivered') return this.sayControl(tr('Aplicado: o omp mostra a mudança em instantes.'));
         if (m.status === 'failed') {
+          if (this.pendingSwitch === pending) this.pendingSwitch = null;
           this.resyncControls();
           return this.sayControl(m.error ?? tr('o omp não aplicou a troca'), true);
         }
       }
       this.sayControl(tr('O omp ainda não confirmou a troca.'), true);
     } catch {
+      if (this.pendingSwitch === pending) this.pendingSwitch = null;
       this.resyncControls();
       this.sayControl(OFFLINE_ERROR, true);
     }
@@ -1225,6 +1248,7 @@ export class Drawer implements UiComponent {
   }
 
   render(): void {
+    this.agentView.followSwitch();
     const sel = this.ctx.selection();
     const mode = sel?.type ?? null;
     if (mode !== this.mode) {

@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { appendFileSync, writeFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
+import { isAbsolute, relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 if (process.env.FAKE_AGY_ARGV_FILE) writeFileSync(process.env.FAKE_AGY_ARGV_FILE, JSON.stringify(process.argv.slice(2)));
 const send = message => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\n');
@@ -35,13 +37,13 @@ lines.on('line', line => {
   }
   switch (method) {
     case 'initialize':
-      send({ id, result: { protocolVersion: 1, agentInfo: { name: 'Antigravity ACP Server', version: '1.5.9' }, agentCapabilities: { sessionCapabilities: { resume: {}, close: {}, load: {}, list: {} } } } });
+      send({ id, result: { protocolVersion: 1, agentInfo: { name: 'Antigravity ACP Server', version: '1.5.9' }, agentCapabilities: { sessionCapabilities: { resume: {}, close: {}, load: {}, list: {}, additionalDirectories: {} } } } });
       break;
     case 'session/new':
     case 'session/resume': {
       if (process.env.FAKE_AGY_AUTH === '0') { send({ id, error: { code: -32000, message: 'Authentication required' } }); break; }
       const sessionId = params.sessionId ?? randomUUID();
-      sessions.set(sessionId, { cwd: params.cwd, model: 'fake-a' });
+      sessions.set(sessionId, { cwd: params.cwd, additionalDirectories: params.additionalDirectories ?? [], model: 'fake-a' });
       const response = { id, result: { sessionId, configOptions: configOptions('fake-a'), models: { currentModelId: 'fake-model', availableModels: [{ modelId: 'fake-model', name: 'Fake' }] }, _meta: { antigravity: { tier: { name: 'Test' } } } } };
       if (method === 'session/new' && process.env.FAKE_AGY_REVERSE_NEW_PAIR === '1') {
         if (!delayedNew) { delayedNew = response; break; }
@@ -73,8 +75,18 @@ lines.on('line', line => {
       const text = params.prompt.filter(block => block.type === 'text').map(block => block.text).join('\n');
       for (const content of params.prompt) update(sessionId, { sessionUpdate: 'user_message_chunk', content });
       if (text === 'sleep') break;
-      if (text.startsWith('tool:')) {
-        const toolCall = { sessionUpdate: 'tool_call', toolCallId: `call_${++sequence}`, name: 'run_command', kind: 'execute', title: text.slice(5), rawInput: { CommandLine: text.slice(5) }, status: 'in_progress' };
+      const outside = params.prompt.find(block => {
+        if (block.type !== 'resource_link') return false;
+        const path = fileURLToPath(block.uri);
+        return ![session.cwd, ...session.additionalDirectories].some(directory => {
+          const child = relative(directory, path);
+          return child !== '..' && !child.startsWith('../') && !isAbsolute(child);
+        });
+      });
+      if (text.startsWith('tool:') || outside) {
+        const toolCall = outside
+          ? { sessionUpdate: 'tool_call', toolCallId: `call_${++sequence}`, name: 'read_file', kind: 'read', title: `File ${fileURLToPath(outside.uri)}`, rawInput: { Path: fileURLToPath(outside.uri) }, status: 'in_progress' }
+          : { sessionUpdate: 'tool_call', toolCallId: `call_${++sequence}`, name: 'run_command', kind: 'execute', title: text.slice(5), rawInput: { CommandLine: text.slice(5) }, status: 'in_progress' };
         update(sessionId, toolCall);
         if (process.argv.includes('--dangerously-skip-permissions')) { completeTool(sessionId, toolCall, true); break; }
         update(sessionId, { ...toolCall, sessionUpdate: 'tool_call_update', status: 'pending' });

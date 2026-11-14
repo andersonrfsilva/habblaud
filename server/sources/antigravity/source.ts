@@ -40,6 +40,9 @@ export class AntigravitySource implements AgentSource {
     for (const tracker of this.trackers.values()) if (tracker.open) { tracker.open = false; this.opts.office.closeMain(tracker.id); }
   }
   async flush(): Promise<void> { await this.pending; }
+  expectUser(sessionId: string, sent: string, shown: string): void {
+    this.opts.mirror.expectUser(sessionId, sent, shown);
+  }
   /** Troca a sessão de um agente: `open` abre a nova (com `replaces: oldSessionId`); o agente continua o mesmo. */
   async replace(oldSessionId: string, open: () => Promise<{ sessionId: string }>): Promise<string> {
     const previous = this.trackers.get(oldSessionId);
@@ -62,6 +65,7 @@ export class AntigravitySource implements AgentSource {
     if (event.type === 'diagnostic') return;
     const { office } = this.opts;
     if (event.type === 'session-open') {
+      this.opts.mirror.open(event.sessionId, event.cwd);
       this.catalog.learn(event.info.modelOptions);
       const oldSession = event.replaces && this.replacing.has(event.replaces) ? this.trackers.get(event.replaces) : undefined;
       const previous = oldSession?.open && !oldSession.replaced && office.has(oldSession.id) ? oldSession : undefined;

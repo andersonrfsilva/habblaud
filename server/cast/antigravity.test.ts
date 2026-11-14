@@ -57,7 +57,7 @@ describe('Antigravity cast', () => {
     expect(s.client.session(sessionId)).toMatchObject({ cast: 'novo-alice', model: 'fake-b' });
     s.cast.deliver(job, `antigravity:${sessionId}`, sessionId);
     expect(s.requests().some(message => message.method === 'session/prompt')).toBe(false);
-    expect(s.cast.owns(sessionId)).toBe(false);
+    expect(s.cast.owns(sessionId)).toBe(true);
     s.cast.deliver({ ...job, text: 'Olá' }, `antigravity:${sessionId}`, sessionId);
     await expect.poll(() => s.requests().filter(message => message.method === 'session/prompt').length).toBe(1);
     expect(s.requests().find(message => message.method === 'session/prompt').params.prompt[0].text).toBe('Instruções do personagem:\nSeja breve\n\nPedido inicial:\nOlá');

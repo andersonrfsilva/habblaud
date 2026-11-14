@@ -19,6 +19,7 @@ import { createApiHandler } from './app';
 import { createRequestGuard } from './guard';
 import { Hub } from './sse';
 import { MAX_STREAMS, TerminalStreams, type TerminalOptions } from './terminal';
+import { AntigravityMirror } from '../sources/antigravity/mirror';
 
 setQuiet(true);
 
@@ -166,6 +167,23 @@ async function serve(opts: { terminal?: boolean; streams?: Partial<TerminalOptio
       }),
   };
 }
+
+it('serves an empty init for a newly opened Antigravity conversation', async () => {
+  const env = await serve();
+  try {
+    const sessionId = '7f2c9ee1-2bdd-49ea-b431-3d56fc046301';
+    const id = `antigravity:${sessionId}`;
+    const mirror = new AntigravityMirror({ dataDir: env.dir });
+    mirror.open(sessionId, '/tmp');
+    env.office.addMain({ id, sessionId, provider: 'antigravity', account: 'antigravity', cwd: '/tmp', role: 'main', startedAt: 0, status: 'idle' });
+    env.paths.set(id, mirror.pathOf(sessionId));
+    const stream = await open(env.base, route(id));
+    expect(stream.status).toBe(200);
+    await waitFor(() => expect(inits(stream)).toHaveLength(1));
+    expect(inits(stream)[0].entries).toEqual([]);
+    stream.close();
+  } finally { await env.close(); }
+});
 
 interface Sse {
   status: number;

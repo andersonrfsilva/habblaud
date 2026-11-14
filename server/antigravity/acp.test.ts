@@ -23,9 +23,9 @@ afterEach(async () => {
   }
   for (const folder of folders.splice(0)) await rm(folder, { recursive: true, force: true });
 });
-function fixture(env: NodeJS.ProcessEnv = {}) {
+function fixture(env: NodeJS.ProcessEnv = {}, additionalDirectories?: string[]) {
   const events: AcpEvent[] = [];
-  const client = new AntigravityClient({ bin: 'unused', skipPermissions: false, version: '1.0.3', connect: () => {
+  const client = new AntigravityClient({ bin: 'unused', skipPermissions: false, version: '1.0.3', additionalDirectories, connect: () => {
     const child = spawn(process.execPath, [fake], { env: { ...process.env, ...env }, stdio: ['pipe', 'pipe', 'pipe'] });
     children.push(child);
     return Duplex.from({ readable: child.stdout, writable: child.stdin });
@@ -45,6 +45,34 @@ async function permission(events: AcpEvent[]) {
 }
 
 describe('Antigravity ACP', () => {
+  it('sends only absolute additional directories on new and resume', async () => {
+    const directory = await folder();
+    const trace = join(directory, 'trace.ndjson');
+    const { client } = fixture({ FAKE_AGY_TRACE_FILE: trace }, [directory]);
+    const { sessionId } = await client.open({ cwd: '/project' });
+    await client.close(sessionId);
+    await client.open({ cwd: '/project', resume: sessionId });
+    const requests = (await readFile(trace, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+    for (const method of ['session/new', 'session/resume']) {
+      expect(requests.find(request => request.method === method).params.additionalDirectories).toEqual([directory]);
+    }
+    expect(() => new AntigravityClient({ bin: 'unused', version: 'test', skipPermissions: false, additionalDirectories: ['relative'] })).toThrow('absolute');
+  });
+  it.each([false, true])('context link permission follows declared directory: %s', async declared => {
+    const directory = await folder();
+    const { client, events } = fixture({}, declared ? [directory] : undefined);
+    const { sessionId } = await client.open({ cwd: '/project' });
+    await client.prompt(sessionId, 'Read context', [{ path: join(directory, 'context.md'), name: 'context.md' }]);
+    if (declared) {
+      await expect.poll(() => client.session(sessionId)?.busy).toBe(false);
+      expect(events.filter(event => event.type === 'permission')).toEqual([]);
+    } else {
+      const request = await permission(events);
+      expect(request.toolCall).toMatchObject({ name: 'read_file', rawInput: { Path: join(directory, 'context.md') } });
+      client.answerPermission(sessionId, request.requestId, 'reject_once');
+      await expect.poll(() => client.session(sessionId)?.busy).toBe(false);
+    }
+  });
   it('fixa todos os argumentos do binário', () => {
     expect(agyArgs({ skipPermissions: false })).toEqual(['acp']);
     expect(agyArgs({ skipPermissions: true })).toEqual(['acp', '--dangerously-skip-permissions']);

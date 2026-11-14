@@ -4,7 +4,7 @@
 // Identidade visual do Codex e do omp (sem logotipo de ninguém): o chip da conta fica "vazado" (fundo escuro, borda e
 // letra na cor da conta, cantos em degrau; o do omp tem o canto cortado só em cima, para os dois não se confundirem) e,
 // onde há espaço, um selo de texto ("Codex", "omp") ao lado do nome.
-import type { AccountInfo, CastMember, OfficeSnapshot, Provider } from '../../../shared/types';
+import type { AccountInfo, AgentInfo, CastMember, OfficeSnapshot, Provider } from '../../../shared/types';
 import { shortcutHint } from './model';
 import { isNeutralBrand, tr, unbrand } from '../../../shared/i18n';
 import type { OmpDeliverAs } from '../../../shared/messages';
@@ -21,6 +21,12 @@ export function runtimeAllowsThinking(provider: unknown): boolean {
 
 export function crossesTool(agentProvider: unknown, model: string): boolean {
   return runtimeAllowsModelChoice(agentProvider) && isAgyModel(model) !== (agentProvider === 'antigravity');
+}
+
+export function switchSuccessor(agents: AgentInfo[], from: { id: string; cast?: string }): AgentInfo | undefined {
+  if (!from.cast) return undefined;
+  return agents.find((agent) => agent.cast === from.cast && agent.id !== from.id && agent.kind === 'main'
+    && agent.status !== 'offline' && agent.status !== 'done');
 }
 
 export function agyGroupLabel(): string { return PROVIDER_NAME.antigravity; }

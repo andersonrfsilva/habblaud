@@ -428,7 +428,7 @@ function switchingSetup(folder?: string) {
   const directory = mkdtempSync(join(tmpdir(), 'tool-switch-'));
   const trace = join(directory, 'trace.ndjson');
   const children: ChildProcess[] = [];
-  const client = new AntigravityClient({ bin: 'unused', version: 'test', skipPermissions: false, connect: () => {
+  const client = new AntigravityClient({ bin: 'unused', version: 'test', skipPermissions: false, additionalDirectories: [join(directory, 'handoff')], connect: () => {
     const child = spawn(process.execPath, [fileURLToPath(new URL('../antigravity/fake-agy.mjs', import.meta.url))],
       { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, FAKE_AGY_TRACE_FILE: trace } });
     children.push(child);
@@ -654,20 +654,22 @@ describe('troca de ferramenta com contexto', () => {
     await s.human('BETA');
     expect(s.requests().find(r => r.method === 'session/prompt').params.prompt[0].type).toBe('resource_link');
   });
-  it('7: Novo muda id e leva contexto em ambas as direções, inclusive modelo omp explícito', async () => {
+  it('7: Novo mantém id e leva contexto em ambas as direções, inclusive modelo omp explícito', async () => {
     const s = switchingSetup();
     await s.done(s.launcher.startNew({}));
     const first = s.current().cast!;
     s.transcript('ALFA');
     await s.switchTo('agy/fake-b');
     const second = s.current().cast!;
-    expect(second).not.toBe(first);
-    expect(s.handoff.last(first)).toBeUndefined();
+    expect(second).toBe(first);
+    expect(s.handoff.last(first)).toBe(s.handoff.pending(second));
     expect(s.handoff.pending(second)).toBeDefined();
     await s.switchTo('omp/explicit');
-    expect(s.current().cast).not.toBe(second);
+    expect(s.current().cast).toBe(second);
     expect(s.jobs.filter(j => j.op === 'start').at(-1)?.model).toBe('omp/explicit');
     expect(readFileSync(s.handoff.pending(s.current().cast!)!, 'utf8')).toContain('ALFA');
+    await s.human('BETA');
+    expect(s.handoff.pending(first)).toBeUndefined();
   });
   it('8: conversa vazia troca sem arquivo nem handoff', async () => {
     const s = switchingSetup();
