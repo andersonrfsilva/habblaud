@@ -5,7 +5,7 @@
 <h1 align="center">Habblaud</h1>
 
 <p align="center">
-  <b>Le bureau virtuel de vos agents Claude Code (et Codex).</b><br />
+  <b>Le bureau virtuel de vos agents Claude Code, Codex, OMP, ZeroClaw et Antigravity.</b><br />
   Chaque projet devient une salle, chaque agent un personnage en pixel art qui montre, en temps réel, ce qu'il est en train de faire.
 </p>
 
@@ -25,6 +25,16 @@
 
 ---
 
+Ce dépôt est le fork [andersonrfsilva/habblaud](https://github.com/andersonrfsilva/habblaud), dérivé de
+[marmottajr/habblaud](https://github.com/marmottajr/habblaud). Il ajoute les intégrations OMP, les runtimes
+facultatifs ZeroClaw et Antigravity et les clients natifs Zaplaud. Guides techniques, actuellement en portugais :
+
+- [Serveur, configuration et contrats des intégrations](server/README.md).
+- Zaplaud : [Android et iPadOS](README.pt-BR.md#aplicativo-android-zaplaud), [bureau Rust](zaplaud-rs/README.md)
+  et [installation sur ordinateur](zaplaud-rs/packaging/README.md).
+- [Fonctionnalités des clients et limites de validation](docs/zaplaud-paridade.md).
+- [Plans de révision documentaire et état de leur mise en œuvre](plans/README.md).
+
 Vous ouvrez Claude Code dans plusieurs projets, lancez des sous-agents, laissez des tâches tourner… et vous ne savez plus
 qui fait quoi. **Habblaud** transforme tout ça en un bureau qu'on comprend d'un coup d'œil : qui est en train de taper,
 qui a levé la main parce qu'il **a besoin de vous**, qui a rendu son travail et est parti, qui est allé prendre un café
@@ -35,9 +45,9 @@ Et quand deux agents ou plus n'ont rien à faire, le bureau s'anime d'une **vie 
 personnalité, et ils regardent le foot ensemble au salon, jouent aux jeux vidéo et au ping-pong, papotent à la cuisine,
 se recoiffent devant le miroir et parient des pièces au chifoumi. Voir [Vie sociale](#vie-sociale).
 
-Tout tourne sur votre machine, en lisant les fichiers que Claude Code écrit déjà lui-même (et seulement les lignes
-`alias` de votre shell, pour attribuer une lettre à chaque compte). Rien ne quitte l'ordinateur : Habblaud ne lit
-aucun identifiant et ne fait aucun appel externe.
+Habblaud fonctionne localement, mais les intégrations configurées et les runtimes des agents peuvent contacter des
+services externes et envoyer le contenu des conversations. Certaines intégrations utilisent des tokens fournis par
+l'opérateur. Consultez [Confidentialité et sécurité](#confidentialité-et-sécurité) avant de les activer.
 
 ## Sommaire
 
@@ -140,7 +150,7 @@ l'immeuble ne garde pas de trous et rétrécit tout seul.
 ### 1. Téléchargez le projet
 
 ```bash
-git clone https://github.com/marmottajr/habblaud.git
+git clone https://github.com/andersonrfsilva/habblaud.git
 cd habblaud
 npm install
 ```
@@ -373,9 +383,9 @@ npm run docker:up        # tira o container codetown e copia os dados do volume 
 - **Navigateur :** les préférences et les pièces passent aux nouvelles clés la première fois que la page s'ouvre.
 - **Variables :** les `CODETOWN_*` ne sont plus prises en compte ; renommez-les en `HABBLAUD_*` dans le `.env` (ex. : `HABBLAUD_BIND`). Le
   serveur et `docker:up` vous préviennent quand ils en trouvent une ancienne.
-- **Dépôt :** c'est désormais `github.com/marmottajr/habblaud` (GitHub redirige l'ancienne adresse). Pour mettre à jour le
-  clone : `git remote set-url origin https://github.com/marmottajr/habblaud.git`. Le dossier local peut garder son
-  ancien nom.
+- **Dépôt :** le projet original a été déplacé vers `github.com/marmottajr/habblaud` ; ce fork se trouve sur
+  `github.com/andersonrfsilva/habblaud`. Pour utiliser ce fork :
+  `git remote set-url origin https://github.com/andersonrfsilva/habblaud.git`. Le dossier local peut garder son nom.
 - Les sauvegardes du `settings.json` faites avant le changement de nom gardent le nom `settings.json.codetown-backup-<data>`.
 
 ### Désinstaller
@@ -1121,8 +1131,8 @@ avec `no-new-privileges`. Les métadonnées des comptes (lettre, e-mail, organis
   est ce qui s'exécute. Le plugin de messages (`habblaud-mensagens`) est séparé justement parce qu'il agit : il tape dans
   la session ce que vous avez envoyé depuis le bureau.
 - **Local uniquement, par défaut :** le serveur n'accepte que les connexions venant de l'ordinateur lui-même ; ouvrir
-  l'accès au réseau local est facultatif. Il n'y a pas de télémétrie. Le seul appel externe est la vérification de
-  nouvelle version : toutes les 6 heures, une requête anonyme, sans token, à l'API publique de GitHub
+  l'accès au réseau local est facultatif. Il n'y a pas de télémétrie. La vérification de nouvelle version fait un
+  appel externe toutes les 6 heures : une requête anonyme, sans token, à l'API publique de GitHub
   (`api.github.com/repos/marmottajr/habblaud/releases/latest`). Elle n'envoie rien sur vos sessions ; GitHub ne voit que
   votre IP et la version utilisée, qui figure dans le `User-Agent`.
   `HABBLAUD_UPDATE_CHECK=0` désactive la requête.
@@ -1133,9 +1143,15 @@ avec `no-new-privileges`. Les métadonnées des comptes (lettre, e-mail, organis
   Avec [omp](#omp-oh-my-pi), Habblaud lance `omp usage --json` pour la carte d'utilisation du compte : c'est omp qui
   interroge les fournisseurs (Anthropic, OpenAI…), avec ses propres identifiants et son cache ; Habblaud ne fait que
   lire la réponse et écarte les e-mails et identifiants qui l'accompagnent. `HABBLAUD_OMP_USAGE=0` la désactive.
-- **Sans identifiants :** Habblaud ne lit ni mots de passe ni tokens d'accès. Du `.claude.json` de chaque compte, il
-  n'utilise que l'e-mail, l'organisation et le cache de `/usage` ; l'utilisation en direct vient du mod (ou de la
-  dérivation de statusline).
+- **Identifiants par intégration :** Habblaud n'extrait pas les identifiants privés des fournisseurs utilisés par les CLI.
+  Du `.claude.json` de chaque compte Claude Code, il utilise l'e-mail, l'organisation et le cache de `/usage` ;
+  l'utilisation en direct vient du mod ou de la dérivation de statusline. Les intégrations HTTP configurées lisent
+  `HABBLAUD_SUMMARY_TOKEN_FILE` et `HABBLAUD_QUOTA_TOKEN_FILE`. La configuration Telegram reçoit un token fourni
+  par l'opérateur et le stocke localement. Voir le [guide du serveur](server/README.md).
+- **Transfert des conversations :** les résumés HTTP envoient du texte à l'endpoint configuré. Le passage entre OMP et
+  Antigravity peut joindre un contexte cumulatif au prochain message humain, envoyé au fournisseur du runtime de
+  destination. Les runtimes, dont le gateway local ZeroClaw, peuvent utiliser des fournisseurs externes ; le stockage
+  local et le masquage des secrets ne rendent pas l'inférence hors ligne et ne garantissent pas l'anonymisation.
 - **Secrets masqués :** les tokens et mots de passe au format connu (`Bearer`, `-u usuário:senha`, `TOKEN=`, clés
   `sk-…`, `ghp_…`, `AKIA…`, JWT, mots de passe dans les URL) deviennent `***` avant d'arriver au navigateur.
 - **Protégé contre les sites malveillants :** le serveur refuse les adresses qui ne sont pas `localhost`/IP (DNS

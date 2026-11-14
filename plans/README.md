@@ -27,6 +27,12 @@ preservava promessas de privacidade que já não valem. Novos planos documentais
 Nenhum código ou documento operacional foi alterado nesta revisão; sem builds, dispositivos, produção,
 merge, commit ou push. Verificação do planejamento: trechos e comandos documentais, não testes da aplicação.
 
+Correção pontual posterior à publicação dos planos: os quatro READMEs da raiz agora identificam o fork,
+apontam para este índice e para os guias técnicos, corrigem clone/`origin` e retiram as promessas absolutas
+de ausência de rede/tokens. Essas alterações de entrada e privacidade são drift esperado para 006/086/088;
+preservá-las, sem restaurar os trechos antigos. Não concluem os planos: os contratos detalhados, a instalação
+desktop, as traduções restantes e a consolidação editorial ainda exigem os critérios de cada plano.
+
 ## Execution order & status
 
 | Plan | Title | Priority | Effort | Depends on | Status |
