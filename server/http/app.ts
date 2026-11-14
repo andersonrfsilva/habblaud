@@ -490,7 +490,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
           messages: !!deps.messages && trusted(req, 'messages'),
           messageSessionGuard: !!deps.messages && trusted(req, 'messages'),
           terminal: !!terminals && trusted(req, 'terminal'),
-          spawn: !!deps.spawn && trusted(req, 'spawn'),
+          spawn: (!!deps.spawn || !!deps.antigravity) && trusted(req, 'spawn'),
           world: !!deps.world && !!deps.terminal && !remote && isLoopbackHost(req.headers.host),
           files: !!deps.browse && trusted(req, 'terminal'),
         };

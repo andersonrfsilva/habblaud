@@ -34,6 +34,7 @@ export class AntigravityClient {
   private sequence = 0;
   private connection?: { input: Writable; output: Readable; child?: ChildProcess };
   private ready?: Promise<void>;
+  private disconnect?: () => void;
 
   constructor(private readonly opts: Options) {}
   onEvent(listener: (event: AcpEvent) => void): () => void {
@@ -65,6 +66,7 @@ export class AntigravityClient {
     const fail = (error = new Error('ACP connection closed')) => {
       if (this.connection !== connection) return;
       this.connection = undefined; this.ready = undefined;
+      this.disconnect = undefined;
       for (const pending of this.pending.values()) { clearTimeout(pending.timer); pending.reject(error); }
       this.pending.clear();
       for (const session of this.opened.values()) {
@@ -75,11 +77,13 @@ export class AntigravityClient {
       this.opened.clear();
       input.end();
     };
+    this.disconnect = fail;
     input.on('error', fail); output.on('error', fail); output.on('end', () => fail());
     child?.on('error', fail); child?.on('exit', () => fail());
     let buffered = Buffer.alloc(0);
     let discarding = false;
     output.on('data', (chunk: Buffer) => {
+      if (this.connection !== connection) return;
       let start = 0;
       for (let index = 0; index < chunk.length; index++) {
         if (chunk[index] !== 10) continue;
@@ -227,8 +231,6 @@ export class AntigravityClient {
       ? [{ sessionId: entry.sessionId, cwd: entry.cwd, ...(typeof entry.title === 'string' ? { title: entry.title } : {}), ...(typeof entry.updatedAt === 'string' ? { updatedAt: entry.updatedAt } : {}) }] : []);
   }
   stop(): void {
-    const connection = this.connection;
-    if (!connection) return;
-    connection.input.end();
+    this.disconnect?.();
   }
 }

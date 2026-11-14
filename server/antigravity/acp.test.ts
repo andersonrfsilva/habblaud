@@ -105,6 +105,16 @@ describe('Antigravity ACP', () => {
     await expect.poll(() => child.exitCode).toBe(0);
     expect(client.sessions()).toEqual([]);
   });
+  it('reabre imediatamente depois de dispensar a última sessão', async () => {
+    const { client } = fixture();
+    const first = await client.open({ cwd: '/tmp' });
+    await client.close(first.sessionId);
+    const next = await client.open({ cwd: '/tmp' });
+    expect(next.sessionId).not.toBe(first.sessionId);
+    expect(children).toHaveLength(2);
+    await client.prompt(next.sessionId, 'ok');
+    await expect.poll(() => client.session(next.sessionId)?.busy).toBe(false);
+  });
   it('fecha sessões e limpa busy se o processo cai', async () => {
     const { client, events } = fixture();
     const { sessionId } = await client.open({ cwd: '/tmp' });

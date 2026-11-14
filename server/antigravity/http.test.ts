@@ -68,6 +68,7 @@ describe('rotas Antigravity', () => {
     const s = await setup();
     expect(await (await fetch(s.base + '/api/antigravity')).json()).toEqual({ available: true, skipPermissions: false });
     const response = await s.post('/api/antigravity/sessions', { folder: s.directory, prompt: 'ok' });
+    expect((await (await fetch(s.base + '/api/access')).json() as { spawn: boolean }).spawn).toBe(true);
     expect(response.status).toBe(201);
     const body = await response.json() as { sessionId: string; agentId: string };
     expect(body.agentId).toBe(`antigravity:${body.sessionId}`);

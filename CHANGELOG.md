@@ -12,6 +12,12 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Antigravity pelo escritório.** Em **Novo agente → Antigravity**, abra uma conversa com terminal, mensagens,
+  aprovar/negar ferramentas, STOP, conversa nova e Dispensar. Desligado por padrão: ligue com
+  `HABBLAUD_ANTIGRAVITY=1`. No Podman, rode o relé do host com `npm run antigravity:relay` e configure
+  `HABBLAUD_ANTIGRAVITY_SOCKET`. Protocolo medido no `agy` 1.5.9. Não inclui elenco, histórico, cota, troca de
+  modelo, anexos, mensagem no meio do turno nem controles próprios nos clientes Zaplaud. Cada mensagem aguarda
+  o fim do turno; nenhuma permissão é concedida sem decisão humana, salvo a flag explícita do dono.
 - **Sessões:** fixar e favoritar são ações independentes no Habblaud web e no Zaplaud Android/iOS e desktop Rust.
   Sessões fixadas aparecem primeiro sem ignorar os filtros; favoritas ficam acessíveis pela seção do Histórico
   no web e pelo filtro Favoritas nos clientes nativos. As marcações persistem localmente, por identidade completa
