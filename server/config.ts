@@ -89,7 +89,7 @@ export interface ServerConfig {
   antigravitySkipPermissions: boolean;
   /** Máximo de personagens do elenco abertos ao mesmo tempo (HABBLAUD_CAST_MAX, 1 a 50); ausente ou inválido = sem limite. */
   castMax?: number;
-  /** Pasta onde o elenco abre conversas novas do omp e do Antigravity (HABBLAUD_CAST_FOLDER, absoluta); ausente = a pasta pessoal. */
+  /** Pasta onde o elenco abre conversas novas do omp, Antigravity e ZeroClaw (HABBLAUD_CAST_FOLDER, absoluta); ausente = a pasta pessoal. */
   castFolder?: string;
   /** Observa as sessões do omp (sources/omp/); HABBLAUD_OMP=0 desliga. */
   omp: boolean;

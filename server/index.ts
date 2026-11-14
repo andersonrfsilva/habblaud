@@ -193,7 +193,7 @@ const castLauncher: CastLauncher | undefined = config.terminal ? new CastLaunche
   }, false),
   zeroclaw: config.zeroclawCatalog ? new ZeroClawCast({
     catalog: config.zeroclawCatalog,
-    home: config.home,
+    home: config.castFolder ?? config.home,
     connector: () => zeroclawConnector,
     delivery: () => zeroclawDelivery,
     messages: () => late.messages,

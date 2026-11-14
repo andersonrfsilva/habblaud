@@ -629,16 +629,16 @@ and waits for the next request, give a new instruction or correct its course, wi
 Open **Cast** on the top bar to create, edit or delete fixed characters. Choose a name, appearance and kind:
 main, advisor or subagent. For subagents, enter observed types such as `reviewer` or `Explore`.
 
-- **Calling:** **Call** opens a new session in the configured default folder (`HABBLAUD_CAST_FOLDER` for omp and
-  Antigravity; otherwise the home folder `~`), or **Continue** resumes the character's most recent conversation.
+- **Calling:** **Call** opens a new session in the configured default folder (`HABBLAUD_CAST_FOLDER` for omp,
+  Antigravity and ZeroClaw; otherwise the home folder `~`), or **Continue** resumes the character's most recent conversation.
   Resuming from history keeps that conversation's folder.
 - **Dress:** use the pencil in a main agent's details to select a free member or create one from the agent.
   **Back to random** removes the session binding. If the member is busy, the session gets a random character.
 - In omp, `HABBLAUD_CAST=<id>` requests a member for the session. Advisors and subagents use matching members.
 - `HABBLAUD_CAST_MAX` (1 to 50; unset means no limit) caps how many characters Habblaud keeps open at once. Open
   `hb-*` sessions and pending starts count; characters being dismissed do not.
-- `HABBLAUD_CAST_FOLDER` (absolute path; unset means the home folder) is where the cast opens new omp and
-  Antigravity conversations. Resuming a conversation stays in its own folder.
+- `HABBLAUD_CAST_FOLDER` (absolute path; unset means the home folder) is where the cast opens new omp,
+  Antigravity and ZeroClaw conversations. Resuming a conversation stays in its own folder.
 
 The cast is stored in `~/.habblaud/cast.json`; session bindings expire after 60 days without use. Old room characters
 migrate automatically, with a backup at `~/.habblaud/names.json.pre-031`. The cast uses the terminal safeguard:

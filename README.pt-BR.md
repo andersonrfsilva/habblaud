@@ -879,8 +879,8 @@ e espera o próximo pedido, dar uma instrução nova ou corrigir o rumo, sem pro
 Na barra superior, abra **Elenco** para criar, editar ou apagar personagens fixos. Escolha nome, aparência e tipo:
 principal, advisor ou subagente. Para subagentes, informe os tipos observados, como `reviewer` ou `Explore`.
 
-- **Chamar:** **Chamar** abre uma sessão nova na pasta padrão configurada (`HABBLAUD_CAST_FOLDER` para omp e
-  Antigravity; sem ela, a pasta pessoal `~`), ou **Continuar** retoma a conversa mais recente do personagem.
+- **Chamar:** **Chamar** abre uma sessão nova na pasta padrão configurada (`HABBLAUD_CAST_FOLDER` para omp,
+  Antigravity e ZeroClaw; sem ela, a pasta pessoal `~`), ou **Continuar** retoma a conversa mais recente do personagem.
   Retomar pelo histórico mantém a pasta da conversa.
 - **Vestir:** no lápis da gaveta de um agente principal, escolha um membro livre ou crie um a partir do agente.
   **Voltar ao sorteio** remove o vínculo da sessão. Se o membro estiver ocupado, a sessão recebe um personagem sorteado.
@@ -888,8 +888,8 @@ principal, advisor ou subagente. Para subagentes, informe os tipos observados, c
   com seus tipos.
 - `HABBLAUD_CAST_MAX` (1 a 50; ausente = sem limite) limita quantos personagens o Habblaud mantém abertos ao mesmo
   tempo. Sessões `hb-*` abertas e chamadas em andamento contam; personagens sendo dispensados não.
-- `HABBLAUD_CAST_FOLDER` (caminho absoluto; ausente = a pasta pessoal) é onde o elenco abre conversas novas do omp
-  e do Antigravity. Retomar uma conversa continua na pasta dela.
+- `HABBLAUD_CAST_FOLDER` (caminho absoluto; ausente = a pasta pessoal) é onde o elenco abre conversas novas do omp,
+  Antigravity e ZeroClaw. Retomar uma conversa continua na pasta dela.
 
 O elenco fica em `~/.habblaud/cast.json`; vínculos de sessão expiram após 60 dias sem uso. Os personagens antigos
 das salas migram automaticamente, com cópia de segurança em `~/.habblaud/names.json.pre-031`. O elenco segue a trava

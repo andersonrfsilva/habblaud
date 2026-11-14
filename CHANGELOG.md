@@ -12,7 +12,7 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
-- **Pasta padrão do elenco.** `HABBLAUD_CAST_FOLDER` define onde abrem as conversas novas do omp e do Antigravity
+- **Pasta padrão do elenco.** `HABBLAUD_CAST_FOLDER` define onde abrem as conversas novas do omp, Antigravity e ZeroClaw
   (personagens e "Novo"); sem ela, continuam na pasta pessoal. Retomar segue na pasta da conversa.
 - **Antigravity na página.** Modelos `agy/…` aparecem no editor de personagem e na gaveta do agente.
   Trocar de ferramenta pede confirmação; o contexto pendente aparece acima da caixa de mensagem.
