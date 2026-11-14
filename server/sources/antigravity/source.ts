@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { describeTool, maskSecrets } from '../../../shared/activity';
 import { toAgyModel } from '../../../shared/agy-model';
 import { tr } from '../../../shared/i18n';
@@ -10,7 +11,7 @@ import type { Office } from '../../model/office';
 import type { AgentSource } from '../source';
 import { createTranscriptState } from '../transcript';
 import { antigravityTool, AntigravityMirror } from './mirror';
-import type { AntigravityCatalog } from './catalog';
+import { AntigravityCatalog } from './catalog';
 
 type Tracker = { id: string; info: SessionInfo; title?: string; context?: { tokens: number; window: number }; open: boolean; replaced?: boolean };
 export class AntigravitySource implements AgentSource {
@@ -20,7 +21,10 @@ export class AntigravitySource implements AgentSource {
   private unsubscribe?: () => void;
   private pending = Promise.resolve();
   private readonly replacing = new Set<string>();
-  constructor(private readonly opts: { accounts: AccountsService; office: Office; client: Pick<AntigravityClient, 'onEvent' | 'session'>; mirror: AntigravityMirror; catalog: AntigravityCatalog }) {}
+  private readonly catalog: AntigravityCatalog;
+  constructor(private readonly opts: { accounts: AccountsService; office: Office; client: Pick<AntigravityClient, 'onEvent' | 'session'>; mirror: AntigravityMirror; catalog?: AntigravityCatalog }) {
+    this.catalog = opts.catalog ?? new AntigravityCatalog(dirname(opts.mirror.root));
+  }
   start(): void {
     if (this.unsubscribe) return;
     this.accountId = this.opts.accounts.setProviderAccounts('antigravity', [{ dir: this.opts.mirror.root,
@@ -58,7 +62,7 @@ export class AntigravitySource implements AgentSource {
     if (event.type === 'diagnostic') return;
     const { office } = this.opts;
     if (event.type === 'session-open') {
-      this.opts.catalog.learn(event.info.modelOptions);
+      this.catalog.learn(event.info.modelOptions);
       const oldSession = event.replaces && this.replacing.has(event.replaces) ? this.trackers.get(event.replaces) : undefined;
       const previous = oldSession?.open && !oldSession.replaced && office.has(oldSession.id) ? oldSession : undefined;
       const id = previous?.id ?? `antigravity:${event.sessionId}`;

@@ -59,6 +59,8 @@ import { AntigravityPermissions } from './antigravity/permissions';
 import { AntigravityDelivery } from './messages/antigravity';
 import { AntigravitySource } from './sources/antigravity/source';
 import { AntigravityMirror } from './sources/antigravity/mirror';
+import { AntigravityCatalog } from './sources/antigravity/catalog';
+import { AntigravityCast } from './cast/antigravity';
 import { ompBinFrom } from './sources/omp/bin';
 import { Summarizer } from './summaries/summarizer';
 import { createBuildReader, readBuildInfo } from './build';
@@ -165,6 +167,7 @@ const office = new Office({
   world: () => world?.meta() ?? { enabled: false, configured: false, state: 'off' },
   ompRoomByProject: config.ompDirs.length ? () => ompSettings.roomByProject : undefined,
 });
+const antigravityCatalog = config.antigravity ? new AntigravityCatalog(config.dataDir) : undefined;
 const castLauncher: CastLauncher | undefined = config.terminal ? new CastLauncher({
   dataDir: config.dataDir,
   member: (id) => cast.get(id),
@@ -184,6 +187,10 @@ const castLauncher: CastLauncher | undefined = config.terminal ? new CastLaunche
     account: () => zeroclaw?.accountId,
     ready: () => !!zeroclaw?.sources().some((source) => source.ok),
     afterOpen: async () => { await zeroclaw?.flush(); },
+  }) : undefined,
+  antigravity: antigravityCatalog ? new AntigravityCast({
+    client: () => antigravityClient, delivery: () => antigravityDelivery, messages: () => late.messages,
+    catalog: antigravityCatalog, home: config.home, dataDir: config.dataDir,
   }) : undefined,
   ...(config.castMax ? { max: config.castMax } : {}),
 }) : undefined;
@@ -230,7 +237,7 @@ const antigravityClient = config.antigravity ? new AntigravityClient({
   bin: config.antigravityBin, socket: config.antigravitySocket, skipPermissions: config.antigravitySkipPermissions, version: config.version,
 }) : undefined;
 const antigravity = antigravityClient ? new AntigravitySource({
-  accounts, office, client: antigravityClient, mirror: new AntigravityMirror({ dataDir: config.dataDir }),
+  accounts, office, client: antigravityClient, mirror: new AntigravityMirror({ dataDir: config.dataDir }), catalog: antigravityCatalog!,
 }) : undefined;
 if (antigravity) agents.add(antigravity);
 late.office = office;

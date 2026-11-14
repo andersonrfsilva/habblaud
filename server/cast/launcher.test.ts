@@ -187,3 +187,210 @@ describe('CastLauncher', () => {
     expect(fresh.start('caio', { room: '/a', mode: 'new' })).toMatchObject({ status: 409 });
   });
 });
+
+import { spawn, type ChildProcess } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Duplex } from 'node:stream';
+import { fileURLToPath } from 'node:url';
+import { afterEach, vi } from 'vitest';
+import { AccountsService } from '../accounts/service';
+import { AntigravityClient } from '../antigravity/acp';
+import { AntigravityDelivery } from '../messages/antigravity';
+import { MessageRegistry } from '../messages/registry';
+import { CastStore } from '../model/cast';
+import { NameStore } from '../model/names';
+import { Office } from '../model/office';
+import { AntigravityCatalog } from '../sources/antigravity/catalog';
+import { AntigravityMirror } from '../sources/antigravity/mirror';
+import { AntigravitySource } from '../sources/antigravity/source';
+import { AntigravityCast } from './antigravity';
+import type { CastJobInfo } from '../../shared/types';
+
+const agyCleanups: (() => Promise<void>)[] = [];
+afterEach(async () => { for (const cleanup of agyCleanups.splice(0).reverse()) await cleanup(); });
+function agySetup(max?: number, enabled = true) {
+  const directory = mkdtempSync(join(tmpdir(), 'agy-launcher-'));
+  const trace = join(directory, 'trace.ndjson');
+  const children: ChildProcess[] = [];
+  const client = new AntigravityClient({ bin: 'unused', version: 'test', skipPermissions: false, connect: () => {
+    const child = spawn(process.execPath, [fileURLToPath(new URL('../antigravity/fake-agy.mjs', import.meta.url))],
+      { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, FAKE_AGY_TRACE_FILE: trace } });
+    children.push(child); return Duplex.from({ readable: child.stdout, writable: child.stdin });
+  } });
+  const accounts = new AccountsService({ dirs: [], home: directory, env: {}, onChange() {} });
+  const cast = new CastStore(null);
+  cast.put({ ...member, model: 'agy/fake-b', instructions: 'Seja breve' });
+  cast.put({ ...member, id: 'bia', name: 'Bia', model: 'omp/model' });
+  const controls = { now: 0 };
+  let launcher: CastLauncher;
+  const office = new Office({ names: new NameStore(null), cast, version: 'test', startedAt: 0,
+    accounts: sources => accounts.list(sources), sources: () => [], accountName: () => 'Antigravity',
+    now: () => controls.now, castLauncher: () => launcher });
+  const catalog = new AntigravityCatalog(directory);
+  const source = new AntigravitySource({ accounts, office, client, catalog, mirror: new AntigravityMirror({ dataDir: directory }) });
+  source.start();
+  const delivery = new AntigravityDelivery({ client, source });
+  const registry = new MessageRegistry({ office, antigravity: delivery });
+  const runtime = new AntigravityCast({ client: () => client, delivery: () => delivery, messages: () => registry,
+    catalog, home: directory, dataDir: directory });
+  const idle = vi.fn();
+  launcher = new CastLauncher({ dataDir: directory, member: id => cast.get(id), agents: () => office.list(),
+    account: () => directory, changed: () => office.markDirty(), now: () => controls.now, max, idle,
+    antigravity: enabled ? runtime : undefined });
+  agyCleanups.push(async () => {
+    registry.stop(); source.stop(); client.stop();
+    await Promise.all(children.filter(child => child.exitCode === null && child.signalCode === null).map(child => {
+      const exited = Promise.withResolvers<void>(); child.once('exit', () => exited.resolve()); return exited.promise;
+    }));
+    await source.flush(); rmSync(directory, { recursive: true, force: true });
+  });
+  const requests = () => readFileSync(trace, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  async function done(result: { job: CastJobInfo } | { status: number; error: string }) {
+    if (!('job' in result)) throw new Error(`Rejected: ${result.status}: ${result.error}`);
+    await expect.poll(() => { launcher.tick(); return launcher.jobs().find(job => job.id === result.job.id)?.status; }).toBe('done');
+    return result.job;
+  }
+  function mirror(sessionId: string) {
+    const folder = join(directory, 'antigravity', 'sessions');
+    mkdirSync(folder, { recursive: true }); writeFileSync(join(folder, `${sessionId}.jsonl`), '');
+  }
+  return { launcher, client, office, cast, source, delivery, registry, runtime, controls, requests, done, mirror, idle, children };
+}
+
+describe('elenco Antigravity junto do omp', () => {
+  it('opens without the omp helper, exposes cast metadata and records last session', async () => {
+    const s = agySetup();
+    const submitted = s.launcher.start('ana', { mode: 'new' });
+    expect(submitted).toMatchObject({ job: { status: 'queued' } });
+    await s.done(submitted);
+    const current = s.office.list()[0];
+    expect(current).toMatchObject({ provider: 'antigravity', cast: 'ana', model: 'agy/fake-b', models: ['agy/fake-a', 'agy/fake-b'] });
+    expect(s.office.commit().snapshot.agents.find(a => a.cast === 'ana')?.castOpened).toBe(true);
+    expect(Object.values(s.cast.get('ana')!.last!)).toEqual([current.sessionId]);
+    expect(s.requests().some(message => message.method === 'session/prompt')).toBe(false);
+  });
+  it('delivers instructions with an explicit initial request only', async () => {
+    const s = agySetup();
+    await s.done(s.launcher.start('ana', { mode: 'new', prompt: 'Olá' }));
+    await expect.poll(() => s.requests().some(message => message.method === 'session/prompt')).toBe(true);
+    expect(s.requests().find(message => message.method === 'session/prompt').params.prompt[0].text)
+      .toBe('Instruções do personagem:\nSeja breve\n\nPedido inicial:\nOlá');
+  });
+  it('uses body model above character model in either runtime direction', async () => {
+    const s = agySetup();
+    await s.done(s.launcher.start('bia', { mode: 'new', model: 'agy/fake-b' }));
+    expect(s.office.list()[0]).toMatchObject({ cast: 'bia', provider: 'antigravity', model: 'agy/fake-b' });
+    s.launcher.poll();
+    expect(s.launcher.start('ana', { mode: 'new', model: 'omp/override' })).toHaveProperty('job');
+    expect(s.launcher.poll()).toContainEqual(expect.objectContaining({ cast: 'ana', model: 'omp/override' }));
+  });
+  it('opens Novo with the CLI default and learned catalog begins with agy/default', async () => {
+    const s = agySetup();
+    expect(s.launcher.models()).toEqual({ provider: 'omp', models: [], agyModels: ['agy/default'] });
+    const job = await s.done(s.launcher.startNew({ model: 'agy/default' }));
+    expect(job.cast).toMatch(/^novo-/);
+    expect(s.office.list()[0]).toMatchObject({ cast: job.cast, model: 'agy/fake-a' });
+    expect(s.launcher.models().agyModels).toEqual(['agy/default', 'agy/fake-a', 'agy/fake-b']);
+  });
+  it('omp polls keep Antigravity open but still forget missing omp sessions', async () => {
+    const s = agySetup();
+    await s.done(s.launcher.start('ana', { mode: 'new' }));
+    s.launcher.poll({ open: ['bia'] });
+    expect(s.launcher.isOpened('bia')).toBe(true);
+    s.launcher.poll({ open: [] });
+    expect(s.launcher.isOpened('ana')).toBe(true);
+    expect(s.launcher.isOpened('bia')).toBe(false);
+  });
+  it('dismisses through a queued job and closes the session', async () => {
+    const s = agySetup();
+    await s.done(s.launcher.start('ana', { mode: 'new' }));
+    const current = s.office.list()[0];
+    await s.done(s.launcher.dismiss(current));
+    expect(s.client.session(current.sessionId)).toBeUndefined();
+    expect(s.launcher.isOpened('ana')).toBe(false);
+  });
+  it('idleness dismisses once but never during an active turn', async () => {
+    const s = agySetup();
+    await s.done(s.launcher.start('ana', { mode: 'new' }));
+    const current = s.office.list()[0];
+    await s.client.prompt(current.sessionId, 'sleep');
+    s.controls.now = 300_000;
+    s.launcher.tick();
+    expect(s.idle).not.toHaveBeenCalled();
+    await s.client.cancel(current.sessionId);
+    s.controls.now = 600_000;
+    s.launcher.tick();
+    expect(s.idle).toHaveBeenCalledTimes(1);
+    await expect.poll(() => s.client.session(current.sessionId)).toBeUndefined();
+    expect(s.launcher.isOpened('ana')).toBe(false);
+  });
+  it('new conversation keeps cast opened and dismissible after old session closes', async () => {
+    const s = agySetup();
+    await s.done(s.launcher.start('ana', { mode: 'new' }));
+    const current = s.office.list()[0];
+    const previousSessionId = current.sessionId;
+    const next = await s.delivery.newSession(previousSessionId);
+    expect(next).not.toBe(previousSessionId);
+    expect(s.office.get(current.id)).toMatchObject({ cast: 'ana', sessionId: next });
+    expect(s.launcher.isOpened('ana')).toBe(true);
+    expect(s.office.commit().snapshot.agents.find(a => a.cast === 'ana')?.castOpened).toBe(true);
+    await s.done(s.launcher.dismiss(s.office.get(current.id)));
+    expect(s.client.session(next)).toBeUndefined();
+  });
+  it('shares the installation limit with omp and pending openings', async () => {
+    const s = agySetup(1);
+    s.launcher.poll({ open: ['bia'] });
+    expect(s.launcher.start('ana', { mode: 'new' })).toMatchObject({ status: 409 });
+    s.launcher.poll({ open: [] });
+    expect(s.launcher.start('ana', { mode: 'new' })).toHaveProperty('job');
+    expect(s.launcher.startNew({ model: 'agy/default' })).toMatchObject({ status: 409 });
+    await expect.poll(() => s.launcher.jobs()[0]?.status).toBe('done');
+  });
+  it.each(['agy/fake-b', 'omp/model'])('resumes mirror-owned conversation despite character model %s', async model => {
+    const s = agySetup();
+    const sessionId = '10000000-0000-4000-8000-000000000001';
+    s.mirror(sessionId);
+    s.cast.put({ ...member, model, instructions: 'Não repetir' });
+    await s.done(s.launcher.start('ana', { mode: 'resume', session: sessionId, room: '/tmp', prompt: 'Retome' }));
+    expect(s.office.list()[0]).toMatchObject({ provider: 'antigravity', sessionId, model: model === 'agy/fake-b' ? model : 'agy/fake-a' });
+    await expect.poll(() => s.requests().some(message => message.method === 'session/prompt')).toBe(true);
+    expect(s.requests().find(message => message.method === 'session/prompt').params.prompt[0].text).toBe('Retome');
+  });
+  it('resumes Novo by mirror ownership and unmirrored history through omp', async () => {
+    const s = agySetup();
+    const sessionId = '10000000-0000-4000-8000-000000000001';
+    s.mirror(sessionId);
+    await s.done(s.launcher.startNew({ session: sessionId, room: '/tmp' }));
+    expect(s.office.list()[0]).toMatchObject({ provider: 'antigravity', cast: expect.stringMatching(/^novo-/), sessionId });
+    s.launcher.poll();
+    expect(s.launcher.start('bia', { mode: 'resume', session: '10000000-0000-4000-8000-000000000002', room: '/tmp' })).toHaveProperty('job');
+    expect(s.launcher.poll()).toContainEqual(expect.objectContaining({ cast: 'bia', resume: '10000000-0000-4000-8000-000000000002' }));
+  });
+  it('fails unknown model without leaving an opened character', async () => {
+    const s = agySetup();
+    const submitted = s.launcher.start('ana', { mode: 'new', model: 'agy/missing' });
+    expect(submitted).toHaveProperty('job');
+    await expect.poll(() => s.launcher.jobs()[0]?.status).toBe('failed');
+    expect(s.launcher.jobs()[0]?.error).toBe('modelo do Antigravity desconhecido: missing');
+    expect(s.launcher.isOpened('ana')).toBe(false);
+  });
+  it('reports disabled runtime and rejects advisor/sub calls', () => {
+    const s = agySetup(undefined, false);
+    expect(s.launcher.start('ana', { mode: 'new' })).toMatchObject({ status: 503, error: 'Antigravity desligado neste Habblaud' });
+    expect(s.launcher.startNew({ model: 'agy/default' })).toMatchObject({ status: 503 });
+    expect(s.launcher.models()).not.toHaveProperty('agyModels');
+    for (const kind of ['advisor', 'sub'] as const) {
+      s.cast.put({ ...member, kind, idleMinutes: undefined });
+      expect(s.launcher.start('ana', { mode: 'new', model: 'agy/fake-b' })).toMatchObject({ status: 422 });
+    }
+  });
+  it('forgets cast sessions when the fake ACP process exits', async () => {
+    const s = agySetup();
+    await s.done(s.launcher.start('ana', { mode: 'new' }));
+    s.children[0].kill('SIGKILL');
+    await expect.poll(() => s.client.sessions()).toEqual([]);
+    expect(s.launcher.isOpened('ana')).toBe(false);
+  });
+});
