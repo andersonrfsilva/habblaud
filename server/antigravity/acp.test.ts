@@ -67,6 +67,28 @@ describe('Antigravity ACP', () => {
     expect(events.filter(event => event.type === 'update').map(event => event.sessionId)).toContain(first.sessionId);
     expect(events.filter(event => event.type === 'update').map(event => event.sessionId)).toContain(second.sessionId);
   });
+  it('correlaciona aberturas concorrentes com respostas invertidas e preserva replaces só na abertura indicada', async () => {
+    const trace = join(await folder(), 'trace.ndjson');
+    const { client, events } = fixture({ FAKE_AGY_REVERSE_NEW_PAIR: '1', FAKE_AGY_TRACE_FILE: trace });
+    const [replacement, independent] = await Promise.all([
+      client.open({ cwd: '/tmp/replacement', replaces: 'old-session' }),
+      client.open({ cwd: '/tmp/independent' }),
+    ]);
+    const opened = events.filter(event => event.type === 'session-open');
+    expect(opened).toMatchObject([
+      { sessionId: independent.sessionId, cwd: '/tmp/independent' },
+      { sessionId: replacement.sessionId, cwd: '/tmp/replacement', replaces: 'old-session' },
+    ]);
+    expect(opened[0]).not.toHaveProperty('replaces');
+    expect(await client.list()).toEqual(expect.arrayContaining([
+      { sessionId: replacement.sessionId, cwd: '/tmp/replacement' },
+      { sessionId: independent.sessionId, cwd: '/tmp/independent' },
+    ]));
+    const requests = (await readFile(trace, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+    const openings = requests.filter(message => message.method === 'session/new');
+    expect(openings).toHaveLength(2);
+    for (const request of openings) expect(request.params).not.toHaveProperty('replaces');
+  });
   it('escolhe permitir e negar pelo kind, não pelo optionId', async () => {
     const { client, events } = fixture();
     const { sessionId } = await client.open({ cwd: '/tmp' });

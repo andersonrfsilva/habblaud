@@ -9,7 +9,7 @@ export function agyArgs(opts: { skipPermissions: boolean }): string[] {
 
 export interface SessionInfo { model?: string; models: string[]; tier?: string }
 export type AcpEvent =
-  | { type: 'session-open'; sessionId: string; cwd: string; resumed: boolean; info: SessionInfo }
+  | { type: 'session-open'; sessionId: string; cwd: string; resumed: boolean; info: SessionInfo; replaces?: string }
   | { type: 'session-close'; sessionId: string; reason: 'closed' | 'process-exit' }
   | { type: 'update'; sessionId: string; update: Record<string, unknown> }
   | { type: 'turn-state'; sessionId: string; busy: boolean; stopReason?: string }
@@ -158,7 +158,7 @@ export class AntigravityClient {
     }
     else pending.resolve(message.result);
   }
-  async open(input: { cwd: string; resume?: string }): Promise<{ sessionId: string }> {
+  async open(input: { cwd: string; resume?: string; replaces?: string }): Promise<{ sessionId: string }> {
     await this.ensure();
     const result = await this.call(input.resume ? 'session/resume' : 'session/new', { cwd: input.cwd, mcpServers: [], ...(input.resume ? { sessionId: input.resume } : {}) });
     if (!object(result)) throw new Error('Invalid ACP session');
@@ -170,7 +170,7 @@ export class AntigravityClient {
     const available = Array.isArray(models.availableModels) ? models.availableModels : [];
     const meta = object(result._meta) && object(result._meta.antigravity) ? result._meta.antigravity : {};
     const tier = object(meta.tier) && typeof meta.tier.name === 'string' ? meta.tier.name : undefined;
-    this.emit({ type: 'session-open', sessionId, cwd: input.cwd, resumed: !!input.resume,
+    this.emit({ type: 'session-open', sessionId, cwd: input.cwd, resumed: !!input.resume, ...(input.replaces !== undefined ? { replaces: input.replaces } : {}),
       info: { model, models: available.flatMap(entry => object(entry) && typeof entry.modelId === 'string' ? [entry.modelId] : []), tier } });
     return { sessionId };
   }

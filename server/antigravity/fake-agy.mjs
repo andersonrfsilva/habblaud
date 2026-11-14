@@ -7,6 +7,7 @@ const send = message => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ..
 const sessions = new Map();
 const permissions = new Map();
 let sequence = 0;
+let delayedNew;
 const update = (sessionId, value) => send({ method: 'session/update', params: { sessionId, update: value } });
 const finish = (sessionId, stopReason = 'end_turn') => {
   const session = sessions.get(sessionId);
@@ -40,7 +41,13 @@ lines.on('line', line => {
       if (process.env.FAKE_AGY_AUTH === '0') { send({ id, error: { code: -32000, message: 'Authentication required' } }); break; }
       const sessionId = params.sessionId ?? randomUUID();
       sessions.set(sessionId, { cwd: params.cwd });
-      send({ id, result: { sessionId, models: { currentModelId: 'fake-model', availableModels: [{ modelId: 'fake-model', name: 'Fake' }] }, _meta: { antigravity: { tier: { name: 'Test' } } } } });
+      const response = { id, result: { sessionId, models: { currentModelId: 'fake-model', availableModels: [{ modelId: 'fake-model', name: 'Fake' }] }, _meta: { antigravity: { tier: { name: 'Test' } } } } };
+      if (method === 'session/new' && process.env.FAKE_AGY_REVERSE_NEW_PAIR === '1') {
+        if (!delayedNew) { delayedNew = response; break; }
+        send(response);
+        send(delayedNew);
+        delayedNew = undefined;
+      } else send(response);
       break;
     }
     case 'session/list':

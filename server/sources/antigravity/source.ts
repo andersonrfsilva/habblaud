@@ -17,7 +17,7 @@ export class AntigravitySource implements AgentSource {
   private readonly trackers = new Map<string, Tracker>();
   private unsubscribe?: () => void;
   private pending = Promise.resolve();
-  private adopting?: Tracker;
+  private readonly replacing = new Set<string>();
   constructor(private readonly opts: { accounts: AccountsService; office: Office; client: Pick<AntigravityClient, 'onEvent' | 'session'>; mirror: AntigravityMirror }) {}
   start(): void {
     if (this.unsubscribe) return;
@@ -34,17 +34,14 @@ export class AntigravitySource implements AgentSource {
     for (const tracker of this.trackers.values()) if (tracker.open) { tracker.open = false; this.opts.office.closeMain(tracker.id); }
   }
   async flush(): Promise<void> { await this.pending; }
-  /** Troca a sessão de um agente: `open` abre a nova; o agente do escritório continua o mesmo. Devolve o id novo. */
+  /** Troca a sessão de um agente: `open` abre a nova (com `replaces: oldSessionId`); o agente continua o mesmo. */
   async replace(oldSessionId: string, open: () => Promise<{ sessionId: string }>): Promise<string> {
     const previous = this.trackers.get(oldSessionId);
-    if (this.adopting || !previous?.open || previous.replaced) throw new Error(tr('a sessão Antigravity está indisponível ou em substituição'));
-    this.adopting = previous;
+    if (this.replacing.has(oldSessionId) || !previous?.open || previous.replaced) throw new Error(tr('a sessão Antigravity está indisponível ou em substituição'));
+    this.replacing.add(oldSessionId);
     try {
-      const next = await open();
-      previous.replaced = true;
-      previous.open = false;
-      return next.sessionId;
-    } finally { this.adopting = undefined; }
+      return (await open()).sessionId;
+    } finally { this.replacing.delete(oldSessionId); }
   }
   sources(): SourceInfo[] {
     return [{ label: 'antigravity', provider: 'antigravity', path: '', sessions: [...this.trackers.values()].filter(tracker => tracker.open).length, ok: true }];
@@ -59,10 +56,15 @@ export class AntigravitySource implements AgentSource {
     if (event.type === 'diagnostic') return;
     const { office } = this.opts;
     if (event.type === 'session-open') {
-      const previous = this.adopting;
+      const oldSession = event.replaces && this.replacing.has(event.replaces) ? this.trackers.get(event.replaces) : undefined;
+      const previous = oldSession?.open && !oldSession.replaced && office.has(oldSession.id) ? oldSession : undefined;
       const id = previous?.id ?? `antigravity:${event.sessionId}`;
       this.trackers.set(event.sessionId, { id, info: event.info, open: true });
-      if (previous) office.switchSession(id, event.sessionId);
+      if (previous) {
+        office.switchSession(id, event.sessionId);
+        previous.replaced = true;
+        previous.open = false;
+      }
       else office.addMain({ id, provider: 'antigravity', account: this.accountId, sessionId: event.sessionId, cwd: event.cwd,
         role: tr('Agente principal (Antigravity)'), startedAt: Date.now(), status: 'idle' });
       this.summary(event.sessionId);

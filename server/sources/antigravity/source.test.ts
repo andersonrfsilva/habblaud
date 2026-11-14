@@ -76,7 +76,7 @@ describe('fonte Antigravity', () => {
     const s = setup();
     const next = '7f2c9ee1-2bdd-49ea-b431-3d56fc046302';
     expect(await s.source.replace(SID, async () => {
-      s.emit({ type: 'session-open', sessionId: next, cwd: '/tmp', resumed: false, info: { models: [] } });
+      s.emit({ type: 'session-open', sessionId: next, replaces: SID, cwd: '/tmp', resumed: false, info: { models: [] } });
       return { sessionId: next };
     })).toBe(next);
     s.emit({ type: 'session-close', sessionId: SID, reason: 'closed' });
@@ -85,7 +85,7 @@ describe('fonte Antigravity', () => {
     expect(s.source.sources()[0].sessions).toBe(1);
     await s.source.flush();
   });
-  it('preserva a sessão antiga se abrir falha e rejeita adoção concorrente', async () => {
+  it('preserva a sessão antiga se abrir falha e rejeita duas trocas da mesma sessão', async () => {
     const s = setup();
     const pending = Promise.withResolvers<{ sessionId: string }>();
     const replacement = s.source.replace(SID, () => pending.promise);
@@ -95,6 +95,70 @@ describe('fonte Antigravity', () => {
     expect(s.office.get(s.id)).toMatchObject({ sessionId: SID, status: 'idle' });
     await expect(s.source.replace(SID, async () => { throw new Error('outra falha'); })).rejects.toThrow('outra falha');
     expect(s.office.get(s.id)?.sessionId).toBe(SID);
+    await s.source.flush();
+  });
+  it.each([
+    ['antes', 'novo'],
+    ['antes', 'substituído'],
+    ['depois', 'novo'],
+    ['depois', 'substituído'],
+  ])('isola abertura independente %s da adoção e fechamento do agente %s', async (order, closeFirst) => {
+    const s = setup();
+    const next = '7f2c9ee1-2bdd-49ea-b431-3d56fc046302';
+    const independent = '7f2c9ee1-2bdd-49ea-b431-3d56fc046303';
+    const independentId = `antigravity:${independent}`;
+    const opened = Promise.withResolvers<{ sessionId: string }>();
+    const replacement = s.source.replace(SID, () => opened.promise);
+    const openIndependent = () => s.emit({ type: 'session-open', sessionId: independent, cwd: '/tmp', resumed: false, info: { models: [] } });
+    if (order === 'antes') openIndependent();
+    s.emit({ type: 'session-open', sessionId: next, replaces: SID, cwd: '/tmp', resumed: false, info: { models: [] } });
+    if (order === 'depois') openIndependent();
+    opened.resolve({ sessionId: next });
+    expect(await replacement).toBe(next);
+    expect(s.office.list()).toHaveLength(2);
+    expect(s.office.get(s.id)).toMatchObject({ sessionId: next, status: 'idle' });
+    expect(s.office.get(independentId)).toMatchObject({ sessionId: independent, status: 'idle' });
+    expect(s.source.sources()[0].sessions).toBe(2);
+    s.emit({ type: 'session-close', sessionId: SID, reason: 'closed' });
+    const first = closeFirst === 'novo' ? { session: independent, id: independentId } : { session: next, id: s.id };
+    const second = closeFirst === 'novo' ? { session: next, id: s.id } : { session: independent, id: independentId };
+    s.emit({ type: 'session-close', sessionId: first.session, reason: 'closed' });
+    expect(s.office.get(first.id)?.status).toBe('offline');
+    expect(s.office.get(second.id)).toMatchObject({ sessionId: second.session, status: 'idle' });
+    expect(s.source.sources()[0].sessions).toBe(1);
+    s.emit({ type: 'session-close', sessionId: second.session, reason: 'closed' });
+    expect(s.office.get(second.id)?.status).toBe('offline');
+    expect(s.source.sources()[0].sessions).toBe(0);
+    await s.source.flush();
+  });
+  it('permite trocar sessões diferentes ao mesmo tempo', async () => {
+    const s = setup();
+    const other = '7f2c9ee1-2bdd-49ea-b431-3d56fc046302';
+    const next = '7f2c9ee1-2bdd-49ea-b431-3d56fc046303';
+    const otherNext = '7f2c9ee1-2bdd-49ea-b431-3d56fc046304';
+    s.emit({ type: 'session-open', sessionId: other, cwd: '/tmp', resumed: false, info: { models: [] } });
+    const first = Promise.withResolvers<{ sessionId: string }>();
+    const second = Promise.withResolvers<{ sessionId: string }>();
+    const replacingFirst = s.source.replace(SID, () => first.promise);
+    const replacingSecond = s.source.replace(other, () => second.promise);
+    s.emit({ type: 'session-open', sessionId: otherNext, replaces: other, cwd: '/tmp', resumed: false, info: { models: [] } });
+    second.resolve({ sessionId: otherNext });
+    expect(await replacingSecond).toBe(otherNext);
+    s.emit({ type: 'session-open', sessionId: next, replaces: SID, cwd: '/tmp', resumed: false, info: { models: [] } });
+    first.resolve({ sessionId: next });
+    expect(await replacingFirst).toBe(next);
+    expect(s.office.list()).toHaveLength(2);
+    expect(s.office.get(s.id)?.sessionId).toBe(next);
+    expect(s.office.get(`antigravity:${other}`)?.sessionId).toBe(otherNext);
+    await s.source.flush();
+  });
+  it('replaces fora de uma troca em curso não adota outro agente', async () => {
+    const s = setup();
+    const next = '7f2c9ee1-2bdd-49ea-b431-3d56fc046302';
+    s.emit({ type: 'session-open', sessionId: next, replaces: SID, cwd: '/tmp', resumed: false, info: { models: [] } });
+    expect(s.office.get(s.id)?.sessionId).toBe(SID);
+    expect(s.office.get(`antigravity:${next}`)?.sessionId).toBe(next);
+    expect(s.office.list()).toHaveLength(2);
     await s.source.flush();
   });
 });

@@ -32,7 +32,7 @@ export class AntigravityDelivery implements PushDelivery {
     this.replacing.add(id);
     try {
       await this.opts.client.cancel(id);
-      const next = await this.opts.source.replace(id, () => this.opts.client.open({ cwd: session.cwd }));
+      const next = await this.opts.source.replace(id, () => this.opts.client.open({ cwd: session.cwd, replaces: id }));
       try { await this.opts.client.close(id); }
       catch { this.opts.diagnostic?.(tr('Antigravity: não foi possível fechar a sessão anterior')); }
       return next;
