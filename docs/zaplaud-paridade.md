@@ -27,7 +27,7 @@ vai para a tabela abaixo, com o motivo. Textos ficam em `android/shared/src/comm
 | Compositor: rascunho, anexos, modos de envio, interrupção, anel de contexto, shake | sim | sim | Rust: sem arrastar arquivos para a janela (Slint 1.18) |
 | Aprovação e perguntas, com resumo `text` e entrada não textual em JSON | sim | sim | Kotlin rola na horizontal; Rust quebra a linha e mostra "mais N linhas" |
 | Chamar personagem (também com conversa aberta em tela larga), dispensar, retomar | sim | sim | pasta da conversa aberta vem primeiro |
-| Dispensar pelo menu da lista, escolhendo entre os contatos abertos | sim | **pendente** | Rust: a lista não tem menu próprio e fica ao lado da conversa; dispensar segue pelo menu da conversa |
+| Dispensar pelo menu ⋮ da sessão na lista | sim | **pendente** | Rust: dispensar segue pelo menu da conversa, que fica ao lado da lista |
 | Bate-papo paralelo, sem pular para o fim quando se lê acima | sim | sim | puxada para abrir só no toque; no desktop, pelo menu |
 | Arquivos da pasta de trabalho: navegar e baixar | sim | sim | Android: Downloads (MediaStore); iOS: pasta do app; desktop: Downloads |
 | Configurações, papéis, resumos por HTTP | sim | sim | |

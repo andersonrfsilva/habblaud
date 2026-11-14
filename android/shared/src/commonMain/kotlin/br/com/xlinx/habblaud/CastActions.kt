@@ -74,7 +74,7 @@ internal fun dismissable(open: List<SessionItem>, castIds: Set<String>, jobs: Ma
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Boolean, openSessions: List<SessionItem>, onUnauthorized: () -> Unit, onPermission: () -> Unit, menu: @Composable (close: () -> Unit, dismissItem: @Composable () -> Unit) -> Unit, content: @Composable (@Composable () -> Unit, @Composable () -> Unit, @Composable () -> Unit, @Composable (close: () -> Unit) -> Unit) -> Unit) {
+internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Boolean, openSessions: List<SessionItem>, onUnauthorized: () -> Unit, onPermission: () -> Unit, menu: @Composable (close: () -> Unit, dismissItem: @Composable () -> Unit) -> Unit, content: @Composable (@Composable () -> Unit, @Composable () -> Unit, @Composable () -> Unit, @Composable (session: SessionItem, close: () -> Unit) -> Unit) -> Unit) {
     val openCast = openSessions.mapNotNull { it.cast }.toSet()
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -214,30 +214,17 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
         if (result.isNotEmpty()) Text(resultDetail?.takeIf { result == "busy" || result == "failed" || result == "forbidden" } ?: stringResource(when (result) { "pending" -> Res.string.cast_pending; "done" -> Res.string.cast_done; "busy" -> Res.string.cast_busy; "forbidden" -> Res.string.cast_forbidden; "failed" -> Res.string.cast_failed; else -> Res.string.cast_unknown }), style = MaterialTheme.typography.bodySmall)
     }
     val candidates = dismissable(openSessions, characters.map { it.id }.toSet(), jobs)
-    // Item do menu da lista: dispensar sem abrir a conversa, escolhendo entre os contatos abertos.
-    val dismissAny: @Composable (close: () -> Unit) -> Unit = { close ->
-        if (availability == "available" && candidates.isNotEmpty()) DropdownMenuItem(
-            modifier = Modifier.testTag("cast-dismiss-any"),
+    // Item do menu de cada sessão na lista: dispensar aquele contato sem abrir a conversa.
+    val dismissFor: @Composable (session: SessionItem, close: () -> Unit) -> Unit = { session, close ->
+        if (availability == "available" && candidates.any { it.key == session.key }) DropdownMenuItem(
+            modifier = Modifier.testTag("cast-dismiss-row"),
             text = { Text(stringResource(Res.string.cast_dismiss)) },
             leadingIcon = { Icon(Icons.Default.ExitToApp, contentDescription = null) },
             enabled = !sending,
-            onClick = { close(); dialog = "dismiss-select" },
+            onClick = { close(); target = session; dialog = "dismiss" },
         )
     }
-    content(actions, fab, status, dismissAny)
-    if (dialog == "dismiss-select") AlertDialog(onDismissRequest = { dialog = "" }, title = { Text(stringResource(Res.string.cast_dismiss)) }, text = {
-        Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
-            candidates.forEach { session ->
-                Row(Modifier.fillMaxWidth().clickable { target = session; dialog = "dismiss" }.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    CharacterAvatar(api, session.avatar, session.characterName ?: session.title, 40.dp)
-                    Column {
-                        Text(session.characterName ?: session.title)
-                        if (session.characterName != null && session.characterName != session.title) Text(session.title, style = MaterialTheme.typography.bodySmall, maxLines = 1)
-                    }
-                }
-            }
-        }
-    }, confirmButton = {}, dismissButton = { TextButton(onClick = { dialog = "" }) { Text(stringResource(Res.string.cancel)) } })
+    content(actions, fab, status, dismissFor)
     if (dialog == "start") AlertDialog(onDismissRequest = { dialog = "" }, title = { Text(stringResource(Res.string.cast_select_character)) }, text = {
         Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
             // "Novo": agente fora do elenco, com nome e visual sorteados pelo servidor.

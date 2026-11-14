@@ -318,7 +318,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                 dismissItem()
             }
         }
-    }) { castActions, castFab, castStatus, castDismissAny ->
+    }) { castActions, castFab, castStatus, castDismissFor ->
     var showInfo by remember(selected?.key) { mutableStateOf(false) }
     if (showInfo && selected != null) SessionInfoSheet(api, selected, state.entries, state.truncated) { showInfo = false }
     if (asideOpen && selected?.agentId != null) AsideSheet(controller.asides) { asideOpen = false; controller.asides.close() }
@@ -338,7 +338,6 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                     IconButton(onClick = { menuExpanded = true }, modifier = Modifier.semantics { contentDescription = menuLabel }) { Icon(Icons.Default.MoreVert, contentDescription = null) }
                     DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                         DropdownMenuItem(modifier = Modifier.testTag("files-menu"), text = { Text(stringResource(Res.string.files_title)) }, onClick = { menuExpanded = false; filesOpen = true })
-                        castDismissAny { menuExpanded = false }
                         DropdownMenuItem(text = { Text(stringResource(Res.string.settings)) }, onClick = { menuExpanded = false; settingsOpen = true })
                         DropdownMenuItem(modifier = Modifier.testTag("add-server"), text = { Text(stringResource(Res.string.add_server)) }, onClick = { menuExpanded = false; onLogin(null) })
                     }
@@ -505,6 +504,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                                     leadingIcon = { Icon(if (marks.favorite) Icons.Default.Star else Icons.Outlined.StarBorder, contentDescription = null) },
                                     onClick = { marksMenu = false; controllers.getValue(session.key.origin).toggleMark(session.key, pin = false) },
                                 )
+                                castDismissFor(session) { marksMenu = false }
                             }
                         }
                     }
