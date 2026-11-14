@@ -79,8 +79,9 @@ export interface ReserveInfo {
  * - codex: OpenAI Codex (CLI `codex` e o app desktop, que gravam no mesmo CODEX_HOME);
  * - omp: oh-my-pi (CLI `omp`, can1357/oh-my-pi), que grava as sessões em ~/.omp/agent/sessions.
  * - zeroclaw: ZeroClaw Gluon, acompanhado pelo gateway local e espelhado em JSONL.
+ * - antigravity: Antigravity CLI (`agy`), conduzido pelo protocolo ACP (`agy acp`).
  */
-export type Provider = 'claude' | 'codex' | 'omp' | 'zeroclaw';
+export type Provider = 'claude' | 'codex' | 'omp' | 'zeroclaw' | 'antigravity';
 
 /**
  * Estado de alto nível de um agente — é o que dirige o comportamento do personagem.
