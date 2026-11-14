@@ -77,6 +77,8 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
     var dialog by remember { mutableStateOf("") }
     var choice by remember { mutableStateOf<CastChoice?>(null) }
     var result by remember { mutableStateOf("") }
+    // Motivo que o servidor mandou ao recusar (por exemplo "só 1 personagem trabalha por vez: dispense o atual…").
+    var resultDetail by remember { mutableStateOf<String?>(null) }
     var submittedCast by remember { mutableStateOf<String?>(null) }
     var sending by remember { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
@@ -129,7 +131,7 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
     }
     fun submit(path: String, body: JsonObject) {
         if (sending) return
-        sending = true; result = ""
+        sending = true; result = ""; resultDetail = null
         scope.launch {
             try {
                 val response = wireJson.parseToJsonElement(api.request(path, body)).jsonObject
@@ -138,6 +140,7 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 if (e is ApiException && e.status == 401) onUnauthorized()
+                resultDetail = (e as? ApiException)?.takeIf { it.status in 400..499 && it.status != 401 }?.detail?.takeIf { it.isNotBlank() }
                 result = when {
                     e is ApiException && e.status == 409 -> "busy"
                     e is ApiException && e.status == 403 -> "forbidden"
@@ -197,7 +200,7 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
     val status: @Composable () -> Unit = {
         if (availability == "available" && activeJob) Text(stringResource(Res.string.cast_pending), style = MaterialTheme.typography.bodySmall)
         else if (availability == "unavailable" || availability == "forbidden") Text(stringResource(if (availability == "forbidden") Res.string.cast_forbidden else Res.string.cast_unavailable), style = MaterialTheme.typography.bodySmall)
-        if (result.isNotEmpty()) Text(stringResource(when (result) { "pending" -> Res.string.cast_pending; "done" -> Res.string.cast_done; "busy" -> Res.string.cast_busy; "forbidden" -> Res.string.cast_forbidden; "failed" -> Res.string.cast_failed; else -> Res.string.cast_unknown }), style = MaterialTheme.typography.bodySmall)
+        if (result.isNotEmpty()) Text(resultDetail?.takeIf { result == "busy" || result == "failed" || result == "forbidden" } ?: stringResource(when (result) { "pending" -> Res.string.cast_pending; "done" -> Res.string.cast_done; "busy" -> Res.string.cast_busy; "forbidden" -> Res.string.cast_forbidden; "failed" -> Res.string.cast_failed; else -> Res.string.cast_unknown }), style = MaterialTheme.typography.bodySmall)
     }
     content(actions, fab, status)
     if (dialog == "start") AlertDialog(onDismissRequest = { dialog = "" }, title = { Text(stringResource(Res.string.cast_select_character)) }, text = {

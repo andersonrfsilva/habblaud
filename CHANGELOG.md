@@ -145,6 +145,9 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Zaplaud:** quando o servidor recusa chamar um personagem, o Android/iOS e o desktop Rust mostram o motivo que
+  ele mandou (por exemplo "só 1 personagem trabalha por vez: dispense o atual antes de chamar outro") em vez do
+  genérico "Este contato está ocupado."; sem motivo no corpo, o texto genérico continua.
 - **Zaplaud macOS:** a sessão autenticada volta a ser salva no Keychain e restaurada ao reabrir o app.
   O backend escolhe o chaveiro de login sem receber o alvo inválido `default`; limpar uma sessão ausente não
   desativa mais a persistência. Senhas não são gravadas: somente o cookie de sessão fica no armazenamento seguro.

@@ -14,6 +14,8 @@ pub struct State {
     pub characters: Vec<CastChoice>,
     pub jobs: CastJobs,
     pub result: String,
+    /// Motivo que o servidor mandou ao recusar o pedido (4xx), para mostrar no lugar do texto genérico.
+    pub result_detail: String,
     pub submitted_cast: Option<String>,
     pub sending: bool,
 }
@@ -136,6 +138,7 @@ impl State {
         }
         self.sending = true;
         self.result.clear();
+        self.result_detail.clear();
         let resume = resume.map(|s| ResumeSession {
             room: s.project.as_deref().unwrap_or_default(),
             session: &s.key.session_id,
@@ -161,6 +164,11 @@ impl State {
                 Ok(())
             }
             Err(error) => {
+                if let Error::Api { status, detail, .. } = &error {
+                    if (400..=499).contains(status) && *status != 401 {
+                        self.result_detail = detail.trim().to_owned();
+                    }
+                }
                 self.result = match &error {
                     Error::Api { status: 409, .. } => "busy",
                     Error::Api { status: 403, .. } => "forbidden",

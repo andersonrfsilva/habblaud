@@ -268,7 +268,13 @@ fn publish(
         if !status.is_empty() {
             status.push('\n');
         }
-        status.push_str(status_text(&state.result));
+        if !state.result_detail.is_empty()
+            && matches!(state.result.as_str(), "busy" | "failed" | "forbidden")
+        {
+            status.push_str(&state.result_detail);
+        } else {
+            status.push_str(status_text(&state.result));
+        }
     }
     update_ui(weak, move |window| {
         let global = window.global::<CastState>();
