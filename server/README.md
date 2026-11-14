@@ -41,7 +41,7 @@ por subprocesso `agy acp` ou por soquete Unix. Multiplexa sessões, turnos e ped
   humana. Sem página, o pedido fica esperando; pedidos liberados são registrados novamente.
 - `antigravity/http.ts` atende `GET /api/antigravity` e `GET|POST /api/antigravity/sessions`, sob a trava `spawn`.
   Abrir aceita `{folder, prompt?, session?}`; `session` retoma um UUID. Falta de login devolve 409.
-  Dispensar usa a trava `terminal`, sem depender do launcher do elenco.
+  Dispensar usa a trava `terminal`: personagens abertos pelo elenco passam pelo launcher; os demais fecham diretamente.
 - `scripts/antigravity-relay.ts`, iniciado no host por `npm run antigravity:relay`, atende uma conexão local por vez.
   O soquete é `0600`; a pasta precisa pertencer ao usuário e não permitir escrita de outros.
   O relé importa a mesma `agyArgs`; nada recebido pelo soquete vira argumento, ambiente ou caminho.
@@ -56,7 +56,30 @@ por subprocesso `agy acp` ou por soquete Unix. Multiplexa sessões, turnos e ped
 O quadlet tem apenas instruções opt-in comentadas: não monta credenciais nem binário do Antigravity.
 O uso de cliente ACP próprio não garante conformidade com os Termos do Antigravity; o risco de bloqueio é do usuário.
 A flag de permissões permite executar comandos e editar arquivos sem perguntar: use apenas em ambiente descartável.
-Sem elenco, histórico na interface, cota, troca de modelo, anexos ou steer. Testes usam `fake-agy.mjs`, nunca o binário real.
+Sem histórico na interface, troca de modelo de agente aberto, anexos ou steer. Testes usam `fake-agy.mjs`, nunca o binário real.
+
+### O contrato novo
+
+1. Um modelo `agy/<valor>` roda no Antigravity CLI; `agy/default` deixa o CLI escolher seu padrão.
+   A regra compartilhada está em `shared/agy-model.ts`. `google-antigravity/…` continua sendo do omp, sem conversão.
+2. `CastMember.model` aceita `agy/…` apenas em personagens `kind: 'main'`, sem `agent` nem `account`.
+   `instructions` e `idleMinutes` continuam valendo; não há campo de runtime no personagem.
+3. `POST /api/cast/:id/start` escolhe o runtime pelo modelo efetivo em conversa nova: `model` do corpo vence o
+   modelo do personagem. `POST /api/cast/new` com `model: "agy/…"` cria um `novo-…` no Antigravity.
+   Sem pedido, abrir não envia turno: as instruções ficam pendentes até a primeira mensagem da pessoa.
+4. Em `mode: "resume"` (ou `session` no "Novo"), a existência de
+   `<dataDir>/antigravity/sessions/<sessionId>.jsonl` identifica uma conversa do Antigravity.
+   Sem espelho, permanece o caminho do runtime da instalação. O modelo `agy/…` do personagem é reaplicado após retomar.
+5. Com `HABBLAUD_ANTIGRAVITY=1`, `GET /api/cast/models` acrescenta `agyModels`, começando por `agy/default`.
+   Outros modelos aparecem após a primeira sessão e persistem em `<dataDir>/antigravity/models.json`
+   (pasta `0700`, arquivo `0600`, substituição atômica). Sem a integração, o campo não existe.
+6. O agente tem `provider: 'antigravity'`, `cast`, `castOpened: true`, `model: "agy/<valor atual>"` e
+   `models: ["agy/…", …]`, sem o alias `agy/default`. `POST /api/agents/:id/dismiss` devolve `202 {job}`.
+   Conversa nova mantém personagem e modelo, rearma suas instruções e troca a sessão sem perder a dispensa.
+7. `/api/cast/jobs` mantém `queued`, `sent`, `waiting`, `done` e `failed`.
+   omp, ZeroClaw e Antigravity dividem o limite da instalação; polls do auxiliar omp não apagam personagens do Antigravity.
+   Sem Antigravity ligado, uma chamada com modelo `agy/…` devolve `503`.
+
 
 ## ZeroClaw (opt-in)
 

@@ -1157,8 +1157,9 @@ na instalação. O volume de estado existente leva o soquete ao contêiner; não
 
 Na página, abra **Novo agente**, escolha **Antigravity**, a pasta e o pedido opcional. A conversa aceita mensagens
 enfileiradas, aprovar/negar ferramentas, STOP, conversa nova, Dispensar e leitura do terminal. Os controles continuam
-sujeitos às permissões locais/remotas do escritório. Não inclui elenco, histórico na interface, cota, troca de modelo,
+sujeitos às permissões locais/remotas do escritório. Não inclui histórico na interface, troca de modelo de agente aberto,
 anexos, steer, conversa paralela ou integração própria no Zaplaud.
+A API do elenco aceita modelos `agy/…` (inclusive `agy/default`) junto do omp ou ZeroClaw; as instruções do personagem aguardam a primeira mensagem humana.
 
 O Habblaud abre o `agy` oficial pelo protocolo ACP e não usa o login dele por conta própria. Os Termos do
 Antigravity proíbem acessar o serviço com software de terceiros; se um cliente ACP próprio está dentro ou fora

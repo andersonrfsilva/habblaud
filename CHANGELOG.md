@@ -12,11 +12,17 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Elenco com Antigravity (servidor).** Modelos `agy/…` no personagem ou na chamada de "Novo" abrem pelo ACP,
+  junto dos personagens do omp ou ZeroClaw, com limite compartilhado e dispensa por ociosidade.
+  `agy/default` usa o padrão do CLI; o catálogo é aprendido após a primeira sessão.
+  As instruções seguem apenas com a primeira mensagem humana, nunca iniciam um turno sozinhas.
+  Retomar identifica o runtime pelo espelho da conversa e reaplica o modelo do Antigravity.
+  `google-antigravity/…` continua sendo do omp: não é convertido nem tratado como `agy/…`.
 - **Antigravity pelo escritório.** Em **Novo agente → Antigravity**, abra uma conversa com terminal, mensagens,
   aprovar/negar ferramentas, STOP, conversa nova e Dispensar. Desligado por padrão: ligue com
   `HABBLAUD_ANTIGRAVITY=1`. No Podman, rode o relé do host com `npm run antigravity:relay` e configure
-  `HABBLAUD_ANTIGRAVITY_SOCKET`. Protocolo medido no `agy` 1.5.9. Não inclui elenco, histórico, cota, troca de
-  modelo, anexos, mensagem no meio do turno nem controles próprios nos clientes Zaplaud. Cada mensagem aguarda
+  `HABBLAUD_ANTIGRAVITY_SOCKET`. Protocolo medido no `agy` 1.5.9. Não inclui histórico na interface, troca de
+  modelo de agente aberto, anexos, mensagem no meio do turno nem controles próprios nos clientes Zaplaud. Cada mensagem aguarda
   o fim do turno; nenhuma permissão é concedida sem decisão humana, salvo a flag explícita do dono.
   Abrir agentes e trocar conversas ao mesmo tempo preserva a identidade de cada agente, mesmo com respostas fora de ordem.
 - **Sessões:** fixar e favoritar são ações independentes no Habblaud web e no Zaplaud Android/iOS e desktop Rust.

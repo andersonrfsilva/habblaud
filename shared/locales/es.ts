@@ -2,6 +2,9 @@
 // As lacunas {0}, {1}... (e as nomeadas, como {sala}) precisam aparecer na tradução, em qualquer ordem.
 // Chave ausente = o texto fica em PT. `npm run i18n:check` lista os textos sem tradução e as chaves que sobraram.
 export const ES: Readonly<Record<string, string>> = {
+  "Antigravity desligado neste Habblaud": "Antigravity está desactivado en este Habblaud",
+  "modelo do Antigravity desconhecido: {0}": "modelo de Antigravity desconocido: {0}",
+  "Antigravity não confirmou a sessão dentro do prazo": "Antigravity no confirmó la sesión dentro del plazo",
   "uso: npm run antigravity:relay -- --socket /caminho/absoluto": "uso: npm run antigravity:relay -- --socket /ruta/absoluta",
   "Antigravity: a pasta do soquete precisa pertencer ao usuário e não permitir escrita de outros": "Antigravity: la carpeta del socket debe pertenecer al usuario y no permitir escritura de otros",
   "Antigravity: o caminho do soquete já existe e não é um soquete": "Antigravity: la ruta del socket ya existe y no es un socket",

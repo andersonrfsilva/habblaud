@@ -903,8 +903,9 @@ configuration to the installation. The existing state volume carries the socket;
 
 Open **New agent**, select **Antigravity**, choose a folder and optionally enter a prompt. Supported: queued messages,
 human tool approvals, STOP, new conversation, Dismiss and terminal reading. Local/remote office access rules still
-apply. Not included: cast integration, history UI, quota, model switching, attachments, steer, parallel conversations,
+apply. Not included: history UI, switching an open agent's model, attachments, steer, parallel conversations,
 or dedicated Zaplaud integration.
+The server cast API accepts `agy/…` models (including `agy/default`) alongside omp or ZeroClaw; character instructions wait for the first human message.
 
 Habblaud opens the official `agy` through ACP and does not use its login independently. Antigravity's Terms prohibit
 accessing the service with third-party software; whether a custom ACP client falls within that rule is a matter of
