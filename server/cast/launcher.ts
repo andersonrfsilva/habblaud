@@ -45,11 +45,20 @@ export class CastLauncher {
   private hostSeen = -Infinity;
   private readonly now: () => number;
   private readonly switching = new Set<string>();
+  // shortcut: só em memória, some ao reiniciar o servidor; persistir quando isso atrapalhar.
+  private ompModels: string[] = [];
   constructor(private readonly opts: Options) { this.now = opts.now ?? Date.now; }
   available(): boolean { return this.opts.zeroclaw ? this.opts.zeroclaw.available() : this.now() - this.hostSeen <= HOST_PRESENCE_MS; }
   models(): ((ZeroClawCatalog & { provider: 'zeroclaw' }) | { provider: 'omp'; models: []; named?: never }) & { agyModels?: string[] } {
     return { ...(this.opts.zeroclaw?.models() ?? { provider: 'omp' as const, models: [] as [] }),
       ...(this.opts.antigravity ? { agyModels: this.opts.antigravity.agyModels() } : {}) };
+  }
+  rememberOmpModels(list: string[]): void { this.ompModels = list.filter(model => !isAgyModel(model)); }
+  otherModels(provider: AgentInfo['provider']): string[] | undefined {
+    if (!this.opts.antigravity?.available()) return undefined;
+    if (provider === 'omp') return this.opts.antigravity.agyModels();
+    if (provider === 'antigravity') return this.ompModels;
+    return undefined;
   }
   namedAliases(): string[] { return this.opts.zeroclaw?.models().named?.map((entry) => entry.alias) ?? []; }
   isOpened(cast: string): boolean { this.syncZeroClaw(); return this.opened.has(cast); }

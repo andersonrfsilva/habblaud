@@ -645,3 +645,29 @@ describe('troca de ferramenta com contexto', () => {
     expect(s.switched).toHaveBeenCalledWith(expect.any(Object), 'omp', 'Antigravity', false);
   });
 });
+
+describe('modelos das duas ferramentas no snapshot', () => {
+  it('omp aberto ganha catálogo agy, Antigravity aberto ganha última lista omp sem duplicatas', async () => {
+    const s = switchingSetup();
+    await s.done(s.launcher.start('ana', { mode: 'new' }));
+    s.current().models = ['omp/one', 'omp/two'];
+    s.office.markDirty();
+    expect(s.office.commit().snapshot.agents.find(a => a.id === s.current().id)?.models).toEqual(['omp/one', 'omp/two', 'agy/default']);
+    await s.switchTo('agy/fake-b');
+    const snapshot = s.office.commit().snapshot.agents.find(a => a.id === s.current().id)!;
+    expect(snapshot.models).toEqual(['agy/fake-a', 'agy/fake-b', 'omp/one', 'omp/two']);
+    expect(s.current().models).toEqual(['agy/fake-a', 'agy/fake-b']);
+  });
+  it('agente sem castOpened mantém lista; Antigravity desligado não enriquece', () => {
+    const enabled = agySetup();
+    enabled.office.addMain({ id: 'terminal', provider: 'omp', account: 'omp', sessionId: 'terminal', cwd: '/project', role: 'main', startedAt: 0, status: 'idle' });
+    enabled.office.get('terminal')!.models = ['omp/only'];
+    expect(enabled.office.commit().snapshot.agents.find(a => a.id === 'terminal')).toMatchObject({ models: ['omp/only'] });
+    expect(enabled.office.commit().snapshot.agents.find(a => a.id === 'terminal')?.castOpened).toBeUndefined();
+    const disabled = agySetup(undefined, false);
+    disabled.office.addMain({ id: 'omp', provider: 'omp', account: 'omp', sessionId: 'omp', cwd: '/project', cast: 'ana', role: 'main', startedAt: 0, status: 'idle' });
+    disabled.office.get('omp')!.models = ['omp/only'];
+    disabled.launcher.poll({ open: ['ana'] });
+    expect(disabled.office.commit().snapshot.agents.find(a => a.id === 'omp')).toMatchObject({ castOpened: true, models: ['omp/only'] });
+  });
+});
