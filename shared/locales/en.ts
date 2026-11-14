@@ -2,6 +2,12 @@
 // As lacunas {0}, {1}... (e as nomeadas, como {sala}) precisam aparecer na tradução, em qualquer ordem.
 // Chave ausente = o texto fica em PT. `npm run i18n:check` lista os textos sem tradução e as chaves que sobraram.
 export const EN: Readonly<Record<string, string>> = {
+  "uso: npm run antigravity:relay -- --socket /caminho/absoluto": "usage: npm run antigravity:relay -- --socket /absolute/path",
+  "Antigravity: a pasta do soquete precisa pertencer ao usuário e não permitir escrita de outros": "Antigravity: the socket directory must belong to the user and must not be writable by others",
+  "Antigravity: o caminho do soquete já existe e não é um soquete": "Antigravity: the socket path already exists and is not a socket",
+  "Antigravity: não foi possível abrir o agy; confira HABBLAUD_ANTIGRAVITY_BIN": "Antigravity: could not start agy; check HABBLAUD_ANTIGRAVITY_BIN",
+  "Antigravity: falha no relé: {0}": "Antigravity: relay failed: {0}",
+  "Relé Antigravity pronto em {0}": "Antigravity relay ready at {0}",
   "HABBLAUD_ANTIGRAVITY_SOCKET precisa ser um caminho absoluto": "HABBLAUD_ANTIGRAVITY_SOCKET must be an absolute path",
   "Agente principal (Antigravity)": "Main agent (Antigravity)",
   "Agente do Antigravity (Google)": "Antigravity agent (Google)",
