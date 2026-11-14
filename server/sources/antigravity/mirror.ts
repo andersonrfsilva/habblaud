@@ -7,6 +7,7 @@ import type { AcpEvent } from '../../antigravity/acp';
 
 export const ANTIGRAVITY_TOOLS: Readonly<Record<string, { name: string; fields: Readonly<Record<string, string>> }>> = {
   run_command: { name: 'Bash', fields: { command: 'CommandLine' } },
+  read_file: { name: 'Read', fields: { file_path: 'Path' } },
   view_file: { name: 'Read', fields: { file_path: 'AbsolutePath' } },
   write_to_file: { name: 'Write', fields: { file_path: 'TargetFile' } },
   replace_file_content: { name: 'Edit', fields: { file_path: 'TargetFile' } },
@@ -16,11 +17,14 @@ export const ANTIGRAVITY_TOOLS: Readonly<Record<string, { name: string; fields: 
 };
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 const text = (value: unknown) => typeof value === 'string' ? value : '';
-export function antigravityTool(call: Record<string, unknown>): { name: string; input: Record<string, string> } {
+export function antigravityTool(call: Record<string, unknown>): { name: string; input: Record<string, string | number | boolean> } {
   const name = text(call.name);
   const tool = ANTIGRAVITY_TOOLS[name];
-  if (!tool) return { name, input: { summary: maskSecrets(text(call.title)) } };
   const raw = object(call.rawInput) ? call.rawInput : {};
+  if (!tool) return { name, input: { description: maskSecrets(text(call.title)).slice(0, 500),
+    ...Object.fromEntries(Object.entries(raw)
+      .filter(([key, value]) => key !== 'description' && (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'))
+      .map(([key, value]) => [key, typeof value === 'string' ? maskSecrets(value).slice(0, 500) : value])) } };
   return { name: tool.name, input: Object.fromEntries(Object.entries(tool.fields).map(([key, source]) => [key, maskSecrets(text(raw[source]))])) };
 }
 

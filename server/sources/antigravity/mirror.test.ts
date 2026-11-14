@@ -25,7 +25,15 @@ describe('espelho Antigravity', () => {
   it('traduz a tabela de ferramentas e preserva ferramentas desconhecidas', () => {
     expect(antigravityTool({ name: 'run_command', rawInput: { CommandLine: 'echo ok' } })).toEqual({ name: 'Bash', input: { command: 'echo ok' } });
     expect(antigravityTool({ name: 'view_file', rawInput: { AbsolutePath: '/tmp/file' } })).toEqual({ name: 'Read', input: { file_path: '/tmp/file' } });
-    expect(antigravityTool({ name: 'custom', title: 'Teste' })).toEqual({ name: 'custom', input: { summary: 'Teste' } });
+    expect(antigravityTool({ name: 'custom', title: 'Teste', rawInput: { target: '/tmp/file' } })).toEqual({ name: 'custom', input: { description: 'Teste', target: '/tmp/file' } });
+  });
+  it('translates read_file and masks and bounds primitive unknown-tool arguments', () => {
+    expect(antigravityTool({ name: 'read_file', rawInput: { Path: '/tmp/context.md' } })).toEqual({ name: 'Read', input: { file_path: '/tmp/context.md' } });
+    const tool = antigravityTool({ name: 'custom', title: 'Custom action', rawInput: { secret: 'Authorization: Bearer super-secret-token', long: 'x'.repeat(600), count: 2, enabled: true, nested: { ignored: true } } });
+    expect(tool.input).toMatchObject({ description: 'Custom action', count: 2, enabled: true });
+    expect(tool.input.long).toHaveLength(500);
+    expect(JSON.stringify(tool)).not.toContain('super-secret-token');
+    expect(tool.input).not.toHaveProperty('nested');
   });
   it('usa modos privados, mascara segredos e limita saída de ferramenta', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'antigravity-mirror-'));
