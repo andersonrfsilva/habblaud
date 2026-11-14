@@ -10,11 +10,11 @@ import { isNeutralBrand, tr, unbrand } from '../../../shared/i18n';
 import type { OmpDeliverAs } from '../../../shared/messages';
 
 export function runtimeAllowsMessages(provider: unknown): boolean {
-  return provider === undefined || provider === 'claude' || provider === 'codex' || provider === 'omp' || provider === 'zeroclaw';
+  return provider === undefined || provider === 'claude' || provider === 'codex' || provider === 'omp' || provider === 'zeroclaw' || provider === 'antigravity';
 }
 
 export function runtimeAllowsControl(provider: unknown): boolean {
-  return provider === 'omp' || provider === 'zeroclaw';
+  return provider === 'omp' || provider === 'zeroclaw' || provider === 'antigravity';
 }
 
 export function runtimeAllowsDeliveryModes(provider: unknown): boolean {
@@ -70,7 +70,7 @@ export function castDefaultModel(catalog: CastModelCatalog | undefined): string 
 }
 
 /** Nome de cada ferramenta como aparece nos textos ("Agente" nas três, no modo sem marca). */
-export const PROVIDER_NAME: Record<Provider, string> = { claude: unbrand('Claude Code'), codex: unbrand('Codex'), omp: unbrand('omp'), zeroclaw: unbrand('ZeroClaw') };
+export const PROVIDER_NAME: Record<Provider, string> = { claude: unbrand('Claude Code'), codex: unbrand('Codex'), omp: unbrand('omp'), zeroclaw: unbrand('ZeroClaw'), antigravity: unbrand('Antigravity') };
 
 /** Ferramenta de um agente, conta, sessão ou pedido (ausente = Claude Code). */
 export function providerOf(x: { provider?: Provider } | null | undefined): Provider {
@@ -83,6 +83,14 @@ export function isCodex(x: { provider?: Provider } | null | undefined): boolean 
 
 export function isOmp(x: { provider?: Provider } | null | undefined): boolean {
   return x?.provider === 'omp';
+}
+
+export function isAntigravity(x: { provider?: Provider } | null | undefined): boolean {
+  return x?.provider === 'antigravity';
+}
+
+export function looksLikeAntigravityId(id: string): boolean {
+  return /(?:^|[:/\\])\.?antigravity(?:[-_.~]|$)/i.test(id);
 }
 
 /**
@@ -102,7 +110,7 @@ export function looksLikeOmpId(id: string): boolean {
 export function accountProvider(account: Pick<AccountInfo, 'provider'> | undefined, fallbackId = '', hint?: Provider): Provider {
   if (account) return providerOf(account);
   if (hint) return hint;
-  return looksLikeCodexId(fallbackId) ? 'codex' : looksLikeOmpId(fallbackId) ? 'omp' : 'claude';
+  return looksLikeCodexId(fallbackId) ? 'codex' : looksLikeOmpId(fallbackId) ? 'omp' : looksLikeAntigravityId(fallbackId) ? 'antigravity' : 'claude';
 }
 
 /**
@@ -114,10 +122,10 @@ export function fallbackShort(id: string, provider: Provider = accountProvider(u
   const rest = id
     .replace(/^.*:/, '')
     .replace(/~\d+$/, '')
-    .replace(/^\.?(?:claude|codex|omp)(?=[-_.]|$)[-_.]?/i, '');
+    .replace(/^\.?(?:claude|codex|omp|antigravity)(?=[-_.]|$)[-_.]?/i, '');
   const letter = /[\p{L}\p{N}]/u.exec(rest)?.[0];
   if (letter) return letter.toUpperCase();
-  return provider === 'codex' ? 'X' : provider === 'omp' ? 'O' : '?';
+  return provider === 'codex' ? 'X' : provider === 'omp' ? 'O' : provider === 'antigravity' ? 'G' : '?';
 }
 
 /** O selo de texto ao lado do nome da conta ("Codex", "omp"; não repete quando o nome já o diz; nunca no modo sem marca). */
