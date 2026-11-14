@@ -1025,7 +1025,8 @@ private fun EntryView(entry: TerminalEntry, results: Map<String?, List<TerminalE
                                     h5 = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
                                     h6 = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
                                 ),
-                                components = markdownComponents(image = {}),
+                                dimens = chatMarkdownDimens(),
+                                components = markdownComponents(image = {}, table = wrappingTable),
                             )
                         }
                         if (entry.truncated) Text(stringResource(Res.string.result_truncated))

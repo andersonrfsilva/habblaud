@@ -129,6 +129,8 @@ do meio (0.**3**.0).
 
 ### Alterado
 
+- **Zaplaud (Android e iOS):** tabelas nas mensagens não cortam mais o texto com reticências: a célula quebra em
+  várias linhas e a coluna ficou mais larga (180 dp). Tabela que não cabe na tela continua rolando na horizontal.
 - **Histórico:** sessão encerrada que rodou em pasta temporária (`/tmp`) volta a aparecer quando tem título ou
   primeiro pedido. Só ficam de fora as sessões sem nenhuma instrução sua.
 - **Elenco:** chamar um personagem ou "Novo" não pede mais pasta: a sessão nova abre sempre na pasta pessoal (`~`) do

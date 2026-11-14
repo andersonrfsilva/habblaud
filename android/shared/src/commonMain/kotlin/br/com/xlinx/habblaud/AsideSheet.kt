@@ -132,7 +132,7 @@ private fun AsideTurnView(turn: AsideTurn) {
             SelectionContainer { Text(turn.question, Modifier.padding(12.dp), color = MaterialTheme.colorScheme.onPrimaryContainer) }
         }
         if (turn.answer.isNotEmpty()) SelectionContainer {
-            Markdown(turn.answer, modifier = Modifier.fillMaxWidth(), colors = markdownColor(text = MaterialTheme.colorScheme.onSurface), components = markdownComponents(image = {}))
+            Markdown(turn.answer, modifier = Modifier.fillMaxWidth(), colors = markdownColor(text = MaterialTheme.colorScheme.onSurface), dimens = chatMarkdownDimens(), components = markdownComponents(image = {}, table = wrappingTable))
         }
         val status = when (turn.status) {
             "queued" -> stringResource(Res.string.aside_queued)
