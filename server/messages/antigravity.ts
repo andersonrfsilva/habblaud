@@ -11,7 +11,14 @@ export const ERR_ANTIGRAVITY_QUEUED = tr('a mensagem Antigravity expirou esperan
 
 export class AntigravityDelivery implements PushDelivery {
   private readonly replacing = new Set<string>();
-  constructor(private readonly opts: { client: AntigravityClient; source: Pick<AntigravitySource, 'replace'>; diagnostic?: (message: string) => void }) {}
+  private readonly instructions = new Map<string, { text: string; pending: boolean }>();
+  constructor(private readonly opts: { client: AntigravityClient; source: Pick<AntigravitySource, 'replace'>; diagnostic?: (message: string) => void }) {
+    opts.client.onEvent(event => { if (event.type === 'session-close') this.instructions.delete(event.sessionId); });
+  }
+  setInstructions(sessionId: string, instructions: string | undefined): void {
+    if (instructions) this.instructions.set(sessionId, { text: instructions, pending: true });
+    else this.instructions.delete(sessionId);
+  }
   onEvent(listener: Parameters<PushDelivery['onEvent']>[0]): () => void {
     return this.opts.client.onEvent(event => {
       if (event.type === 'session-open' || event.type === 'session-close' || event.type === 'turn-state') listener(event);
@@ -22,17 +29,25 @@ export class AntigravityDelivery implements PushDelivery {
   continuityLost(_id: string): boolean { return false; }
   async sendMessage(id: string, content: string): Promise<{ ok: true } | { ok: false; error: string }> {
     if (!this.available(id)) return { ok: false, error: ERR_ANTIGRAVITY_UNAVAILABLE };
-    try { await this.opts.client.prompt(id, content); return { ok: true }; }
+    const instructions = this.instructions.get(id);
+    const text = instructions?.pending ? `Instruções do personagem:\n${instructions.text}\n\nPedido inicial:\n${content}` : content;
+    try {
+      await this.opts.client.prompt(id, text);
+      if (instructions) instructions.pending = false;
+      return { ok: true };
+    }
     catch { return { ok: false, error: ERR_ANTIGRAVITY_DELIVERY }; }
   }
   stopSession(id: string): Promise<void> { return this.opts.client.cancel(id); }
   async newSession(id: string): Promise<string> {
     const session = this.opts.client.session(id);
     if (!this.available(id) || !session) throw new Error(ERR_ANTIGRAVITY_UNAVAILABLE);
+    const instructions = this.instructions.get(id)?.text;
     this.replacing.add(id);
     try {
       await this.opts.client.cancel(id);
-      const next = await this.opts.source.replace(id, () => this.opts.client.open({ cwd: session.cwd, replaces: id }));
+      const next = await this.opts.source.replace(id, () => this.opts.client.open({ cwd: session.cwd, replaces: id, cast: session.cast, model: session.model }));
+      this.setInstructions(next, instructions);
       try { await this.opts.client.close(id); }
       catch { this.opts.diagnostic?.(tr('Antigravity: não foi possível fechar a sessão anterior')); }
       return next;

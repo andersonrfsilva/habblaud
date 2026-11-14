@@ -4,13 +4,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Duplex } from 'node:stream';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AccountsService } from '../accounts/service';
 import { AntigravityClient } from '../antigravity/acp';
 import { NameStore } from '../model/names';
 import { Office } from '../model/office';
 import { AntigravityMirror } from '../sources/antigravity/mirror';
 import { AntigravitySource } from '../sources/antigravity/source';
+import { AntigravityCatalog } from '../sources/antigravity/catalog';
 import { AntigravityDelivery } from './antigravity';
 import { InvalidRequest, MessageRegistry } from './registry';
 
@@ -26,7 +27,7 @@ async function setup() {
     child = process;
     return Duplex.from({ readable: process.stdout, writable: process.stdin });
   } });
-  const source = new AntigravitySource({ accounts, office, client, mirror: new AntigravityMirror({ dataDir: directory }) });
+  const source = new AntigravitySource({ accounts, office, client, mirror: new AntigravityMirror({ dataDir: directory }), catalog: new AntigravityCatalog(directory) });
   source.start();
   const delivery = new AntigravityDelivery({ client, source });
   const registry = new MessageRegistry({ office, antigravity: delivery });
@@ -72,5 +73,44 @@ describe('entrega Antigravity', () => {
     await s.client.close(s.sessionId);
     expect(s.delivery.available(s.sessionId)).toBe(false);
     expect(s.registry.canMessage(s.id)).toBe(false);
+  });
+});
+
+describe('instruções pendentes Antigravity', () => {
+  it('sends instructions once, only after a person sends a message', async () => {
+    const s = await setup();
+    const prompt = vi.spyOn(s.client, 'prompt');
+    s.delivery.setInstructions(s.sessionId, 'Seja breve.');
+    expect(prompt).not.toHaveBeenCalled();
+    expect(await s.delivery.sendMessage(s.sessionId, 'Olá')).toEqual({ ok: true });
+    expect(prompt).toHaveBeenLastCalledWith(s.sessionId, 'Instruções do personagem:\nSeja breve.\n\nPedido inicial:\nOlá');
+    await expect.poll(() => s.client.session(s.sessionId)?.busy).toBe(false);
+    expect(await s.delivery.sendMessage(s.sessionId, 'Depois')).toEqual({ ok: true });
+    expect(prompt).toHaveBeenLastCalledWith(s.sessionId, 'Depois');
+  });
+  it('retains instructions after rejected prompt and clears them on close', async () => {
+    const s = await setup();
+    const prompt = vi.spyOn(s.client, 'prompt').mockRejectedValueOnce(new Error('write failed'));
+    s.delivery.setInstructions(s.sessionId, 'Instruções');
+    expect((await s.delivery.sendMessage(s.sessionId, 'Primeira')).ok).toBe(false);
+    expect((await s.delivery.sendMessage(s.sessionId, 'Segunda')).ok).toBe(true);
+    expect(prompt).toHaveBeenLastCalledWith(s.sessionId, 'Instruções do personagem:\nInstruções\n\nPedido inicial:\nSegunda');
+    await s.client.close(s.sessionId);
+    await s.client.open({ cwd: '/tmp', resume: s.sessionId });
+    await s.delivery.sendMessage(s.sessionId, 'Retomada');
+    expect(prompt).toHaveBeenLastCalledWith(s.sessionId, 'Retomada');
+  });
+  it('new session preserves cast and model and rearms consumed instructions', async () => {
+    const s = await setup();
+    const opened = await s.client.open({ cwd: '/tmp', cast: 'novo-alice', model: 'fake-b' });
+    s.delivery.setInstructions(opened.sessionId, 'Seja breve.');
+    await s.delivery.sendMessage(opened.sessionId, 'Antes');
+    await expect.poll(() => s.client.session(opened.sessionId)?.busy).toBe(false);
+    const prompt = vi.spyOn(s.client, 'prompt');
+    const next = await s.delivery.newSession(opened.sessionId);
+    expect(s.client.session(next)).toMatchObject({ cast: 'novo-alice', model: 'fake-b' });
+    expect(prompt).not.toHaveBeenCalled();
+    await s.delivery.sendMessage(next, 'Depois');
+    expect(prompt).toHaveBeenLastCalledWith(next, 'Instruções do personagem:\nSeja breve.\n\nPedido inicial:\nDepois');
   });
 });
