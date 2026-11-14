@@ -254,7 +254,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
     var asideOpen by remember(selected?.key) { mutableStateOf(false) }
     var filesOpen by remember(api.origin, selected?.key) { mutableStateOf(false) }
     PlatformBackHandler(enabled = selected == null && searchOpen) { query = ""; searchOpen = false }
-    CastActions(api, selected, actionsAvailable(states.getValue(actionOrigin), actionOrigin in needsLogin, selected?.permission == true) && (selected != null || filter != null || apis.size == 1), state.sessions.filter { it.agentId != null }.mapNotNull { it.cast }.toSet(), { onUnauthorized(api.origin) }, { permissionSession = selected }, menu = { close, dismissItem ->
+    CastActions(api, selected, actionsAvailable(states.getValue(actionOrigin), actionOrigin in needsLogin, selected?.permission == true) && (selected != null || filter != null || apis.size == 1), state.sessions.filter { it.agentId != null && it.key.origin == api.origin }, { onUnauthorized(api.origin) }, { permissionSession = selected }, menu = { close, dismissItem ->
         // Menu em páginas: a principal lista os grupos; tocar num grupo troca o conteúdo pela lista dele, com "‹ Voltar".
         var page by remember(selected?.key) { mutableStateOf("") }
         var modelQuery by remember(selected?.key) { mutableStateOf("") }
@@ -318,7 +318,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                 dismissItem()
             }
         }
-    }) { castActions, castFab, castStatus ->
+    }) { castActions, castFab, castStatus, castDismissAny ->
     var showInfo by remember(selected?.key) { mutableStateOf(false) }
     if (showInfo && selected != null) SessionInfoSheet(api, selected, state.entries, state.truncated) { showInfo = false }
     if (asideOpen && selected?.agentId != null) AsideSheet(controller.asides) { asideOpen = false; controller.asides.close() }
@@ -338,6 +338,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                     IconButton(onClick = { menuExpanded = true }, modifier = Modifier.semantics { contentDescription = menuLabel }) { Icon(Icons.Default.MoreVert, contentDescription = null) }
                     DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                         DropdownMenuItem(modifier = Modifier.testTag("files-menu"), text = { Text(stringResource(Res.string.files_title)) }, onClick = { menuExpanded = false; filesOpen = true })
+                        castDismissAny { menuExpanded = false }
                         DropdownMenuItem(text = { Text(stringResource(Res.string.settings)) }, onClick = { menuExpanded = false; settingsOpen = true })
                         DropdownMenuItem(modifier = Modifier.testTag("add-server"), text = { Text(stringResource(Res.string.add_server)) }, onClick = { menuExpanded = false; onLogin(null) })
                     }

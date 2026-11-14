@@ -12,6 +12,8 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Zaplaud (Android e iOS):** o menu da tela principal ganhou "Dispensar contato": escolhe-se entre os contatos
+  abertos e confirma-se, sem precisar abrir a conversa. No desktop Rust segue pelo menu da conversa.
 - **Sessões:** fixar e favoritar são ações independentes no Habblaud web e no Zaplaud Android/iOS e desktop Rust.
   Sessões fixadas aparecem primeiro sem ignorar os filtros; favoritas ficam acessíveis pela seção do Histórico
   no web e pelo filtro Favoritas nos clientes nativos. As marcações persistem localmente, por identidade completa

@@ -64,9 +64,18 @@ internal fun canResumeCast(selected: SessionItem?, runtime: String?): Boolean =
     selected != null && selected.agentId == null && supportsSessionControl(selected.key.provider) &&
         selected.key.provider == runtime && selected.key.sessionId.matches(sessionIdPattern) && selected.project?.startsWith('/') == true
 
+/** Contatos abertos que o servidor aceita dispensar: do elenco ou "Novo", sem pedido em andamento. */
+internal fun dismissable(open: List<SessionItem>, castIds: Set<String>, jobs: Map<String, String>): List<SessionItem> =
+    open.filter { session ->
+        val cast = session.cast
+        session.agentId != null && session.castOpened && cast != null &&
+            (cast.startsWith(NEW_CAST_PREFIX) || cast in castIds) && jobs[cast] !in listOf("queued", "sent", "waiting")
+    }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Boolean, openCast: Set<String>, onUnauthorized: () -> Unit, onPermission: () -> Unit, menu: @Composable (close: () -> Unit, dismissItem: @Composable () -> Unit) -> Unit, content: @Composable (@Composable () -> Unit, @Composable () -> Unit, @Composable () -> Unit) -> Unit) {
+internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Boolean, openSessions: List<SessionItem>, onUnauthorized: () -> Unit, onPermission: () -> Unit, menu: @Composable (close: () -> Unit, dismissItem: @Composable () -> Unit) -> Unit, content: @Composable (@Composable () -> Unit, @Composable () -> Unit, @Composable () -> Unit, @Composable (close: () -> Unit) -> Unit) -> Unit) {
+    val openCast = openSessions.mapNotNull { it.cast }.toSet()
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     var availability by remember(api) { mutableStateOf("loading") }
@@ -76,6 +85,8 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
     val runtime = catalog.runtime
     var dialog by remember { mutableStateOf("") }
     var choice by remember { mutableStateOf<CastChoice?>(null) }
+    // Quem o "Dispensar" vai fechar: a conversa aberta, ou o contato escolhido pelo menu da lista.
+    var target by remember { mutableStateOf<SessionItem?>(null) }
     var result by remember { mutableStateOf("") }
     // Motivo que o servidor mandou ao recusar (por exemplo "só 1 personagem trabalha por vez: dispense o atual…").
     var resultDetail by remember { mutableStateOf<String?>(null) }
@@ -183,7 +194,7 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
                         text = { Text(stringResource(Res.string.cast_dismiss)) },
                         leadingIcon = { Icon(Icons.Default.ExitToApp, contentDescription = null) },
                         enabled = !sending && !activeJob,
-                        onClick = { open = false; dialog = "dismiss" },
+                        onClick = { open = false; target = selected; dialog = "dismiss" },
                     )
                 }
             }
@@ -202,7 +213,31 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
         else if (availability == "unavailable" || availability == "forbidden") Text(stringResource(if (availability == "forbidden") Res.string.cast_forbidden else Res.string.cast_unavailable), style = MaterialTheme.typography.bodySmall)
         if (result.isNotEmpty()) Text(resultDetail?.takeIf { result == "busy" || result == "failed" || result == "forbidden" } ?: stringResource(when (result) { "pending" -> Res.string.cast_pending; "done" -> Res.string.cast_done; "busy" -> Res.string.cast_busy; "forbidden" -> Res.string.cast_forbidden; "failed" -> Res.string.cast_failed; else -> Res.string.cast_unknown }), style = MaterialTheme.typography.bodySmall)
     }
-    content(actions, fab, status)
+    val candidates = dismissable(openSessions, characters.map { it.id }.toSet(), jobs)
+    // Item do menu da lista: dispensar sem abrir a conversa, escolhendo entre os contatos abertos.
+    val dismissAny: @Composable (close: () -> Unit) -> Unit = { close ->
+        if (availability == "available" && candidates.isNotEmpty()) DropdownMenuItem(
+            modifier = Modifier.testTag("cast-dismiss-any"),
+            text = { Text(stringResource(Res.string.cast_dismiss)) },
+            leadingIcon = { Icon(Icons.Default.ExitToApp, contentDescription = null) },
+            enabled = !sending,
+            onClick = { close(); dialog = "dismiss-select" },
+        )
+    }
+    content(actions, fab, status, dismissAny)
+    if (dialog == "dismiss-select") AlertDialog(onDismissRequest = { dialog = "" }, title = { Text(stringResource(Res.string.cast_dismiss)) }, text = {
+        Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+            candidates.forEach { session ->
+                Row(Modifier.fillMaxWidth().clickable { target = session; dialog = "dismiss" }.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    CharacterAvatar(api, session.avatar, session.characterName ?: session.title, 40.dp)
+                    Column {
+                        Text(session.characterName ?: session.title)
+                        if (session.characterName != null && session.characterName != session.title) Text(session.title, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                    }
+                }
+            }
+        }
+    }, confirmButton = {}, dismissButton = { TextButton(onClick = { dialog = "" }) { Text(stringResource(Res.string.cancel)) } })
     if (dialog == "start") AlertDialog(onDismissRequest = { dialog = "" }, title = { Text(stringResource(Res.string.cast_select_character)) }, text = {
         Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
             // "Novo": agente fora do elenco, com nome e visual sorteados pelo servidor.
@@ -255,10 +290,10 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
         }
     }, confirmButton = {}, dismissButton = { TextButton(onClick = { dialog = "" }) { Text(stringResource(Res.string.cancel)) } })
     if (dialog == "dismiss" || dialog == "resume") AlertDialog(onDismissRequest = { dialog = "" }, title = { Text(stringResource(if (dialog == "dismiss") Res.string.cast_dismiss else Res.string.cast_resume)) }, text = {
-        Text(if (dialog == "dismiss") stringResource(Res.string.cast_dismiss_confirm) else listOfNotNull(choice?.name, selected?.project).joinToString("\n"))
+        Text(if (dialog == "dismiss") listOfNotNull(target?.let { it.characterName ?: it.title }, stringResource(Res.string.cast_dismiss_confirm)).joinToString("\n") else listOfNotNull(choice?.name, selected?.project).joinToString("\n"))
     }, confirmButton = {
         TextButton(enabled = !sending, onClick = {
-            if (dialog == "dismiss") selected?.agentId?.let { submit("/api/agents/${it.encodeURLPathPart()}/dismiss", buildJsonObject {}) }
+            if (dialog == "dismiss") target?.agentId?.let { submit("/api/agents/${it.encodeURLPathPart()}/dismiss", buildJsonObject {}) }
             else if (choice!!.id.isEmpty()) submit("/api/cast/new", buildJsonObject { put("room", selected!!.project); put("session", selected.key.sessionId); put("account", selected.key.account) })
             else submit("/api/cast/${choice!!.id.encodeURLPathPart()}/start", buildJsonObject { put("mode", "resume"); put("room", selected!!.project); put("session", selected.key.sessionId); put("account", selected.key.account) })
         }) { Text(stringResource(Res.string.cast_confirm)) }
