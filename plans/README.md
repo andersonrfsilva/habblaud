@@ -96,6 +96,10 @@ conditions e atualize sua linha ao terminar.
 | 072 | [ZeroClaw no cliente web e no Android: rótulos, controles permitidos, sem barra de contexto não confiável](072-zeroclaw-no-cliente-web-e-android.md) | P1 | L | 070, 071 (e 068 para o interruptor de resumo no Android) | DONE no branch `advisor/zeroclaw-tenants` (`bcf122c`), mesclado em `producao` em 2026-11-10 (`e08c52b`). Desvio aprovado: `client/src/net/store.ts` manda `expectedSessionId` para ZeroClaw. Chromium 5/5, instrumentados 27/27; iOS não compilado |
 | 073 | [Cartão de uso lido do `GET /v1/cota`, sem `omp usage`](073-cartao-de-uso-pela-cota.md) | P1 | M | — | DONE no branch `advisor/zeroclaw-tenants` (`552b62f`), mesclado em `producao` em 2026-11-10 (`e08c52b`) |
 | 074 | [Zaplaud desktop em Rust + Slint: roteiro por fases (27 capacidades, portões, harmonia gerada do Kotlin)](074-zaplaud-cliente-rust-slint.md) | P3 | L | ordem do dono em 2026-11-10 (Compose no miranote: 418–490 MiB, "inaceitável") | IN PROGRESS: fases 0–5 e alinhamento Kotlin/Rust mesclados em `producao` (`44452a0`) e enviados a `fork/main` em 2026-11-10, ver [074-resultado.md](074-resultado.md) e [docs/zaplaud-paridade.md](../docs/zaplaud-paridade.md). Instalado no miranote (Wayland, 24–37 MiB) e no MacBook (`~/Applications/Zaplaud.app`, 50 MB). Servidor pessoal publicado como `deploy-44452a0` (rollback `rollback-4cd010e02961`; traz também o ZeroClaw 068–073). Falta a fase 6: uso real, avisos e bandeja numa sessão de verdade, CPU do redesenho; depois, remover o desktop Compose |
+| 075 | [Spike: contrato dos hooks do `agy` 1.5.9 medido (hook mudo é neutro?), com o dono digitando no `agy`](075-spike-contrato-dos-hooks-do-agy.md) | P1 | S | — | REJECTED (2026-11-14): o dono escolheu um mecanismo só, o ACP; substituído pelo 077 |
+| 076 | [Antigravity CLI (`agy`) no escritório, só por observação: porta os commits próprios do PR #80 do upstream](076-antigravity-no-escritorio-so-observacao.md) | P2 | M | — | REJECTED (2026-11-14): substituído pelo caminho ACP (077, depois 078); a regra 1 dele ("o Habblaud nunca executa o `agy`") era mais rígida que os termos |
+| 077 | [Spike: o que o `agy acp` 1.5.9 entrega a um cliente ACP (sessão, avisos, permissão, cancelar, lista e retomada, processo e memória)](077-spike-agy-pelo-acp.md) | P1 | S | login e autorização do dono | DONE (2026-11-14): [077-resultado.md](077-resultado.md). 10 prompts pela conta do dono, sem aviso do `agy`. Uma conexão serve várias sessões e turnos simultâneos; permissão por `session/request_permission` (permitir/negar uma vez); `list`/`load`/`resume` funcionam; ~179 MiB por processo; sem campo de cota |
+| 078 | [Antigravity pelo ACP: "Novo agente" abre o `agy acp`, mensagens, aprovar/negar, STOP, conversa nova, Dispensar; relé no host para o Habblaud em contêiner; `--dangerously-skip-permissions` atrás de `HABBLAUD_ANTIGRAVITY_SKIP_PERMISSIONS`](078-antigravity-pelo-acp.md) | P2 | L | 077; `omp-tenant` 054 antes do release nos tenants | DONE no branch `advisor/078-antigravity-acp` (`7b7f45b`, worktree `/tmp/habblaud-078`, 11 commits), revisado e APROVADO em 2026-11-14 depois de uma rodada REVISE: typecheck ok, 2857 testes ok (ZeroClaw e registros sem diff nos testes), i18n estrito ok, build ok, escopo limpo. Duas correções do plano no Step 4: a ordem da troca de sessão, e a adoção amarrada à abertura que a pediu (`replaces`), porque a primeira versão adotava qualquer `session-open` durante uma "conversa nova" e um "Novo agente" simultâneo podia tomar o id do agente antigo (`7b7f45b`, com testes das duas ordens). Fumaça com o `agy` 1.5.9 real, modo processo, pela API: abrir com pedido, título/modelo/contexto, espelho do terminal, permitir (arquivo criado) e negar (não criado) pelo `POST /api/permissions/:id/decision`, conversa nova (mesmo agente, sessão nova), conversa nova com um "Novo agente" ao mesmo tempo (dois agentes, ids distintos), `steer` recusado, Dispensar (processo encerrado); linha de comando vista: `agy acp`. **Não conferido:** a página no navegador (o navegador de teste não abriu), o relé com o `agy` real, STOP no meio de um turno, a flag de permissões automáticas pelo servidor (só pelo spike e pelo teste do `argv`). Observado: sem nenhuma página aberta o agente à espera de permissão aparece como "trabalhando". **Falta o dono mesclar e instalar** (ver Maintenance notes do plano) |
 
 Integração 054–062 (2026-11-08): branch `advisor/zaplaud-modernizacao-054-062`, mesclada em `producao` e enviada a
 `fork/main` a pedido do dono. Instrumentados 141 testes, 0 falhas em `28efc0e` (antes de reverter o 062) e 142 em
@@ -122,6 +126,17 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 
 ## Dependency notes
 
+- 077–078: Antigravity CLI (`agy`) no escritório **só pelo ACP** (`agy acp`), decisão do dono em 2026-11-14
+  (variante `plan`, `deep`, commit `d7f9e4c`; baseline: `npm run typecheck` ok, `npm test` 204 arquivos / 2806
+  testes ok). Medido sem login: `initialize` devolve `protocolVersion` 1, `sessionCapabilities` com `resume`,
+  `close`, `load`, `list`, e os métodos `oauth-personal`, `oauth-business`, `gemini-api-key`, `agent-platform`.
+  O 078 só é escrito com o `077-resultado.md`. O plano 054 do `omp-tenant` (Antigravity desligado nos tenants)
+  precisa estar aplicado antes de um `omp-tenant release` com o 078. Regras que valem para qualquer plano do
+  assunto (texto completo no 077): só o binário oficial `agy` fala com o Google; o Habblaud fala com ele só por
+  stdin/stdout do `agy acp`; nunca lê credencial; nenhuma flag que mude identificação, endpoint ou telemetria; sem
+  `--dangerously-skip-permissions`; só na conta e na máquina do dono. Isso reduz a exposição ao item 6 dos Termos do
+  Antigravity, mas não é garantia: a compatibilidade de um cliente ACP próprio com o item 6 é leitura da
+  documentação, não texto do contrato.
 - 068–073: tenants passam do OMP para o ZeroClaw (auditoria `deep`, 2026-11-09, commit `694938f`; o lado do pod e
   do proxy de cota são os planos 039–043 em `~/Desenvolvimento/omp-tenant/plans/`). Ordem de merge fixa:
   068 → 073 → 069 → 070 → 071 → 072, porque todos mexem em `server/config.ts`, `server/index.ts`, `server/README.md`
@@ -207,6 +222,20 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 
 ## Findings considered and rejected
 
+- Antigravity por hooks (planos 075 e 076; PRs #80, #81 e #82 do upstream), 2026-11-14: recusado pelo dono em favor
+  de um mecanismo só, o ACP. Os hooks só serviriam para ver ao vivo as conversas abertas direto no terminal; aprovar
+  por hook quebrou entre versões do `agy` (`{}` aprovava no 1.3.3 e recusa no 1.4.1 e 1.4.2, medido nos comentários
+  do PR #81).
+- Antigravity por `agy -p` / `--input-format stream-json` (headless): recusado. Sem aprovação interativa
+  (`control_request` encerra a sessão), então exigiria regras de permissão fixas ou
+  `--dangerously-skip-permissions`.
+- Antigravity por pty (digitar no TUI do `agy`): recusado. Não é interface de programa; o ACP é.
+- Antigravity, o Habblaud usar o login do `agy` para falar com o Google por conta própria: recusado em definitivo.
+  É o caso que os Termos do Antigravity citam ("using OpenClaw with Antigravity OAuth").
+- Antigravity, ler `~/.gemini/antigravity-cli/brain/**/transcript.jsonl` para terminal e histórico: recusado. O
+  formato não é contrato; o histórico vem de `session/load` do ACP, se o 077 confirmar.
+- Antigravity, trazer a pilha inteira do upstream (#47, #76–#79 do OpenCode, depois #80–#82): recusado. +9 mil
+  linhas e 15 arquivos em conflito para uma fonte que o dono não usa.
 - Zaplaud desktop em Go + Fyne (2026-11-09): medido a 166 MiB RSS parado e 1,2% de CPU parada, perto da JVM e com
   CPU ociosa maior; reescrita sem ganho. Wails (web) e Tauri: exigiriam uma terceira interface (web) além de
   Compose. Rust + Slint não foi rejeitado: está condicionado ao portão do 067.
