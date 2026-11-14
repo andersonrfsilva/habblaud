@@ -116,6 +116,8 @@ do meio (0.**3**.0).
 
 ### Alterado
 
+- **Histórico:** sessão encerrada que rodou em pasta temporária (`/tmp`) volta a aparecer quando tem título ou
+  primeiro pedido. Só ficam de fora as sessões sem nenhuma instrução sua.
 - **Elenco:** chamar um personagem ou "Novo" não pede mais pasta: a sessão nova abre sempre na pasta pessoal (`~`) do
   host. "Continuar" retoma a conversa mais recente do personagem; retomar pelo histórico mantém a pasta da conversa.
   Saíram as "Salas permitidas" e a "Sala principal" dos personagens, o navegador de pastas (`GET /api/cast/dirs`,

@@ -6,7 +6,6 @@
 // pasta da conta (cada ferramenta valida o seu: sources/history.ts para o Claude Code): nada de path traversal.
 // Quem lista e resolve é o HistorySet (sources/source.ts), que junta o histórico de todas as ferramentas.
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { tmpdir } from 'node:os';
 import type { RecentSession, RecentSessionsResponse } from '../../shared/types';
 import { errMsg, log } from '../log';
 import { HISTORY_DAYS, HISTORY_LIMIT } from '../sources/history';
@@ -82,14 +81,9 @@ export function handleSessionsRoute(req: IncomingMessage, res: ServerResponse, p
 }
 
 /**
- * Sessão de teste, fora do Histórico: fechada e rodada numa pasta temporária, ou sem nenhuma instrução sua (nem
- * título, nem primeiro pedido para usar no lugar). Sessão aberta aparece sempre.
+ * Sessão de teste, fora do Histórico: fechada e sem nenhuma instrução sua (nem título, nem primeiro pedido para usar
+ * no lugar). A pasta não conta: trabalho de verdade também roda em `/tmp`. Sessão aberta aparece sempre.
  */
 export function isTestSession(s: RecentSession): boolean {
-  if (s.open) return false;
-  if (!s.title) return true;
-  if (!s.project) return false;
-  const p = s.project.replace(/\\/g, '/');
-  const tmp = tmpdir().replace(/\\/g, '/').replace(/\/+$/, '');
-  return [tmp, '/tmp'].some((t) => p === t || p.startsWith(`${t}/`));
+  return !s.open && !s.title;
 }

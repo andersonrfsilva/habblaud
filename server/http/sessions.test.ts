@@ -5,7 +5,6 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { RecentSessionsResponse, TerminalEntry, TerminalInit } from '../../shared/types';
@@ -306,12 +305,11 @@ describe('histórico de sessões: outra ferramenta', () => {
 
 describe('histórico de sessões: sessões de teste', () => {
   const base = { account: '.claude', sessionId: SID, projectDir: '-p', lastAt: 0, size: 1 };
-  it('fora: fechada sem instrução ou em pasta temporária; aberta fica sempre', () => {
+  it('fora: fechada sem instrução; com título aparece mesmo em pasta temporária; aberta fica sempre', () => {
     expect(isTestSession({ ...base, open: false, title: 'Arruma o carrinho', project: CWD })).toBe(false);
     expect(isTestSession({ ...base, open: false, project: CWD })).toBe(true);
-    expect(isTestSession({ ...base, open: false, title: 't', project: '/tmp/probe1' })).toBe(true);
-    expect(isTestSession({ ...base, open: false, title: 't', project: join(tmpdir(), 'x') })).toBe(true);
-    expect(isTestSession({ ...base, open: false, title: 't', project: '/tmpx/a' })).toBe(false);
+    expect(isTestSession({ ...base, open: false, title: 'Filtrar vendas fiscais no fluxo', project: '/tmp' })).toBe(false);
+    expect(isTestSession({ ...base, open: false, project: '/tmp' })).toBe(true);
     expect(isTestSession({ ...base, open: true, project: '/tmp/probe1' })).toBe(false);
   });
 });
