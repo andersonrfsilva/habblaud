@@ -12,6 +12,11 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Zaplaud Android/iOS (Kotlin):** escolher um modelo `agy/…` pede confirmação antes de trocar o personagem do
+  omp para o Antigravity, ou de voltar ao omp. O cliente mostra o contexto pendente e o motivo de recusas,
+  permite STOP e conversa nova no Antigravity e retoma suas conversas encerradas quando a ferramenta está disponível.
+  Depende do contrato HTTP dos planos 079/083. Android compilado e verificado no host; iOS não compilado (exige Mac).
+  Não houve teste em aparelho nem emulador; a validação é manual, do dono. Paridade Rust pendente no plano 082.
 - **Antigravity pelo escritório.** Em **Novo agente → Antigravity**, abra uma conversa com terminal, mensagens,
   aprovar/negar ferramentas, STOP, conversa nova e Dispensar. Desligado por padrão: ligue com
   `HABBLAUD_ANTIGRAVITY=1`. No Podman, rode o relé do host com `npm run antigravity:relay` e configure
