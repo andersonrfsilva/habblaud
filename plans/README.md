@@ -110,13 +110,24 @@ Integração 079–083 (2026-11-14): branch `advisor/antigravity-079-083` (`cd6f
 os cinco planos: 080 (que contém 079 e 083) mais 082 (que contém 081); único conflito, `CHANGELOG.md`, resolvido
 mantendo as entradas dos dois lados. No conjunto: typecheck ok, 2930 testes ok, i18n estrito e build ok, clippy ok,
 140 testes do `zaplaud-core` ok, Gradle (`testAndroidHostTest`, `lintDebug`, `assembleDebug`) `BUILD SUCCESSFUL`.
-**Nada foi mesclado em `producao`, enviado ou publicado.** Falta validar com as ferramentas reais, em produção: a
-troca omp ⇄ Antigravity de ponta a ponta e a leitura do anexo de contexto pelo omp; e, à mão, as telas da página, do
-Android e do desktop.
-Sobre o mesmo branch, a pedido do dono e fora dos planos: `bafbf98`, pasta padrão das conversas novas do elenco
-(`HABBLAUD_CAST_FOLDER`, omp e Antigravity; ausente = pasta pessoal, como antes; retomar e a troca de ferramenta
-seguem na pasta da conversa; ZeroClaw inalterado). 2940 testes ok. Para valer no servidor do dono falta publicar
-com `Environment=HABBLAUD_CAST_FOLDER=%h/Desenvolvimento` no drop-in do contêiner.
+Sobre o mesmo branch, a pedido do dono e fora dos planos: `bafbf98` e `bf216fe`, pasta padrão das conversas novas
+do elenco (`HABBLAUD_CAST_FOLDER`, para omp, Antigravity e ZeroClaw; ausente = pasta pessoal, como antes; retomar e
+a troca de ferramenta seguem na pasta da conversa).
+**Publicado em 2026-11-14 a pedido do dono:** mesclado em `producao` (`ffbea77`) e enviado a `fork/main`; servidor
+pessoal em `deploy-ffbea77` (rollback `rollback-ecf3b94`), com `HABBLAUD_CAST_FOLDER=%h/Desenvolvimento` no drop-in
+`pasta-elenco.conf`. Release Android instalado no M35 (por cima, sem limpar dados). Tenants não atualizados (o
+quadlet com `~/projetos` está no branch `advisor/055-pasta-padrao-projetos` do `omp-tenant`, sem mesclar).
+Conferido em produção com as ferramentas reais, pela API (2 turnos do omp, 1 do `agy`): "Novo" do omp abriu em
+`~/Desenvolvimento`; troca omp → `agy/default` fechou o tmux, abriu o Antigravity pelo relé na mesma pasta, sem
+turno, com `handoff`; a primeira mensagem levou o arquivo e o `agy` respondeu com o dado da conversa do omp; troca de
+volta para um modelo do omp reabriu o omp com o arquivo cumulativo, e o omp o leu e respondeu com os dois trechos.
+**Achado:** em produção o `agy` **pediu permissão** para ler o arquivo de contexto (`read_file` em
+`~/.habblaud/handoff/…`), ao contrário da medição com arquivo em `/tmp`; cada troca para o Antigravity custa um
+"Permitir" antes da primeira resposta. Saída a medir: abrir a sessão com a pasta do contexto em
+`additionalDirectories` (capacidade anunciada pelo `agy acp`), sem flag nova. O omp leu sem pedir.
+Um teste oscilou uma vez na suíte completa (`server/world/uplink.test.ts`, "sem resposta ao ping"), em código não
+tocado; passou em três repetições isoladas e na suíte seguinte. Telas da página, do Android e do desktop: não
+conferidas, validação manual do dono.
 
 Integração 054–062 (2026-11-08): branch `advisor/zaplaud-modernizacao-054-062`, mesclada em `producao` e enviada a
 `fork/main` a pedido do dono. Instrumentados 141 testes, 0 falhas em `28efc0e` (antes de reverter o 062) e 142 em
