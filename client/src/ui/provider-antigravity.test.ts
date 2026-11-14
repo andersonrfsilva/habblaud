@@ -3,6 +3,11 @@ import { accountProvider, fallbackShort, isAntigravity, looksLikeAntigravityId, 
 import { barActions } from './omp-bar';
 import type { AgentInfo } from '../../../shared/types';
 import { castBody, crossesTool, modelGroups, parseCastModelCatalog, runtimeAllowsModelChoice, runtimeAllowsThinking } from './provider';
+import { usageMessage } from './usage';
+
+it('explica a ausência de cota Antigravity', () => {
+  expect(usageMessage({ provider: 'antigravity', usageStatus: 'empty' })).toEqual(['o Antigravity não informa cota', 'o Antigravity não informa cota']);
+});
 
 describe('castBody', () => {
   const base = { name: 'Nina', look: 'f' as const, seed: 1, kind: 'main' as const, account: '.omp', agent: 'fixed' };
