@@ -153,6 +153,7 @@ pub struct SessionItem {
     pub avatar: Option<Avatar>,
     pub cast: Option<String>,
     pub cast_opened: bool,
+    pub handoff: bool,
     pub permission_question: bool,
     pub character_name: Option<String>,
     pub context_tokens: Option<i64>,
@@ -206,6 +207,7 @@ impl SessionItem {
             avatar: Avatar::parse(o),
             cast: string(o, "cast"),
             cast_opened: flag(o, "castOpened"),
+            handoff: flag(o, "handoff"),
             permission_question: permission
                 .is_some_and(|v| objects(v, "questions").next().is_some()),
             character_name: if string(o, "kind").as_deref() == Some("main") {

@@ -21,6 +21,8 @@ export global ComposerState {
     in-out property <bool> stop-enabled;
     in-out property <bool> modes-visible;
     in-out property <bool> omp-tools;
+    in-out property <bool> model-choice;
+    in-out property <string> handoff-pending;
     in-out property <bool> new-visible;
     in-out property <bool> new-confirm;
     in-out property <string> new-label;
@@ -82,6 +84,7 @@ export component ComposerPane inherits Rectangle {
         if ComposerState.status != "": Banner { accessible-role: text; accessible-label: ComposerState.status-id; text: ComposerState.status; }
         if ComposerState.command-status != "": Banner { text: ComposerState.command-status; }
         if ComposerState.error != "": Banner { text: ComposerState.error; severity: "error"; action: ComposerState.retry-label; activated => { ComposerState.send(); } }
+        if ComposerState.handoff-pending != "": Text { text: ComposerState.handoff-pending; color: Theme.on-surface-variant; font-size: 12px; wrap: word-wrap; }
         if ComposerState.attachments.length > 0: ScrollContainer {
             height: 36px;
             HorizontalLayout { spacing: 6px;
