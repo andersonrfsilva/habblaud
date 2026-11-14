@@ -120,6 +120,11 @@ internal fun deliveryModes(provider: String?): List<String> = when (provider) {
 internal fun newSessionTarget(sessions: List<SessionItem>, previous: SessionKey, agentId: String): SessionItem? =
     sessions.firstOrNull { it.agentId == agentId && it.key.origin == previous.origin &&
         it.key.provider == previous.provider && it.key.account == previous.account && it.key != previous }
+internal fun switchToolTarget(sessions: List<SessionItem>, previous: SessionKey, cast: String?): SessionItem? =
+    if (cast == null) null else sessions.firstOrNull {
+        it.key.origin == previous.origin && it.cast == cast && it.agentId != null && !it.sub &&
+            it.status != "offline" && it.status != "done" && it.key != previous
+    }
 internal fun sessionControlsAvailable(item: SessionItem?, state: ReadingState): Boolean =
     item != null && supportsSessionControl(item.key.provider) && item.agentId != null && !item.sub &&
         item.canMessage && state.messagesAllowed && state.messageGuard && state.connection == "connected"
