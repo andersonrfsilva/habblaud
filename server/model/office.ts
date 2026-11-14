@@ -892,7 +892,8 @@ export class Office {
     info.look = person.look;
     info.seed = member?.seed ?? hash32(info.id);
     if (member) info.cast = member.id;
-    else delete info.cast;
+    // "Novo" segue com o id `novo-…` ao trocar de pasta ou sessão: é ele que o lançador usa para dispensar.
+    else if (!info.cast?.startsWith(NEW_CAST_PREFIX)) delete info.cast;
     if (member?.parts) info.parts = { ...member.parts };
     else delete info.parts;
     if (member && info.kind === 'main') this.rememberCast(info);

@@ -515,6 +515,10 @@ describe('Office: elenco', () => {
     expect(office.get('b')?.cast).toBeUndefined();
     office.requestCast('b', 'novo-99999999');
     expect(office.get('b')?.cast).toBe('novo-99999999');
+    // Trocar de pasta ou de sessão não pode apagar o id: sem ele o Dispensar some.
+    office.moveMain('a', '/tmp');
+    office.switchSession('a', 's3');
+    expect(office.get('a')?.cast).toBe('novo-1a2b3c4d');
   });
 
   it('last guarda a sessão mais recente por último, mesmo quando a sala já existia', () => {
