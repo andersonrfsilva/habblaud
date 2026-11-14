@@ -30,6 +30,7 @@ export const EN: Readonly<Record<string, string>> = {
   "Antigravity: falha no relé: {0}": "Antigravity: relay failed: {0}",
   "Relé Antigravity pronto em {0}": "Antigravity relay ready at {0}",
   "HABBLAUD_ANTIGRAVITY_SOCKET precisa ser um caminho absoluto": "HABBLAUD_ANTIGRAVITY_SOCKET must be an absolute path",
+  "HABBLAUD_CAST_FOLDER precisa ser um caminho absoluto": "HABBLAUD_CAST_FOLDER must be an absolute path",
   "Agente principal (Antigravity)": "Main agent (Antigravity)",
   "Agente do Antigravity (Google)": "Antigravity agent (Google)",
   "Antigravity: falha ao gravar o terminal": "Antigravity: failed to write the terminal transcript",

@@ -51,6 +51,24 @@ describe('CastLauncher', () => {
     expect(job).toMatchObject({ op: 'start', cast: 'ana' });
     expect(job).not.toHaveProperty('folder');
   });
+  it('com pasta padrão configurada, personagem e "Novo" do omp abrem nela (o room do cliente continua ignorado)', () => {
+    const launcher = new CastLauncher({ dataDir: '/tmp', member: () => ({ ...member, last: { '/velha': 'aaaaaaaa-1' } }), agents: () => [], account: () => '/tmp', changed: () => {}, now: () => 0, folder: '/dev' });
+    launcher.poll();
+    expect(launcher.start('ana', { mode: 'new', room: '/qualquer' })).toHaveProperty('job');
+    expect(launcher.poll()).toContainEqual(expect.objectContaining({ op: 'start', cast: 'ana', folder: '/dev' }));
+    expect(launcher.startNew({})).toHaveProperty('job');
+    expect(launcher.poll().filter((job) => job.cast !== 'ana')).toContainEqual(expect.objectContaining({ op: 'start', folder: '/dev' }));
+  });
+  it.each(['latest', 'history', 'novo'])('retomar %s mantém a pasta da conversa com pasta padrão configurada', (mode) => {
+    const launcher = new CastLauncher({ dataDir: '/tmp', member: () => ({ ...member, last: { '/conversa': 'aaaaaaaa-1' } }),
+      agents: () => [], account: () => '/tmp', changed: () => {}, folder: '/padrao' });
+    launcher.poll();
+    const input = { room: '/conversa', session: 'aaaaaaaa-1' };
+    const result = mode === 'novo' ? launcher.startNew(input)
+      : launcher.start('ana', { mode: 'resume', ...(mode === 'history' ? input : {}) });
+    expect(result).toHaveProperty('job');
+    expect(launcher.poll()).toContainEqual(expect.objectContaining({ op: 'start', folder: '/conversa', resume: 'aaaaaaaa-1' }));
+  });
   it('Continuar sem session retoma a conversa mais recente do personagem, na pasta dela', () => {
     const { launcher, member: setMember } = setup();
     launcher.poll();
@@ -215,7 +233,7 @@ import type { CastJob } from '../../shared/types';
 
 const agyCleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const cleanup of agyCleanups.splice(0).reverse()) await cleanup(); });
-function agySetup(max?: number, enabled = true) {
+function agySetup(max?: number, enabled = true, folder?: string) {
   const directory = mkdtempSync(join(tmpdir(), 'agy-launcher-'));
   const trace = join(directory, 'trace.ndjson');
   const children: ChildProcess[] = [];
@@ -239,10 +257,10 @@ function agySetup(max?: number, enabled = true) {
   const delivery = new AntigravityDelivery({ client, source });
   const registry = new MessageRegistry({ office, antigravity: delivery });
   const runtime = new AntigravityCast({ client: () => client, delivery: () => delivery, messages: () => registry,
-    catalog, home: directory, dataDir: directory });
+    catalog, home: folder ?? directory, dataDir: directory });
   const idle = vi.fn();
   launcher = new CastLauncher({ dataDir: directory, member: id => cast.get(id), agents: () => office.list(),
-    account: () => directory, changed: () => office.markDirty(), now: () => controls.now, max, idle,
+    account: () => directory, changed: () => office.markDirty(), now: () => controls.now, max, idle, folder,
     antigravity: enabled ? runtime : undefined });
   agyCleanups.push(async () => {
     registry.stop(); source.stop(); client.stop();
@@ -265,6 +283,12 @@ function agySetup(max?: number, enabled = true) {
 }
 
 describe('elenco Antigravity junto do omp', () => {
+  it.each(['member', 'novo'])('opens %s in the configured default folder without room', async (kind) => {
+    const s = agySetup(undefined, true, '/configured');
+    await s.done(kind === 'member' ? s.launcher.start('ana', { mode: 'new' }) : s.launcher.startNew({ model: 'agy/default' }));
+    expect(s.requests().find(message => message.method === 'session/new').params.cwd).toBe('/configured');
+    expect(s.office.roomPath(s.office.list()[0].roomId)).toBe('/configured');
+  });
   it('opens without the omp helper, exposes cast metadata and records last session', async () => {
     const s = agySetup();
     const submitted = s.launcher.start('ana', { mode: 'new' });
@@ -400,7 +424,7 @@ describe('elenco Antigravity junto do omp', () => {
   });
 });
 
-function switchingSetup() {
+function switchingSetup(folder?: string) {
   const directory = mkdtempSync(join(tmpdir(), 'tool-switch-'));
   const trace = join(directory, 'trace.ndjson');
   const children: ChildProcess[] = [];
@@ -422,12 +446,12 @@ function switchingSetup() {
   source.start();
   let delivery = new AntigravityDelivery({ client, source, handoff });
   let registry = new MessageRegistry({ office, antigravity: delivery, handoff, switchTool: (agent, model) => launcher.switchTool(agent, model) });
-  const runtime = new AntigravityCast({ client: () => client, delivery: () => delivery, messages: () => registry, catalog, home: directory, dataDir: directory });
+  const runtime = new AntigravityCast({ client: () => client, delivery: () => delivery, messages: () => registry, catalog, home: folder ?? directory, dataDir: directory });
   const paths = new Map<string, string>();
   const jobs: CastJob[] = [];
   const switched = vi.fn(() => office.markDirty());
   const makeLauncher = () => new CastLauncher({ dataDir: directory, member: id => cast.get(id), agents: () => office.list(), account: () => directory,
-    changed: () => { office.markDirty(); queueMicrotask(() => pump()); }, handoff, antigravity: runtime, switched,
+    changed: () => { office.markDirty(); queueMicrotask(() => pump()); }, handoff, antigravity: runtime, switched, folder,
     transcriptPathOf: id => paths.get(id) ?? source.transcriptPathOf(id),
     cwdOf: a => office.roomPath(a.roomId),
     terminalParser: id => office.get(id)?.provider === 'omp' ? createOmpTerminalParser() : createTerminalParser() });
@@ -515,6 +539,15 @@ function switchingSetup() {
 }
 
 describe('troca de ferramenta com contexto', () => {
+  it.each(['member', 'novo'])('switchTool preserves %s conversation folder instead of configured default', async (kind) => {
+    const s = switchingSetup('/configured');
+    const input = { room: '/conversation', session: 'aaaaaaaa-1' };
+    await s.done(kind === 'member' ? s.launcher.start('ana', { mode: 'resume', ...input }) : s.launcher.startNew(input));
+    await s.switchTo('agy/fake-b');
+    expect(s.requests().find(message => message.method === 'session/new').params.cwd).toBe('/conversation');
+    await s.switchTo('omp/returned');
+    expect(s.jobs.filter(job => job.op === 'start').at(-1)?.folder).toBe('/conversation');
+  });
   it('1, 2, 3: mantém pasta, não manda prompt na troca e entrega contexto uma vez nas duas direções', async () => {
     const s = switchingSetup();
     await s.done(s.launcher.start('ana', { mode: 'new' }));

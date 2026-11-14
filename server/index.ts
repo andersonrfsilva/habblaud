@@ -203,9 +203,10 @@ const castLauncher: CastLauncher | undefined = config.terminal ? new CastLaunche
   }) : undefined,
   antigravity: antigravityCatalog ? new AntigravityCast({
     client: () => antigravityClient, delivery: () => antigravityDelivery, messages: () => late.messages,
-    catalog: antigravityCatalog, home: config.home, dataDir: config.dataDir,
+    catalog: antigravityCatalog, home: config.castFolder ?? config.home, dataDir: config.dataDir,
   }) : undefined,
   ...(config.castMax ? { max: config.castMax } : {}),
+  ...(config.castFolder ? { folder: config.castFolder } : {}),
 }) : undefined;
 late.castLauncher = castLauncher;
 // Resumo das respostas (Android): HTTP configurado ou Tiny do omp; manda texto ao modelo, então só com as mensagens.
