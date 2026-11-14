@@ -18,7 +18,6 @@ import {
   formatTokens,
   formatUSD,
   filterModelGroups,
-  modelGroups,
   type ModelGroup,
   permissionLabel,
   plural,
@@ -46,7 +45,7 @@ import {
 import { access } from '../net/access';
 import { PermissionCard } from './permission';
 import { canRenameRoom } from './roomrename';
-import { accountChipLabel, accountProvider, CODEX_LIVE_HINT, codexApprovalLabel, PROVIDER_NAME, providerOf } from './provider';
+import { accountChipLabel, accountProvider, CODEX_LIVE_HINT, codexApprovalLabel, crossesTool, modelGroups, PROVIDER_NAME, providerOf, runtimeAllowsModelChoice, runtimeAllowsThinking } from './provider';
 import { ptyControllable } from './ptyapi';
 import { favorites, pins, sessionKey } from './favorites';
 import { createFavStar, favoriteSessionOf, updateFavStar } from './favstar';
@@ -293,6 +292,7 @@ class AgentView {
   private thinkText = h('span');
   private thinkSel = h('select', { class: 'ui-ctl-select', attrs: { 'aria-label': tr('Raciocínio') } });
   private ctlStatus = h('p', { class: 'ui-msg__status', role: 'status', hidden: true, attrs: { 'aria-live': 'polite' } });
+  private handoffHint = h('p', { class: 'ui-rename__hint', hidden: true, text: tr('A conversa anterior vai anexada à sua próxima mensagem.') });
   private ctlTimer: ReturnType<typeof setTimeout> | null = null;
   private modelOptions = '';
   private modelCurrent = '';
@@ -475,7 +475,14 @@ class AgentView {
         this.rebuildModelOptions();
       }
     });
-    this.modelSel.addEventListener('change', () => void this.control({ model: this.modelSel.value }));
+    this.modelSel.addEventListener('change', () => {
+      const model = this.modelSel.value;
+      if (crossesTool(this.last?.provider, model) && !confirm(tr('Trocar para {0} muda de ferramenta: a conversa atual fecha e abre outra. A conversa anterior vai anexada à sua próxima mensagem. Continuar?', [this.modelSel.selectedOptions[0]?.textContent ?? model]))) {
+        this.modelSel.value = this.modelCurrent;
+        return;
+      }
+      void this.control({ model });
+    });
     this.thinkSel.addEventListener('change', () => void this.control({ thinking: this.thinkSel.value }));
     const statsSec = section(tr('Estatísticas'), this.stats.el, this.ctlStatus);
     this.codexHint = h('p', { class: 'ui-codex-hint', hidden: true }, ...richText(CODEX_LIVE_HINT));
@@ -495,6 +502,7 @@ class AgentView {
       this.shellBox,
       this.shellsSec.el,
       nowSec.el,
+      this.handoffHint,
       this.msgSec.el,
       this.social.el,
       this.tasksSec.el,
@@ -820,13 +828,14 @@ class AgentView {
   private renderControls(a: AgentInfo, editable: boolean): void {
     const st = this.stats;
     st.show('model', true);
-    st.show('thinking', editable || !!a.thinking);
+    const thinkingEditable = editable && runtimeAllowsThinking(a.provider);
+    st.show('thinking', thinkingEditable || !!a.thinking);
     setText(this.modelText, modelOptionLabel(a.model));
     setText(this.thinkText, a.thinking ?? '');
-    for (const [text, sel] of [[this.modelText, this.modelSel], [this.thinkText, this.thinkSel]] as const) {
-      setHidden(text, editable);
-      setHidden(sel, !editable);
-    }
+    setHidden(this.modelText, editable);
+    setHidden(this.modelSel, !editable);
+    setHidden(this.thinkText, thinkingEditable);
+    setHidden(this.thinkSel, !thinkingEditable);
     if (!editable) {
       setHidden(this.modelFilter, true);
       return;
@@ -934,7 +943,8 @@ class AgentView {
     setText(this.linesMinus, `−${formatInt(s.linesRemoved ?? 0)}`);
     st.set('subs', a.kind === 'main' ? formatInt(s.subagents) : null);
     // omp com a caixa de mensagem pronta: modelo e raciocínio viram seletores (a extensão aplica na sessão viva).
-    const editable = provider === 'omp' && a.kind === 'main' && this.composerKind === 'ready' && !this.ctx.store.mock && !!this.ctx.agent(a.id);
+    const editable = runtimeAllowsModelChoice(provider) && a.kind === 'main' && this.composerKind === 'ready' && !this.ctx.store.mock && !!this.ctx.agent(a.id);
+    setHidden(this.handoffHint, a.handoff !== true);
     this.renderControls(a, editable);
     st.set('branch', a.gitBranch ?? null);
     // Codex: a política de aprovação (quando o servidor a manda) no lugar do modo de permissão do Claude Code. omp: sem

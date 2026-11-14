@@ -26,6 +26,7 @@ import { AsideStore } from '../asides/store';
 import { AttachmentStore } from '../spawn/attachments';
 import { attachmentStore, uploadAttachment } from '../test/attachment-fixture';
 import { tempDir } from '../test/fixtures';
+import { HandoffStore } from '../cast/handoff';
 
 setQuiet(true);
 
@@ -696,5 +697,70 @@ describe('MessageRegistry: anexos', () => {
       if (node) expect(runs[0]).toContain('/tmp/nota.txt');
       else expect(registry.codexPoll({})[0].text).toContain('/tmp/nota.txt');
     }
+  });
+});
+
+describe('MessageRegistry: contexto entre ferramentas', () => {
+  it('omp recebe o caminho uma vez e a falha antes da busca restaura a pendência', () => {
+    const temp = tempDir();
+    try {
+      const handoff = new HandoffStore({ dir: temp.dir });
+      const { office, registry, clock } = setup({ handoff });
+      office.addMain({ id: 'omp:ctx', provider: 'omp', account: 'acc', sessionId: 'ctx-session', cast: 'nina', cwd: '/p', role: 'main', startedAt: 0, status: 'idle' });
+      office.get('omp:ctx')!.cast = 'nina';
+      registry.inbox({ session: 'ctx-session' });
+      const path = handoff.put('nina', 'ALFA');
+      const first = sent(registry.send({ agentId: 'omp:ctx', text: 'oi' }));
+      expect(handoff.pending('nina')).toBeUndefined();
+      clock.advance(QUEUED_TIMEOUT_MS);
+      registry.tick();
+      expect(registry.get(first)?.status).toBe('failed');
+      expect(handoff.pending('nina')).toBe(path);
+      registry.inbox({ session: 'ctx-session' });
+      sent(registry.send({ agentId: 'omp:ctx', text: 'tente' }));
+      expect(registry.inbox({ session: 'ctx-session' })[0].text).toContain(`\n- ${path}`);
+      sent(registry.send({ agentId: 'omp:ctx', text: 'depois' }));
+      expect(registry.inbox({ session: 'ctx-session' })[0].text).toBe('depois');
+    } finally { temp.cleanup(); }
+  });
+  it('sem cast ou fora do omp não consome o arquivo', () => {
+    const temp = tempDir();
+    try {
+      const handoff = new HandoffStore({ dir: temp.dir });
+      const { registry } = setup({ handoff });
+      const path = handoff.put('nina', 'ALFA');
+      registry.inbox({ session: SESSION });
+      registry.send({ agentId: MAIN, text: 'oi' });
+      expect(registry.inbox({ session: SESSION })[0].text).toBe('oi');
+      expect(handoff.pending('nina')).toBe(path);
+    } finally { temp.cleanup(); }
+  });
+});
+
+describe('MessageRegistry: controle de troca de ferramenta', () => {
+  it('mantém OutboxMessage, não entrega controle à extensão e espera a troca mesmo se o agente sai', async () => {
+    const { promise: switched, resolve } = Promise.withResolvers<void>();
+    const { office, registry, clock } = setup({ switchTool: () => switched });
+    office.get(MAIN)!.provider = 'omp';
+    const id = sent(registry.control({ agentId: MAIN, model: 'agy/fake-b' }));
+    expect(registry.get(id)).toMatchObject({ status: 'sent' });
+    expect(registry.inbox({ session: SESSION })).toEqual([]);
+    office.closeMain(MAIN);
+    clock.advance(SENT_TIMEOUT_MS * 2);
+    registry.tick();
+    expect(registry.get(id)?.status).toBe('sent');
+    resolve();
+    await expect.poll(() => registry.get(id)?.status).toBe('delivered');
+  });
+  it('recusa combinações, callback ausente e conserva o motivo da falha', async () => {
+    const absent = setup();
+    absent.office.get(MAIN)!.provider = 'omp';
+    expect(absent.registry.control({ agentId: MAIN, model: 'agy/fake-b' })).toMatchObject({ error: 'unavailable', reason: expect.stringContaining('indisponível') });
+    const { office, registry } = setup({ switchTool: async () => { throw new Error('destino falhou'); } });
+    office.get(MAIN)!.provider = 'antigravity';
+    expect(() => registry.control({ agentId: MAIN, model: 'omp/model', thinking: 'high' })).toThrow('somente o modelo');
+    const id = sent(registry.control({ agentId: MAIN, model: 'omp/model' }));
+    await expect.poll(() => registry.get(id)?.status).toBe('failed');
+    expect(registry.get(id)?.error).toBe('destino falhou');
   });
 });

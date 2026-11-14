@@ -261,6 +261,10 @@ export function usageSubtitle(a: Pick<AccountInfo, 'email' | 'plan' | 'configDir
 /** Mensagem no lugar das barras (estados sem números): [longa, curta]. */
 export function usageMessage(a: Pick<AccountInfo, 'usage' | 'usageStatus' | 'provider'>): [string, string] {
   const state = cardState(a);
+  if (a.provider === 'antigravity') {
+    const text = isNeutralBrand() ? tr('sem cota informada') : tr('o Antigravity não informa cota');
+    return [text, text];
+  }
   if (state === 'noquota') return [tr('sem cota'), tr('sem cota')];
   if (isOmp(a)) return a.usage ? [tr('sem uso de 5 h e semana'), tr('sem uso')] : [tr('sem uso informado'), tr('sem uso')];
   if (isCodex(a)) return [tr('sem dados ainda'), tr('sem dados')];
@@ -543,6 +547,7 @@ export class UsageCards {
     const codex = isCodex(a);
     const provider = providerOf(a);
     const omp = isOmp(a);
+    const antigravity = provider === 'antigravity';
     updateAccountChip(r.chip, a);
     setStyleVar(card, '--acc', a.color);
     setText(r.name, a.name);
@@ -600,9 +605,9 @@ export class UsageCards {
     setText(r.msgLong, msgLong);
     setText(r.msgShort, msgShort);
     setHidden(r.msg, state !== 'empty' && state !== 'noquota');
-    setHidden(r.how, state === 'noquota' || omp);
+    setHidden(r.how, state === 'noquota' || omp || antigravity);
     r.msg.classList.toggle('is-noquota', state === 'noquota');
-    setTitle(r.msg, state === 'noquota' ? (omp ? ompUsageNote(a, now) : codexUsageNote(a, now)) : '');
+    setTitle(r.msg, antigravity ? tr('O agy não entrega cota nem uso do plano ao Habblaud; o contexto de cada conversa aparece na gaveta do agente.') : state === 'noquota' ? (omp ? ompUsageNote(a, now) : codexUsageNote(a, now)) : '');
     setText(r.howLong, codex ? tr('Como funciona') : tr('Como ativar'));
     setText(r.howShort, codex ? tr('Saber') : tr('Ativar'));
     r.how.dataset.help = codex ? 'codex' : 'usage';

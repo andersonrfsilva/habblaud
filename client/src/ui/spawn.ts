@@ -271,6 +271,11 @@ export class SpawnPanel {
       setHidden(this.toolRow, !result.available);
       this.antigravitySkipPermissions = result.skipPermissions === true;
       if (!result.available) this.tool.value = 'claude';
+      if (result.available) {
+        let claudeAvailable = false;
+        try { claudeAvailable = (await api<{ available: boolean }>('/api/spawn')).available; } catch { /* Claude Code indisponível. */ }
+        this.tool.value = claudeAvailable ? 'claude' : 'antigravity';
+      }
     } catch {
       this.tool.value = 'claude';
       setHidden(this.toolRow, true);

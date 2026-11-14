@@ -3,8 +3,17 @@ use crate::model::*;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 
+pub fn is_agy_model(model: &str) -> bool {
+    model.starts_with("agy/") && model.len() > 4
+}
+pub fn crosses_tool(provider: &str, model: &str) -> bool {
+    model_choice(provider) && is_agy_model(model) != (provider == "antigravity")
+}
+pub fn model_choice(provider: &str) -> bool {
+    matches!(provider, "omp" | "antigravity")
+}
 pub fn supports_session_control(provider: &str) -> bool {
-    matches!(provider, "omp" | "zeroclaw")
+    matches!(provider, "omp" | "zeroclaw" | "antigravity")
 }
 pub fn delivery_modes(provider: &str) -> &'static [&'static str] {
     match provider {
@@ -17,7 +26,7 @@ pub fn reliable_context(provider: &str) -> bool {
     matches!(provider, "omp" | "claude" | "codex")
 }
 pub fn deliver_modes_available(session: &SessionItem) -> bool {
-    supports_session_control(&session.key.provider) && session.agent_id.is_some() && !session.sub
+    !delivery_modes(&session.key.provider).is_empty() && session.agent_id.is_some() && !session.sub
 }
 pub fn deliver_as<'a>(provider: &str, mode: &'a str) -> Option<&'a str> {
     match provider {
@@ -209,6 +218,7 @@ pub fn provider_label(id: &str) -> String {
         return format!("{} · {}", provider_label(root), provider_label(rest));
     }
     match id {
+        "agy" => "Antigravity",
         "anthropic" => "Anthropic",
         "openai" => "OpenAI",
         "openai-codex" => "OpenAI Codex",
@@ -431,6 +441,7 @@ pub struct Failure {
     pub session_changed: bool,
     pub attachments_expired: bool,
     pub cancelled: bool,
+    pub reason: Option<String>,
 }
 impl Failure {
     fn definite(&self) -> bool {
@@ -621,6 +632,7 @@ struct PendingCommand {
     token: u64,
     key: SessionKey,
     kind: String,
+    crosses_tool: bool,
     id: Option<String>,
     polls: u8,
 }
@@ -772,6 +784,7 @@ pub enum Event {
         token: u64,
         id: Option<String>,
         status: Option<String>,
+        error: Option<String>,
         failure: Option<Failure>,
     },
     DismissConfirmation,
@@ -1474,7 +1487,7 @@ pub fn reduce(mut state: State, event: Event) -> (State, Vec<Effect>) {
             eligible,
         } => {
             if let Some(key) = state.composer.key.clone()
-                && key.provider == "omp"
+                && (key.provider == "omp" || key.provider == "antigravity" && kind == "model")
                 && state.visible
                 && !state.composer.loading
                 && !state.composer.sending
@@ -1492,11 +1505,13 @@ pub fn reduce(mut state: State, event: Event) -> (State, Vec<Effect>) {
                 state.composer.command_result = Some(CommandResult {
                     kind: kind.clone(),
                     status: "pending".into(),
+                    reason: None,
                 });
                 state.commands.insert(
                     token,
                     PendingCommand {
                         token,
+                        crosses_tool: kind == "model" && crosses_tool(&key.provider, &value),
                         key,
                         kind,
                         id: None,
@@ -1510,9 +1525,14 @@ pub fn reduce(mut state: State, event: Event) -> (State, Vec<Effect>) {
             token,
             id,
             status,
+            error,
             failure,
         } => {
             if let Some(command) = state.commands.get_mut(&token) {
+                if command.crosses_tool && state.composer.key.as_ref() != Some(&command.key) {
+                    state.commands.remove(&token);
+                    return (state, effects);
+                }
                 if let Some(id) = id {
                     command.id = Some(id);
                 }
@@ -1543,6 +1563,11 @@ pub fn reduce(mut state: State, event: Event) -> (State, Vec<Effect>) {
                         state.composer.command_result = Some(CommandResult {
                             kind: command.kind.clone(),
                             status: result.into(),
+                            reason: if result == "failed" {
+                                failure.as_ref().and_then(|failure| failure.reason.clone()).or(error)
+                            } else {
+                                None
+                            },
                         });
                     }
                     state.commands.remove(&token);
@@ -1649,11 +1674,11 @@ pub struct CastAvailability {
     pub free: Vec<CastChoice>,
     pub resume_choices: Vec<CastChoice>,
 }
-pub fn can_resume_cast(selected: &SessionItem, runtime: Option<&str>) -> bool {
+pub fn can_resume_cast(selected: &SessionItem, runtime: Option<&str>, agy: bool) -> bool {
     let id = selected.key.session_id.as_bytes();
     selected.agent_id.is_none()
         && supports_session_control(&selected.key.provider)
-        && runtime == Some(selected.key.provider.as_str())
+        && if selected.key.provider == "antigravity" { agy } else { runtime == Some(selected.key.provider.as_str()) }
         && selected
             .project
             .as_deref()
@@ -1668,6 +1693,7 @@ pub fn cast_availability(
     open_cast: &HashSet<String>,
     jobs: &HashMap<String, String>,
     runtime: Option<&str>,
+    agy: bool,
 ) -> CastAvailability {
     let current = selected.and_then(|selected| {
         characters
@@ -1692,7 +1718,7 @@ pub fn cast_availability(
         .collect();
     let mut resume_choices = free.clone();
     resume_choices.sort_by_key(|character| std::cmp::Reverse(Some(character) == current));
-    let resume = selected.is_some_and(|selected| can_resume_cast(selected, runtime));
+    let resume = selected.is_some_and(|selected| can_resume_cast(selected, runtime, agy));
     let dismiss = selected.is_some_and(|selected| {
         selected.agent_id.is_some() && selected.cast_opened && (current.is_some() || new_agent)
     });

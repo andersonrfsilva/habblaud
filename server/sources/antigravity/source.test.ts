@@ -10,6 +10,7 @@ import { Office } from '../../model/office';
 import { createTerminalParser } from '../terminal';
 import { AntigravityMirror } from './mirror';
 import { AntigravitySource } from './source';
+import { AntigravityCatalog } from './catalog';
 
 setQuiet(true);
 const SID = '7f2c9ee1-2bdd-49ea-b431-3d56fc046301';
@@ -22,12 +23,13 @@ function setup() {
   const office = new Office({ names: new NameStore(null), version: 'test', startedAt: Date.now(), accounts: sources => accounts.list(sources), sources: () => [], accountName: () => 'Antigravity' });
   const listeners = new Set<(event: AcpEvent) => void>();
   const client = { onEvent(listener: (event: AcpEvent) => void) { listeners.add(listener); return () => { listeners.delete(listener); }; }, session: () => ({ sessionId: SID, cwd: '/tmp', busy: true }) };
-  const source = new AntigravitySource({ accounts, office, client, mirror: new AntigravityMirror({ dataDir }) });
+  const catalog = new AntigravityCatalog(dataDir);
+  const source = new AntigravitySource({ accounts, office, client, mirror: new AntigravityMirror({ dataDir }), catalog });
   cleanups.push(() => source.stop());
   source.start();
   const emit = (event: AcpEvent) => { for (const listener of listeners) listener(event); };
-  emit({ type: 'session-open', sessionId: SID, cwd: '/tmp', resumed: false, info: { model: 'fake', models: ['fake'] } });
-  return { accounts, office, source, emit, id: `antigravity:${SID}` };
+  emit({ type: 'session-open', sessionId: SID, cwd: '/tmp', resumed: false, info: { model: 'fake', models: ['fake'], modelOptions: [{ value: 'fake', name: 'Fake' }] } });
+  return { accounts, office, source, emit, catalog, id: `antigravity:${SID}` };
 }
 describe('fonte Antigravity', () => {
   it('registra conta, entra e acompanha trabalho, permissão e fechamento', async () => {
@@ -53,7 +55,7 @@ describe('fonte Antigravity', () => {
     s.emit({ type: 'update', sessionId: SID, update: { sessionUpdate: 'session_info_update', title: 'Teste' } });
     s.emit({ type: 'update', sessionId: SID, update: { sessionUpdate: 'usage_update', used: 50, size: 100 } });
     expect(s.office.get(s.id)?.recent.some(activity => activity.tool === 'Bash')).toBe(true);
-    expect(s.office.get(s.id)).toMatchObject({ model: 'fake', context: { tokens: 50, window: 100 } });
+    expect(s.office.get(s.id)).toMatchObject({ model: 'agy/fake', context: { tokens: 50, window: 100 } });
     await s.source.flush();
   });
   it('o leitor de terminal existente lê texto e ferramentas do espelho', async () => {
@@ -76,7 +78,7 @@ describe('fonte Antigravity', () => {
     const s = setup();
     const next = '7f2c9ee1-2bdd-49ea-b431-3d56fc046302';
     expect(await s.source.replace(SID, async () => {
-      s.emit({ type: 'session-open', sessionId: next, replaces: SID, cwd: '/tmp', resumed: false, info: { models: [] } });
+      s.emit({ type: 'session-open', sessionId: next, replaces: SID, cwd: '/tmp', resumed: false, info: { models: [], modelOptions: [] } });
       return { sessionId: next };
     })).toBe(next);
     s.emit({ type: 'session-close', sessionId: SID, reason: 'closed' });
@@ -109,9 +111,9 @@ describe('fonte Antigravity', () => {
     const independentId = `antigravity:${independent}`;
     const opened = Promise.withResolvers<{ sessionId: string }>();
     const replacement = s.source.replace(SID, () => opened.promise);
-    const openIndependent = () => s.emit({ type: 'session-open', sessionId: independent, cwd: '/tmp', resumed: false, info: { models: [] } });
+    const openIndependent = () => s.emit({ type: 'session-open', sessionId: independent, cwd: '/tmp', resumed: false, info: { models: [], modelOptions: [] } });
     if (order === 'antes') openIndependent();
-    s.emit({ type: 'session-open', sessionId: next, replaces: SID, cwd: '/tmp', resumed: false, info: { models: [] } });
+    s.emit({ type: 'session-open', sessionId: next, replaces: SID, cwd: '/tmp', resumed: false, info: { models: [], modelOptions: [] } });
     if (order === 'depois') openIndependent();
     opened.resolve({ sessionId: next });
     expect(await replacement).toBe(next);
@@ -136,15 +138,15 @@ describe('fonte Antigravity', () => {
     const other = '7f2c9ee1-2bdd-49ea-b431-3d56fc046302';
     const next = '7f2c9ee1-2bdd-49ea-b431-3d56fc046303';
     const otherNext = '7f2c9ee1-2bdd-49ea-b431-3d56fc046304';
-    s.emit({ type: 'session-open', sessionId: other, cwd: '/tmp', resumed: false, info: { models: [] } });
+    s.emit({ type: 'session-open', sessionId: other, cwd: '/tmp', resumed: false, info: { models: [], modelOptions: [] } });
     const first = Promise.withResolvers<{ sessionId: string }>();
     const second = Promise.withResolvers<{ sessionId: string }>();
     const replacingFirst = s.source.replace(SID, () => first.promise);
     const replacingSecond = s.source.replace(other, () => second.promise);
-    s.emit({ type: 'session-open', sessionId: otherNext, replaces: other, cwd: '/tmp', resumed: false, info: { models: [] } });
+    s.emit({ type: 'session-open', sessionId: otherNext, replaces: other, cwd: '/tmp', resumed: false, info: { models: [], modelOptions: [] } });
     second.resolve({ sessionId: otherNext });
     expect(await replacingSecond).toBe(otherNext);
-    s.emit({ type: 'session-open', sessionId: next, replaces: SID, cwd: '/tmp', resumed: false, info: { models: [] } });
+    s.emit({ type: 'session-open', sessionId: next, replaces: SID, cwd: '/tmp', resumed: false, info: { models: [], modelOptions: [] } });
     first.resolve({ sessionId: next });
     expect(await replacingFirst).toBe(next);
     expect(s.office.list()).toHaveLength(2);
@@ -155,10 +157,20 @@ describe('fonte Antigravity', () => {
   it('replaces fora de uma troca em curso não adota outro agente', async () => {
     const s = setup();
     const next = '7f2c9ee1-2bdd-49ea-b431-3d56fc046302';
-    s.emit({ type: 'session-open', sessionId: next, replaces: SID, cwd: '/tmp', resumed: false, info: { models: [] } });
+    s.emit({ type: 'session-open', sessionId: next, replaces: SID, cwd: '/tmp', resumed: false, info: { models: [], modelOptions: [] } });
     expect(s.office.get(s.id)?.sessionId).toBe(SID);
     expect(s.office.get(`antigravity:${next}`)?.sessionId).toBe(next);
     expect(s.office.list()).toHaveLength(2);
     await s.source.flush();
   });
+});
+
+it('associates cast and prefixed model catalog with the main agent', async () => {
+  const s = setup();
+  const next = '7f2c9ee1-2bdd-49ea-b431-3d56fc046302';
+  s.emit({ type: 'session-open', sessionId: next, cwd: '/tmp', cast: 'novo-alice', resumed: false,
+    info: { model: 'fake-b', models: [], modelOptions: [{ value: 'fake-b', name: 'Fake B' }] } });
+  expect(s.office.get(`antigravity:${next}`)).toMatchObject({ cast: 'novo-alice', model: 'agy/fake-b', models: ['agy/fake-b'] });
+  expect(s.catalog.agyModels()).toEqual(['agy/default', 'agy/fake-b']);
+  await s.source.flush();
 });

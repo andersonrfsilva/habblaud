@@ -4,15 +4,19 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Duplex } from 'node:stream';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AccountsService } from '../accounts/service';
 import { AntigravityClient } from '../antigravity/acp';
 import { NameStore } from '../model/names';
 import { Office } from '../model/office';
 import { AntigravityMirror } from '../sources/antigravity/mirror';
 import { AntigravitySource } from '../sources/antigravity/source';
+import { AntigravityCatalog } from '../sources/antigravity/catalog';
 import { AntigravityDelivery } from './antigravity';
 import { InvalidRequest, MessageRegistry } from './registry';
+import { HandoffStore } from '../cast/handoff';
+import { readFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -26,7 +30,7 @@ async function setup() {
     child = process;
     return Duplex.from({ readable: process.stdout, writable: process.stdin });
   } });
-  const source = new AntigravitySource({ accounts, office, client, mirror: new AntigravityMirror({ dataDir: directory }) });
+  const source = new AntigravitySource({ accounts, office, client, mirror: new AntigravityMirror({ dataDir: directory }), catalog: new AntigravityCatalog(directory) });
   source.start();
   const delivery = new AntigravityDelivery({ client, source });
   const registry = new MessageRegistry({ office, antigravity: delivery });
@@ -72,5 +76,102 @@ describe('entrega Antigravity', () => {
     await s.client.close(s.sessionId);
     expect(s.delivery.available(s.sessionId)).toBe(false);
     expect(s.registry.canMessage(s.id)).toBe(false);
+  });
+});
+
+describe('instruções pendentes Antigravity', () => {
+  it('sends instructions once, only after a person sends a message', async () => {
+    const s = await setup();
+    const prompt = vi.spyOn(s.client, 'prompt');
+    s.delivery.setInstructions(s.sessionId, 'Seja breve.');
+    expect(prompt).not.toHaveBeenCalled();
+    expect(await s.delivery.sendMessage(s.sessionId, 'Olá')).toEqual({ ok: true });
+    expect(prompt).toHaveBeenLastCalledWith(s.sessionId, 'Instruções do personagem:\nSeja breve.\n\nPedido inicial:\nOlá');
+    await expect.poll(() => s.client.session(s.sessionId)?.busy).toBe(false);
+    expect(await s.delivery.sendMessage(s.sessionId, 'Depois')).toEqual({ ok: true });
+    expect(prompt).toHaveBeenLastCalledWith(s.sessionId, 'Depois');
+  });
+  it('retains instructions after rejected prompt and clears them on close', async () => {
+    const s = await setup();
+    const prompt = vi.spyOn(s.client, 'prompt').mockRejectedValueOnce(new Error('write failed'));
+    s.delivery.setInstructions(s.sessionId, 'Instruções');
+    expect((await s.delivery.sendMessage(s.sessionId, 'Primeira')).ok).toBe(false);
+    expect((await s.delivery.sendMessage(s.sessionId, 'Segunda')).ok).toBe(true);
+    expect(prompt).toHaveBeenLastCalledWith(s.sessionId, 'Instruções do personagem:\nInstruções\n\nPedido inicial:\nSegunda');
+    await s.client.close(s.sessionId);
+    await s.client.open({ cwd: '/tmp', resume: s.sessionId });
+    await s.delivery.sendMessage(s.sessionId, 'Retomada');
+    expect(prompt).toHaveBeenLastCalledWith(s.sessionId, 'Retomada');
+  });
+  it('new session preserves cast and model and rearms consumed instructions', async () => {
+    const s = await setup();
+    const opened = await s.client.open({ cwd: '/tmp', cast: 'novo-alice', model: 'fake-b' });
+    s.delivery.setInstructions(opened.sessionId, 'Seja breve.');
+    await s.delivery.sendMessage(opened.sessionId, 'Antes');
+    await expect.poll(() => s.client.session(opened.sessionId)?.busy).toBe(false);
+    const prompt = vi.spyOn(s.client, 'prompt');
+    const next = await s.delivery.newSession(opened.sessionId);
+    expect(s.client.session(next)).toMatchObject({ cast: 'novo-alice', model: 'fake-b' });
+    expect(prompt).not.toHaveBeenCalled();
+    await s.delivery.sendMessage(next, 'Depois');
+    expect(prompt).toHaveBeenLastCalledWith(next, 'Instruções do personagem:\nSeja breve.\n\nPedido inicial:\nDepois');
+  });
+});
+
+describe('anexo de contexto Antigravity', () => {
+  it('envia resource_link antes do texto uma vez e restaura após falha', async () => {
+    const s = await setup();
+    const directory = await mkdtemp(join(tmpdir(), 'antigravity-handoff-'));
+    cleanups.push(() => rm(directory, { recursive: true, force: true }));
+    const handoff = new HandoffStore({ dir: directory });
+    const delivery = new AntigravityDelivery({ client: s.client, source: s.source, handoff });
+    const { sessionId } = await s.client.open({ cwd: '/tmp', cast: 'nina' });
+    const path = handoff.put('nina', 'ALFA');
+    const blocks: Record<string, unknown>[] = [];
+    s.client.onEvent(event => { if (event.type === 'update' && event.sessionId === sessionId && event.update.sessionUpdate === 'user_message_chunk') blocks.push(event.update.content as Record<string, unknown>); });
+    const prompt = vi.spyOn(s.client, 'prompt').mockRejectedValueOnce(new Error('write failed'));
+    expect(await delivery.sendMessage(sessionId, 'primeira')).toMatchObject({ ok: false });
+    expect(handoff.pending('nina')).toBe(path);
+    expect(await delivery.sendMessage(sessionId, 'segunda')).toEqual({ ok: true });
+    await expect.poll(() => s.client.session(sessionId)?.busy).toBe(false);
+    expect(blocks[0]).toEqual({ type: 'resource_link', uri: pathToFileURL(path).href, name: 'conversa-anterior.md', mimeType: 'text/markdown' });
+    expect(blocks[1]).toMatchObject({ type: 'text', text: expect.stringContaining('Leia antes de responder.') });
+    expect(readFileSync(path, 'utf8')).toBe('ALFA');
+    expect(handoff.pending('nina')).toBeUndefined();
+    blocks.length = 0;
+    await delivery.sendMessage(sessionId, 'terceira');
+    await expect.poll(() => s.client.session(sessionId)?.busy).toBe(false);
+    expect(blocks).toEqual([{ type: 'text', text: 'terceira' }]);
+    await expect(s.client.prompt(sessionId, 'bad', [{ path: 'relative.md', name: 'bad' }])).rejects.toThrow('absolute');
+    expect(prompt).toHaveBeenCalled();
+  });
+});
+
+describe('modelo numa conversa Antigravity aberta', () => {
+  it('aplica modelo sem abrir sessão e espera o turno terminar', async () => {
+    const s = await setup();
+    const first = s.registry.control({ agentId: s.id, model: 'agy/fake-b' });
+    if (!('message' in first)) throw new Error('controle recusado');
+    await expect.poll(() => s.registry.get(first.message.id)?.status).toBe('delivered');
+    await expect.poll(() => s.office.get(s.id)?.model).toBe('agy/fake-b');
+    expect(s.office.get(s.id)?.sessionId).toBe(s.sessionId);
+    await s.client.prompt(s.sessionId, 'sleep');
+    const next = s.registry.control({ agentId: s.id, model: 'agy/fake-a' });
+    if (!('message' in next)) throw new Error('controle recusado');
+    expect(next.message.status).toBe('queued');
+    expect(s.client.session(s.sessionId)?.model).toBe('fake-b');
+    await s.client.cancel(s.sessionId);
+    await expect.poll(() => s.registry.get(next.message.id)?.status).toBe('delivered');
+    expect(s.client.session(s.sessionId)?.model).toBe('fake-a');
+  });
+  it('modelo desconhecido e padrão falham com motivo; thinking permanece recusado', async () => {
+    const s = await setup();
+    for (const model of ['agy/missing', 'agy/default']) {
+      const result = s.registry.control({ agentId: s.id, model });
+      if (!('message' in result)) throw new Error('controle recusado');
+      await expect.poll(() => s.registry.get(result.message.id)?.status).toBe('failed');
+      expect(s.registry.get(result.message.id)?.error).toMatch(/modelo/);
+    }
+    expect(s.registry.control({ agentId: s.id, thinking: 'high' })).toHaveProperty('error', 'unavailable');
   });
 });

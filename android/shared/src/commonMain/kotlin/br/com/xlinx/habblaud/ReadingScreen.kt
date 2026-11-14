@@ -101,6 +101,14 @@ internal fun readingErrorResource(error: String): StringResource = when (error) 
 internal fun actionsAvailable(state: ReadingState, loginRequired: Boolean, selectedPermission: Boolean): Boolean =
     !loginRequired && state.connection == "connected" && (state.terminalAllowed || selectedPermission)
 
+@Composable
+private fun modelMenuLabel(model: String, option: Boolean = false): String =
+    if (model == "agy/default") stringResource(Res.string.model_agy_default)
+    else if (option) modelOptionLabel(model) else modelLabel(model)
+
+internal fun providerDisplayName(provider: String): String =
+    if (provider == "antigravity") "Antigravity" else provider
+
 internal fun ompTools(provider: String?) = provider == "omp"
 internal fun reliableContext(provider: String?, tokens: Long?, window: Long?) =
     (provider == "omp" || provider == "claude" || provider == "codex") && tokens != null && window != null
@@ -197,6 +205,19 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
         previousAgent = item?.agentId
     }
     var confirmNew by remember(selected?.key) { mutableStateOf(false) }
+    var switchModel by remember(selected?.key) { mutableStateOf<String?>(null) }
+    switchModel?.let { model ->
+        if (selected?.agentId != null) AlertDialog(
+            onDismissRequest = { switchModel = null },
+            title = { Text(stringResource(Res.string.model_menu)) },
+            text = { Text(stringResource(Res.string.switch_tool_confirm, modelMenuLabel(model))) },
+            confirmButton = { TextButton(onClick = {
+                switchModel = null
+                if (sessionControlsAvailable(selected, state)) controller.messages.setModel(selected.agentId, model)
+            }) { Text(stringResource(Res.string.confirm)) } },
+            dismissButton = { TextButton(onClick = { switchModel = null }) { Text(stringResource(Res.string.cancel)) } }
+        )
+    }
     var newTarget by remember { mutableStateOf<Pair<SessionKey, String>?>(null) }
     val newOriginState = newTarget?.first?.origin?.let(states::get)
     val newOriginComposer = newTarget?.first?.origin?.let { controllers[it]?.messages?.state?.value }
@@ -296,7 +317,11 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                 if (groups.isEmpty()) Text(stringResource(Res.string.models_no_results), Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
                 groups.forEach { (provider, list) ->
                     Text(providerLabel(provider), Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                    list.forEach { model -> Choice(modelOptionLabel(model), model == currentModel) { controller.messages.setModel(agentId!!, model); modelQuery = ""; close() } }
+                    list.forEach { model -> Choice(modelMenuLabel(model, option = true), model == currentModel) {
+                        if (crossesTool(selected.key.provider, model)) switchModel = model
+                        else controller.messages.setModel(agentId!!, model)
+                        modelQuery = ""; close()
+                    } }
                 }
             }
             "thinking" -> { Back(); THINKING_LEVELS.forEach { level -> Choice(thinkingLabel(level), level == selected!!.thinking) { controller.messages.setThinking(agentId!!, level); close() } } }
@@ -304,14 +329,16 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                 DropdownMenuItem(modifier = Modifier.testTag("files-menu"), text = { Text(stringResource(Res.string.files_title)) }, onClick = { filesOpen = true; close() })
                 Group(Res.string.view_menu, viewLabels.firstOrNull { it.first == view }?.let { stringResource(it.second) }, "view", loaded)
                 if (sessionControls) {
-                    Group(Res.string.deliver_mode, deliverLabels.firstOrNull { it.first == messageDelivery(selected?.key?.provider, deliverMode) }?.let { stringResource(it.second) }, "deliver", loaded)
+                    if (deliverLabels.isNotEmpty()) Group(Res.string.deliver_mode, deliverLabels.firstOrNull { it.first == messageDelivery(selected?.key?.provider, deliverMode) }?.let { stringResource(it.second) }, "deliver", loaded)
                     DropdownMenuItem(modifier = Modifier.testTag("session-new"), text = { Text(stringResource(Res.string.session_new)) },
                         enabled = canControl && !composer.loading && !composer.sending && composer.control?.status !in setOf("queued", "sent"),
                         onClick = { confirmNew = true; close() })
                 }
+                if (modelChoice(selected?.key?.provider) && agentId != null && selected?.sub == false && selected.models.isNotEmpty()) {
+                    Group(Res.string.model_menu, (currentModel ?: selected.model)?.let { modelMenuLabel(it) }, "model", canControl)
+                }
                 if (omp) {
-                    if (selected!!.models.isNotEmpty()) Group(Res.string.model_menu, (currentModel ?: selected.model)?.let(::modelLabel), "model", canControl)
-                    Group(Res.string.thinking_menu, selected.thinking?.let { thinkingLabel(it) }, "thinking", canControl)
+                    Group(Res.string.thinking_menu, selected!!.thinking?.let { thinkingLabel(it) }, "thinking", canControl)
                     DropdownMenuItem(text = { Text(stringResource(Res.string.shake)) }, enabled = canControl, onClick = { controller.messages.shake(agentId!!); close() })
                     DropdownMenuItem(modifier = Modifier.testTag("aside-menu"), text = { Text(stringResource(Res.string.aside_menu)) }, enabled = canControl, onClick = { controller.asides.open(agentId!!); asideOpen = true; close() })
                 }
@@ -670,7 +697,8 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                 composer.commandResult?.let { result ->
                     LaunchedEffect(result) { if (result.status == "sent") { kotlinx.coroutines.delay(4000); controller.messages.dismissCommandResult() } }
                     val what = stringResource(when (result.kind) { "model" -> Res.string.model_menu; "thinking" -> Res.string.thinking_menu; else -> Res.string.shake_short })
-                    ChatBanner(stringResource(when (result.status) { "pending" -> Res.string.command_pending; "sent" -> Res.string.command_sent; "failed" -> Res.string.command_failed; else -> Res.string.command_unknown }, what))
+                    val message = stringResource(when (result.status) { "pending" -> Res.string.command_pending; "sent" -> Res.string.command_sent; "failed" -> Res.string.command_failed; else -> Res.string.command_unknown }, what)
+                    ChatBanner(if (result.status == "failed" && result.reason != null) "$message ${result.reason}" else message)
                 }
                 composer.error?.let { error -> if (error != "confirm") Text(stringResource(when (error) { "storage" -> Res.string.storage_error; "unknown" -> Res.string.message_unknown; "attachment" -> Res.string.attachment_error; "attachments_expired" -> Res.string.attachments_expired; else -> Res.string.message_send_error }), color = MaterialTheme.colorScheme.error) }
                 if (composer.error == "confirm" && agentId != null) AlertDialog(
@@ -680,6 +708,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                     confirmButton = { TextButton(onClick = { stickToEnd(); controller.messages.send(agentId, confirmed = true) }) { Text(stringResource(Res.string.confirm)) } },
                     dismissButton = { TextButton(onClick = { controller.messages.dismissConfirmation() }) { Text(stringResource(Res.string.cancel)) } }
                 )
+                if (selected.handoff) Text(stringResource(Res.string.handoff_pending), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                     val attachLabel = stringResource(Res.string.attach_files)
                     val canSend = enabled && !composer.loading && !composer.sending && composer.unavailable.isEmpty() && (composer.draft.text.isNotBlank() || composer.draft.attachments.isNotEmpty())
@@ -1172,7 +1201,8 @@ private fun SessionInfoSheet(api: HabblaudApi, session: SessionItem, entries: Li
             if (details) SelectionContainer {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     session.project?.let { InfoLine(Res.string.info_project, it) }
-                    InfoLine(Res.string.info_provider, "${session.key.provider} · ${session.key.account}")
+                    val provider = if (session.key.provider == "antigravity") stringResource(Res.string.provider_antigravity) else providerDisplayName(session.key.provider)
+                    InfoLine(Res.string.info_provider, "$provider · ${session.key.account}")
                     InfoLine(Res.string.info_session, session.key.sessionId)
                     InfoLine(Res.string.info_server, session.key.origin)
                 }

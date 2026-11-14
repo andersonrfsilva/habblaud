@@ -253,7 +253,7 @@ fn publish_info(
         ),
         info_row(
             strings::INFO_PROVIDER,
-            format!("{} · {}", item.key.provider, item.key.account),
+            format!("{} · {}", if item.key.provider == "antigravity" { strings::PROVIDER_ANTIGRAVITY } else { &item.key.provider }, item.key.account),
         ),
         info_row(strings::INFO_SESSION, item.key.session_id.clone()),
         info_row(strings::INFO_SERVER, item.key.origin.clone()),
@@ -305,7 +305,7 @@ fn publish_info(
             header: true,
         });
         choices.extend(models.into_iter().map(|value| crate::ModelChoice {
-            label: zaplaud_core::rules::composer::model_option_label(&value).into(),
+            label: if value == "agy/default" { strings::MODEL_AGY_DEFAULT.into() } else { zaplaud_core::rules::composer::model_option_label(&value).into() },
             value: value.into(),
             header: false,
         }));
@@ -316,7 +316,7 @@ fn publish_info(
     state.set_model_detail(
         current_model
             .or(item.model.as_deref())
-            .map(zaplaud_core::rules::composer::model_label)
+            .map(|model| if model == "agy/default" { strings::MODEL_AGY_DEFAULT.into() } else { zaplaud_core::rules::composer::model_label(model) })
             .unwrap_or_default()
             .into(),
     );
