@@ -180,6 +180,9 @@
     <string name="view_menu">Visualização</string>
     <string name="model_menu">Modelo</string>
     <string name="model_agy_default">Padrão do Antigravity</string>
+    <string name="provider_antigravity">Antigravity</string>
+    <string name="switch_tool_confirm">Trocar para %1$s muda de ferramenta: a conversa atual fecha e abre outra. A conversa anterior vai anexada à sua próxima mensagem.</string>
+    <string name="handoff_pending">A conversa anterior vai anexada à sua próxima mensagem.</string>
     <string name="thinking_menu">Raciocínio</string>
     <string name="thinking_off">Desligado</string>
     <string name="thinking_minimal">Mínimo</string>

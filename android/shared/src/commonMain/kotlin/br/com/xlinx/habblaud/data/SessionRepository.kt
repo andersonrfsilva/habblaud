@@ -83,10 +83,13 @@ class SessionRepository(private val api: HabblaudApi) {
         }
     }
 
-    private fun item(o: JsonObject, project: String?): SessionItem? {
+    private fun item(o: JsonObject, project: String?): SessionItem? = parseSessionItem(o, project, api.origin, serverTime)
+}
+
+internal fun parseSessionItem(o: JsonObject, project: String?, origin: String, serverTime: Long): SessionItem? {
         val account = o.string("account") ?: return null
         val id = o.string("sessionId") ?: return null
-        val key = SessionKey(api.origin, o.string("provider") ?: "claude", account, id)
+        val key = SessionKey(origin, o.string("provider") ?: "claude", account, id)
         val agent = o.string("id") ?: o.string("agentId")
         val activity = (o["activity"] as? JsonObject)?.let { it.string("summary") ?: it.string("text") ?: it.string("description") }
         val permission = o["permission"] as? JsonObject
@@ -97,10 +100,10 @@ class SessionRepository(private val api: HabblaudApi) {
             models = (o["models"] as? kotlinx.serialization.json.JsonArray)?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { p -> p.isString }?.content }.orEmpty(),
             replies = (o["replies"] as? kotlinx.serialization.json.JsonArray)?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.longOrNull }.orEmpty(),
             roomId = o.string("roomId"),
+            handoff = o.flag("handoff"),
             statusSince = o.string("statusSince")?.toLongOrNull()?.takeIf { it > 0 }?.let { localTime(it, serverTime) })
     }
 
-}
 
 /**
  * Horário do servidor no relógio do celular, para o cronômetro da linha de estado. A diferença (atraso da rede incluso)
