@@ -85,6 +85,7 @@ import com.mikepenz.markdown.compose.components.markdownComponents
 import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.takeWhile
@@ -120,6 +121,12 @@ internal fun deliveryModes(provider: String?): List<String> = when (provider) {
 internal fun newSessionTarget(sessions: List<SessionItem>, previous: SessionKey, agentId: String): SessionItem? =
     sessions.firstOrNull { it.agentId == agentId && it.key.origin == previous.origin &&
         it.key.provider == previous.provider && it.key.account == previous.account && it.key != previous }
+internal fun switchToolTarget(sessions: List<SessionItem>, previous: SessionKey, cast: String?): SessionItem? =
+    if (cast == null) null else sessions.firstOrNull {
+        it.key.origin == previous.origin && it.cast == cast && it.agentId != null && !it.sub &&
+            it.status != "offline" && it.status != "done" && it.key != previous
+    }
+private data class PendingToolSwitch(val previous: SessionKey, val cast: String, val expiresAt: Long)
 internal fun sessionControlsAvailable(item: SessionItem?, state: ReadingState): Boolean =
     item != null && supportsSessionControl(item.key.provider) && item.agentId != null && !item.sub &&
         item.canMessage && state.messagesAllowed && state.messageGuard && state.connection == "connected"
@@ -206,6 +213,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
     }
     var confirmNew by remember(selected?.key) { mutableStateOf(false) }
     var switchModel by remember(selected?.key) { mutableStateOf<String?>(null) }
+    var switchTarget by remember { mutableStateOf<PendingToolSwitch?>(null) }
     switchModel?.let { model ->
         if (selected?.agentId != null) AlertDialog(
             onDismissRequest = { switchModel = null },
@@ -213,7 +221,10 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
             text = { Text(stringResource(Res.string.switch_tool_confirm, modelMenuLabel(model))) },
             confirmButton = { TextButton(onClick = {
                 switchModel = null
-                if (sessionControlsAvailable(selected, state)) controller.messages.setModel(selected.agentId, model)
+                if (sessionControlsAvailable(selected, state)) {
+                    switchTarget = selected.cast?.let { PendingToolSwitch(selected.key, it, uiNowMillis() + 90_000L) }
+                    controller.messages.setModel(selected.agentId, model)
+                }
             }) { Text(stringResource(Res.string.confirm)) } },
             dismissButton = { TextButton(onClick = { switchModel = null }) { Text(stringResource(Res.string.cancel)) } }
         )
@@ -225,6 +236,26 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
         newTarget?.let { (previous, agentId) ->
             if (previous.origin !in apis || previous.origin in needsLogin || newOriginComposer?.controlError != null || newOriginComposer?.control?.status == "failed") newTarget = null
             else newSessionTarget(newOriginState?.sessions.orEmpty(), previous, agentId)?.let { target -> newTarget = null; open(target) }
+        }
+    }
+    val switchOriginState = switchTarget?.previous?.origin?.let(states::get)
+    LaunchedEffect(switchTarget) {
+        switchTarget?.let { pending ->
+            delay((pending.expiresAt - uiNowMillis()).coerceAtLeast(0L))
+            switchTarget = null
+        }
+    }
+    LaunchedEffect(switchOriginState?.sessions, switchTarget, selected?.key, composer.commandResult, needsLogin) {
+        switchTarget?.let { pending ->
+            if (selected?.key != pending.previous || pending.previous.origin !in apis ||
+                pending.previous.origin in needsLogin || uiNowMillis() >= pending.expiresAt ||
+                (composer.key == pending.previous && composer.commandResult?.kind == "model" &&
+                    composer.commandResult?.status == "failed")) {
+                switchTarget = null
+            } else switchToolTarget(switchOriginState?.sessions.orEmpty(), pending.previous, pending.cast)?.let { target ->
+                switchTarget = null
+                open(target)
+            }
         }
     }
     if (confirmNew && selected?.agentId != null) AlertDialog(
