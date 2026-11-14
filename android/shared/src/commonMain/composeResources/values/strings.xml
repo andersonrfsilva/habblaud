@@ -179,6 +179,7 @@
     <string name="back">Voltar</string>
     <string name="view_menu">Visualização</string>
     <string name="model_menu">Modelo</string>
+    <string name="model_agy_default">Padrão do Antigravity</string>
     <string name="thinking_menu">Raciocínio</string>
     <string name="thinking_off">Desligado</string>
     <string name="thinking_minimal">Mínimo</string>

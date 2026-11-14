@@ -101,6 +101,11 @@ internal fun readingErrorResource(error: String): StringResource = when (error) 
 internal fun actionsAvailable(state: ReadingState, loginRequired: Boolean, selectedPermission: Boolean): Boolean =
     !loginRequired && state.connection == "connected" && (state.terminalAllowed || selectedPermission)
 
+@Composable
+private fun modelMenuLabel(model: String, option: Boolean = false): String =
+    if (model == "agy/default") stringResource(Res.string.model_agy_default)
+    else if (option) modelOptionLabel(model) else modelLabel(model)
+
 internal fun ompTools(provider: String?) = provider == "omp"
 internal fun reliableContext(provider: String?, tokens: Long?, window: Long?) =
     (provider == "omp" || provider == "claude" || provider == "codex") && tokens != null && window != null
@@ -296,7 +301,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                 if (groups.isEmpty()) Text(stringResource(Res.string.models_no_results), Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
                 groups.forEach { (provider, list) ->
                     Text(providerLabel(provider), Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                    list.forEach { model -> Choice(modelOptionLabel(model), model == currentModel) { controller.messages.setModel(agentId!!, model); modelQuery = ""; close() } }
+                    list.forEach { model -> Choice(modelMenuLabel(model, option = true), model == currentModel) { controller.messages.setModel(agentId!!, model); modelQuery = ""; close() } }
                 }
             }
             "thinking" -> { Back(); THINKING_LEVELS.forEach { level -> Choice(thinkingLabel(level), level == selected!!.thinking) { controller.messages.setThinking(agentId!!, level); close() } } }
@@ -310,7 +315,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                         onClick = { confirmNew = true; close() })
                 }
                 if (omp) {
-                    if (selected!!.models.isNotEmpty()) Group(Res.string.model_menu, (currentModel ?: selected.model)?.let(::modelLabel), "model", canControl)
+                    if (selected!!.models.isNotEmpty()) Group(Res.string.model_menu, (currentModel ?: selected.model)?.let { modelMenuLabel(it) }, "model", canControl)
                     Group(Res.string.thinking_menu, selected.thinking?.let { thinkingLabel(it) }, "thinking", canControl)
                     DropdownMenuItem(text = { Text(stringResource(Res.string.shake)) }, enabled = canControl, onClick = { controller.messages.shake(agentId!!); close() })
                     DropdownMenuItem(modifier = Modifier.testTag("aside-menu"), text = { Text(stringResource(Res.string.aside_menu)) }, enabled = canControl, onClick = { controller.asides.open(agentId!!); asideOpen = true; close() })

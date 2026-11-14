@@ -21,10 +21,15 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.add
 import br.com.xlinx.habblaud.data.AttachmentBody
 
-internal fun supportsSessionControl(provider: String?) = provider == "omp" || provider == "zeroclaw"
+internal fun isAgyModel(model: String?) = model != null && model.startsWith("agy/") && model.length > 4
+internal fun crossesTool(provider: String?, model: String) =
+    (provider == "omp" || provider == "antigravity") && isAgyModel(model) != (provider == "antigravity")
+internal fun modelChoice(provider: String?) = provider == "omp" || provider == "antigravity"
+internal fun supportsSessionControl(provider: String?) = modelChoice(provider) || provider == "zeroclaw"
 internal fun messageDelivery(provider: String?, preference: String): String? = when (provider) {
     "omp" -> preference
     "zeroclaw" -> if (preference == "steer") "steer" else "followUp"
+    "antigravity" -> null
     else -> null
 }
 
