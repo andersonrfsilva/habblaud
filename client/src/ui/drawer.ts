@@ -18,6 +18,7 @@ import {
   formatTokens,
   formatUSD,
   filterModelGroups,
+  modelGroups,
   type ModelGroup,
   permissionLabel,
   plural,
@@ -45,7 +46,7 @@ import {
 import { access } from '../net/access';
 import { PermissionCard } from './permission';
 import { canRenameRoom } from './roomrename';
-import { accountChipLabel, accountProvider, CODEX_LIVE_HINT, codexApprovalLabel, crossesTool, modelGroups, PROVIDER_NAME, providerOf, runtimeAllowsModelChoice, runtimeAllowsThinking, switchSuccessor } from './provider';
+import { accountChipLabel, accountProvider, CODEX_LIVE_HINT, codexApprovalLabel, PROVIDER_NAME, providerOf } from './provider';
 import { ptyControllable } from './ptyapi';
 import { favorites, pins, sessionKey } from './favorites';
 import { createFavStar, favoriteSessionOf, updateFavStar } from './favstar';
@@ -203,7 +204,6 @@ class AgentView {
   readonly el: HTMLElement;
   private id = '';
   private last: AgentInfo | null = null;
-  private pendingSwitch: { id: string; cast: string; expiresAt: number } | null = null;
   private history: Activity[] = [];
   private historyReq = 0;
   /** Sobe ao trocar ao vivo ↔ replay ou ao retroceder: a resposta da geração anterior não entra. */
@@ -293,7 +293,6 @@ class AgentView {
   private thinkText = h('span');
   private thinkSel = h('select', { class: 'ui-ctl-select', attrs: { 'aria-label': tr('Raciocínio') } });
   private ctlStatus = h('p', { class: 'ui-msg__status', role: 'status', hidden: true, attrs: { 'aria-live': 'polite' } });
-  private handoffHint = h('p', { class: 'ui-rename__hint', hidden: true, text: tr('A conversa anterior vai anexada à sua próxima mensagem.') });
   private ctlTimer: ReturnType<typeof setTimeout> | null = null;
   private modelOptions = '';
   private modelCurrent = '';
@@ -476,14 +475,7 @@ class AgentView {
         this.rebuildModelOptions();
       }
     });
-    this.modelSel.addEventListener('change', () => {
-      const model = this.modelSel.value;
-      if (crossesTool(this.last?.provider, model) && !confirm(tr('Trocar para {0} muda de ferramenta: a conversa atual fecha e abre outra. A conversa anterior vai anexada à sua próxima mensagem. Continuar?', [this.modelSel.selectedOptions[0]?.textContent ?? model]))) {
-        this.modelSel.value = this.modelCurrent;
-        return;
-      }
-      void this.control({ model });
-    });
+    this.modelSel.addEventListener('change', () => void this.control({ model: this.modelSel.value }));
     this.thinkSel.addEventListener('change', () => void this.control({ thinking: this.thinkSel.value }));
     const statsSec = section(tr('Estatísticas'), this.stats.el, this.ctlStatus);
     this.codexHint = h('p', { class: 'ui-codex-hint', hidden: true }, ...richText(CODEX_LIVE_HINT));
@@ -503,7 +495,6 @@ class AgentView {
       this.shellBox,
       this.shellsSec.el,
       nowSec.el,
-      this.handoffHint,
       this.msgSec.el,
       this.social.el,
       this.tasksSec.el,
@@ -516,21 +507,6 @@ class AgentView {
 
   get agentId(): string {
     return this.id;
-  }
-
-  followSwitch(): void {
-    const pending = this.pendingSwitch;
-    if (!pending) return;
-    const selected = this.ctx.selection();
-    if (Date.now() >= pending.expiresAt || selected?.type !== 'agent' || selected.id !== pending.id) {
-      this.pendingSwitch = null;
-      return;
-    }
-    const successor = switchSuccessor(this.ctx.store.snapshot?.agents ?? [], pending);
-    if (successor) {
-      this.pendingSwitch = null;
-      this.ctx.select({ type: 'agent', id: successor.id });
-    }
   }
 
   open(id: string): void {
@@ -844,14 +820,13 @@ class AgentView {
   private renderControls(a: AgentInfo, editable: boolean): void {
     const st = this.stats;
     st.show('model', true);
-    const thinkingEditable = editable && runtimeAllowsThinking(a.provider);
-    st.show('thinking', thinkingEditable || !!a.thinking);
+    st.show('thinking', editable || !!a.thinking);
     setText(this.modelText, modelOptionLabel(a.model));
     setText(this.thinkText, a.thinking ?? '');
-    setHidden(this.modelText, editable);
-    setHidden(this.modelSel, !editable);
-    setHidden(this.thinkText, thinkingEditable);
-    setHidden(this.thinkSel, !thinkingEditable);
+    for (const [text, sel] of [[this.modelText, this.modelSel], [this.thinkText, this.thinkSel]] as const) {
+      setHidden(text, editable);
+      setHidden(sel, !editable);
+    }
     if (!editable) {
       setHidden(this.modelFilter, true);
       return;
@@ -921,15 +896,10 @@ class AgentView {
   private async control(change: { model?: string; thinking?: string }): Promise<void> {
     const agentId = this.id;
     if (!agentId || (change.model !== undefined && !change.model)) return;
-    const pending = change.model && crossesTool(this.last?.provider, change.model) && this.last?.cast
-      ? { id: agentId, cast: this.last.cast, expiresAt: Date.now() + 90_000 }
-      : null;
-    if (pending) this.pendingSwitch = pending;
     this.sayControl(tr('Enviando…'));
     try {
       const r = await this.ctx.store.controlAgent(agentId, change);
       if ('error' in r) {
-        if (this.pendingSwitch === pending) this.pendingSwitch = null;
         this.resyncControls();
         return this.sayControl(r.error, true);
       }
@@ -938,14 +908,12 @@ class AgentView {
         const m = await this.ctx.store.messageStatus(r.message.id);
         if (!m || m.status === 'delivered') return this.sayControl(tr('Aplicado: o omp mostra a mudança em instantes.'));
         if (m.status === 'failed') {
-          if (this.pendingSwitch === pending) this.pendingSwitch = null;
           this.resyncControls();
           return this.sayControl(m.error ?? tr('o omp não aplicou a troca'), true);
         }
       }
       this.sayControl(tr('O omp ainda não confirmou a troca.'), true);
     } catch {
-      if (this.pendingSwitch === pending) this.pendingSwitch = null;
       this.resyncControls();
       this.sayControl(OFFLINE_ERROR, true);
     }
@@ -966,8 +934,7 @@ class AgentView {
     setText(this.linesMinus, `−${formatInt(s.linesRemoved ?? 0)}`);
     st.set('subs', a.kind === 'main' ? formatInt(s.subagents) : null);
     // omp com a caixa de mensagem pronta: modelo e raciocínio viram seletores (a extensão aplica na sessão viva).
-    const editable = runtimeAllowsModelChoice(provider) && a.kind === 'main' && this.composerKind === 'ready' && !this.ctx.store.mock && !!this.ctx.agent(a.id);
-    setHidden(this.handoffHint, a.handoff !== true);
+    const editable = provider === 'omp' && a.kind === 'main' && this.composerKind === 'ready' && !this.ctx.store.mock && !!this.ctx.agent(a.id);
     this.renderControls(a, editable);
     st.set('branch', a.gitBranch ?? null);
     // Codex: a política de aprovação (quando o servidor a manda) no lugar do modo de permissão do Claude Code. omp: sem
@@ -1248,7 +1215,6 @@ export class Drawer implements UiComponent {
   }
 
   render(): void {
-    this.agentView.followSwitch();
     const sel = this.ctx.selection();
     const mode = sel?.type ?? null;
     if (mode !== this.mode) {

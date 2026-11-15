@@ -1,7 +1,6 @@
 import { copyFileSync, constants, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { nameKey, parseAppearanceParts, parseCharacterName, parseSeed } from '../../shared/appearance';
-import { isAgyModel } from '../../shared/agy-model';
 import type { CastMember } from '../../shared/types';
 import { tr } from '../../shared/i18n';
 import { errMsg, log } from '../log';
@@ -23,7 +22,6 @@ export function parseCastMember(raw: unknown, namedAliases: readonly string[] = 
   if (v.agent !== undefined && (v.kind !== 'main' || typeof v.agent !== 'string' || !/^[a-z][a-z0-9]{1,23}$/.test(v.agent) || !namedAliases.includes(v.agent))) return null;
   if (v.kind !== 'main' && [v.model, v.instructions, v.idleMinutes, v.account, v.last].some((x) => x !== undefined)) return null;
   if (v.agent === undefined && v.model !== undefined && (typeof v.model !== 'string' || v.model.startsWith('-') || !/^[^\s\x00-\x1f\x7f]{1,200}$/.test(v.model))) return null;
-  if (typeof v.model === 'string' && isAgyModel(v.model) && (v.kind !== 'main' || v.agent !== undefined || v.account !== undefined)) return null;
   if (v.agent === undefined && v.instructions !== undefined && (typeof v.instructions !== 'string' || v.instructions.length > 8000)) return null;
   if (v.idleMinutes !== undefined && (typeof v.idleMinutes !== 'number' || !Number.isInteger(v.idleMinutes) || (v.idleMinutes !== 0 && (v.idleMinutes < 5 || v.idleMinutes > 1440)))) return null;
   if (v.account !== undefined && (typeof v.account !== 'string' || !v.account || v.account.length > 200)) return null;

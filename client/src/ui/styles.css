@@ -341,8 +341,7 @@
 
 /* Conta do Codex: chip "vazado" (fundo escuro, borda e letra na cor da conta) com cantos em degrau, como um pixel
    arredondado. Lê-se de longe como "outra ferramenta" sem precisar de logotipo. */
-.ui-acc-chip[data-provider='codex'],
-.ui-acc-chip[data-provider='antigravity'] {
+.ui-acc-chip[data-provider='codex'] {
   --step: 2px;
   border-radius: 0;
   background: #161b26;
@@ -362,8 +361,7 @@
   );
 }
 
-.ui-acc-chip--lg[data-provider='codex'],
-.ui-acc-chip--lg[data-provider='antigravity'] {
+.ui-acc-chip--lg[data-provider='codex'] {
   --step: 3px;
 }
 

@@ -83,13 +83,9 @@ export interface ServerConfig {
   updateCheck: boolean;
   /** Observa as sessões do Codex (sources/codex/); HABBLAUD_CODEX=0 desliga. */
   codex: boolean;
-  antigravity: boolean;
-  antigravityBin: string;
-  antigravitySocket?: string;
-  antigravitySkipPermissions: boolean;
   /** Máximo de personagens do elenco abertos ao mesmo tempo (HABBLAUD_CAST_MAX, 1 a 50); ausente ou inválido = sem limite. */
   castMax?: number;
-  /** Pasta onde o elenco abre conversas novas do omp, Antigravity e ZeroClaw (HABBLAUD_CAST_FOLDER, absoluta); ausente = a pasta pessoal. */
+  /** Pasta onde o elenco abre conversas novas do omp e ZeroClaw (HABBLAUD_CAST_FOLDER, absoluta); ausente = a pasta pessoal. */
   castFolder?: string;
   /** Observa as sessões do omp (sources/omp/); HABBLAUD_OMP=0 desliga. */
   omp: boolean;
@@ -318,10 +314,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash || quotaUrl.includes('#')) throw invalid();
     quota = { url: url.href, tokenFile };
   }
-  const antigravitySocket = env.HABBLAUD_ANTIGRAVITY_SOCKET?.trim() || undefined;
-  if (antigravitySocket && !isAbsolute(antigravitySocket)) {
-    throw new Error(tr('HABBLAUD_ANTIGRAVITY_SOCKET precisa ser um caminho absoluto'));
-  }
   const castFolder = env.HABBLAUD_CAST_FOLDER?.trim() || undefined;
   if (castFolder && !isAbsolute(castFolder)) throw new Error(tr('HABBLAUD_CAST_FOLDER precisa ser um caminho absoluto'));
   return {
@@ -344,10 +336,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     repo: pkg.repo,
     updateCheck: !env.HABBLAUD_UPDATE_CHECK?.trim() || isTruthy(env.HABBLAUD_UPDATE_CHECK),
     codex: !env.HABBLAUD_CODEX?.trim() || isTruthy(env.HABBLAUD_CODEX),
-    antigravity: isTruthy(env.HABBLAUD_ANTIGRAVITY),
-    antigravityBin: env.HABBLAUD_ANTIGRAVITY_BIN?.trim() || 'agy',
-    antigravitySocket,
-    antigravitySkipPermissions: isTruthy(env.HABBLAUD_ANTIGRAVITY_SKIP_PERMISSIONS),
     ...(castMax(env.HABBLAUD_CAST_MAX) ? { castMax: castMax(env.HABBLAUD_CAST_MAX) } : {}),
     ...(castFolder ? { castFolder } : {}),
     omp,

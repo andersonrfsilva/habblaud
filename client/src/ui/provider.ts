@@ -4,52 +4,17 @@
 // Identidade visual do Codex e do omp (sem logotipo de ninguém): o chip da conta fica "vazado" (fundo escuro, borda e
 // letra na cor da conta, cantos em degrau; o do omp tem o canto cortado só em cima, para os dois não se confundirem) e,
 // onde há espaço, um selo de texto ("Codex", "omp") ao lado do nome.
-import type { AccountInfo, AgentInfo, CastMember, OfficeSnapshot, Provider } from '../../../shared/types';
+import type { AccountInfo, OfficeSnapshot, Provider } from '../../../shared/types';
 import { shortcutHint } from './model';
 import { isNeutralBrand, tr, unbrand } from '../../../shared/i18n';
 import type { OmpDeliverAs } from '../../../shared/messages';
-import { AGY_DEFAULT, isAgyModel } from '../../../shared/agy-model';
-import { modelGroups as groupedModels, type ModelGroup } from './format';
-
-export function runtimeAllowsModelChoice(provider: unknown): boolean {
-  return provider === 'omp' || provider === 'antigravity';
-}
-
-export function runtimeAllowsThinking(provider: unknown): boolean {
-  return provider === 'omp';
-}
-
-export function crossesTool(agentProvider: unknown, model: string): boolean {
-  return runtimeAllowsModelChoice(agentProvider) && isAgyModel(model) !== (agentProvider === 'antigravity');
-}
-
-export function switchSuccessor(agents: AgentInfo[], from: { id: string; cast?: string }): AgentInfo | undefined {
-  if (!from.cast) return undefined;
-  return agents.find((agent) => agent.cast === from.cast && agent.id !== from.id && agent.kind === 'main'
-    && agent.status !== 'offline' && agent.status !== 'done');
-}
-
-export function agyGroupLabel(): string { return PROVIDER_NAME.antigravity; }
-
-export function modelGroups(models: readonly string[], keep?: string): ModelGroup[] {
-  return groupedModels(models, keep).map((group) => group.options.some((option) => isAgyModel(option.value))
-    ? { label: agyGroupLabel(), options: group.options.map((option) => option.value === AGY_DEFAULT
-      ? { ...option, label: isNeutralBrand() ? tr('Padrão') : tr('Padrão do Antigravity') } : option) }
-    : group);
-}
-
-export function castBody(body: Omit<CastMember, 'id'>): Omit<CastMember, 'id'> {
-  if (!isAgyModel(body.model)) return body;
-  const { account: _account, agent: _agent, match: _match, ...rest } = body;
-  return { ...rest, kind: 'main' };
-}
 
 export function runtimeAllowsMessages(provider: unknown): boolean {
-  return provider === undefined || provider === 'claude' || provider === 'codex' || provider === 'omp' || provider === 'zeroclaw' || provider === 'antigravity';
+  return provider === undefined || provider === 'claude' || provider === 'codex' || provider === 'omp' || provider === 'zeroclaw';
 }
 
 export function runtimeAllowsControl(provider: unknown): boolean {
-  return provider === 'omp' || provider === 'zeroclaw' || provider === 'antigravity';
+  return provider === 'omp' || provider === 'zeroclaw';
 }
 
 export function runtimeAllowsDeliveryModes(provider: unknown): boolean {
@@ -74,7 +39,6 @@ export interface CastModelCatalog {
   provider: 'omp' | 'zeroclaw';
   models: { alias: string; model: string }[];
   defaultModel: string;
-  agyModels?: string[];
   named?: { alias: string; model: string }[];
 }
 
@@ -89,9 +53,7 @@ export function parseCastModelCatalog(raw: unknown): CastModelCatalog | undefine
     && typeof item.alias === 'string' && /^[a-z][a-z0-9]{1,23}$/.test(item.alias)
     && typeof item.model === 'string' && !!item.model)
     || new Set(named.map((item) => item.alias)).size !== named.length)) return undefined;
-  const agyModels = Array.isArray(value.agyModels) ? value.agyModels.filter((item): item is string => typeof item === 'string' && isAgyModel(item)) : [];
   return { provider: value.provider, models: value.models.map((item) => ({ alias: item.alias, model: item.model })), defaultModel,
-    ...(agyModels.length ? { agyModels } : {}),
     ...(Array.isArray(named) && named.length ? { named: named.map((item) => ({ alias: item.alias, model: item.model })) } : {}) };
 }
 
@@ -108,7 +70,7 @@ export function castDefaultModel(catalog: CastModelCatalog | undefined): string 
 }
 
 /** Nome de cada ferramenta como aparece nos textos ("Agente" nas três, no modo sem marca). */
-export const PROVIDER_NAME: Record<Provider, string> = { claude: unbrand('Claude Code'), codex: unbrand('Codex'), omp: unbrand('omp'), zeroclaw: unbrand('ZeroClaw'), antigravity: unbrand('Antigravity') };
+export const PROVIDER_NAME: Record<Provider, string> = { claude: unbrand('Claude Code'), codex: unbrand('Codex'), omp: unbrand('omp'), zeroclaw: unbrand('ZeroClaw') };
 
 /** Ferramenta de um agente, conta, sessão ou pedido (ausente = Claude Code). */
 export function providerOf(x: { provider?: Provider } | null | undefined): Provider {
@@ -121,14 +83,6 @@ export function isCodex(x: { provider?: Provider } | null | undefined): boolean 
 
 export function isOmp(x: { provider?: Provider } | null | undefined): boolean {
   return x?.provider === 'omp';
-}
-
-export function isAntigravity(x: { provider?: Provider } | null | undefined): boolean {
-  return x?.provider === 'antigravity';
-}
-
-export function looksLikeAntigravityId(id: string): boolean {
-  return /(?:^|[:/\\])\.?antigravity(?:[-_.~]|$)/i.test(id);
 }
 
 /**
@@ -148,7 +102,7 @@ export function looksLikeOmpId(id: string): boolean {
 export function accountProvider(account: Pick<AccountInfo, 'provider'> | undefined, fallbackId = '', hint?: Provider): Provider {
   if (account) return providerOf(account);
   if (hint) return hint;
-  return looksLikeCodexId(fallbackId) ? 'codex' : looksLikeOmpId(fallbackId) ? 'omp' : looksLikeAntigravityId(fallbackId) ? 'antigravity' : 'claude';
+  return looksLikeCodexId(fallbackId) ? 'codex' : looksLikeOmpId(fallbackId) ? 'omp' : 'claude';
 }
 
 /**
@@ -160,10 +114,10 @@ export function fallbackShort(id: string, provider: Provider = accountProvider(u
   const rest = id
     .replace(/^.*:/, '')
     .replace(/~\d+$/, '')
-    .replace(/^\.?(?:claude|codex|omp|antigravity)(?=[-_.]|$)[-_.]?/i, '');
+    .replace(/^\.?(?:claude|codex|omp)(?=[-_.]|$)[-_.]?/i, '');
   const letter = /[\p{L}\p{N}]/u.exec(rest)?.[0];
   if (letter) return letter.toUpperCase();
-  return provider === 'codex' ? 'X' : provider === 'omp' ? 'O' : provider === 'antigravity' ? 'G' : '?';
+  return provider === 'codex' ? 'X' : provider === 'omp' ? 'O' : '?';
 }
 
 /** O selo de texto ao lado do nome da conta ("Codex", "omp"; não repete quando o nome já o diz; nunca no modo sem marca). */

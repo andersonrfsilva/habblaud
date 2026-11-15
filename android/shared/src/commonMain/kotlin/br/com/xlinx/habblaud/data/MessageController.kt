@@ -21,22 +21,15 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.add
 import br.com.xlinx.habblaud.data.AttachmentBody
 
-internal fun isAgyModel(model: String?) = model != null && model.startsWith("agy/") && model.length > 4
-internal fun crossesTool(provider: String?, model: String) =
-    (provider == "omp" || provider == "antigravity") && isAgyModel(model) != (provider == "antigravity")
-internal fun modelChoice(provider: String?) = provider == "omp" || provider == "antigravity"
-internal fun supportsMenuControl(provider: String?, kind: String) =
-    modelChoice(provider) && (provider == "omp" || kind == "model")
-internal fun supportsSessionControl(provider: String?) = modelChoice(provider) || provider == "zeroclaw"
+internal fun supportsSessionControl(provider: String?) = provider == "omp" || provider == "zeroclaw"
 internal fun messageDelivery(provider: String?, preference: String): String? = when (provider) {
     "omp" -> preference
     "zeroclaw" -> if (preference == "steer") "steer" else "followUp"
-    "antigravity" -> null
     else -> null
 }
 
 /** Comando omp pelo menu (shake, modelo, raciocínio): `kind` diz qual, `status` vai de pending a sent/failed/unknown. */
-data class CommandResult(val kind: String, val status: String, val reason: String? = null)
+data class CommandResult(val kind: String, val status: String)
 data class ComposerState(val key: SessionKey? = null, val draft: MessageDraft = MessageDraft(), val operation: MessageOperation? = null, val control: MessageOperation? = null, val controlError: String? = null, val loading: Boolean = false, val sending: Boolean = false, val error: String? = null, val progress: String? = null, val unavailable: Set<String> = emptySet(), val commandResult: CommandResult? = null)
 
 class MessageController(
@@ -319,23 +312,19 @@ class MessageController(
     /** Pedido de controle à sessão omp, acompanhado até ela confirmar ou recusar. Sem retry automático. */
     private fun ompControl(agentId: String, kind: String, fields: kotlinx.serialization.json.JsonObjectBuilder.() -> Unit) {
         val key = state.value.key ?: return
-        if (!supportsMenuControl(key.provider, kind) || !visible || !eligible(key, agentId)) return
+        if (key.provider != "omp" || !visible || !eligible(key, agentId)) return
         mutable.value = state.value.copy(commandResult = CommandResult(kind, "pending"))
         scope.launch {
-            var reason: String? = null
             val result = try {
                 val response = wireJson.parseToJsonElement(request("/api/messages/control", buildJsonObject { put("agentId", agentId); fields(); put("expectedSessionId", key.sessionId) }.toString())).jsonObject
                 // O servidor só enfileira: acompanha o pedido até a sessão confirmar (delivered) ou recusar (failed).
                 val id = requireNotNull(response.string("id"))
                 var status = response.string("status")
-                reason = response.string("error")
                 var tries = 0
                 while (status !in setOf("delivered", "failed") && tries++ < 15 && visible && state.value.key == key) {
                     delay(2000)
                     status = try {
-                        val message = wireJson.parseToJsonElement(request("/api/messages/${id.encodeURLPathPart()}", null)).jsonObject
-                        reason = message.string("error")
-                        message.string("status")
+                        wireJson.parseToJsonElement(request("/api/messages/${id.encodeURLPathPart()}", null)).jsonObject.string("status")
                     } catch (e: ApiException) { if (e.status == 404) "unknown" else throw e }
                     if (status == "unknown") break
                 }
@@ -343,10 +332,9 @@ class MessageController(
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 if (e is ApiException && e.code == "session_changed") changed() else if (e is ApiException && e.status == 401) unauthorized()
-                if (e is ApiException && e.status in 400..499) reason = e.detail
                 if (e is ApiException && e.status in 400..499) "failed" else "unknown"
             }
-            if (state.value.key == key) mutable.value = state.value.copy(commandResult = CommandResult(kind, result, reason.takeIf { result == "failed" }))
+            if (state.value.key == key) mutable.value = state.value.copy(commandResult = CommandResult(kind, result))
         }.also(::trackCommand)
     }
     fun dismissCommandResult() { mutable.value = mutable.value.copy(commandResult = null) }

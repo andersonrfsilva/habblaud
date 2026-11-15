@@ -97,7 +97,7 @@ impl State {
         choices
     }
     pub fn can_resume(&self, selected: &SessionItem) -> bool {
-        crate::rules::composer::can_resume_cast(selected, self.runtime.as_deref(), self.catalog.agy)
+        crate::rules::composer::can_resume_cast(selected, self.runtime.as_deref())
     }
     pub fn can_dismiss(&self, selected: &SessionItem) -> bool {
         selected.agent_id.is_some()
@@ -165,7 +165,9 @@ impl State {
             }
             Err(error) => {
                 if let Error::Api { status, detail, .. } = &error
-                    && (400..=499).contains(status) && *status != 401 {
+                    && (400..=499).contains(status)
+                    && *status != 401
+                {
                     self.result_detail = detail.trim().to_owned();
                 }
                 self.result = match &error {

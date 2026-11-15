@@ -5,7 +5,7 @@
 <h1 align="center">Habblaud</h1>
 
 <p align="center">
-  <b>La oficina virtual de tus agentes Claude Code, Codex, OMP, ZeroClaw y Antigravity.</b><br />
+  <b>La oficina virtual de tus agentes Claude Code, Codex, OMP y ZeroClaw.</b><br />
   Cada proyecto se convierte en una sala, y cada agente, en un personaje en pixel art que muestra en tiempo real lo que está haciendo.
 </p>
 
@@ -26,8 +26,8 @@
 ---
 
 Este es el fork [andersonrfsilva/habblaud](https://github.com/andersonrfsilva/habblaud), derivado de
-[marmottajr/habblaud](https://github.com/marmottajr/habblaud). Añade integraciones OMP, runtimes opcionales
-ZeroClaw y Antigravity y clientes nativos Zaplaud. Guías técnicas, actualmente en portugués:
+[marmottajr/habblaud](https://github.com/marmottajr/habblaud). Añade integraciones OMP, un runtime opcional
+ZeroClaw y clientes nativos Zaplaud. Guías técnicas, actualmente en portugués:
 
 - [Servidor, configuración y contratos de las integraciones](server/README.md).
 - Zaplaud: [Android y iPadOS](README.pt-BR.md#aplicativo-android-zaplaud), [escritorio Rust](zaplaud-rs/README.md)
@@ -1129,9 +1129,8 @@ los pasa al contenedor.
   Del `.claude.json` de cada cuenta Claude Code usa correo, organización y caché de `/usage`; el uso en vivo viene
   del mod o tap. Las integraciones HTTP configuradas leen `HABBLAUD_SUMMARY_TOKEN_FILE` y `HABBLAUD_QUOTA_TOKEN_FILE`.
   La configuración Telegram recibe un token del operador y lo guarda localmente. Consulta la [guía del servidor](server/README.md).
-- **Transferencia de conversaciones:** los resúmenes HTTP envían texto al endpoint configurado. El cambio entre OMP y
-  Antigravity puede adjuntar contexto acumulativo al siguiente mensaje humano, enviado al proveedor del runtime de
-  destino. Los runtimes, incluido el gateway local ZeroClaw, pueden usar proveedores externos; el almacenamiento
+- **Transferencia de conversaciones:** los resúmenes HTTP envían texto al endpoint configurado.
+  Los runtimes, incluido el gateway local ZeroClaw, pueden usar proveedores externos; el almacenamiento
   local y el enmascaramiento de secretos no hacen que la inferencia sea offline ni garantizan anonimización.
 - **Secretos enmascarados:** los tokens y contraseñas con formato conocido (`Bearer`, `-u usuário:senha`, `TOKEN=`,
   claves `sk-…`, `ghp_…`, `AKIA…`, JWTs, contraseñas en URLs) se convierten en `***` antes de llegar al navegador.

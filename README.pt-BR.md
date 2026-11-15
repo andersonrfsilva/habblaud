@@ -5,7 +5,7 @@
 <h1 align="center">Habblaud</h1>
 
 <p align="center">
-  <b>O escritório virtual dos seus agentes Claude Code, Codex, OMP, ZeroClaw e Antigravity.</b><br />
+  <b>O escritório virtual dos seus agentes Claude Code, Codex, OMP e ZeroClaw.</b><br />
   Cada projeto vira uma sala, cada agente vira um personagem em pixel art que mostra, em tempo real, o que está fazendo.
 </p>
 
@@ -26,8 +26,8 @@
 ---
 
 Este é o fork [andersonrfsilva/habblaud](https://github.com/andersonrfsilva/habblaud), derivado de
-[marmottajr/habblaud](https://github.com/marmottajr/habblaud). Ele acrescenta integrações OMP, runtimes opcionais
-ZeroClaw e Antigravity e clientes nativos Zaplaud. Referências do fork:
+[marmottajr/habblaud](https://github.com/marmottajr/habblaud). Ele acrescenta integrações OMP, runtime opcional
+ZeroClaw e clientes nativos Zaplaud. Referências do fork:
 
 - [Servidor, configuração e contratos das integrações](server/README.md).
 - Zaplaud: [Android e iPadOS](#aplicativo-android-zaplaud), [desktop Rust](zaplaud-rs/README.md)
@@ -890,8 +890,8 @@ e espera o próximo pedido, dar uma instrução nova ou corrigir o rumo, sem pro
 Na barra superior, abra **Elenco** para criar, editar ou apagar personagens fixos. Escolha nome, aparência e tipo:
 principal, advisor ou subagente. Para subagentes, informe os tipos observados, como `reviewer` ou `Explore`.
 
-- **Chamar:** **Chamar** abre uma sessão nova na pasta padrão configurada (`HABBLAUD_CAST_FOLDER` para omp,
-  Antigravity e ZeroClaw; sem ela, a pasta pessoal `~`), ou **Continuar** retoma a conversa mais recente do personagem.
+- **Chamar:** **Chamar** abre uma sessão nova na pasta padrão configurada (`HABBLAUD_CAST_FOLDER` para omp e
+  ZeroClaw; sem ela, a pasta pessoal `~`), ou **Continuar** retoma a conversa mais recente do personagem.
   Retomar pelo histórico mantém a pasta da conversa.
 - **Vestir:** no lápis da gaveta de um agente principal, escolha um membro livre ou crie um a partir do agente.
   **Voltar ao sorteio** remove o vínculo da sessão. Se o membro estiver ocupado, a sessão recebe um personagem sorteado.
@@ -899,8 +899,6 @@ principal, advisor ou subagente. Para subagentes, informe os tipos observados, c
   com seus tipos.
 - `HABBLAUD_CAST_MAX` (1 a 50; ausente = sem limite) limita quantos personagens o Habblaud mantém abertos ao mesmo
   tempo. Sessões `hb-*` abertas e chamadas em andamento contam; personagens sendo dispensados não.
-- `HABBLAUD_CAST_FOLDER` (caminho absoluto; ausente = a pasta pessoal) é onde o elenco abre conversas novas do omp,
-  Antigravity e ZeroClaw. Retomar uma conversa continua na pasta dela.
 
 O elenco fica em `~/.habblaud/cast.json`; vínculos de sessão expiram após 60 dias sem uso. Os personagens antigos
 das salas migram automaticamente, com cópia de segurança em `~/.habblaud/names.json.pre-031`. O elenco segue a trava
@@ -1121,10 +1119,6 @@ Tudo funciona sem configurar nada. Se precisar ajustar, use variáveis de ambien
 | `HABBLAUD_CODEX_DIRS` | detecção automática | Pastas do Codex, separadas por vírgula (no lugar de `~/.codex*` e `CODEX_HOME`). |
 | `HABBLAUD_CODEX_BIN` | `codex` do PATH (no Windows, `codex.exe`) | O binário do Codex que entrega as mensagens (`codex queue`), no modo Node ou no `npm run codex:bridge`. |
 | `HABBLAUD_OMP` | ligado | `0` desliga o omp (oh-my-pi) no escritório. |
-| `HABBLAUD_ANTIGRAVITY` | desligado | `1` liga o Antigravity pelo ACP. Apenas uso pessoal; mantenha desligado nos tenants SaaS. |
-| `HABBLAUD_ANTIGRAVITY_BIN` | `agy` no PATH | Binário oficial usado no modo direto; no modo soquete, configure no ambiente do relé do host. |
-| `HABBLAUD_ANTIGRAVITY_SOCKET` | — | Caminho absoluto do soquete Unix do relé; preenchido, substitui o subprocesso direto. |
-| `HABBLAUD_ANTIGRAVITY_SKIP_PERMISSIONS` | desligado | `1` permite comandos sem perguntar. No modo soquete, só o ambiente do relé decide. |
 | `HABBLAUD_OMP_DIRS` | detecção automática | Pastas do omp, separadas por vírgula (no lugar de `PI_CODING_AGENT_DIR` e `~/.omp/agent`). |
 | `HABBLAUD_OMP_USAGE` | ligado (desligado no Docker) | `0` desliga o uso do plano das contas do omp (o Habblaud deixa de rodar `omp usage --json`). |
 | `HABBLAUD_OMP_BIN` | `omp` no PATH, senão `~/.bun/bin/omp` | Executável do omp usado para o uso do plano (caminho ou nome no PATH). |
@@ -1141,59 +1135,6 @@ Tudo funciona sem configurar nada. Se precisar ajustar, use variáveis de ambien
 `HABBLAUD_OMP_DIRS`, `HABBLAUD_USAGE_DIR` e `HABBLAUD_ACCOUNTS` (lidas pelo `docker:up` no host); as demais ficam fixas
 dentro do container. Opções: `npm run docker:up -- --no-build` (sobe sem reconstruir),
 `npm run docker:down` (para) e `npm run docker:logs` (acompanha os logs).
-
-## Antigravity
-
-Integração pessoal, desligada por padrão, pelo ACP do `agy` oficial (medido na versão 1.5.9). Nunca habilite nos
-tenants SaaS. O escritório não lê nem monta credenciais do Antigravity. O login deve ser feito pelo dono no host,
-usando o próprio `agy`.
-
-**Modo direto:** instale o `agy` oficial, faça o login nele e inicie o Habblaud:
-
-```sh
-HABBLAUD_ANTIGRAVITY=1 npm start
-```
-
-Use `HABBLAUD_ANTIGRAVITY_BIN=/caminho/agy` se o binário não estiver no PATH. Uma conexão é aberta sob demanda,
-serve todas as conversas e termina quando a última é dispensada.
-
-**Podman / modo soquete:** no host, rode:
-
-```sh
-npm run antigravity:relay
-```
-
-O soquete padrão é `~/.habblaud/antigravity-acp.sock`, com modo `0600`. Para outro caminho, use
-`npm run antigravity:relay -- --socket /caminho/absoluto/acp.sock`; a pasta precisa pertencer ao usuário e não
-permitir escrita de outros. O dono pode instalar `deploy/podman/habblaud-antigravity.service` como unit de usuário.
-No quadlet `deploy/podman/habblaud.container`, descomente as duas variáveis de Antigravity e aplique a alteração
-na instalação. O volume de estado existente leva o soquete ao contêiner; não monte o login nem o binário.
-
-Na página, abra **Novo agente**, escolha **Antigravity**, a pasta e o pedido opcional. A conversa aceita mensagens
-enfileiradas, aprovar/negar ferramentas, STOP, conversa nova, Dispensar e leitura do terminal. Os controles continuam
-sujeitos às permissões locais/remotas do escritório. Não inclui histórico na interface, anexos arbitrários,
-steer, conversa paralela ou integração própria no Zaplaud.
-A API do elenco aceita modelos `agy/…` (inclusive `agy/default`) junto do omp ou ZeroClaw; as instruções do personagem aguardam a primeira mensagem humana.
-Para usar, escolha um modelo `agy/…`: no personagem (**Elenco → Editar**) ou na gaveta de um agente aberto.
-Pelo acesso remoto, isso funciona com `terminal` e `messages` em `HABBLAUD_REMOTE_ALLOW`.
-Num agente principal aberto pelo elenco e parado, escolher um modelo `agy/…` passa do omp para o Antigravity;
-escolher um modelo do omp faz o caminho inverso. O servidor fecha a sessão antiga e abre conversa nova na mesma
-pasta, sem mudar o modelo salvo do personagem nem enviar pedido. Dentro do Antigravity, outro modelo `agy/…`
-mantém a conversa (`agy/default` não restaura o padrão numa sessão aberta).
-
-A conversa anterior vai anexada uma vez à próxima mensagem da pessoa e é cumulativa entre trocas.
-O arquivo de contexto leva a conversa de uma ferramenta para o provedor da outra (do omp para o Google, ou do
-`agy` para o provedor do modelo do omp). Não leva raciocínio nem eventos de sistema, corta saídas de ferramentas
-e conserva até 150 mil caracteres. Os arquivos vencem depois de 7 dias e são limpos ao iniciar o servidor.
-Conversa nova pedida pela pessoa esquece contexto já entregue; pendências sobrevivem a reinícios e falhas de entrega.
-
-O Habblaud abre o `agy` oficial pelo protocolo ACP e não usa o login dele por conta própria. Os Termos do
-Antigravity proíbem acessar o serviço com software de terceiros; se um cliente ACP próprio está dentro ou fora
-dessa regra é interpretação, e o risco de bloqueio da conta é de quem usa. `HABBLAUD_ANTIGRAVITY_SKIP_PERMISSIONS=1`
-faz o `agy` rodar comandos e editar arquivos sem perguntar: use só em pasta ou máquina descartável.
-
-No modo direto, a flag de permissões pertence ao ambiente do Habblaud. No modo soquete, pertence exclusivamente
-ao ambiente do relé do host; configurá-la apenas no contêiner não a liga.
 
 ## Habblaud World
 
@@ -1436,8 +1377,7 @@ das contas (letra, e-mail, organização) são lidos no host pelo `docker:up` e 
   Do `.claude.json` de cada conta Claude Code, aproveita e-mail, organização e cache do `/usage`; o uso ao vivo vem
   do mod ou tap. As integrações HTTP configuradas leem `HABBLAUD_SUMMARY_TOKEN_FILE` e `HABBLAUD_QUOTA_TOKEN_FILE`.
   A configuração Telegram recebe um token fornecido pelo operador e o grava localmente. Veja o [guia do servidor](server/README.md).
-- **Transferência de conversas:** resumos HTTP enviam texto ao endpoint configurado. A troca entre OMP e
-  Antigravity pode anexar contexto cumulativo à próxima mensagem humana, entregue ao provedor do runtime de destino.
+- **Transferência de conversas:** resumos HTTP enviam texto ao endpoint configurado.
   Os runtimes, inclusive o gateway local ZeroClaw, podem usar provedores externos de modelos; armazenamento local
   e mascaramento de segredos não tornam a inferência offline nem garantem anonimização.
 - **Segredos mascarados:** tokens e senhas com formato conhecido (`Bearer`, `-u usuário:senha`, `TOKEN=`, chaves

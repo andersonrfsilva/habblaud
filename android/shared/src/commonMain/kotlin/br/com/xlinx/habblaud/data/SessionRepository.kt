@@ -6,9 +6,9 @@ import kotlinx.serialization.json.longOrNull
 
 /** Personagem dono de uma sessão omp encerrada: o único membro do elenco cujo `last` aponta para ela. */
 internal fun castOwner(cast: List<JsonObject>, key: SessionKey): JsonObject? = cast.filter { member ->
-    (key.provider == "omp" || key.provider == "zeroclaw" || key.provider == "antigravity") &&
+    (key.provider == "omp" || key.provider == "zeroclaw") &&
         (member.string("provider") == null || member.string("provider") == key.provider) &&
-        (key.provider == "antigravity" || member.string("account") == null || member.string("account") == key.account) &&
+        (member.string("account") == null || member.string("account") == key.account) &&
         (member["last"] as? JsonObject)?.values?.any { value -> value.toString().trim('"') == key.sessionId } == true
 }.singleOrNull()
 
@@ -83,13 +83,10 @@ class SessionRepository(private val api: HabblaudApi) {
         }
     }
 
-    private fun item(o: JsonObject, project: String?): SessionItem? = parseSessionItem(o, project, api.origin, serverTime)
-}
-
-internal fun parseSessionItem(o: JsonObject, project: String?, origin: String, serverTime: Long): SessionItem? {
+    private fun item(o: JsonObject, project: String?): SessionItem? {
         val account = o.string("account") ?: return null
         val id = o.string("sessionId") ?: return null
-        val key = SessionKey(origin, o.string("provider") ?: "claude", account, id)
+        val key = SessionKey(api.origin, o.string("provider") ?: "claude", account, id)
         val agent = o.string("id") ?: o.string("agentId")
         val activity = (o["activity"] as? JsonObject)?.let { it.string("summary") ?: it.string("text") ?: it.string("description") }
         val permission = o["permission"] as? JsonObject
@@ -100,10 +97,10 @@ internal fun parseSessionItem(o: JsonObject, project: String?, origin: String, s
             models = (o["models"] as? kotlinx.serialization.json.JsonArray)?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { p -> p.isString }?.content }.orEmpty(),
             replies = (o["replies"] as? kotlinx.serialization.json.JsonArray)?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.longOrNull }.orEmpty(),
             roomId = o.string("roomId"),
-            handoff = o.flag("handoff"),
             statusSince = o.string("statusSince")?.toLongOrNull()?.takeIf { it > 0 }?.let { localTime(it, serverTime) })
     }
 
+}
 
 /**
  * Horário do servidor no relógio do celular, para o cronômetro da linha de estado. A diferença (atraso da rede incluso)

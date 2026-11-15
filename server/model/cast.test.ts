@@ -139,13 +139,3 @@ describe('CastStore', () => {
     expect(store.binding('s4000')).toBe('ana');
   });
 });
-
-it('accepts agy models only for main characters without a fixed agent or account', () => {
-  for (const model of ['agy/x', 'agy/default']) {
-    expect(parseCastMember({ ...ana, model })).toMatchObject({ model });
-    for (const fields of [{ kind: 'advisor' }, { kind: 'sub' }, { agent: 'helper' }, { account: 'omp' }]) {
-      expect(parseCastMember({ ...ana, model, ...fields }, ['helper'])).toBeNull();
-    }
-  }
-  expect(parseCastMember({ ...ana, model: 'google-antigravity/x', account: 'omp' })).toMatchObject({ model: 'google-antigravity/x', account: 'omp' });
-});

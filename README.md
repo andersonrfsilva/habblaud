@@ -5,7 +5,7 @@
 <h1 align="center">Habblaud</h1>
 
 <p align="center">
-  <b>The virtual office for your Claude Code, Codex, OMP, ZeroClaw and Antigravity agents.</b><br />
+  <b>The virtual office for your Claude Code, Codex, OMP and ZeroClaw agents.</b><br />
   Each project becomes a room, and each agent becomes a pixel-art character that shows, in real time, what it's doing.
 </p>
 
@@ -26,8 +26,8 @@
 ---
 
 This is the [andersonrfsilva/habblaud](https://github.com/andersonrfsilva/habblaud) fork of
-[marmottajr/habblaud](https://github.com/marmottajr/habblaud). It adds OMP integrations, optional ZeroClaw and
-Antigravity runtimes, and native Zaplaud clients. Technical guides, currently in Portuguese:
+[marmottajr/habblaud](https://github.com/marmottajr/habblaud). It adds OMP integrations, an optional ZeroClaw
+runtime, and native Zaplaud clients. Technical guides, currently in Portuguese:
 
 - [Server, configuration and integration contracts](server/README.md).
 - Zaplaud: [Android and iPadOS](README.pt-BR.md#aplicativo-android-zaplaud), [Rust desktop](zaplaud-rs/README.md)
@@ -639,16 +639,14 @@ and waits for the next request, give a new instruction or correct its course, wi
 Open **Cast** on the top bar to create, edit or delete fixed characters. Choose a name, appearance and kind:
 main, advisor or subagent. For subagents, enter observed types such as `reviewer` or `Explore`.
 
-- **Calling:** **Call** opens a new session in the configured default folder (`HABBLAUD_CAST_FOLDER` for omp,
-  Antigravity and ZeroClaw; otherwise the home folder `~`), or **Continue** resumes the character's most recent conversation.
+- **Calling:** **Call** opens a new session in the configured default folder (`HABBLAUD_CAST_FOLDER` for omp and
+  ZeroClaw; otherwise the home folder `~`), or **Continue** resumes the character's most recent conversation.
   Resuming from history keeps that conversation's folder.
 - **Dress:** use the pencil in a main agent's details to select a free member or create one from the agent.
   **Back to random** removes the session binding. If the member is busy, the session gets a random character.
 - In omp, `HABBLAUD_CAST=<id>` requests a member for the session. Advisors and subagents use matching members.
 - `HABBLAUD_CAST_MAX` (1 to 50; unset means no limit) caps how many characters Habblaud keeps open at once. Open
   `hb-*` sessions and pending starts count; characters being dismissed do not.
-- `HABBLAUD_CAST_FOLDER` (absolute path; unset means the home folder) is where the cast opens new omp,
-  Antigravity and ZeroClaw conversations. Resuming a conversation stays in its own folder.
 
 The cast is stored in `~/.habblaud/cast.json`; session bindings expire after 60 days without use. Old room characters
 migrate automatically, with a backup at `~/.habblaud/names.json.pre-031`. The cast uses the terminal safeguard:
@@ -868,10 +866,6 @@ Everything works without configuring anything. If you need to adjust something, 
 | `HABBLAUD_CODEX_DIRS` | automatic detection | Codex folders, comma-separated (instead of `~/.codex*` and `CODEX_HOME`). |
 | `HABBLAUD_CODEX_BIN` | `codex` from PATH (on Windows, `codex.exe`) | The Codex binary that delivers the messages (`codex queue`), in Node mode or in `npm run codex:bridge`. |
 | `HABBLAUD_OMP` | on | `0` turns off omp (oh-my-pi) in the office. |
-| `HABBLAUD_ANTIGRAVITY` | off | `1` enables Antigravity over ACP. Personal use only; keep disabled in SaaS tenants. |
-| `HABBLAUD_ANTIGRAVITY_BIN` | `agy` from PATH | Official binary used directly; in socket mode, configure it in the host relay environment. |
-| `HABBLAUD_ANTIGRAVITY_SOCKET` | — | Absolute Unix socket path; when set, replaces the direct subprocess with the host relay. |
-| `HABBLAUD_ANTIGRAVITY_SKIP_PERMISSIONS` | off | `1` allows commands without asking. In socket mode, only the relay environment controls this. |
 | `HABBLAUD_OMP_DIRS` | automatic detection | omp folders, comma-separated (in place of `PI_CODING_AGENT_DIR` and `~/.omp/agent`). |
 | `HABBLAUD_OMP_USAGE` | on (off in Docker) | `0` turns off the plan usage of omp accounts (Habblaud stops running `omp usage --json`). |
 | `HABBLAUD_OMP_BIN` | `omp` from PATH, otherwise `~/.bun/bin/omp` | The omp executable used for plan usage (a path or a name on the PATH). |
@@ -887,57 +881,6 @@ Everything works without configuring anything. If you need to adjust something, 
 `HABBLAUD_REMOTE_*` apply (in `.env` or in the environment), as do `HABBLAUD_CLAUDE_DIRS`, `HABBLAUD_CODEX_DIRS`, `HABBLAUD_OMP_DIRS`, `HABBLAUD_USAGE_DIR` and
 `HABBLAUD_ACCOUNTS` (read by `docker:up` on the host); the rest are fixed inside the container. Options: `npm run docker:up -- --no-build` (starts without rebuilding),
 `npm run docker:down` (stops) and `npm run docker:logs` (follows the logs).
-
-## Antigravity
-
-Personal, opt-in integration through the official `agy` ACP protocol, measured on version 1.5.9. Never enable it
-in SaaS tenants. Habblaud does not read or mount Antigravity credentials. Sign in with the official `agy` on the host.
-
-**Direct mode:** install the official `agy`, sign in, then start Habblaud:
-
-```sh
-HABBLAUD_ANTIGRAVITY=1 npm start
-```
-
-Set `HABBLAUD_ANTIGRAVITY_BIN=/path/to/agy` when the binary is not on PATH. One lazy connection serves all
-conversations and closes when the last session is dismissed.
-
-**Podman / socket mode:** run this on the host:
-
-```sh
-npm run antigravity:relay
-```
-
-The default socket is `~/.habblaud/antigravity-acp.sock`, mode `0600`. Override it with
-`npm run antigravity:relay -- --socket /absolute/path/acp.sock`. Its directory must belong to the user and must not
-be writable by others. The owner can install `deploy/podman/habblaud-antigravity.service` as a user unit.
-Uncomment the two Antigravity environment settings in `deploy/podman/habblaud.container` and apply the updated
-configuration to the installation. The existing state volume carries the socket; do not mount the login or binary.
-
-Open **New agent**, select **Antigravity**, choose a folder and optionally enter a prompt. Supported: queued messages,
-human tool approvals, STOP, new conversation, Dismiss and terminal reading. Local/remote office access rules still
-apply. Not included: history UI, arbitrary attachments, steer, parallel conversations, or dedicated Zaplaud integration.
-The server cast API accepts `agy/…` models (including `agy/default`) alongside omp or ZeroClaw; character instructions wait for the first human message.
-To use it, choose an `agy/…` model in a character (**Cast → Edit**) or in an open agent's drawer.
-Remote access supports this with both `terminal` and `messages` in `HABBLAUD_REMOTE_ALLOW`.
-For an idle main agent opened through the cast, selecting an `agy/…` model switches from omp to Antigravity;
-selecting an omp model switches back. The server closes the old session and opens a new conversation in the same
-folder without changing the character's saved model or sending a prompt. Within Antigravity, another `agy/…`
-model keeps the current conversation (`agy/default` cannot reset an open session).
-
-The previous conversation is attached to the person's next message, once, and remains cumulative across switches.
-The context file sends the conversation from one tool to the other tool's provider (from omp to Google, or from
-`agy` to the omp model's provider). It excludes reasoning and system events, clips tool output, and keeps at most
-150,000 characters. Files expire after seven days and are cleaned on server startup. A person-requested new
-conversation forgets already delivered context; pending context survives restarts and failed delivery.
-
-Habblaud opens the official `agy` through ACP and does not use its login independently. Antigravity's Terms prohibit
-accessing the service with third-party software; whether a custom ACP client falls within that rule is a matter of
-interpretation, and users bear the risk of their account being blocked. `HABBLAUD_ANTIGRAVITY_SKIP_PERMISSIONS=1`
-makes `agy` run commands and edit files without asking: use it only in a disposable folder or machine.
-
-In direct mode, the permissions flag belongs to Habblaud's environment. In socket mode, it belongs exclusively to
-the host relay environment; setting it only in the container does not enable it.
 
 ## Habblaud World
 
@@ -1182,9 +1125,8 @@ metadata (letter, email, organization) is read on the host by `docker:up` and pa
   account's `.claude.json`, it uses email, organization and the `/usage` cache; live usage comes from the mod or tap.
   Configured HTTP integrations do read `HABBLAUD_SUMMARY_TOKEN_FILE` and `HABBLAUD_QUOTA_TOKEN_FILE`.
   Telegram setup accepts a token supplied by the operator and stores it locally. See [the server guide](server/README.md).
-- **Conversation transfers:** HTTP summaries send text to the configured endpoint. Switching between OMP and
-  Antigravity can attach cumulative conversation context to the next human message, delivered to the destination
-  runtime's provider. Agent runtimes, including the local ZeroClaw gateway, may use external model providers;
+- **Conversation transfers:** HTTP summaries send text to the configured endpoint.
+  Agent runtimes, including the local ZeroClaw gateway, may use external model providers;
   local storage and secret masking do not make inference offline or guarantee anonymization.
 - **Masked secrets:** tokens and passwords in known formats (`Bearer`, `-u usuário:senha`, `TOKEN=`, `sk-…`,
   `ghp_…`, `AKIA…` keys, JWTs, passwords in URLs) become `***` before they reach the browser.

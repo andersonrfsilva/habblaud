@@ -59,7 +59,7 @@ const FEED_LIMIT = 200;
 export interface OfficeDeps {
   names: NameStore;
   cast?: CastStore;
-  castLauncher?: () => { state(id: string): 'calling' | 'dismissing' | undefined; isOpened(id: string): boolean; available(): boolean; handoffPending?(cast: string): boolean; rememberOmpModels?(list: string[]): void; otherModels?(provider: AgentInfo['provider']): string[] | undefined } | undefined;
+  castLauncher?: () => { state(id: string): 'calling' | 'dismissing' | undefined; isOpened(id: string): boolean; available(): boolean } | undefined;
   /** Nome escolhido pelo usuário para a sala da pasta (model/room-aliases.ts), se houver. */
   roomAlias?: (path: string) => string | undefined;
   version: string;
@@ -341,8 +341,8 @@ export class Office {
       // Sessão que voltou durante o período de graça.
       delete existing.removeAt;
       if (p.cast && p.cast !== this.cast.binding(p.sessionId)) {
-        keepNewCast(existing.info, p.cast);
         this.applyCast(existing.info, this.castFor({ id: p.id, session: p.sessionId, explicit: p.cast }));
+        keepNewCast(existing.info, p.cast);
         this.castFallbackNotice(existing.info, p.cast);
         this.markDirty();
       }
@@ -352,7 +352,7 @@ export class Office {
     const roomId = normalizeCwd(p.cwd);
     this.ensureRoom(roomId, now);
     const chosen = this.castFor({ id: p.id, session: p.sessionId, explicit: p.cast });
-    const person = chosen ?? this.mainName(p.sessionId, p.cast, this.takenNames(undefined, p.sessionId));
+    const person = chosen ?? this.deps.names.assign(p.sessionId, this.takenNames(undefined, p.sessionId));
     const info: AgentInfo = {
       id: p.id,
       kind: 'main',
@@ -394,7 +394,6 @@ export class Office {
     const info = rec.info;
     const bound = this.cast.binding(info.sessionId);
     if (bound) this.cast.bind(sessionId, bound);
-    if (info.cast?.startsWith(NEW_CAST_PREFIX)) this.deps.names.remember(info.cast, { name: info.name, look: info.look });
     if (!info.cast) this.deps.names.remember(sessionId, { name: info.name, look: info.look });
     info.sessionId = sessionId;
     this.applyCast(info, this.castFor({ id, session: sessionId }));
@@ -887,18 +886,8 @@ export class Office {
     this.notice('character', info.id, 'info', text, info.roomId);
   }
 
-  private mainName(sessionId: string, cast: string | undefined, used: ReadonlySet<string>) {
-    if (!cast?.startsWith(NEW_CAST_PREFIX)) return this.deps.names.assign(sessionId, used);
-    const stored = this.deps.names.get(cast) ?? this.deps.names.get(sessionId);
-    if (stored) {
-      this.deps.names.remember(cast, stored);
-      return stored;
-    }
-    return this.deps.names.assign(cast, used);
-  }
-
   private applyCast(info: AgentInfo, member?: CastMember): void {
-    const person = member ?? (info.kind === 'main' ? this.mainName(info.sessionId, info.cast, this.takenNames(info.id)) : this.deps.names.assign(info.id, this.takenNames(info.id)));
+    const person = member ?? this.deps.names.assign(info.kind === 'main' ? info.sessionId : info.id, this.takenNames(info.id));
     info.name = person.name;
     info.look = person.look;
     info.seed = member?.seed ?? hash32(info.id);
@@ -1054,14 +1043,7 @@ export class Office {
     const perms = this.deps.permissions?.();
     const real = [...this.agents.values()].map((r) => applyPermission(cloneAgent(r.info), perms?.get(r.info.id)));
     const launcher = this.deps.castLauncher?.();
-    for (const a of real) if (a.provider === 'omp' && a.models) launcher?.rememberOmpModels?.(a.models);
-    for (const a of real) if (a.kind === 'main' && a.cast && launcher?.isOpened(a.cast)) {
-      a.castOpened = true;
-      if (launcher.handoffPending?.(a.cast)) a.handoff = true;
-      const other = launcher.otherModels?.(a.provider);
-      if (other) a.models = [...new Set([...(a.models ?? []), ...other])];
-    }
-    for (const a of real) if (a.kind === 'main' && a.provider === 'antigravity' && !a.cast && a.status !== 'offline' && a.status !== 'done') a.castOpened = true;
+    for (const a of real) if (a.kind === 'main' && a.cast && launcher?.isOpened(a.cast)) a.castOpened = true;
     const occupied = new Set(real.filter((a) => a.status !== 'offline' && a.status !== 'done').map((a) => a.cast));
     const reserve = this.cast.list().filter((m) => m.kind === 'main' && !occupied.has(m.id)).map((m) => ({
       cast: m.id, name: m.name, look: m.look, seed: m.seed, ...(m.parts ? { parts: m.parts } : {}), state: launcher?.state(m.id) ?? 'idle' as const,

@@ -10,42 +10,17 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Removido
+
+- A integração com o Antigravity CLI foi removida e não é mais suportada.
+
 ### Adicionado
 
+- **Pasta padrão do elenco.** `HABBLAUD_CAST_FOLDER` define onde abrem as conversas novas do omp e ZeroClaw
+  (personagens e "Novo"); sem ela, continuam na pasta pessoal. Retomar segue na pasta da conversa.
 - **Entrada do fork nos quatro READMEs.** Identifica `andersonrfsilva/habblaud`, preserva os créditos do projeto
   original e aponta para os guias do servidor, clientes Zaplaud e planos da revisão documental. Clone e migração
   de `origin` usam o fork; os avisos de privacidade distinguem execução local de envio de conversas e uso de tokens.
-- **Pasta padrão do elenco.** `HABBLAUD_CAST_FOLDER` define onde abrem as conversas novas do omp, Antigravity e ZeroClaw
-  (personagens e "Novo"); sem ela, continuam na pasta pessoal. Retomar segue na pasta da conversa.
-- **Antigravity na página.** Modelos `agy/…` aparecem no editor de personagem e na gaveta do agente.
-  Trocar de ferramenta pede confirmação; o contexto pendente aparece acima da caixa de mensagem.
-  O cartão de uso explica que o Antigravity não informa cota e não mostra o botão "Como ativar".
-- **Trocar de modelo troca de ferramenta (servidor).** Num agente principal aberto pelo elenco e parado, escolher
-  `agy/…` passa do omp para o Antigravity; escolher um modelo do omp faz o caminho inverso, na mesma pasta,
-  sem alterar o modelo salvo do personagem. A conversa anterior vai anexada à próxima mensagem da pessoa:
-  a troca nunca envia um turno sozinha. Dentro do Antigravity, outro modelo `agy/…` mantém a conversa aberta.
-  O contexto é cumulativo, sem raciocínio nem eventos de sistema; saídas de ferramentas são cortadas e o arquivo
-  fica limitado a 150 mil caracteres. Os arquivos são apagados depois de 7 dias na limpeza de inicialização.
-  O arquivo de contexto leva a conversa de uma ferramenta para o provedor da outra (do omp para o Google, ou do
-  `agy` para o provedor do modelo do omp). Conversa nova pedida pela pessoa esquece contexto já entregue.
-- **Elenco com Antigravity (servidor).** Modelos `agy/…` no personagem ou na chamada de "Novo" abrem pelo ACP,
-  junto dos personagens do omp ou ZeroClaw, com limite compartilhado e dispensa por ociosidade.
-  `agy/default` usa o padrão do CLI; o catálogo é aprendido após a primeira sessão.
-  As instruções seguem apenas com a primeira mensagem humana, nunca iniciam um turno sozinhas.
-  Retomar identifica o runtime pelo espelho da conversa e reaplica o modelo do Antigravity.
-  `google-antigravity/…` continua sendo do omp: não é convertido nem tratado como `agy/…`.
-- **Zaplaud Android/iOS (Kotlin):** escolher um modelo `agy/…` pede confirmação antes de trocar o personagem do
-  omp para o Antigravity, ou de voltar ao omp. O cliente mostra o contexto pendente e o motivo de recusas,
-  permite STOP e conversa nova no Antigravity e retoma suas conversas encerradas quando a ferramenta está disponível.
-  Depende do contrato HTTP dos planos 079/083. Android compilado e verificado no host; iOS não compilado (exige Mac).
-  Não houve teste em aparelho nem emulador; a validação é manual, do dono. Paridade Rust pendente no plano 082.
-- **Antigravity pelo escritório.** Em **Novo agente → Antigravity**, abra uma conversa com terminal, mensagens,
-  aprovar/negar ferramentas, STOP, conversa nova e Dispensar. Desligado por padrão: ligue com
-  `HABBLAUD_ANTIGRAVITY=1`. No Podman, rode o relé do host com `npm run antigravity:relay` e configure
-  `HABBLAUD_ANTIGRAVITY_SOCKET`. Protocolo medido no `agy` 1.5.9. Não inclui histórico na interface, anexos
-  arbitrários, mensagem no meio do turno nem controles próprios nos clientes Zaplaud. Cada mensagem aguarda
-  o fim do turno; nenhuma permissão é concedida sem decisão humana, salvo a flag explícita do dono.
-  Abrir agentes e trocar conversas ao mesmo tempo preserva a identidade de cada agente, mesmo com respostas fora de ordem.
 - **Sessões:** fixar e favoritar são ações independentes no Habblaud web e no Zaplaud Android/iOS e desktop Rust.
   Sessões fixadas aparecem primeiro sem ignorar os filtros; favoritas ficam acessíveis pela seção do Histórico
   no web e pelo filtro Favoritas nos clientes nativos. As marcações persistem localmente, por identidade completa
@@ -179,15 +154,6 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
-- **Troca de ferramenta:** o contato "Novo" mantém o mesmo id ao trocar entre omp e Antigravity, inclusive o contexto pendente.
-- **Nome do contato:** "Novo" mantém nome e visual ao trocar de ferramenta ou pedir conversa nova; nomes já salvos são preservados.
-- **Conversa Antigravity:** uma sessão recém-aberta mostra a conversa vazia, sem erro de conversa indisponível.
-- **Permissões Antigravity:** ler arquivo mostra qual arquivo será lido; ferramentas desconhecidas mostram a descrição e os argumentos, com segredos mascarados.
-- **Fala da pessoa:** o histórico Antigravity mostra apenas o texto digitado, sem instruções do personagem, avisos de contexto ou mensagens vazias do anexo.
-- **Contexto Antigravity:** a pasta dos arquivos de contexto é declarada na sessão para evitar um pedido extra de permissão de leitura, sem aprovar ferramentas automaticamente.
-- **Página:** ao confirmar uma troca entre omp e Antigravity, a conversa acompanha automaticamente o mesmo contato
-  quando ele reabre, inclusive os agentes chamados como "Novo". O acompanhamento dura até 90 segundos e é cancelado
-  se o pedido falhar ou se a pessoa escolher outra conversa.
 - **Elenco:** agente chamado como "Novo" (nome e visual sorteados) não perde mais o botão Dispensar ao trocar de
   pasta ou de sessão. O servidor apagava o id `novo-…` nessas trocas, e sem ele a sessão deixava de contar como
   aberta pelo Habblaud.

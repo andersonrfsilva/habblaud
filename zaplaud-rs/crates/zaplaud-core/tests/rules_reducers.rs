@@ -375,7 +375,6 @@ fn kotlin_background_post_and_commands_cancel_without_replay() {
         token,
         id: Some("command".into()),
         status: Some("queued".into()),
-        error: None,
         failure: None,
     });
     assert_eq!(
@@ -401,7 +400,6 @@ fn kotlin_background_post_and_commands_cancel_without_replay() {
             token,
             id: None,
             status: Some("delivered".into()),
-            error: None,
             failure: None
         })
         .is_empty()
@@ -1307,7 +1305,6 @@ fn cast_resume_free_owner_and_identity_boundaries() {
         &HashSet::from(["ocupado".into()]),
         &HashMap::new(),
         Some("omp"),
-        false,
     );
     assert!(available.resume);
     assert_eq!(
@@ -1330,7 +1327,6 @@ fn cast_resume_free_owner_and_identity_boundaries() {
         &HashSet::new(),
         &HashMap::from([("dono".into(), "waiting".into())]),
         Some("omp"),
-        false,
     );
     assert!(available.active_job && available.dismiss);
     assert!(!available.resume);
@@ -1346,7 +1342,6 @@ fn cast_resume_free_owner_and_identity_boundaries() {
                 &HashSet::new(),
                 &HashMap::new(),
                 Some("omp"),
-                false,
             )
             .resume
         );
@@ -1357,8 +1352,7 @@ fn cast_resume_free_owner_and_identity_boundaries() {
             &[],
             &HashSet::new(),
             &HashMap::new(),
-            Some("omp"),
-            false,
+            Some("omp")
         )
         .resume
     );
@@ -1390,7 +1384,6 @@ fn command_poll_limit_and_unauthorized_are_not_retry_posts() {
             token,
             id: Some("c".into()),
             status: Some("queued".into()),
-            error: None,
             failure: None,
         });
         assert_eq!(

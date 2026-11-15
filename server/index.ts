@@ -5,7 +5,6 @@
 //   npm start      -> node dist/server/index.js (serve dist/client)
 import http from 'node:http';
 import { join } from 'node:path';
-import { mkdirSync } from 'node:fs';
 import { codexDirsRefused, isDefaultDir } from './accounts/detect';
 import { AccountsService } from './accounts/service';
 import { QuotaCollector } from './accounts/quota';
@@ -24,7 +23,6 @@ import { errMsg, log } from './log';
 import { NameStore } from './model/names';
 import { CastStore } from './model/cast';
 import { CastLauncher } from './cast/launcher';
-import { HandoffStore } from './cast/handoff';
 import { ZeroClawCast } from './cast/zeroclaw';
 import { NamedAgentSettings } from './cast/named';
 import { Office } from './model/office';
@@ -56,13 +54,6 @@ import { ZeroClawConnector } from './sources/zeroclaw/connector';
 import { ZeroClawMirror } from './sources/zeroclaw/mirror';
 import { ZeroClawSource } from './sources/zeroclaw/source';
 import { ZeroClawHistory } from './sources/zeroclaw/history';
-import { AntigravityClient } from './antigravity/acp';
-import { AntigravityPermissions } from './antigravity/permissions';
-import { AntigravityDelivery } from './messages/antigravity';
-import { AntigravitySource } from './sources/antigravity/source';
-import { AntigravityMirror } from './sources/antigravity/mirror';
-import { AntigravityCatalog } from './sources/antigravity/catalog';
-import { AntigravityCast } from './cast/antigravity';
 import { ompBinFrom } from './sources/omp/bin';
 import { Summarizer } from './summaries/summarizer';
 import { createBuildReader, readBuildInfo } from './build';
@@ -169,9 +160,6 @@ const office = new Office({
   world: () => world?.meta() ?? { enabled: false, configured: false, state: 'off' },
   ompRoomByProject: config.ompDirs.length ? () => ompSettings.roomByProject : undefined,
 });
-const antigravityCatalog = config.antigravity ? new AntigravityCatalog(config.dataDir) : undefined;
-const handoff = new HandoffStore({ dir: join(config.dataDir, 'handoff') });
-handoff.sweep();
 const castLauncher: CastLauncher | undefined = config.terminal ? new CastLauncher({
   dataDir: config.dataDir,
   member: (id) => cast.get(id),
@@ -182,16 +170,6 @@ const castLauncher: CastLauncher | undefined = config.terminal ? new CastLaunche
   },
   changed: () => office.markDirty(),
   idle: (agent) => office.castIdle(agent),
-  handoff,
-  transcriptPathOf: id => late.agents?.transcriptPathOf(id),
-  terminalParser: id => late.agents!.parserFor(id),
-  cwdOf: agent => office.roomPath(agent.roomId),
-  switched: (agent, from, to, pending) => office.addActivity(agent.id, {
-    id: `${agent.id}:handoff:${Date.now()}`, at: Date.now(), kind: 'communicate', icon: '↔',
-    text: pending
-      ? tr('Ferramenta trocada: {0} → {1}. A conversa anterior vai anexada à sua próxima mensagem.', [from, to])
-      : tr('Ferramenta trocada: {0} → {1}. Conversa nova.', [from, to]),
-  }, false),
   zeroclaw: config.zeroclawCatalog ? new ZeroClawCast({
     catalog: config.zeroclawCatalog,
     home: config.castFolder ?? config.home,
@@ -201,10 +179,6 @@ const castLauncher: CastLauncher | undefined = config.terminal ? new CastLaunche
     account: () => zeroclaw?.accountId,
     ready: () => !!zeroclaw?.sources().some((source) => source.ok),
     afterOpen: async () => { await zeroclaw?.flush(); },
-  }) : undefined,
-  antigravity: antigravityCatalog ? new AntigravityCast({
-    client: () => antigravityClient, delivery: () => antigravityDelivery, messages: () => late.messages,
-    catalog: antigravityCatalog, home: config.castFolder ?? config.home, dataDir: config.dataDir,
   }) : undefined,
   ...(config.castMax ? { max: config.castMax } : {}),
   ...(config.castFolder ? { folder: config.castFolder } : {}),
@@ -248,15 +222,6 @@ if (zeroclawConnector && zeroclawMirror) {
   zeroclaw = new ZeroClawSource({ accounts, office, connector: zeroclawConnector, mirror: zeroclawMirror });
   agents.add(zeroclaw);
 }
-if (config.antigravity) mkdirSync(join(config.dataDir, 'handoff'), { recursive: true, mode: 0o700 });
-const antigravityClient = config.antigravity ? new AntigravityClient({
-  bin: config.antigravityBin, socket: config.antigravitySocket, skipPermissions: config.antigravitySkipPermissions, version: config.version,
-  additionalDirectories: [join(config.dataDir, 'handoff')],
-}) : undefined;
-const antigravity = antigravityClient ? new AntigravitySource({
-  accounts, office, client: antigravityClient, mirror: new AntigravityMirror({ dataDir: config.dataDir }), catalog: antigravityCatalog!,
-}) : undefined;
-if (antigravity) agents.add(antigravity);
 late.office = office;
 late.agents = agents;
 // Página que pode responder pelo escritório: Host local na porta local; na remota, só com permissions liberado.
@@ -375,8 +340,6 @@ const permissions = config.terminal
     })
   : undefined;
 late.permissions = permissions;
-const antigravityPermissions = antigravityClient && permissions
-  ? new AntigravityPermissions({ client: antigravityClient, registry: permissions }) : undefined;
 // Mensagens pelo escritório (plugin habblaud-mensagens): entram na sessão como se você as tivesse digitado, então
 // seguem a mesma trava (e HABBLAUD_MENSAGENS=0 desliga só elas). Ao Codex vão por `codex queue` (messages/codex.ts):
 // fora do Docker o próprio servidor roda o comando (HABBLAUD_CODEX_BIN ou `codex` do PATH); no Docker, o auxiliar do
@@ -405,8 +368,6 @@ const zeroclawDelivery: ZeroClawDelivery | undefined = config.messages && zerocl
   onCancelSession: (sessionId, reason) => late.messages?.cancelZeroClawSession(sessionId, reason),
   onReplacementFailed: (agentId) => office.closeMain(agentId),
 }) : undefined;
-const antigravityDelivery = antigravityClient && antigravity
-  ? new AntigravityDelivery({ client: antigravityClient, source: antigravity, handoff, diagnostic: message => log.warn(message) }) : undefined;
 const messages = config.messages
   ? new MessageRegistry({
       office,
@@ -417,9 +378,6 @@ const messages = config.messages
         homeOf: (account) => accounts.entriesOf('codex').find((e) => e.id === account)?.detected.configDir,
       },
       zeroclaw: zeroclawDelivery,
-      antigravity: antigravityDelivery,
-      handoff,
-      switchTool: castLauncher ? (agent, model) => castLauncher.switchTool(agent, model) : undefined,
       attachments,
       writeAttachments: (files) => deliveryFiles!.writeAttachments(files),
       onSettled: (id, status, error) => asides?.settled(id, status, error),
@@ -538,8 +496,6 @@ const api = createApiHandler({
   asides: asides ? { page: createAsideRoutes(asides), progress: (req, res) => handleAsideProgress(req, res, asides) } : undefined,
   pty: ptys ? createPtyRoutes(ptys) : undefined,
   spawn,
-  antigravity: antigravityClient ? { client: antigravityClient, office, messages,
-    socket: config.antigravitySocket, skipPermissions: config.antigravitySkipPermissions } : undefined,
   castLauncher,
   castNamed: zeroclawConnector ? new NamedAgentSettings(config.dataDir, zeroclawConnector) : undefined,
   attachments,
@@ -690,10 +646,6 @@ server.listen(config.port, config.host, () => {
     log.info(tr('   omp: {0}.', [config.omp ? tr('nenhuma pasta do omp com sessions/ encontrada (defina HABBLAUD_OMP_DIRS)') : tr('desligado (HABBLAUD_OMP=0)')]));
   }
   if (office.isDemo()) log.info(tr('   Modo demonstração ligado (agentes simulados misturados aos reais).'));
-  if (antigravityClient) {
-    log.info(tr('Antigravity ligado: modo {0}.', [config.antigravitySocket ? tr('soquete') : tr('processo')]));
-    if (!config.antigravitySocket && config.antigravitySkipPermissions) log.warn(tr('Antigravity: permissões automáticas ligadas (HABBLAUD_ANTIGRAVITY_SKIP_PERMISSIONS): o agy roda comandos sem perguntar'));
-  }
   if (config.terminal) log.info(tr('   Terminal: ligado (acesso só local).'));
   else log.info(tr('   Terminal: desligado ({0}).', [terminalOffReason(process.env, config.host, config.inDocker)]));
   log.info(ptys ? tr('   Terminal interativo: ligado ({0}).', [claudeBin]) : tr('   Terminal interativo: {0}.', [ptyOff ?? tr('desligado')]));
@@ -756,8 +708,6 @@ function shutdown(signal: string): void {
     () => terminals?.stop(),
     () => timeline?.stop(),
     () => permissions?.stop(),
-    () => antigravityPermissions?.stop(),
-    () => antigravityClient?.stop(),
     () => messages?.stop(),
     () => zeroclawDelivery?.stop(),
     () => asides?.stop(),

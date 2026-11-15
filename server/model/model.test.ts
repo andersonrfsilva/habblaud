@@ -94,31 +94,6 @@ describe('NameStore: cutover do elenco', () => {
   });
 });
 
-describe('identidade do contato Novo', () => {
-  it('mantém nome e visual entre sessões e ferramentas', () => {
-    const names = new NameStore(null);
-    const office = new Office({ names, version: 'test', startedAt: 0, accounts: () => [], sources: () => [], accountName: () => '' });
-    const input = { account: 'omp', cwd: '/tmp', startedAt: 0, status: 'idle' as const, role: 'main', cast: 'novo-stable' };
-    office.addMain({ ...input, id: 'first', sessionId: 'first', provider: 'omp' });
-    const { name, look } = office.get('first')!;
-    office.switchSession('first', 'second');
-    expect(office.get('first')).toMatchObject({ name, look });
-    office.closeMain('first');
-    office.addMain({ ...input, id: 'next', sessionId: 'third', provider: 'antigravity' });
-    expect(office.get('next')).toMatchObject({ name, look, cast: input.cast });
-    expect(names.get(input.cast)).toEqual({ name, look });
-  });
-
-  it('migra nome salvo pela sessão sem renomear o contato', () => {
-    const names = new NameStore(null);
-    names.remember('legacy-session', { name: 'Diego', look: 'm' });
-    const office = new Office({ names, version: 'test', startedAt: 0, accounts: () => [], sources: () => [], accountName: () => '' });
-    office.addMain({ id: 'legacy', sessionId: 'legacy-session', account: 'omp', cwd: '/tmp', startedAt: 0, status: 'idle', role: 'main', cast: 'novo-legacy' });
-    expect(office.get('legacy')).toMatchObject({ name: 'Diego', look: 'm' });
-    expect(names.get('novo-legacy')).toEqual({ name: 'Diego', look: 'm' });
-  });
-});
-
 function makeOffice(names = new NameStore(null), cast = new CastStore(null)) {
   let clock = 1_000_000;
   const office = new Office({

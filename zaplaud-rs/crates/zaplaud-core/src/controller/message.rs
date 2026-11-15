@@ -340,14 +340,12 @@ async fn execute(
                         token,
                         id: field(&v, "id"),
                         status: field(&v, "status"),
-                        error: field(&v, "error"),
                         failure: None,
                     },
                     Err(failure) => Event::CommandResult {
                         token,
                         id: None,
                         status: None,
-                        error: None,
                         failure: Some(failure),
                     },
                 }
@@ -423,14 +421,12 @@ async fn execute(
                     token,
                     id: Some(id),
                     status: field(&v, "status"),
-                    error: field(&v, "error"),
                     failure: None,
                 },
                 Err(failure) => Event::CommandResult {
                     token,
                     id: Some(id),
                     status: None,
-                    error: None,
                     failure: Some(failure),
                 },
             }
