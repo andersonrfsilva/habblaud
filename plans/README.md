@@ -125,6 +125,7 @@ desktop, as traduções restantes e a consolidação editorial ainda exigem os c
 | 086 | [Entrada do fork: clone correto, créditos, contribuição e instalação desktop atual](086-documentar-entrada-e-instalacao-do-fork.md) | P1 | M | 006 | TODO |
 | 087 | [Configuração e contratos: ZeroClaw/resumo/cota, modelos Antigravity, capacidades e limites](087-reconciliar-configuracao-e-contratos.md) | P2 | M | 086 | TODO |
 | 088 | [Idiomas e notas: traduzir o contrato final, consolidar Não lançado e delimitar a verificação](088-alinhar-idiomas-e-notas-da-entrega.md) | P2 | M | 006, 086, 087 | TODO |
+| 089 | [Cliente Rust (Zaplaud desktop) no Android: sonda concluída e medida no M54; código opcional em `producao`](089-zaplaud-rust-no-android-sonda.md) | P3 | L | decisão do dono | BLOCKED (2026-11-14, decisão do dono): sonda mesclada como código opcional (`cargo-apk`), sem virar cliente oficial. Medido: menos CPU, mais memória (+45 a 60 MB), APK 5 vezes maior, abertura mais lenta. Faltam notificações, anexos, cofre de credenciais e iOS. Não continuar o porte sem o dono desbloquear |
 
 Integração 079–083 (2026-11-14): branch `advisor/antigravity-079-083` (`cd6f384`, worktree `/tmp/habblaud-int`) junta
 os cinco planos: 080 (que contém 079 e 083) mais 082 (que contém 081); único conflito, `CHANGELOG.md`, resolvido
