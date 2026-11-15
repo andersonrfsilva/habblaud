@@ -89,8 +89,6 @@ export interface ServerConfig {
   antigravitySkipPermissions: boolean;
   /** Máximo de personagens do elenco abertos ao mesmo tempo (HABBLAUD_CAST_MAX, 1 a 50); ausente ou inválido = sem limite. */
   castMax?: number;
-  /** Pasta onde o elenco abre conversas novas do omp, Antigravity e ZeroClaw (HABBLAUD_CAST_FOLDER, absoluta); ausente = a pasta pessoal. */
-  castFolder?: string;
   /** Observa as sessões do omp (sources/omp/); HABBLAUD_OMP=0 desliga. */
   omp: boolean;
   /** Gateway ZeroClaw HTTP somente em loopback; ausente = fonte desligada. */
@@ -322,8 +320,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
   if (antigravitySocket && !isAbsolute(antigravitySocket)) {
     throw new Error(tr('HABBLAUD_ANTIGRAVITY_SOCKET precisa ser um caminho absoluto'));
   }
-  const castFolder = env.HABBLAUD_CAST_FOLDER?.trim() || undefined;
-  if (castFolder && !isAbsolute(castFolder)) throw new Error(tr('HABBLAUD_CAST_FOLDER precisa ser um caminho absoluto'));
   return {
     port: Number.isFinite(port) && port > 0 && port < 65536 ? port : 4747,
     host,
@@ -349,7 +345,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     antigravitySocket,
     antigravitySkipPermissions: isTruthy(env.HABBLAUD_ANTIGRAVITY_SKIP_PERMISSIONS),
     ...(castMax(env.HABBLAUD_CAST_MAX) ? { castMax: castMax(env.HABBLAUD_CAST_MAX) } : {}),
-    ...(castFolder ? { castFolder } : {}),
     omp,
     zeroclawUrl,
     zeroclawCatalog,

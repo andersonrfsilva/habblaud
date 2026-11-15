@@ -41,7 +41,7 @@ por subprocesso `agy acp` ou por soquete Unix. Multiplexa sessões, turnos e ped
   humana. Sem página, o pedido fica esperando; pedidos liberados são registrados novamente.
 - `antigravity/http.ts` atende `GET /api/antigravity` e `GET|POST /api/antigravity/sessions`, sob a trava `spawn`.
   Abrir aceita `{folder, prompt?, session?}`; `session` retoma um UUID. Falta de login devolve 409.
-  Dispensar usa a trava `terminal`: personagens abertos pelo elenco passam pelo launcher; os demais fecham diretamente.
+  Dispensar usa a trava `terminal`, sem depender do launcher do elenco.
 - `scripts/antigravity-relay.ts`, iniciado no host por `npm run antigravity:relay`, atende uma conexão local por vez.
   O soquete é `0600`; a pasta precisa pertencer ao usuário e não permitir escrita de outros.
   O relé importa a mesma `agyArgs`; nada recebido pelo soquete vira argumento, ambiente ou caminho.
@@ -56,64 +56,7 @@ por subprocesso `agy acp` ou por soquete Unix. Multiplexa sessões, turnos e ped
 O quadlet tem apenas instruções opt-in comentadas: não monta credenciais nem binário do Antigravity.
 O uso de cliente ACP próprio não garante conformidade com os Termos do Antigravity; o risco de bloqueio é do usuário.
 A flag de permissões permite executar comandos e editar arquivos sem perguntar: use apenas em ambiente descartável.
-Sem histórico na interface, anexos arbitrários ou steer. Testes usam `fake-agy.mjs`, nunca o binário real.
-
-### O contrato novo
-
-1. Um modelo `agy/<valor>` roda no Antigravity CLI; `agy/default` deixa o CLI escolher seu padrão.
-   A regra compartilhada está em `shared/agy-model.ts`. `google-antigravity/…` continua sendo do omp, sem conversão.
-2. `CastMember.model` aceita `agy/…` apenas em personagens `kind: 'main'`, sem `agent` nem `account`.
-   `instructions` e `idleMinutes` continuam valendo; não há campo de runtime no personagem.
-3. `POST /api/cast/:id/start` escolhe o runtime pelo modelo efetivo em conversa nova: `model` do corpo vence o
-   modelo do personagem. `POST /api/cast/new` com `model: "agy/…"` cria um `novo-…` no Antigravity.
-   Sem pedido, abrir não envia turno: as instruções ficam pendentes até a primeira mensagem da pessoa.
-4. Em `mode: "resume"` (ou `session` no "Novo"), a existência de
-   `<dataDir>/antigravity/sessions/<sessionId>.jsonl` identifica uma conversa do Antigravity.
-   Sem espelho, permanece o caminho do runtime da instalação. O modelo `agy/…` do personagem é reaplicado após retomar.
-5. Com `HABBLAUD_ANTIGRAVITY=1`, `GET /api/cast/models` acrescenta `agyModels`, começando por `agy/default`.
-   Outros modelos aparecem após a primeira sessão e persistem em `<dataDir>/antigravity/models.json`
-   (pasta `0700`, arquivo `0600`, substituição atômica). Sem a integração, o campo não existe.
-6. O agente tem `provider: 'antigravity'`, `cast`, `castOpened: true`, `model: "agy/<valor atual>"` e
-   `models: ["agy/…", …]`, sem o alias `agy/default`. `POST /api/agents/:id/dismiss` devolve `202 {job}`.
-   Conversa nova mantém personagem e modelo, rearma suas instruções e troca a sessão sem perder a dispensa.
-7. `/api/cast/jobs` mantém `queued`, `sent`, `waiting`, `done` e `failed`.
-   omp, ZeroClaw e Antigravity dividem o limite da instalação; polls do auxiliar omp não apagam personagens do Antigravity.
-   Sem Antigravity ligado, uma chamada com modelo `agy/…` devolve `503`.
-8. `POST /api/messages/control {agentId, model, expectedSessionId?}` mantém a resposta `201` com uma
-   `OutboxMessage`: a operação termina `delivered` ou `failed`, com o motivo. Um modelo `agy/…` num agente
-   Antigravity troca o modelo na mesma sessão por `session/set_config_option`, esperando o turno terminar;
-   `agy/default` não é um modelo selecionável numa sessão aberta. `thinking` continua recusado.
-9. Quando o modelo muda a ferramenta (omp ⇄ Antigravity), o controle aceita somente `model`, sem combinações.
-   Só agentes principais abertos pelo elenco, inclusive "Novo", parados e sem permissão pendente podem trocar.
-   O destino precisa estar disponível. O launcher valida a pasta absoluta da sala, grava contexto, dispensa e
-   espera o fechamento antes de abrir conversa nova na mesma pasta com o modelo pedido. Não altera o personagem.
-   Falha ao abrir deixa o personagem fechado, com contexto pendente para a próxima chamada.
-10. A troca não envia `session/prompt` nem pede resumo. `handoff: true` no snapshot indica o arquivo pendente;
-    ele acompanha somente a primeira mensagem digitada pela pessoa. No Antigravity vai como `resource_link`
-    `file://` antes do texto; no omp, como caminho absoluto no texto, igual aos anexos existentes.
-    A lista `models` dos agentes abertos pelo elenco inclui a outra ferramenta quando Antigravity está ligado.
-    A lista aprendida do omp fica só na memória desta execução.
-
-### Arquivos de contexto
-
-`cast/handoff.ts` lê os últimos 4 MiB do transcript pelo mesmo parser do painel de terminal. Converte em Markdown
-com cabeçalho (ferramenta, modelo, pasta, data), `## Pessoa`, `## Agente` e uma linha por ferramenta, com estado
-`ok`/`erro` e até 300 caracteres de saída. Não leva raciocínio nem eventos de sistema. As falas respeitam o limite
-do parser (20 mil caracteres por fala). Segredos são mascarados.
-
-O arquivo cumulativo mantém o último contexto do personagem mesmo depois da entrega, seguido pela conversa atual.
-Acima de 150 mil caracteres conserva os primeiros 20 mil e o fim, indicando a quantidade omitida.
-`<dataDir>/handoff/<personagem-sanitizado>-<epoch-ms>.md` e `index.json` têm modo `0600`; a pasta tem `0700`.
-Gravações usam temporário e rename. O índice persiste o último arquivo e a pendência entre reinícios.
-Falhas de entrega restauram a pendência. Conversa nova pedida pela pessoa esquece o contexto já entregue;
-contexto ainda pendente é preservado. A limpeza na inicialização apaga arquivos com mais de 7 dias.
-
-O arquivo de contexto leva a conversa de uma ferramenta para o provedor da outra (do omp para o Google, ou do
-`agy` para o provedor do modelo do omp). Não transfere raciocínio, estado de ferramentas ou a sessão nativa:
-voltar à ferramenta original abre outra conversa com o arquivo cumulativo. Nenhuma flag nova ou permissão
-automática é usada. Os caminhos de estado precisam continuar legíveis pelos processos do host, como os anexos.
-
-
+Sem elenco, histórico na interface, cota, troca de modelo, anexos ou steer. Testes usam `fake-agy.mjs`, nunca o binário real.
 
 ## ZeroClaw (opt-in)
 
@@ -315,10 +258,10 @@ O auxiliar no host (`npm run codex:bridge`) abre sessões omp em `tmux` como `hb
 | `DELETE /api/cast/:id` | Apaga membro e vínculos; agentes voltam ao sorteio; mesma trava do terminal |
 | `PUT /api/agents/:id/cast` | `{cast}` veste um principal; 409 ocupado; mesma trava do terminal |
 | `DELETE /api/agents/:id/cast` | Remove o vínculo e volta ao sorteio; mesma trava do terminal |
-| `POST /api/cast/:id/start` | `{mode: 'new' \| 'resume', prompt?, model?}`: enfileira uma chamada. Nova sessão do omp, Antigravity e ZeroClaw abre em `HABBLAUD_CAST_FOLDER` (caminho absoluto), ou na pasta pessoal do host quando ausente. `resume` sem `session` retoma a conversa mais recente do personagem; com `{session, room, account}` retoma a conversa do histórico na pasta dela. `model` (só ZeroClaw, só conversa nova): alias ou modelo do catálogo, vale para esta conversa no lugar do modelo do personagem; retomar usa o modelo em que a conversa começou. 202, 409 (ocupado ou limite de `HABBLAUD_CAST_MAX` personagens abertos), 422 ou 503; mesma trava do terminal |
+| `POST /api/cast/:id/start` | `{mode: 'new' \| 'resume', prompt?, model?}`: enfileira uma chamada. Nova sessão abre na pasta pessoal do host; `resume` sem `session` retoma a conversa mais recente do personagem; com `{session, room, account}` retoma a conversa do histórico na pasta dela. `model` (só ZeroClaw, só conversa nova): alias ou modelo do catálogo, vale para esta conversa no lugar do modelo do personagem; retomar usa o modelo em que a conversa começou. 202, 409 (ocupado ou limite de `HABBLAUD_CAST_MAX` personagens abertos), 422 ou 503; mesma trava do terminal |
 | `POST /api/agents/:id/dismiss` | Enfileira a dispensa de uma sessão aberta pelo Habblaud; mesma trava do terminal |
 | `GET /api/cast/jobs` | `{jobs, available}`: estado das chamadas e disponibilidade do runtime (auxiliar no OMP, conector no ZeroClaw); mesma trava do terminal |
-| `POST /api/cast/new` | `{prompt?, model?}`: agente fora do elenco na mesma pasta padrão configurável do start (`model` como no start); `{room, session, account}` retoma a conversa do histórico; mesmas respostas do start |
+| `POST /api/cast/new` | `{prompt?, model?}`: agente fora do elenco na pasta pessoal (`model` como no start); `{room, session, account}` retoma a conversa do histórico; mesmas respostas do start |
 | `POST /api/host/cast/poll`, `/api/host/cast/ack` | Auxiliar busca e confirma chamadas e dispensas; somente acesso local |
 | `GET /api/sessions/recent` | `RecentSessionsResponse`: sessões dos últimos 7 dias de todas as contas (até 150); mesma trava do terminal |
 | `GET /api/sessions/:conta/:sessionId/terminal` | SSE da conversa de uma sessão do histórico (mesmo protocolo do terminal); mesma trava |

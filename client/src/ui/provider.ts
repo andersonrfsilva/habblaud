@@ -4,39 +4,10 @@
 // Identidade visual do Codex e do omp (sem logotipo de ninguém): o chip da conta fica "vazado" (fundo escuro, borda e
 // letra na cor da conta, cantos em degrau; o do omp tem o canto cortado só em cima, para os dois não se confundirem) e,
 // onde há espaço, um selo de texto ("Codex", "omp") ao lado do nome.
-import type { AccountInfo, CastMember, OfficeSnapshot, Provider } from '../../../shared/types';
+import type { AccountInfo, OfficeSnapshot, Provider } from '../../../shared/types';
 import { shortcutHint } from './model';
 import { isNeutralBrand, tr, unbrand } from '../../../shared/i18n';
 import type { OmpDeliverAs } from '../../../shared/messages';
-import { AGY_DEFAULT, isAgyModel } from '../../../shared/agy-model';
-import { modelGroups as groupedModels, type ModelGroup } from './format';
-
-export function runtimeAllowsModelChoice(provider: unknown): boolean {
-  return provider === 'omp' || provider === 'antigravity';
-}
-
-export function runtimeAllowsThinking(provider: unknown): boolean {
-  return provider === 'omp';
-}
-
-export function crossesTool(agentProvider: unknown, model: string): boolean {
-  return runtimeAllowsModelChoice(agentProvider) && isAgyModel(model) !== (agentProvider === 'antigravity');
-}
-
-export function agyGroupLabel(): string { return PROVIDER_NAME.antigravity; }
-
-export function modelGroups(models: readonly string[], keep?: string): ModelGroup[] {
-  return groupedModels(models, keep).map((group) => group.options.some((option) => isAgyModel(option.value))
-    ? { label: agyGroupLabel(), options: group.options.map((option) => option.value === AGY_DEFAULT
-      ? { ...option, label: isNeutralBrand() ? tr('Padrão') : tr('Padrão do Antigravity') } : option) }
-    : group);
-}
-
-export function castBody(body: Omit<CastMember, 'id'>): Omit<CastMember, 'id'> {
-  if (!isAgyModel(body.model)) return body;
-  const { account: _account, agent: _agent, match: _match, ...rest } = body;
-  return { ...rest, kind: 'main' };
-}
 
 export function runtimeAllowsMessages(provider: unknown): boolean {
   return provider === undefined || provider === 'claude' || provider === 'codex' || provider === 'omp' || provider === 'zeroclaw' || provider === 'antigravity';
@@ -68,7 +39,6 @@ export interface CastModelCatalog {
   provider: 'omp' | 'zeroclaw';
   models: { alias: string; model: string }[];
   defaultModel: string;
-  agyModels?: string[];
   named?: { alias: string; model: string }[];
 }
 
@@ -83,9 +53,7 @@ export function parseCastModelCatalog(raw: unknown): CastModelCatalog | undefine
     && typeof item.alias === 'string' && /^[a-z][a-z0-9]{1,23}$/.test(item.alias)
     && typeof item.model === 'string' && !!item.model)
     || new Set(named.map((item) => item.alias)).size !== named.length)) return undefined;
-  const agyModels = Array.isArray(value.agyModels) ? value.agyModels.filter((item): item is string => typeof item === 'string' && isAgyModel(item)) : [];
   return { provider: value.provider, models: value.models.map((item) => ({ alias: item.alias, model: item.model })), defaultModel,
-    ...(agyModels.length ? { agyModels } : {}),
     ...(Array.isArray(named) && named.length ? { named: named.map((item) => ({ alias: item.alias, model: item.model })) } : {}) };
 }
 

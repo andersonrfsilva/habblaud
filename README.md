@@ -639,16 +639,13 @@ and waits for the next request, give a new instruction or correct its course, wi
 Open **Cast** on the top bar to create, edit or delete fixed characters. Choose a name, appearance and kind:
 main, advisor or subagent. For subagents, enter observed types such as `reviewer` or `Explore`.
 
-- **Calling:** **Call** opens a new session in the configured default folder (`HABBLAUD_CAST_FOLDER` for omp,
-  Antigravity and ZeroClaw; otherwise the home folder `~`), or **Continue** resumes the character's most recent conversation.
-  Resuming from history keeps that conversation's folder.
+- **Calling:** **Call** opens a new session in the home folder (`~`) of the computer running the session, or
+  **Continue** resumes the character's most recent conversation. Resuming from history keeps that conversation's folder.
 - **Dress:** use the pencil in a main agent's details to select a free member or create one from the agent.
   **Back to random** removes the session binding. If the member is busy, the session gets a random character.
 - In omp, `HABBLAUD_CAST=<id>` requests a member for the session. Advisors and subagents use matching members.
 - `HABBLAUD_CAST_MAX` (1 to 50; unset means no limit) caps how many characters Habblaud keeps open at once. Open
   `hb-*` sessions and pending starts count; characters being dismissed do not.
-- `HABBLAUD_CAST_FOLDER` (absolute path; unset means the home folder) is where the cast opens new omp,
-  Antigravity and ZeroClaw conversations. Resuming a conversation stays in its own folder.
 
 The cast is stored in `~/.habblaud/cast.json`; session bindings expire after 60 days without use. Old room characters
 migrate automatically, with a backup at `~/.habblaud/names.json.pre-031`. The cast uses the terminal safeguard:
@@ -916,20 +913,8 @@ configuration to the installation. The existing state volume carries the socket;
 
 Open **New agent**, select **Antigravity**, choose a folder and optionally enter a prompt. Supported: queued messages,
 human tool approvals, STOP, new conversation, Dismiss and terminal reading. Local/remote office access rules still
-apply. Not included: history UI, arbitrary attachments, steer, parallel conversations, or dedicated Zaplaud integration.
-The server cast API accepts `agy/…` models (including `agy/default`) alongside omp or ZeroClaw; character instructions wait for the first human message.
-To use it, choose an `agy/…` model in a character (**Cast → Edit**) or in an open agent's drawer.
-Remote access supports this with both `terminal` and `messages` in `HABBLAUD_REMOTE_ALLOW`.
-For an idle main agent opened through the cast, selecting an `agy/…` model switches from omp to Antigravity;
-selecting an omp model switches back. The server closes the old session and opens a new conversation in the same
-folder without changing the character's saved model or sending a prompt. Within Antigravity, another `agy/…`
-model keeps the current conversation (`agy/default` cannot reset an open session).
-
-The previous conversation is attached to the person's next message, once, and remains cumulative across switches.
-The context file sends the conversation from one tool to the other tool's provider (from omp to Google, or from
-`agy` to the omp model's provider). It excludes reasoning and system events, clips tool output, and keeps at most
-150,000 characters. Files expire after seven days and are cleaned on server startup. A person-requested new
-conversation forgets already delivered context; pending context survives restarts and failed delivery.
+apply. Not included: cast integration, history UI, quota, model switching, attachments, steer, parallel conversations,
+or dedicated Zaplaud integration.
 
 Habblaud opens the official `agy` through ACP and does not use its login independently. Antigravity's Terms prohibit
 accessing the service with third-party software; whether a custom ACP client falls within that rule is a matter of

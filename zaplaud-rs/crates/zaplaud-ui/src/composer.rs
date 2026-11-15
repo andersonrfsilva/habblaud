@@ -49,14 +49,12 @@ fn failure(error: zaplaud_core::Error) -> Failure {
             status,
             code,
             attachments_expired,
-            detail,
             ..
         } => Failure {
             status: Some(status),
             session_changed: code.as_deref() == Some("session_changed"),
             attachments_expired,
             cancelled: false,
-            reason: (!detail.is_empty()).then_some(detail),
         },
         _ => Failure::default(),
     }
@@ -361,7 +359,6 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
         let mut last_command = None;
         let mut picker = None::<tokio::task::JoinHandle<()>>;
         let mut new_target: Option<(SessionKey, String)> = None;
-        let mut switch_model: Option<String> = None;
         if app_visible { let _ = controller.events.send(Event::Start); }
         loop {
             tokio::select! {
@@ -378,7 +375,6 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                         }
                         let next = value.selected.clone().filter(|s| s.agent_id.is_some() && !s.sub);
                         if next.as_ref().map(|s| &s.key) != selected.as_ref().map(|s| &s.key) {
-                            switch_model = None;
                             let _ = controller.events.send(Event::Stop);
                             let _ = controller.events.send(Event::Close);
                             if let Some(job) = picker.take() { job.abort(); }
@@ -401,7 +397,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                         }
                         selected = next;
                         if let Ok(mut current) = snapshot.write() { *current = Some(value); }
-                        publish(&weak, &controller.states.borrow(), selected.as_ref(), backend.as_ref(), switch_model.as_deref());
+                        publish(&weak, &controller.states.borrow(), selected.as_ref(), backend.as_ref());
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                     Err(_) => break,
@@ -421,7 +417,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                             command_dismiss = Some(tokio::spawn(async move { tokio::time::sleep(std::time::Duration::from_secs(4)).await; let _ = sender.send(Event::DismissCommandResult); }));
                         }
                     }
-                    publish(&weak, &state, selected.as_ref(), backend.as_ref(), switch_model.as_deref());
+                    publish(&weak, &state, selected.as_ref(), backend.as_ref());
                 }
                 action = receiver.recv() => {
                     let Some(action) = action else { break; };
@@ -447,18 +443,11 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                         Action::Flush(_) => unreachable!(),
                         Action::Send(confirmed) => Some(Event::Send { agent_id, confirmed, eligible }),
                         Action::Stop(confirmed) => Some(Event::Interrupt { agent_id, confirmed, eligible }),
-                        Action::Command(kind, _) if kind == "new" && eligible && composer::supports_session_control(&item.key.provider)
+                        Action::Command(kind, _) if kind == "new" && eligible && composer::deliver_modes_available(item)
                             && !state.composer.loading && !state.composer.sending
                             && !state.composer.control.as_ref().is_some_and(|c| matches!(c.status.as_str(), "queued" | "sent")) => {
                             new_target = Some((item.key.clone(), agent_id.clone()));
                             Some(Event::NewSession { agent_id, confirmed: true, eligible })
-                        }
-                        Action::Command(kind, value) if kind == "model" && composer::crosses_tool(&item.key.provider, &value) => {
-                            if eligible && !state.composer.loading && !state.composer.sending {
-                                switch_model = Some(value);
-                            }
-                            publish(&weak, &state, selected.as_ref(), backend.as_ref(), switch_model.as_deref());
-                            None
                         }
                         Action::Command(kind,value) => Some(Event::Command { agent_id, kind, value, eligible }),
                         Action::Remove(uri) => state.composer.draft.attachments.iter().find(|a| a.uri == uri).cloned().map(Event::Remove),
@@ -474,15 +463,8 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                             } else { None }
                         }
                         Action::Dismiss => {
-                            switch_model = None;
-                            publish(&weak, &state, selected.as_ref(), backend.as_ref(), None);
                             let _ = controller.events.send(Event::DismissControlConfirmation);
                             Some(Event::DismissConfirmation)
-                        }
-                        Action::Confirm if switch_model.is_some() => {
-                            let value = switch_model.take().unwrap();
-                            publish(&weak, &state, selected.as_ref(), backend.as_ref(), None);
-                            Some(Event::Command { agent_id, kind: "model".into(), value, eligible })
                         }
                         Action::Confirm => if state.composer.control_error.as_deref() == Some("confirm") {
                             Some(if new_target.is_some() { Event::NewSession { agent_id, confirmed: true, eligible } } else { Event::Interrupt { agent_id, confirmed: true, eligible } })
@@ -655,11 +637,9 @@ fn publish(
     state: &State,
     selected: Option<&SessionItem>,
     backend: &NativeBackend,
-    switch_model: Option<&str>,
 ) {
     let composer = state.composer.clone();
     let selected = selected.cloned();
-    let switch_model = switch_model.map(str::to_owned);
     let enabled = selected.as_ref().is_some_and(|item| {
         backend.eligible(&item.key, item.agent_id.as_deref().unwrap_or_default())
     });
@@ -740,18 +720,10 @@ fn publish(
                 .as_ref()
                 .is_some_and(|s| s.key.provider == "omp" && s.agent_id.is_some() && !s.sub),
         );
-        global.set_model_choice(selected.as_ref().is_some_and(|s| {
-            composer::model_choice(&s.key.provider) && s.agent_id.is_some() && !s.sub
-        }));
-        global.set_handoff_pending(if selected.as_ref().is_some_and(|s| s.handoff) {
-            strings::HANDOFF_PENDING
-        } else {
-            ""
-        }.into());
         global.set_new_visible(
             selected
                 .as_ref()
-                .is_some_and(|s| composer::supports_session_control(&s.key.provider)),
+                .is_some_and(composer::deliver_modes_available),
         );
         global.set_modes_visible(
             selected
@@ -860,12 +832,10 @@ fn publish(
         );
         global.set_confirm_visible(
             composer.error.as_deref() == Some("confirm")
-                || composer.control_error.as_deref() == Some("confirm") || switch_model.is_some(),
+                || composer.control_error.as_deref() == Some("confirm"),
         );
         global.set_confirm_title(
-            if switch_model.is_some() {
-                strings::MODEL_MENU
-            } else if composer.control_error.as_deref() == Some("confirm") {
+            if composer.control_error.as_deref() == Some("confirm") {
                 strings::STOP_AGENT
             } else {
                 strings::MESSAGE_RETRY_TITLE
@@ -873,17 +843,10 @@ fn publish(
             .into(),
         );
         global.set_confirm_text(
-            if let Some(model) = switch_model {
-                let label = if model == "agy/default" {
-                    strings::MODEL_AGY_DEFAULT.into()
-                } else {
-                    composer::model_label(&model)
-                };
-                crate::formatted("switch_tool_confirm", &[&label])
-            } else if composer.control_error.as_deref() == Some("confirm") {
-                strings::STOP_UNKNOWN.into()
+            if composer.control_error.as_deref() == Some("confirm") {
+                strings::STOP_UNKNOWN
             } else {
-                strings::MESSAGE_RETRY_WARNING.into()
+                strings::MESSAGE_RETRY_WARNING
             }
             .into(),
         );
@@ -917,7 +880,7 @@ fn publish(
                     "thinking" => strings::THINKING_MENU,
                     _ => strings::SHAKE_SHORT,
                 };
-                let message = crate::formatted(
+                crate::formatted(
                     match result.status.as_str() {
                         "pending" => "command_pending",
                         "sent" => "command_sent",
@@ -925,12 +888,7 @@ fn publish(
                         _ => "command_unknown",
                     },
                     &[what],
-                );
-                if result.status == "failed" && let Some(reason) = result.reason {
-                    format!("{message} {reason}")
-                } else {
-                    message
-                }
+                )
             })
             .unwrap_or_default();
         global.set_command_status(command.into());

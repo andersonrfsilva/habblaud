@@ -890,17 +890,14 @@ e espera o próximo pedido, dar uma instrução nova ou corrigir o rumo, sem pro
 Na barra superior, abra **Elenco** para criar, editar ou apagar personagens fixos. Escolha nome, aparência e tipo:
 principal, advisor ou subagente. Para subagentes, informe os tipos observados, como `reviewer` ou `Explore`.
 
-- **Chamar:** **Chamar** abre uma sessão nova na pasta padrão configurada (`HABBLAUD_CAST_FOLDER` para omp,
-  Antigravity e ZeroClaw; sem ela, a pasta pessoal `~`), ou **Continuar** retoma a conversa mais recente do personagem.
-  Retomar pelo histórico mantém a pasta da conversa.
+- **Chamar:** **Chamar** abre uma sessão nova na pasta pessoal (`~`) do computador onde a sessão roda, ou
+  **Continuar** retoma a conversa mais recente do personagem. Retomar pelo histórico mantém a pasta da conversa.
 - **Vestir:** no lápis da gaveta de um agente principal, escolha um membro livre ou crie um a partir do agente.
   **Voltar ao sorteio** remove o vínculo da sessão. Se o membro estiver ocupado, a sessão recebe um personagem sorteado.
 - No omp, `HABBLAUD_CAST=<id>` pede um membro para a sessão. O advisor e os subagentes vestem membros compatíveis
   com seus tipos.
 - `HABBLAUD_CAST_MAX` (1 a 50; ausente = sem limite) limita quantos personagens o Habblaud mantém abertos ao mesmo
   tempo. Sessões `hb-*` abertas e chamadas em andamento contam; personagens sendo dispensados não.
-- `HABBLAUD_CAST_FOLDER` (caminho absoluto; ausente = a pasta pessoal) é onde o elenco abre conversas novas do omp,
-  Antigravity e ZeroClaw. Retomar uma conversa continua na pasta dela.
 
 O elenco fica em `~/.habblaud/cast.json`; vínculos de sessão expiram após 60 dias sem uso. Os personagens antigos
 das salas migram automaticamente, com cópia de segurança em `~/.habblaud/names.json.pre-031`. O elenco segue a trava
@@ -1171,21 +1168,8 @@ na instalação. O volume de estado existente leva o soquete ao contêiner; não
 
 Na página, abra **Novo agente**, escolha **Antigravity**, a pasta e o pedido opcional. A conversa aceita mensagens
 enfileiradas, aprovar/negar ferramentas, STOP, conversa nova, Dispensar e leitura do terminal. Os controles continuam
-sujeitos às permissões locais/remotas do escritório. Não inclui histórico na interface, anexos arbitrários,
-steer, conversa paralela ou integração própria no Zaplaud.
-A API do elenco aceita modelos `agy/…` (inclusive `agy/default`) junto do omp ou ZeroClaw; as instruções do personagem aguardam a primeira mensagem humana.
-Para usar, escolha um modelo `agy/…`: no personagem (**Elenco → Editar**) ou na gaveta de um agente aberto.
-Pelo acesso remoto, isso funciona com `terminal` e `messages` em `HABBLAUD_REMOTE_ALLOW`.
-Num agente principal aberto pelo elenco e parado, escolher um modelo `agy/…` passa do omp para o Antigravity;
-escolher um modelo do omp faz o caminho inverso. O servidor fecha a sessão antiga e abre conversa nova na mesma
-pasta, sem mudar o modelo salvo do personagem nem enviar pedido. Dentro do Antigravity, outro modelo `agy/…`
-mantém a conversa (`agy/default` não restaura o padrão numa sessão aberta).
-
-A conversa anterior vai anexada uma vez à próxima mensagem da pessoa e é cumulativa entre trocas.
-O arquivo de contexto leva a conversa de uma ferramenta para o provedor da outra (do omp para o Google, ou do
-`agy` para o provedor do modelo do omp). Não leva raciocínio nem eventos de sistema, corta saídas de ferramentas
-e conserva até 150 mil caracteres. Os arquivos vencem depois de 7 dias e são limpos ao iniciar o servidor.
-Conversa nova pedida pela pessoa esquece contexto já entregue; pendências sobrevivem a reinícios e falhas de entrega.
+sujeitos às permissões locais/remotas do escritório. Não inclui elenco, histórico na interface, cota, troca de modelo,
+anexos, steer, conversa paralela ou integração própria no Zaplaud.
 
 O Habblaud abre o `agy` oficial pelo protocolo ACP e não usa o login dele por conta própria. Os Termos do
 Antigravity proíbem acessar o serviço com software de terceiros; se um cliente ACP próprio está dentro ou fora

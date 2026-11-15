@@ -120,7 +120,7 @@ function accepted(result: { job: CastJobInfo } | { status: number; error: string
   return result.job;
 }
 
-function runtimeSetup(max?: number, dataDir = '/unused-zeroclaw-cast-test', named?: { alias: string; model: string }[], home = '/a') {
+function runtimeSetup(max?: number, dataDir = '/unused-zeroclaw-cast-test', named?: { alias: string; model: string }[]) {
   const agents: AgentInfo[] = [];
   const members = new Map<string, CastMember>([
     ['ana', { ...runtimeMember }], ['bia', { ...runtimeMember, id: 'bia', name: 'Bia' }],
@@ -200,7 +200,7 @@ function runtimeSetup(max?: number, dataDir = '/unused-zeroclaw-cast-test', name
   const idle = vi.fn();
   const changed = vi.fn();
   const runtime = new ZeroClawCast({
-    catalog: parseZeroClawCatalog(raw, second.alias, named === undefined ? undefined : JSON.stringify(named)), home, connector: () => connector, delivery: () => delivery,
+    catalog: parseZeroClawCatalog(raw, second.alias, named === undefined ? undefined : JSON.stringify(named)), home: '/a', connector: () => connector, delivery: () => delivery,
     messages: () => messages, account: () => 'zeroclaw', ready: () => controls.ready,
   });
   const launcher = new CastLauncher({
@@ -212,31 +212,6 @@ function runtimeSetup(max?: number, dataDir = '/unused-zeroclaw-cast-test', name
 }
 
 describe('elenco com runtime ZeroClaw', () => {
-  it.each(['character', 'Novo'])('opens a new %s conversation without a room in the configured folder', async (kind) => {
-    const s = runtimeSetup(undefined, undefined, undefined, '/configured/projects');
-    accepted(kind === 'character' ? s.launcher.start('ana', { mode: 'new' }) : s.launcher.startNew({}));
-    await settleRuntime();
-    expect(s.connector.openSession).toHaveBeenCalledWith(expect.objectContaining({ cwd: '/configured/projects' }));
-  });
-
-  it.each(['character', 'Novo'])('resumes a %s conversation in its own folder instead of the configured default', async (kind) => {
-    const s = runtimeSetup(undefined, undefined, undefined, '/configured/projects');
-    s.history.set(historicalId, { sessionId: historicalId, agent: first.alias, name: 'Ana', cwd: '/original/project' });
-    const request = { session: historicalId, room: '/original/project' };
-    accepted(kind === 'character' ? s.launcher.start('ana', { mode: 'resume', ...request }) : s.launcher.startNew(request));
-    await settleRuntime();
-    expect(s.connector.openSession).toHaveBeenCalledWith(expect.objectContaining({ sessionId: historicalId, cwd: '/original/project' }));
-  });
-
-  it('continues the latest character conversation in its own folder without an explicit room', async () => {
-    const s = runtimeSetup(undefined, undefined, undefined, '/configured/projects');
-    s.members.set('ana', { ...runtimeMember, last: { '/original/project': historicalId } });
-    s.history.set(historicalId, { sessionId: historicalId, agent: first.alias, name: 'Ana', cwd: '/original/project' });
-    accepted(s.launcher.start('ana', { mode: 'resume' }));
-    await settleRuntime();
-    expect(s.connector.openSession).toHaveBeenCalledWith(expect.objectContaining({ sessionId: historicalId, cwd: '/original/project' }));
-  });
-
   it('exposes named catalog only when nonempty and returns isolated copies', () => {
     expect(runtimeSetup().launcher.models()).not.toHaveProperty('named');
     expect(runtimeSetup(undefined, undefined, []).launcher.models()).not.toHaveProperty('named');

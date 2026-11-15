@@ -1,7 +1,5 @@
 import { existsSync } from 'node:fs';
-import { dirname } from 'node:path';
 import { describeTool, maskSecrets } from '../../../shared/activity';
-import { toAgyModel } from '../../../shared/agy-model';
 import { tr } from '../../../shared/i18n';
 import type { SourceInfo } from '../../../shared/types';
 import type { AccountsService } from '../../accounts/service';
@@ -11,7 +9,6 @@ import type { Office } from '../../model/office';
 import type { AgentSource } from '../source';
 import { createTranscriptState } from '../transcript';
 import { antigravityTool, AntigravityMirror } from './mirror';
-import { AntigravityCatalog } from './catalog';
 
 type Tracker = { id: string; info: SessionInfo; title?: string; context?: { tokens: number; window: number }; open: boolean; replaced?: boolean };
 export class AntigravitySource implements AgentSource {
@@ -21,10 +18,7 @@ export class AntigravitySource implements AgentSource {
   private unsubscribe?: () => void;
   private pending = Promise.resolve();
   private readonly replacing = new Set<string>();
-  private readonly catalog: AntigravityCatalog;
-  constructor(private readonly opts: { accounts: AccountsService; office: Office; client: Pick<AntigravityClient, 'onEvent' | 'session'>; mirror: AntigravityMirror; catalog?: AntigravityCatalog }) {
-    this.catalog = opts.catalog ?? new AntigravityCatalog(dirname(opts.mirror.root));
-  }
+  constructor(private readonly opts: { accounts: AccountsService; office: Office; client: Pick<AntigravityClient, 'onEvent' | 'session'>; mirror: AntigravityMirror }) {}
   start(): void {
     if (this.unsubscribe) return;
     this.accountId = this.opts.accounts.setProviderAccounts('antigravity', [{ dir: this.opts.mirror.root,
@@ -62,7 +56,6 @@ export class AntigravitySource implements AgentSource {
     if (event.type === 'diagnostic') return;
     const { office } = this.opts;
     if (event.type === 'session-open') {
-      this.catalog.learn(event.info.modelOptions);
       const oldSession = event.replaces && this.replacing.has(event.replaces) ? this.trackers.get(event.replaces) : undefined;
       const previous = oldSession?.open && !oldSession.replaced && office.has(oldSession.id) ? oldSession : undefined;
       const id = previous?.id ?? `antigravity:${event.sessionId}`;
@@ -72,7 +65,7 @@ export class AntigravitySource implements AgentSource {
         previous.replaced = true;
         previous.open = false;
       }
-      else office.addMain({ id, provider: 'antigravity', account: this.accountId, sessionId: event.sessionId, cwd: event.cwd, cast: event.cast,
+      else office.addMain({ id, provider: 'antigravity', account: this.accountId, sessionId: event.sessionId, cwd: event.cwd,
         role: tr('Agente principal (Antigravity)'), startedAt: Date.now(), status: 'idle' });
       this.summary(event.sessionId);
       return;
@@ -85,10 +78,6 @@ export class AntigravitySource implements AgentSource {
     if (event.type === 'permission-gone' && this.opts.client.session(event.sessionId)?.busy) office.setStatus(tracker.id, 'working');
     if (event.type !== 'update') return;
     const update = event.update;
-    if (update.sessionUpdate === 'config_option_update' && Array.isArray(update.configOptions)) {
-      const model = update.configOptions.find(option => option && typeof option === 'object' && option.id === 'model');
-      if (model && typeof model.currentValue === 'string') tracker.info.model = model.currentValue;
-    }
     if (update.sessionUpdate === 'tool_call') {
       const tool = antigravityTool(update);
       office.addActivity(tracker.id, { ...describeTool(tool.name, tool.input), id: `${tracker.id}:${String(update.toolCallId)}`, at: Date.now(), tool: tool.name }, true);
@@ -99,8 +88,7 @@ export class AntigravitySource implements AgentSource {
   }
   private summary(sessionId: string): void {
     const tracker = this.trackers.get(sessionId)!;
-    this.opts.office.applyTranscript(tracker.id, { title: tracker.title, model: tracker.info.model ? toAgyModel(tracker.info.model) : undefined,
-      models: tracker.info.modelOptions.map(option => toAgyModel(option.value)),
+    this.opts.office.applyTranscript(tracker.id, { title: tracker.title, model: tracker.info.model, models: tracker.info.models,
       context: tracker.context, tasks: [], stats: createTranscriptState().stats });
   }
 }

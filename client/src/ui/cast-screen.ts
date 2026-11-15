@@ -1,7 +1,6 @@
 // Gestão do elenco: membros existem independentemente das sessões presentes.
 import { CAST_IDLE_MINUTES, type AgentInfo, type CastJobInfo, type CastMember } from '../../../shared/types';
-import { isNeutralBrand, tr } from '../../../shared/i18n';
-import { isAgyModel } from '../../../shared/agy-model';
+import { tr } from '../../../shared/i18n';
 import { appearanceFromSeed } from '../art';
 import { AppearanceFields } from './appearance-fields';
 import { castGroups, changedParts, validateCast } from './character-model';
@@ -10,8 +9,8 @@ import { h, iconButton } from './dom';
 import { ICONS } from './icons';
 import { createAvatar } from './avatar';
 import { shortPath } from './spawn';
-import { filterModelGroups } from './format';
-import { castBody, modelGroups, castDefaultModel, castModelOptions, parseCastModelCatalog, validCastModel, type CastModelCatalog } from './provider';
+import { filterModelGroups, modelGroups } from './format';
+import { castDefaultModel, castModelOptions, parseCastModelCatalog, validCastModel, type CastModelCatalog } from './provider';
 import { NamedCastSettings } from './cast-named';
 
 const HOST_OFF = (): string => tr('auxiliar do host desligado (npm run codex:bridge)');
@@ -34,7 +33,7 @@ export class CastScreen {
     ctx.root.addEventListener('habblaud:cast-create', (event) => void this.open((event as CustomEvent<AgentInfo>).detail));
     ctx.store.on('snapshot', (snapshot) => {
       for (const agent of snapshot.agents) {
-        if (agent.provider === 'omp') for (const m of agent.models ?? []) if (!isAgyModel(m)) this.knownModels.add(m);
+        if (agent.provider === 'omp') for (const m of agent.models ?? []) this.knownModels.add(m);
         if (!agent.agentType) continue;
         this.recentTypes.delete(agent.agentType);
         this.recentTypes.add(agent.agentType);
@@ -78,9 +77,7 @@ export class CastScreen {
       const call = member.kind === 'main' ? h('button', { class: 'ui-btn ui-btn--sm ui-btn--primary', type: 'button', text: tr('Chamar'), on: { click: () => {
         const agentId = call?.dataset.dismiss;
         if (!agentId) return void this.call(member.id);
-        const opened = this.ctx.store.snapshot?.agents.find((a) => a.id === agentId);
-        const omp = opened ? opened.provider === 'omp' : !isAgyModel(member.model) && this.catalog?.provider === 'omp';
-        if (!confirm(omp ? tr('Dispensar {0}? A sessão do omp fecha; a conversa fica guardada para Continuar.', [member.name]) : tr('Dispensar') + ` ${member.name}?`)) return;
+        if (!confirm(this.catalog?.provider === 'zeroclaw' ? tr('Dispensar') + ` ${member.name}?` : tr('Dispensar {0}? A sessão do omp fecha; a conversa fica guardada para Continuar.', [member.name]))) return;
         call!.disabled = true;
         void this.ctx.store.dismissCast(agentId).then((error) => { if (error) reason.textContent = error; });
       } } }) : null;
@@ -106,7 +103,7 @@ export class CastScreen {
           const dismissable = !!agent?.castOpened;
           if (dismissable) button.dataset.dismiss = agent.id;
           else delete button.dataset.dismiss;
-          button.disabled = busy || (agent ? !dismissable : !jobs.available && !isAgyModel(member.model));
+          button.disabled = busy || (agent ? !dismissable : !jobs.available);
           button.textContent = busy ? tr('chamando…') : dismissable ? tr('Dispensar') : agent ? tr('Trabalhando') : tr('Chamar');
           button.classList.toggle('ui-btn--primary', !agent);
         }
@@ -139,10 +136,10 @@ export class CastScreen {
       if (failure) { status.textContent = failure; start.disabled = false; return; }
       sent = true;
       start.textContent = tr('chamando…');
-      status.textContent = this.catalog?.provider === 'omp' && !isAgyModel(member.model) ? tr('Abrindo o omp no host…') : tr('Chamando…');
+      status.textContent = this.catalog?.provider === 'omp' ? tr('Abrindo o omp no host…') : tr('chamando…');
     })() } });
     const back = h('button', { class: 'ui-btn', type: 'button', text: tr('Voltar'), on: { click: () => void this.open() } });
-    let available = jobs.available || isAgyModel(member.model);
+    let available = jobs.available;
     let calling = !!active(jobs.jobs, id);
     const sync = () => {
       segResume.disabled = !canResume;
@@ -165,13 +162,13 @@ export class CastScreen {
       if (!this.el.open || !this.content.contains(start)) return;
       const latest = await this.ctx.store.castJobs();
       if (!this.el.open || !this.content.contains(start)) return;
-      available = latest.available || isAgyModel(member.model);
+      available = latest.available;
       calling = !!active(latest.jobs, id);
       const failed = latest.jobs.filter((job) => job.cast === id && job.status === 'failed').at(-1);
       // Chegou: o personagem já está andando para a sala, a janela sai da frente.
       if (sent && !calling && latest.jobs.some((job) => job.cast === id && job.op === 'start' && job.status === 'done')) { this.el.close(); return; }
       start.textContent = calling ? tr('chamando…') : tr('Chamar');
-      status.textContent = !available ? (this.catalog?.provider === 'omp' ? HOST_OFF() : tr('Sem conexão com o Habblaud.')) : calling ? (this.catalog?.provider === 'omp' && !isAgyModel(member.model) ? tr('Abrindo o omp no host…') : tr('Chamando…')) : failed?.error ?? '';
+      status.textContent = !available ? (this.catalog?.provider === 'omp' ? HOST_OFF() : tr('Sem conexão com o Habblaud.')) : calling ? (this.catalog?.provider === 'omp' ? tr('Abrindo o omp no host…') : tr('chamando…')) : failed?.error ?? '';
       sync();
       setTimeout(() => void watch(), 2000);
     };
@@ -217,7 +214,7 @@ export class CastScreen {
     for (const type of this.recentTypes) suggestions.append(h('option', { attrs: { value: type } }));
     // Com a lista de modelos do omp: seletor agrupado como o da gaveta; sem ela (nenhuma sessão com a extensão), texto.
     const current = member?.model ?? '';
-    const known = [...this.knownModels, ...(!zeroclaw && !isNeutralBrand() ? this.catalog.agyModels ?? [] : [])];
+    const known = [...this.knownModels];
     let model: HTMLInputElement | HTMLSelectElement;
     let modelControl: HTMLElement;
     if (zeroclaw) {
@@ -300,7 +297,7 @@ export class CastScreen {
         error.textContent = tr('Este agente fixo não está disponível.'); return;
       }
       if (zeroclaw && !bound && !validCastModel(this.catalog, model.value)) { error.textContent = tr('Escolha o modelo'); return; }
-      const body = castBody({ name: name.value.trim(), look, seed, kind: kind.value as CastMember['kind'], parts: changedParts(base, fields.value), ...(kind.value === 'sub' ? { match: types } : {}), ...(kind.value === 'main' ? { ...(bound ? { agent: bound } : { ...(model.value ? { model: model.value } : {}), ...(instructions.value ? { instructions: instructions.value } : {}) }), idleMinutes: Number(idle.value), ...(!zeroclaw && account.value ? { account: account.value } : {}) } : {}) });
+      const body: Omit<CastMember, 'id'> = { name: name.value.trim(), look, seed, kind: kind.value as CastMember['kind'], parts: changedParts(base, fields.value), ...(kind.value === 'sub' ? { match: types } : {}), ...(kind.value === 'main' ? { ...(bound ? { agent: bound } : { ...(model.value ? { model: model.value } : {}), ...(instructions.value ? { instructions: instructions.value } : {}) }), idleMinutes: Number(idle.value), ...(!zeroclaw && account.value ? { account: account.value } : {}) } : {}) };
       save.disabled = binding.disabled = cancel.disabled = true;
       try {
         const failure = await this.ctx.store.saveCast(member ? { ...body, id: member.id } : body, member ? undefined : agent?.id);
@@ -327,14 +324,11 @@ export class CastScreen {
     const group = (title: string, ...children: HTMLElement[]) => h('section', { class: 'ui-set-group' }, h('h3', { text: title }), ...children);
     const modelField = field(tr('Modelo'), modelControl);
     const instructionsField = field(tr('Instruções'), instructions);
-    const accountField = field(tr('Conta'), account);
-    const agyHint = h('small', { class: 'ui-rename__hint', hidden: true });
-    if (!isNeutralBrand()) agyHint.textContent = tr('Este personagem roda no Antigravity (agy). As instruções vão junto da primeira mensagem.');
     const settings = new NamedCastSettings(member?.id, member?.agent, (busy) => {
       save.disabled = binding.disabled = cancel.disabled = busy;
     });
-    const execution = group(tr('Execução'), ...(named.length ? [field(tr('Agente fixo'), binding)] : []), modelField, agyHint, instructionsField,
-      field(tr('Ociosidade em minutos (0 = nunca)'), idle), ...(!zeroclaw ? [accountField] : []),
+    const execution = group(tr('Execução'), ...(named.length ? [field(tr('Agente fixo'), binding)] : []), modelField, instructionsField,
+      field(tr('Ociosidade em minutos (0 = nunca)'), idle), ...(!zeroclaw ? [field(tr('Conta'), account)] : []),
       ...(named.length ? [settings.el] : []));
     const syncBinding = () => {
       const bound = zeroclaw && !!binding.value;
@@ -351,17 +345,6 @@ export class CastScreen {
     };
     kind.addEventListener('change', syncKind);
     syncKind();
-    const syncModel = () => {
-      const agy = !zeroclaw && isAgyModel(model.value);
-      kind.disabled = agy;
-      if (agy) kind.value = 'main';
-      accountField.hidden = agy;
-      agyHint.hidden = !agy || isNeutralBrand();
-      syncKind();
-    };
-    model.addEventListener('change', syncModel);
-    model.addEventListener('input', syncModel);
-    syncModel();
     this.content.replaceChildren(h('div', { class: 'ui-cast__form' },
       group(tr('Identidade'), field(tr('Nome'), name), field(tr('Tipo'), kind),
         field(tr('Aparência'), lookSelect), fields.preview, roll, fields.groups),

@@ -38,7 +38,7 @@ import io.ktor.http.encodeURLPathPart
 
 private data class CastChoice(val id: String, val name: String, val avatar: Avatar?, val model: String? = null)
 internal data class CastModel(val alias: String, val model: String)
-internal data class CastModelCatalog(val runtime: String?, val models: List<CastModel>, val defaultModel: String?, val agy: Boolean = false) {
+internal data class CastModelCatalog(val runtime: String?, val models: List<CastModel>, val defaultModel: String?) {
     val canChoose: Boolean get() = runtime == "zeroclaw" && models.size > 1
 }
 internal fun parseCastModelCatalog(body: String): CastModelCatalog {
@@ -49,7 +49,7 @@ internal fun parseCastModelCatalog(body: String): CastModelCatalog {
         val model = entry.string("model")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
         CastModel(alias, model)
     } else emptyList()
-    return CastModelCatalog(runtime, models, catalog.string("defaultModel"), (catalog["agyModels"] as? JsonArray)?.isNotEmpty() == true)
+    return CastModelCatalog(runtime, models, catalog.string("defaultModel"))
 }
 internal fun preselectedCastModel(catalog: CastModelCatalog, characterModel: String?): String? =
     catalog.models.firstOrNull { it.alias == characterModel || it.model == characterModel }?.alias
@@ -60,10 +60,9 @@ internal fun newCastBody(catalog: CastModelCatalog, character: Boolean, model: S
     if (catalog.canChoose && model != null && catalog.models.any { it.alias == model }) put("model", model)
 }
 private val sessionIdPattern = Regex("^[0-9a-fA-F][0-9a-fA-F-]{7,199}$")
-internal fun canResumeCast(selected: SessionItem?, runtime: String?, agy: Boolean = false): Boolean =
+internal fun canResumeCast(selected: SessionItem?, runtime: String?): Boolean =
     selected != null && selected.agentId == null && supportsSessionControl(selected.key.provider) &&
-        (if (selected.key.provider == "antigravity") agy else selected.key.provider == runtime) &&
-        selected.key.sessionId.matches(sessionIdPattern) && selected.project?.startsWith('/') == true
+        selected.key.provider == runtime && selected.key.sessionId.matches(sessionIdPattern) && selected.project?.startsWith('/') == true
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -168,7 +167,7 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
     // Qualquer personagem livre pode continuar a conversa omp encerrada; o dono vem primeiro.
     val resumeChoices = free.sortedByDescending { it == current }
     // "Novo" também retoma: o ▶ não depende de haver personagem livre.
-    val resume = canResumeCast(selected, runtime, catalog.agy)
+    val resume = canResumeCast(selected, runtime)
     val dismiss = selected?.agentId != null && selected.castOpened && (current != null || newAgent)
     val actions: @Composable () -> Unit = {
         if (availability == "available" && resume) ActionIcon(Res.string.cast_resume, Icons.Default.PlayArrow, !sending) { choice = null; dialog = "resume-select" }

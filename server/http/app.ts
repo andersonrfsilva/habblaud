@@ -559,7 +559,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       let id: string;
       try { id = decodeURIComponent(castDismiss[1]); } catch { sendJson(res, 400, { error: tr('id inválido') }); return true; }
       const agent = office.get(id);
-      if (agent?.provider === 'antigravity' && deps.antigravity && !(agent.cast && deps.castLauncher?.isOpened(agent.cast))) {
+      if (agent?.provider === 'antigravity' && deps.antigravity) {
         if (method !== 'POST') methodNotAllowed(res, 'POST');
         else if (!deps.terminal || !trusted(req, 'terminal')) sendJson(res, 403, { error: denied(req, tr('o elenco só pode ser editado pelo próprio computador')) });
         else deps.antigravity.client.close(agent.sessionId).then(() => sendJson(res, 202, {})).catch(err => fail(res, err));

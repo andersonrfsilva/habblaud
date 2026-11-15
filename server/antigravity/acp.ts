@@ -1,5 +1,3 @@
-import { isAbsolute } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { connect } from 'node:net';
 import type { Duplex, Readable, Writable } from 'node:stream';
@@ -9,9 +7,9 @@ export function agyArgs(opts: { skipPermissions: boolean }): string[] {
   return opts.skipPermissions ? ['acp', '--dangerously-skip-permissions'] : ['acp'];
 }
 
-export interface SessionInfo { model?: string; models: string[]; modelOptions: { value: string; name: string }[]; tier?: string }
+export interface SessionInfo { model?: string; models: string[]; tier?: string }
 export type AcpEvent =
-  | { type: 'session-open'; sessionId: string; cwd: string; resumed: boolean; info: SessionInfo; replaces?: string; cast?: string }
+  | { type: 'session-open'; sessionId: string; cwd: string; resumed: boolean; info: SessionInfo; replaces?: string }
   | { type: 'session-close'; sessionId: string; reason: 'closed' | 'process-exit' }
   | { type: 'update'; sessionId: string; update: Record<string, unknown> }
   | { type: 'turn-state'; sessionId: string; busy: boolean; stopReason?: string }
@@ -19,9 +17,8 @@ export type AcpEvent =
   | { type: 'permission-gone'; sessionId: string; requestId: number | string }
   | { type: 'diagnostic'; message: string };
 export class AuthRequired extends Error {}
-export class UnknownModel extends Error {}
 
-type Session = { sessionId: string; cwd: string; busy: boolean; cast?: string; model?: string; turn?: Promise<unknown> };
+type Session = { sessionId: string; cwd: string; busy: boolean; turn?: Promise<unknown> };
 type Permission = Extract<AcpEvent, { type: 'permission' }>;
 type Pending = { resolve: (value: unknown) => void; reject: (error: Error) => void; timer?: NodeJS.Timeout };
 type Options = { bin: string; socket?: string; skipPermissions: boolean; version: string; env?: NodeJS.ProcessEnv; connect?: () => Duplex };
@@ -45,11 +42,11 @@ export class AntigravityClient {
     return () => this.listeners.delete(listener);
   }
   private emit(event: AcpEvent): void { for (const listener of this.listeners) listener(event); }
-  session(id: string): Omit<Session, 'turn'> | undefined {
+  session(id: string): { sessionId: string; cwd: string; busy: boolean } | undefined {
     const session = this.opened.get(id);
-    return session && { sessionId: id, cwd: session.cwd, busy: session.busy, cast: session.cast, model: session.model };
+    return session && { sessionId: id, cwd: session.cwd, busy: session.busy };
   }
-  sessions(): Omit<Session, 'turn'>[] { return [...this.opened.keys()].map(id => this.session(id)!); }
+  sessions(): { sessionId: string; cwd: string; busy: boolean }[] { return [...this.opened.keys()].map(id => this.session(id)!); }
 
   private ensure(): Promise<void> {
     if (this.ready) return this.ready;
@@ -157,57 +154,31 @@ export class AntigravityClient {
     this.pending.delete(message.id); clearTimeout(pending.timer);
     if (object(message.error)) {
       const text = typeof message.error.message === 'string' ? message.error.message : 'ACP error';
-      pending.reject(message.error.code === -32000 ? new AuthRequired(text) : message.error.code === -32602 ? new UnknownModel(text) : new Error(text));
+      pending.reject(message.error.code === -32000 ? new AuthRequired(text) : new Error(text));
     }
     else pending.resolve(message.result);
   }
-  async open(input: { cwd: string; resume?: string; replaces?: string; cast?: string; model?: string }): Promise<{ sessionId: string }> {
+  async open(input: { cwd: string; resume?: string; replaces?: string }): Promise<{ sessionId: string }> {
     await this.ensure();
     const result = await this.call(input.resume ? 'session/resume' : 'session/new', { cwd: input.cwd, mcpServers: [], ...(input.resume ? { sessionId: input.resume } : {}) });
     if (!object(result)) throw new Error('Invalid ACP session');
     const sessionId = result.sessionId;
     if (typeof sessionId !== 'string') throw new Error('Invalid ACP session');
-    let configured: unknown = result;
-    if (input.model !== undefined) {
-      try { configured = await this.call('session/set_config_option', { sessionId, configId: 'model', value: input.model }); }
-      catch (error) {
-        try { await this.call('session/close', { sessionId }); }
-        finally { if (!this.opened.size) this.stop(); }
-        throw error;
-      }
-    }
-    const configOptions = object(configured) && Array.isArray(configured.configOptions) ? configured.configOptions : [];
-    const config = configOptions.find(option => object(option) && option.id === 'model');
-    const modelOptions = object(config) && Array.isArray(config.options) ? config.options.flatMap(option =>
-      object(option) && typeof option.value === 'string' && typeof option.name === 'string'
-        ? [{ value: option.value, name: option.name }] : []) : [];
+    this.opened.set(sessionId, { sessionId, cwd: input.cwd, busy: false });
     const models = object(result.models) ? result.models : {};
-    const model = object(config) && typeof config.currentValue === 'string' ? config.currentValue
-      : typeof models.currentModelId === 'string' ? models.currentModelId : undefined;
+    const model = typeof models.currentModelId === 'string' ? models.currentModelId : undefined;
     const available = Array.isArray(models.availableModels) ? models.availableModels : [];
-    this.opened.set(sessionId, { sessionId, cwd: input.cwd, busy: false, cast: input.cast, model });
     const meta = object(result._meta) && object(result._meta.antigravity) ? result._meta.antigravity : {};
     const tier = object(meta.tier) && typeof meta.tier.name === 'string' ? meta.tier.name : undefined;
     this.emit({ type: 'session-open', sessionId, cwd: input.cwd, resumed: !!input.resume, ...(input.replaces !== undefined ? { replaces: input.replaces } : {}),
-      ...(input.cast !== undefined ? { cast: input.cast } : {}),
-      info: { model, models: available.flatMap(entry => object(entry) && typeof entry.modelId === 'string' ? [entry.modelId] : []), modelOptions, tier } });
+      info: { model, models: available.flatMap(entry => object(entry) && typeof entry.modelId === 'string' ? [entry.modelId] : []), tier } });
     return { sessionId };
   }
-  async setModel(sessionId: string, value: string): Promise<void> {
-    const session = this.opened.get(sessionId);
-    if (!session) throw new Error('ACP session unavailable');
-    await this.call('session/set_config_option', { sessionId, configId: 'model', value });
-    session.model = value;
-  }
-  async prompt(sessionId: string, text: string, links?: { path: string; name: string }[]): Promise<void> {
-    if (links?.some(link => !isAbsolute(link.path))) throw new Error('ACP resource path must be absolute');
+  async prompt(sessionId: string, text: string): Promise<void> {
     const session = this.opened.get(sessionId);
     if (!session || session.busy) throw new Error('ACP session unavailable');
     session.busy = true; this.emit({ type: 'turn-state', sessionId, busy: true });
-    session.turn = this.call('session/prompt', { sessionId, prompt: [
-      ...(links ?? []).map(link => ({ type: 'resource_link', uri: pathToFileURL(link.path).href, name: link.name, mimeType: 'text/markdown' })),
-      { type: 'text', text },
-    ] }, false).then(result => {
+    session.turn = this.call('session/prompt', { sessionId, prompt: [{ type: 'text', text }] }, false).then(result => {
       this.finishTurn(session, object(result) && typeof result.stopReason === 'string' ? result.stopReason : undefined);
     }, () => this.finishTurn(session));
     // Writes complete in order; this marker resolves only after the prompt write has completed.

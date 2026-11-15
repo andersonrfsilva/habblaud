@@ -69,7 +69,7 @@ export interface ZeroClawCastOptions {
   delivery(): Pick<ZeroClawDelivery, 'cancelSession' | 'stopSession'> | undefined;
   messages(): Pick<MessageRegistry, 'send'> | undefined;
   account(): string | undefined;
-  /** Pasta padrão para sessões novas sem sala explícita. */
+  /** Pasta pessoal do servidor: toda sessão nova abre nela. */
   home: string;
   ready(): boolean;
   afterOpen?(): Promise<void>;

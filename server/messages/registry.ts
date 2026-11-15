@@ -30,8 +30,6 @@ import type { IncomingMessage } from 'node:http';
 import { AttachmentStore, promptWithAttachments, type Attachment } from '../spawn/attachments';
 import { ZeroClawDelivery, ERR_ZEROCLAW_UNAVAILABLE, ERR_ZEROCLAW_CONTINUITY, ERR_ZEROCLAW_CONTROL, ERR_ZEROCLAW_ASIDE, ERR_ZEROCLAW_DELIVERY, ERR_ZEROCLAW_QUEUED } from './zeroclaw';
 import { ERR_ANTIGRAVITY_UNAVAILABLE, ERR_ANTIGRAVITY_CONTROL, ERR_ANTIGRAVITY_MODES, ERR_ANTIGRAVITY_DELIVERY, ERR_ANTIGRAVITY_QUEUED } from './antigravity';
-import type { HandoffStore } from '../cast/handoff';
-import { isAgyModel } from '../../shared/agy-model';
 
 /** Sessão que perguntou pela caixa de entrada há até este tempo: recebe mensagens (canMessage). */
 export const PRESENCE_MS = 10_000;
@@ -92,7 +90,6 @@ export interface PushDelivery {
   sendMessage(id: string, content: string): Promise<{ ok: true } | { ok: false; error: string }>;
   stopSession(id: string): Promise<void>;
   newSession(id: string, officeAgentId?: string): Promise<string>;
-  setModel?(id: string, model: string): Promise<void>;
 }
 
 export interface MessageRegistryOptions {
@@ -105,8 +102,6 @@ export interface MessageRegistryOptions {
   codex?: CodexDeliveryOptions;
   zeroclaw?: ZeroClawDelivery;
   antigravity?: PushDelivery;
-  handoff?: HandoffStore;
-  switchTool?(agent: AgentInfo, model: string): Promise<void>;
   attachments?: AttachmentStore;
   writeAttachments?: (files: readonly Attachment[]) => Promise<{ paths: string[] } | { error: string; status: number }>;
   now?: () => number;
@@ -145,8 +140,6 @@ interface Entry {
   msg: OutboxMessage;
   /** O texto como foi digitado; esvazia quando a mensagem se resolve. */
   text: string;
-  handoff?: { cast: string; path: string };
-  switching?: true;
   /** Atividade do feed quando a entrega se confirma (o começo do texto, mascarado e cortado). */
   activity?: ReturnType<typeof describeMessage>;
   /** Controle da sessão omp (modelo/raciocínio, /new, /shake, STOP, /resume): sem texto e sem atividade no feed. */
@@ -394,13 +387,6 @@ export class MessageRegistry {
     if ('error' in files) throw new InvalidRequest(files.error, files.attachmentsExpired);
 
     const entry = this.entry(agentId, agent.sessionId, { text, activity: describeMessage(text) });
-    if (agent.provider === 'omp' && agent.cast) {
-      const path = this.opts.handoff?.take(agent.cast);
-      if (path) {
-        entry.handoff = { cast: agent.cast, path };
-        entry.text += `\n\n${tr('Conversa anterior, feita em outra ferramenta (leia antes de responder):')}\n- ${path}`;
-      }
-    }
     if (agent.provider === 'omp' || agent.provider === 'zeroclaw' || agent.provider === 'antigravity') entry.msg.deliverAs = deliverAs ?? 'followUp';
     if (demo) entry.demo = true;
     else if (real?.provider === 'codex') entry.codex = true;
@@ -452,30 +438,12 @@ export class MessageRegistry {
   control(raw: unknown): SendResult {
     const input = rec(raw);
     const target = typeof input?.agentId === 'string' ? this.opts.office.get(input.agentId.trim()) : undefined;
-    if (target && (target.provider === 'omp' || target.provider === 'antigravity') && typeof input?.model === 'string'
-      && isAgyModel(input.model) !== (target.provider === 'antigravity')) {
-      const { agentId, expectedSessionId: expected, ...change } = parseControl(raw);
-      if (expected !== undefined && expected !== target.sessionId) return { error: 'unavailable', reason: ERR_SESSION_CHANGED, code: 'session_changed' };
-      if (Object.keys(change).length !== 1) throw new InvalidRequest(tr('troca de ferramenta aceita somente o modelo, sem combinações'));
-      if (!this.opts.switchTool) return { error: 'unavailable', reason: tr('troca de ferramenta indisponível neste Habblaud') };
-      if (this.openCount(agentId) >= MAX_OPEN) return { error: 'too-many' };
-      const entry = this.entry(agentId, target.sessionId, { text: '', control: change });
-      entry.switching = true;
-      this.messages.set(entry.msg.id, entry);
-      this.setStatus(entry, 'sent', this.now());
-      const out = { ...entry.msg };
-      void Promise.resolve().then(() => this.opts.switchTool!(target, change.model!)).then(
-        () => this.finish(entry, 'delivered', this.now()),
-        (error: unknown) => this.fail(entry, this.now(), errMsg(error)),
-      );
-      return { message: out };
-    }
     if (target?.provider === 'zeroclaw' || target?.provider === 'antigravity') {
       const expected = expectedSessionId(input!);
       if (expected !== undefined && expected !== target.sessionId) return { error: 'unavailable', reason: ERR_SESSION_CHANGED, code: 'session_changed' };
       const fields = ['stop', 'command', 'model', 'thinking', 'resume'].filter(key => input![key] !== undefined);
       for (const key of fields) parseControl({ agentId: input!.agentId, [key]: input![key] });
-      if (fields.length > 0 && (fields.length !== 1 || !(input!.stop === true || input!.command === 'new' || (target.provider === 'antigravity' && typeof input!.model === 'string' && isAgyModel(input!.model))))) return { error: 'unavailable', reason: target.provider === 'antigravity' ? ERR_ANTIGRAVITY_CONTROL : ERR_ZEROCLAW_CONTROL };
+      if (fields.length > 0 && (fields.length !== 1 || !(input!.stop === true || input!.command === 'new'))) return { error: 'unavailable', reason: target.provider === 'antigravity' ? ERR_ANTIGRAVITY_CONTROL : ERR_ZEROCLAW_CONTROL };
     }
     const { agentId, expectedSessionId: expectedTarget, ...change } = parseControl(raw);
     const real = this.opts.office.get(agentId);
@@ -484,11 +452,10 @@ export class MessageRegistry {
     if (!agent) return { error: 'not-found' };
     if (expectedTarget !== undefined && expectedTarget !== agent.sessionId) return { error: 'unavailable', reason: ERR_SESSION_CHANGED, code: 'session_changed' };
     if (agent.provider === 'zeroclaw' || agent.provider === 'antigravity') {
-      if (Object.keys(change).length !== 1 || !(change.stop === true || change.command === 'new' || (agent.provider === 'antigravity' && isAgyModel(change.model)))) return { error: 'unavailable', reason: agent.provider === 'antigravity' ? ERR_ANTIGRAVITY_CONTROL : ERR_ZEROCLAW_CONTROL };
+      if (Object.keys(change).length !== 1 || !(change.stop === true || change.command === 'new')) return { error: 'unavailable', reason: agent.provider === 'antigravity' ? ERR_ANTIGRAVITY_CONTROL : ERR_ZEROCLAW_CONTROL };
       const reason = this.zeroClawReason(agent, true);
       if (reason) return { error: 'unavailable', reason };
       if (this.openCount(agentId) >= MAX_OPEN) return { error: 'too-many' };
-      if (change.command === 'new' && agent.cast) this.opts.handoff?.forget(agent.cast);
       const entry = this.entry(agentId, agent.sessionId, { text: '', control: change });
       entry.zeroclaw = true;
       entry.pushProvider = agent.provider;
@@ -501,7 +468,6 @@ export class MessageRegistry {
     const reason = unavailableReason(agent, real ? this.canMessage(agentId) : false);
     if (reason) return { error: 'unavailable', reason };
     if (this.openCount(agentId) >= MAX_OPEN) return { error: 'too-many' };
-    if (change.command === 'new' && agent.cast) this.opts.handoff?.forget(agent.cast);
     const entry = this.entry(agentId, agent.sessionId, { text: '', control: change });
     this.messages.set(entry.msg.id, entry);
     return { message: { ...entry.msg } };
@@ -674,7 +640,6 @@ export class MessageRegistry {
         if (now - e.msg.updatedAt >= this.keepMs) this.messages.delete(id);
         continue;
       }
-      if (e.switching) continue;
       if (e.demo) {
         if (!present(this.opts.demoAgent?.(e.msg.agentId))) this.fail(e, now, ERR_GONE);
         else if (e.preparing && now - e.msg.createdAt >= this.queuedTimeoutMs) this.fail(e, now, ERR_NOT_FETCHED);
@@ -754,11 +719,10 @@ export class MessageRegistry {
       if (!e.control && (e.preparing || blocked.has(e.target))) { blocked.add(e.target); continue; }
       if (!delivery.available(e.target, !!e.control)) continue;
       if (!e.control && !steer && delivery.busy(e.target)) continue;
-      if (e.control?.model && delivery.busy(e.target)) continue;
       this.setStatus(e, 'sent', this.now());
       e.sentAt = this.now();
       const work = e.control
-        ? (e.control.model ? delivery.setModel!(e.target, e.control.model) : e.control.stop ? delivery.stopSession(e.target) : delivery.newSession(e.target, agent.id)).then(() => ({ ok: true as const }))
+        ? (e.control.stop ? delivery.stopSession(e.target) : delivery.newSession(e.target, agent.id)).then(() => ({ ok: true as const }))
         : delivery.sendMessage(e.target, e.text);
       void work.then(result => {
         if (e.msg.status !== 'sent') return;
@@ -766,8 +730,8 @@ export class MessageRegistry {
         else this.fail(e, this.now(), result.error);
         this.updateZeroClawPresence();
         this.pumpZeroClaw();
-      }, (error: unknown) => {
-        if (e.msg.status === 'sent') this.fail(e, this.now(), e.control?.model && error instanceof Error ? error.message : e.pushProvider === 'antigravity' ? ERR_ANTIGRAVITY_UNAVAILABLE : ERR_ZEROCLAW_UNAVAILABLE);
+      }, () => {
+        if (e.msg.status === 'sent') this.fail(e, this.now(), e.pushProvider === 'antigravity' ? ERR_ANTIGRAVITY_UNAVAILABLE : ERR_ZEROCLAW_UNAVAILABLE);
         this.updateZeroClawPresence();
         this.pumpZeroClaw();
       });
@@ -833,11 +797,6 @@ export class MessageRegistry {
   /** Resolve a mensagem: o texto não é mais necessário. */
   private finish(e: Entry, status: 'delivered' | 'failed', now: number): void {
     this.setStatus(e, status, now);
-    if (e.handoff) {
-      if (status === 'failed') this.opts.handoff?.restore(e.handoff.cast, e.handoff.path);
-      else delete e.handoff;
-      this.opts.office.markDirty();
-    }
     delete e.late;
     if (status === 'delivered') {
       delete e.msg.error;

@@ -32,7 +32,7 @@ vai para a tabela abaixo, com o motivo. Textos ficam em `android/shared/src/comm
 | Configurações, papéis, resumos por HTTP | sim | sim | |
 | Seletores de modelo: nomes normalizados, busca, OpenRouter por fabricante e preservação do modelo atual | sim | sim | sessão e papéis; datas e variantes distinguem rótulos sem alterar o ID escolhido |
 | ZeroClaw: controles permitidos, sem anel de contexto, elenco pelo runtime | sim | sim | |
-| Antigravity pelo ACP | sim (Android; iOS não compilado: só num Mac) | sim | Nos dois clientes: modelos `agy/…` no menu, confirmação ao trocar de ferramenta, aviso do contexto pendente, motivo de recusa vindo do servidor, STOP/conversa nova e retomada de conversa encerrada quando `agyModels` está disponível, independentemente do runtime da instalação. Raciocínio, shake, conversa paralela e modos de entrega não aparecem no Antigravity. Consome o contrato HTTP dos planos 079/083. Não houve teste em aparelho nem emulador; a validação é manual, do dono. |
+| Antigravity pelo ACP | parcial | parcial | As regras atuais de envio não filtram por ferramenta: `ReadingController.canSend` e `composer::can_send` usam `canMessage`, sessão selecionada e travas de acesso. `MessageController.messageDelivery` e `composer::deliver_as` não mandam modo de entrega para Antigravity. Assim, o agente pode receber texto quando anunciado pelo servidor. Faltam selo próprio, STOP/conversa nova e Novo agente com Antigravity; `supportsSessionControl` e `supports_session_control` aceitam apenas omp/ZeroClaw. Integração nativa adiada neste plano; não houve teste em aplicativo. |
 | Espera de `Retry-After` no login limitada a 24 h | sim | sim | |
 | Avisos de aprovação, pergunta e fim de turno | sim | sim | Android: serviço em segundo plano; desktop: só com o app aberto |
 | Ícone na bandeja | não se aplica | sim | |
@@ -40,9 +40,7 @@ vai para a tabela abaixo, com o motivo. Textos ficam em `android/shared/src/comm
 
 ## Verificação
 
-- Kotlin: `./gradlew :shared:testAndroidHostTest :app:testDebugUnitTest :app:lintDebug :app:assembleDebug`
-  no host. iOS não compilado: só num Mac. Não houve teste em aparelho nem emulador; a validação é manual, do dono.
-- Rust: `cargo clippy --workspace --all-targets -j 4 -- -D warnings`, `cargo test -p zaplaud-core -j 4`,
-  `cargo test -p zaplaud-store -j 4` e `cargo build --release -j 4`, em `zaplaud-rs/`.
-  Os testes de `zaplaud-ui` e os roteiros com display **não foram rodados**; a validação é manual, do dono.
+- Kotlin: `./gradlew :shared:testAndroidHostTest :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :shared:jvmTest`
+  e os instrumentados no emulador. iOS só compila num Mac.
+- Rust: `cargo test --workspace --locked` em `zaplaud-rs/` e os roteiros `zaplaud-rs/scripts/*-smoke.py`.
 - Os dois usam o mesmo servidor de teste, `scripts/android-smoke.ts`.

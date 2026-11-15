@@ -252,7 +252,6 @@ export interface AgentInfo {
   /** Membro do elenco vestido pelo agente, quando houver. */
   cast?: string;
   castOpened?: true;
-  handoff?: boolean;
   /** Tipo do subagente informado pela fonte, quando conhecido. */
   agentType?: string;
   /** Subagente rodando em segundo plano. */

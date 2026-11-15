@@ -29,7 +29,6 @@ Environment=HABBLAUD_OMP_BIN=%h/.local/bin/omp
 # O soquete entra pelo volume de estado já existente; o login e o binário ficam apenas no host.
 # Environment=HABBLAUD_ANTIGRAVITY=1
 # Environment=HABBLAUD_ANTIGRAVITY_SOCKET=%h/.habblaud/antigravity-acp.sock
-# Environment=HABBLAUD_CAST_FOLDER=%h/Desenvolvimento
 # Nada sai do computador: sem Habblaud World e sem a consulta de versão nova ao GitHub.
 Environment=HABBLAUD_WORLD=0 HABBLAUD_UPDATE_CHECK=0
 EnvironmentFile=%h/.habblaud/remote.env
