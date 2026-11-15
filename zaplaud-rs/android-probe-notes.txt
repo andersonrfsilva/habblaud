@@ -1,0 +1,93 @@
+Android feasibility spike; retained as an opt-in build path, with Android development frozen.
+
+Build isolation: run in an isolated repository worktree; keep build outputs inside it.
+Packaging: cargo-apk 0.10.0, arm64 only, NativeActivity, package br.com.xlinx.zaplaud.rsprobe.
+Profile: existing release (opt-level s, fat LTO, one codegen unit, abort, stripped).
+
+Obstacles and choices:
+- Slint 1.18.1 exposes backend-android-activity-06. android_main initializes that backend before constructing the same AppWindow.
+- Android backend hardcodes SkiaRenderer in androidwindowadapter.rs:183 and has an unconditional Android Skia dependency. renderer-software does not select Android's renderer. No backend fork or second APK claiming software rendering.
+- Desktop winit/X11/Wayland/accessibility features move to non-Android target dependencies; desktop renderer selection and fallback stay intact.
+- Single-instance Unix IPC is omitted on Android; the Android activity owns the process.
+- Notifications and raise-window behavior are no-ops on Android. Permission UI remains available in-app.
+- Tray already has a non-Linux no-op; retained unchanged.
+- Desktop window geometry persistence, focus and visibility hooks are no-ops on Android. Lifecycle-aware throttling is therefore not ported; this biases background CPU comparisons.
+- Native file picker returns cancellation on Android. Attachment selection is unavailable; existing attachment and network code remains.
+- Desktop keyring dependency is excluded from Android. Cookies persist as JSON inside the app-private files/data directory. This is a spike, not Android Keystore protection.
+- AndroidApp supplies internal_data_path; no unsafe environment mutation or guessed HOME paths.
+- Default Android startup does not register a fixture server. ZAPLAUD_PROBE_SERVER must be explicitly present to enable measurement bootstrap. Probe user/password default to public fixture credentials android-test. contract.rs uses the same API login. No pairing required.
+- ZAPLAUD_DEFAULT_SERVER optionally prepopulates only the Android login server field (for example http://<servidor>:4747). Username and password remain empty. The reproducible build below leaves both server variables unset.
+- build.rs still reads Kotlin resources directly from the worktree; Android source remains unchanged.
+- Fonts retain existing embedded symbols, monochrome fallback and Markdown font. Android uses the GPU-capable font policy.
+- cargo-apk does not accept -j; use CARGO_BUILD_JOBS=4.
+- Initial Android release compilation succeeded, but packaging refused release signing without an explicit key. Supply the key through the documented cargo-apk environment variables, not manifest metadata.
+- Host cargo check -p zaplaud-ui passed during the spike with existing Slint non-Window exported component warnings.
+
+Toolchain additions measured during the spike (apparent bytes):
+$ANDROID_HOME/ndk/29.0.14206865: 2494932203
+$HOME/.cargo/bin/cargo-apk: 4044720
+$HOME/.rustup/toolchains/1.96.1-x86_64-unknown-linux-gnu/lib/rustlib/aarch64-linux-android: 134041075
+
+Reproducible release build and signing (run in zaplaud-rs):
+env -u ZAPLAUD_DEFAULT_SERVER -u ZAPLAUD_PROBE_SERVER ANDROID_HOME="$HOME/Android/Sdk" ANDROID_NDK_ROOT="$HOME/Android/Sdk/ndk/29.0.14206865" CARGO_TARGET_DIR="$PWD/../target" CARGO_APK_RELEASE_KEYSTORE="$HOME/.android/debug.keystore" CARGO_APK_RELEASE_KEYSTORE_PASSWORD=android CARGO_BUILD_JOBS=4 cargo apk build -p zaplaud-ui --lib --release --target aarch64-linux-android
+Use --lib: building both the desktop binary and Android cdylib together fails with duplicate android_main under LTO. Explicit CARGO_TARGET_DIR reuses the worktree cache.
+cargo-apk 0.10.0 README and src/apk.rs document CARGO_APK_<PROFILE>_KEYSTORE and CARGO_APK_<PROFILE>_KEYSTORE_PASSWORD. Both are required for release signing; they override manifest signing metadata.
+This command uses the public Android debug key password android. It does not provide production signing. The debug keystore must already exist; cargo-apk does not generate it for release profiles.
+Output: ../target/release/apk/zaplaud-ui.apk. Release assertions are disabled.
+
+Install and launch (replace <serial> with the selected device serial):
+adb -s <serial> install -r ../target/release/apk/zaplaud-ui.apk
+If streaming installation fails, use a separate transfer and package-manager installation:
+adb -s <serial> push ../target/release/apk/zaplaud-ui.apk /data/local/tmp/zaplaud-ui.apk
+adb -s <serial> shell pm install -r /data/local/tmp/zaplaud-ui.apk
+adb -s <serial> shell am start -n br.com.xlinx.zaplaud.rsprobe/android.app.NativeActivity
+Expected clean launch: show login with empty server and credentials. Enter a server URL and credentials to authenticate, persist the cookie/server, and stream the session list.
+For a local public fixture, explicitly enable probe bootstrap when building and arrange device access to the fixture server. No real server or credential is needed for that test.
+
+Historical runtime findings:
+- Streaming install timed out at 120 s; nonstreaming install timed out at 180 s. Later push plus pm install succeeded.
+- Initial startup failed with "Zaplaud RS probe: lock() not supported".
+- Root cause: LocalStateStore::with_dirs calls std::fs::File::lock, unsupported on Android. Avatar cache had the same issue in both read and save.
+- Android now uses libc::flock(LOCK_EX), retrying EINTR and keeping file-owned lock lifetime. Desktop retains std::fs::File::lock unchanged.
+- Disabled Java desktop preference import from HOME on Android. Its parser is compiled only for desktop or tests.
+- Downloads use app-private data/Downloads instead of HOME/XDG. External links and open/reveal actions return Unsupported instead of spawning xdg-open.
+- Disabled /etc/mime.types lookup on Android (attachment selection remains stubbed).
+- Inventory across all three crates found no remaining ungated subprocess, single-instance or desktop data-directory calls on Android. Unix permission and O_NOFOLLOW operations remain supported POSIX calls; environment theme reads have safe defaults.
+
+Runtime minimum bar passed on Samsung M54, Android 16:
+- Initial APK: 11592042 bytes; lib/arm64-v8a/libzaplaud_ui.so: 25002120 bytes uncompressed, 11582204 bytes in ZIP.
+- After lock fixes, APK: 11571562 bytes; shared library: 24966456 bytes uncompressed, 11563604 bytes compressed.
+- Opened fixture session list; tap (420,580) opened Ana Fictícia transcript showing "Nova resposta fictícia."; tap (96,92) returned to session list.
+- Evidence screenshots in worktree root: shot.png, conversation.png, returned-list.png. Selected logs: runtime-logcat.log.
+- Selected logcat evidence: android-activity reported Activity creation; ViewRootImpl reported surfaceChanged W=1080, H=2400; BLASTBufferQueue reported first frame available.
+- No RustStdoutStderr startup error after flock fix.
+- Fonts, avatars, HTTP login, session SSE and transcript rendering worked visually.
+- Android 16 edge-to-edge status bar initially overlapped the app/conversation header. The later mobile geometry fix below supersedes that finding.
+- No resource measurement was performed.
+
+Manual-use follow-up (Samsung M35, 1080x2340):
+- app.slint gates mobile geometry with an Android-only Rust-set property. Slint 1.18.1 Window.safe-area-insets reserves system bars, and virtual-keyboard-position/size reduces the content viewport while IME is visible.
+- The backend's androidwindowadapter.rs implements safe_area_inset via JavaHelper.get_safe_area; javahelper.rs embeds classes.dex and loads it with InMemoryDexClassLoader. No separate Java activity or APK dex packaging change was necessary.
+- The Java helper uses a focusable SlintInputView and InputMethodManager.showSoftInput. IME appeared without a backend patch or windowSoftInputMode override.
+- Android Back maps to Key.Back, not Key.Escape. The shell routes Key.Back through its existing Escape navigation handling on Android.
+- Host cargo check -p zaplaud-ui passed after Android lock/OS gates. Existing exported non-Window Slint warnings remain.
+
+Device evidence (screenshots in worktree root):
+- keyboard-text.png: server field receives input text; Samsung IME visible. dumpsys input_method reported mImeWindowVis=3 and mInputShown=true.
+- composer-keyboard-before-delete.png and composer-keyboard-after-delete.png: input text reached composer, KEYCODE_DEL removed trailing x, composer and send button remained above keyboard.
+- final-login.png, fixture-list.png and conversation-before-scroll.png: header below status bar; composer above gesture navigation area.
+- Fixture login through UI reached seven-agent list using only public android-test credentials. URL letters/digits used input text; colons used taps on the Samsung symbol keyboard.
+- No additional device-pairing prompt was observed in this fixture run; no real server or credential was used.
+- Raw adb input text loses shifted punctuation/case in Slint's key-code mapping (colon becomes semicolon, uppercase becomes lowercase). Actual Samsung IME committed colons correctly. This remains a synthetic/hardware-keyboard limitation, not an on-screen keyboard blocker.
+- conversation-before-scroll.png and conversation-after-scroll.png: swipe changed visible history from steps 15/16 to 13/14. Two static frames prove movement, not frame pacing; stutter was not measured.
+- back-arrow-list.png and android-back-list.png: both header arrow and input keyevent 4 returned from Ana conversation to session list without closing activity.
+- conversation-menu.png: three-dot menu opened by touch; outside tap closed it.
+- Ana send returned HTTP 201 and queued status but the fixture's absent Claude consumer eventually produced delivery failure. No transcript echo is generated by that fixture path.
+- Used fixture-only zc-done command to finish Zelia's seeded in-progress turn. Typed teste-android-echo via input text and tapped Send. echo-message-sent.png shows the outgoing bubble in Zelia's transcript and the new working turn.
+- lifecycle-resumed.png: Home followed by am start restored the working conversation, including the outgoing bubble; no black screen. am start reported the current task brought to front.
+- runtime-login-logcat.log preserves selected final activity/Rust log output.
+- Historical installed APK: 11571562 bytes; sha256 fc3e0238818b062db70861769694aafd31430a53d6fd07c06fe2cfc44b2b4b0d. Signed with debug keystore; package and label unchanged.
+- After pm clear br.com.xlinx.zaplaud.rsprobe, clean launch displayed only the build-time default address. The reproducible build above intentionally omits that default.
+- The production app package was not modified during these tests. Foreground Android user must be unlocked for UI testing.
+
+Remaining spike limits: native attachment picker unavailable; external open/reveal actions unsupported; no Android notifications/tray; private JSON cookie storage rather than Android Keystore. TLS, process-death recovery, rotation and sustained frame pacing were not tested.

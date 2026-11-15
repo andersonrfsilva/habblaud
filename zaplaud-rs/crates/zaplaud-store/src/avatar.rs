@@ -47,7 +47,7 @@ impl AvatarDiskCache {
     }
     pub fn read(&self, key: &str) -> io::Result<Option<Vec<u8>>> {
         let lock = private_open(&self.directory.join(".lock"))?;
-        lock.lock()?;
+        crate::lock_file(&lock)?;
         let path = self.directory.join(storage_hash(key));
         let file = match fs::File::open(path) {
             Ok(file) => file,
@@ -74,7 +74,7 @@ impl AvatarDiskCache {
             return Ok(false);
         }
         let lock = private_open(&self.directory.join(".lock"))?;
-        lock.lock()?;
+        crate::lock_file(&lock)?;
         atomic_write(&self.directory.join(storage_hash(key)), bytes)?;
         self.prune()?;
         Ok(true)

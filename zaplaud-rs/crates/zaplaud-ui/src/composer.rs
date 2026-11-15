@@ -571,6 +571,12 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
         if let Some(job) = command_dismiss { job.abort(); }
     });
 }
+#[cfg(target_os = "android")]
+async fn pick_files() -> Result<Option<Vec<std::path::PathBuf>>, ()> {
+    Ok(None)
+}
+
+#[cfg(not(target_os = "android"))]
 async fn pick_files() -> Result<Option<Vec<std::path::PathBuf>>, ()> {
     #[cfg(target_os = "linux")]
     {
@@ -640,7 +646,10 @@ async fn select_attachments_async(
 fn select_attachments(uris: &[String], existing: &[Attachment]) -> Result<Vec<Attachment>, String> {
     let added = attachments::new_attachment_uris(uris, existing).map_err(str::to_owned)?;
     let mut selected = existing.to_vec();
+    #[cfg(not(target_os = "android"))]
     let mime_types = std::fs::read_to_string("/etc/mime.types").unwrap_or_default();
+    #[cfg(target_os = "android")]
+    let mime_types = String::new();
     let mime_types = mime_types
         .lines()
         .filter(|line| !line.starts_with('#'))

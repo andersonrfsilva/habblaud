@@ -210,13 +210,17 @@ impl LocalStateStore {
         store.locked(|| {
             let path = store.dirs.data.join("settings.json");
             if !path.exists() {
+                #[cfg(not(target_os = "android"))]
                 let prefs = std::env::var_os("HOME")
                     .map(PathBuf::from)
                     .map(|p| p.join(".java/.userPrefs/br/com/xlinx/zaplaud/prefs.xml"));
+                #[cfg(not(target_os = "android"))]
                 let settings = prefs
                     .and_then(|p| fs::read_to_string(p).ok())
                     .map(|s| import_preferences(&s))
                     .unwrap_or_default();
+                #[cfg(target_os = "android")]
+                let settings = Map::<String, Value>::new();
                 atomic_write(&path, &serde_json::to_vec(&settings)?)?;
             }
             Ok(())
@@ -228,7 +232,7 @@ impl LocalStateStore {
     }
     fn locked<T>(&self, f: impl FnOnce() -> Result<T>) -> Result<T> {
         let lock = private_open(&self.dirs.data.join(".state.lock"))?;
-        lock.lock()?;
+        crate::lock_file(&lock)?;
         f()
     }
     fn state<T>(
@@ -797,6 +801,7 @@ impl LocalStateStore {
         )
     }
 }
+#[cfg(any(not(target_os = "android"), test))]
 fn import_preferences(xml: &str) -> Map<String, Value> {
     let Ok(doc) = roxmltree::Document::parse_with_options(
         xml,

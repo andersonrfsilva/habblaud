@@ -30,3 +30,9 @@ ios/**/xcuserdata/
 # Artefatos do cliente Rust desktop
 zaplaud-rs/target/
 zaplaud-rs/scripts/__pycache__/
+
+# Isolated Android feasibility spike outputs
+/target/
+/host-target/
+/toolchain-target/
+/*.apk

@@ -4,6 +4,13 @@ use std::{cell::RefCell, rc::Rc};
 use zaplaud_core::api::UrlPolicy;
 
 pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
+    #[cfg(target_os = "android")]
+    {
+        window.set_android(true);
+        if let Some(server) = option_env!("ZAPLAUD_DEFAULT_SERVER") {
+            window.global::<LoginState>().set_server_url(server.into());
+        }
+    }
     let sender = &context.commands;
     let pending = Rc::new(RefCell::new(None::<String>));
     let submitted = pending.clone();

@@ -1,7 +1,13 @@
-use slint::{ComponentHandle, winit_030::WinitWindowAccessor};
+use slint::ComponentHandle;
+#[cfg(not(target_os = "android"))]
+use slint::winit_030::WinitWindowAccessor;
 use tokio::sync::mpsc;
 use zaplaud_core::error::Error;
 
+#[cfg(not(target_os = "android"))]
+pub mod alerts;
+#[cfg(target_os = "android")]
+#[path = "android_alerts.rs"]
 pub mod alerts;
 mod app;
 mod aside;
@@ -13,6 +19,7 @@ mod conversation;
 mod conversation_view;
 pub mod feature;
 mod files;
+#[cfg(not(target_os = "android"))]
 mod instance;
 mod list;
 mod login;
@@ -20,6 +27,10 @@ mod permission;
 mod settings;
 pub mod state;
 mod tray;
+#[cfg(not(target_os = "android"))]
+pub mod window_state;
+#[cfg(target_os = "android")]
+#[path = "android_window_state.rs"]
 pub mod window_state;
 
 pub use zaplaud_ui::conversation_rows::*;
@@ -104,6 +115,7 @@ fn labels(window: &AppWindow) {
     labels.set_back_sessions(strings::BACK_SESSIONS.into());
     labels.set_menu(strings::MENU.into());
 }
+#[cfg(not(target_os = "android"))]
 fn software_fallback(
     instance: instance::Instance,
     renderer: &str,
@@ -123,15 +135,19 @@ fn software_fallback(
     }
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(not(target_os = "android"))]
     let Some(instance) = instance::Instance::acquire(&instance::Instance::runtime_path()?)? else {
         return Ok(());
     };
+    #[cfg(not(target_os = "android"))]
     let renderer = std::env::var("SLINT_BACKEND")
         .ok()
         .and_then(|backend| backend.strip_prefix("winit-").map(str::to_owned))
         .or_else(|| std::env::var("ZAPLAUD_RENDERER").ok())
         .unwrap_or_else(|| "software".into());
     let create_window = || -> Result<AppWindow, Box<dyn std::error::Error>> {
+        #[cfg(not(target_os = "android"))]
+        {
         let selector = slint::BackendSelector::new()
             .backend_name("winit".into())
             .with_winit_window_attributes_hook(window_state::attributes);
@@ -142,6 +158,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
         selector.select()?;
         zaplaud_ui::emoji::setup(matches!(renderer.as_str(), "software" | "sw"))?;
+        }
+        #[cfg(target_os = "android")]
+        zaplaud_ui::emoji::setup(false)?;
         let window = AppWindow::new()?;
         labels(&window);
         clock::setup(&window);
@@ -153,11 +172,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let window = match create_window() {
         Ok(window) => window,
+        #[cfg(not(target_os = "android"))]
         Err(error) if !matches!(renderer.as_str(), "software" | "sw") => {
             return Err(software_fallback(instance, &renderer, &error));
         }
         Err(error) => return Err(error),
     };
+    #[cfg(not(target_os = "android"))]
     let initialization_failed = (!matches!(renderer.as_str(), "software" | "sw")).then(|| {
         let failed = std::rc::Rc::new(std::cell::Cell::new(false));
         let timed_out = failed.clone();
@@ -187,6 +208,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         snapshots: snapshots.clone(),
         runtime: runtime.handle().clone(),
     };
+    #[cfg(not(target_os = "android"))]
+    {
     instance.listener.set_nonblocking(true)?;
     let listener = instance.listener.try_clone()?;
     let weak = window.as_weak();
@@ -202,6 +225,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             update_ui(&weak, |window| alerts::raise(&window));
         }
     });
+    }
     for setup in FEATURES {
         setup(&window, &context);
     }
@@ -286,6 +310,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             result
         })?;
     let result = window.run();
+    #[cfg(not(target_os = "android"))]
+    {
     if initialization_failed.is_some_and(|failed| failed.get()) {
         return Err(software_fallback(
             instance,
@@ -300,12 +326,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Sem janela, o worker ainda pode aguardar callbacks do event loop que falhou.
         return Err(software_fallback(instance, &renderer, error));
     }
+    }
     let window_flush = window_state::flush();
     let _ = sender.send(state::Event::Shutdown);
     worker
         .join()
         .map_err(|_| std::io::Error::other(strings::NETWORK_ERROR))??;
     window_flush?;
+    #[cfg(not(target_os = "android"))]
     if let Err(error) = &result
         && !matches!(renderer.as_str(), "software" | "sw")
     {
@@ -313,6 +341,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     result?;
     Ok(())
+}
+
+#[cfg(target_os = "android")]
+#[allow(unsafe_code)]
+#[unsafe(no_mangle)]
+pub fn android_main(app: slint::android::AndroidApp) {
+    let result = (|| -> Result<(), Box<dyn std::error::Error>> {
+        let root = app.internal_data_path().ok_or("Android private files directory missing")?;
+        zaplaud_store::set_android_data_dir(root);
+        slint::android::init(app)?;
+        main()
+    })();
+    if let Err(error) = result {
+        eprintln!("Zaplaud RS probe: {error}");
+    }
 }
 #[cfg(test)]
 mod tests {

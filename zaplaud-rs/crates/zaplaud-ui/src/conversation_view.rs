@@ -665,6 +665,12 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
     });
 }
 
+#[cfg(target_os = "android")]
+pub(crate) fn open_system(_: &std::ffi::OsStr) -> std::io::Result<()> {
+    Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "External applications are unavailable in the Android probe"))
+}
+
+#[cfg(not(target_os = "android"))]
 pub(crate) fn open_system(target: &std::ffi::OsStr) -> std::io::Result<()> {
     let program = if cfg!(target_os = "macos") {
         "open"

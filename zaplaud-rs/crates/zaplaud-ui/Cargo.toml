@@ -11,6 +11,9 @@ build = "build.rs"
 name = "zaplaud"
 path = "src/main.rs"
 
+[lib]
+crate-type = ["rlib", "cdylib"]
+
 [features]
 default = []
 skia = ["slint/renderer-skia-opengl"]
@@ -25,8 +28,11 @@ serde_json.workspace = true
 url.workspace = true
 image = { version = "0.25", default-features = false, features = ["png"] }
 httpdate = "1"
-rfd = "0.17"
 futures-util.workspace = true
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+rfd = "0.17"
+slint = { workspace = true, features = ["backend-winit", "backend-winit-x11", "backend-winit-wayland", "accessibility", "unstable-winit-030"] }
 # Compartilha zbus 5 com Slint e ksni; 4.19 acrescenta uma terceira versão.
 notify-rust = { version = "~4.18", default-features = false, features = ["z"] }
 rustix = { version = "1", features = ["process"] }
@@ -36,6 +42,24 @@ libc = "0.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 ksni = { version = "0.3", default-features = false, features = ["async-io"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+slint = { workspace = true, features = ["backend-android-activity-06"] }
+
+[package.metadata.android]
+package = "br.com.xlinx.zaplaud.rsprobe"
+build_targets = ["aarch64-linux-android"]
+
+[package.metadata.android.sdk]
+min_sdk_version = 26
+target_sdk_version = 36
+
+[package.metadata.android.application]
+label = "Zaplaud RS probe"
+uses_cleartext_traffic = true
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.INTERNET"
 
 [build-dependencies]
 slint-build.workspace = true

@@ -170,6 +170,16 @@ pub async fn run(
     let mut seen_writes = HashMap::new();
     match state.persistence.call(|store| store.servers()).await {
         Ok(servers) => {
+            #[cfg(target_os = "android")]
+            if servers.is_empty()
+                && let Some(origin) = option_env!("ZAPLAUD_PROBE_SERVER")
+            {
+                let _ = sender.send(Event::Login {
+                    origin: origin.into(),
+                    user: option_env!("ZAPLAUD_PROBE_USER").unwrap_or("android-test").into(),
+                    password: option_env!("ZAPLAUD_PROBE_PASSWORD").unwrap_or("android-test").into(),
+                });
+            }
             for origin in servers {
                 if let Ok(api) = HabblaudApi::with_persistence(
                     &origin,

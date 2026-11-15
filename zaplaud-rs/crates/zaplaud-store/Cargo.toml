@@ -6,7 +6,6 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-keyring = { version = "3", default-features = false, features = ["apple-native", "async-secret-service", "async-io", "crypto-rust"] }
 png = "0.18"
 roxmltree.workspace = true
 serde_json.workspace = true
@@ -14,6 +13,12 @@ sha2 = "0.10"
 thiserror.workspace = true
 uuid = { version = "1", features = ["v4"] }
 zaplaud-core = { path = "../zaplaud-core" }
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+keyring = { version = "3", default-features = false, features = ["apple-native", "async-secret-service", "async-io", "crypto-rust"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+libc = "0.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Mesma versão e recursos que o keyring já usa; serve só para escolher uma coleção destrancada.

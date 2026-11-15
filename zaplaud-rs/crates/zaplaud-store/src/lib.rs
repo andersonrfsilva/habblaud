@@ -1,13 +1,46 @@
 //! Diretórios privados do desktop, compatíveis com DesktopDirs.kt.
 
-use std::{env, ffi::OsString, fs, io, path::PathBuf};
+use std::{fs, io, path::PathBuf};
+#[cfg(not(target_os = "android"))]
+use std::env;
+#[cfg(any(not(target_os = "android"), test))]
+use std::ffi::OsString;
 
 mod avatar;
+#[cfg(not(target_os = "android"))]
 mod cookies;
+#[cfg(target_os = "android")]
+#[path = "android_cookies.rs"]
+mod cookies;
+
+#[cfg(target_os = "android")]
+static ANDROID_DATA_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+#[cfg(target_os = "android")]
+pub fn set_android_data_dir(path: PathBuf) {
+    let _ = ANDROID_DATA_DIR.set(path);
+}
 mod state;
 pub use avatar::AvatarDiskCache;
 pub use cookies::{SecureSessionStorage, SessionPersistence};
 pub use state::{ConversationWrite, LocalStateStore, SessionMarks, StoreError, storage_hash};
+
+fn lock_file(file: &fs::File) -> io::Result<()> {
+    #[cfg(not(target_os = "android"))]
+    return file.lock();
+    #[cfg(target_os = "android")]
+    {
+        use std::os::fd::AsRawFd;
+        loop {
+            // Android não implementa File::lock; flock mantém o mesmo lock até fechar o descritor.
+            #[allow(unsafe_code)]
+            let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
+            if result == 0 { return Ok(()); }
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::Interrupted { return Err(error); }
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DesktopDirs {
@@ -18,6 +51,12 @@ pub struct DesktopDirs {
 impl DesktopDirs {
     /// Resolve e cria os diretórios. ZAPLAUD_DATA_DIR contém os filhos data e cache.
     pub fn resolve() -> io::Result<Self> {
+        #[cfg(target_os = "android")]
+        let directories = {
+            let root = ANDROID_DATA_DIR.get().ok_or_else(|| io::Error::other("Android data directory not initialized"))?;
+            DesktopDirs { data: root.join("data"), cache: root.join("cache") }
+        };
+        #[cfg(not(target_os = "android"))]
         let directories = resolve_with(cfg!(target_os = "macos"), |key| env::var_os(key))?;
         create_private(&directories.data)?;
         create_private(&directories.cache)?;
@@ -25,6 +64,7 @@ impl DesktopDirs {
     }
 }
 
+#[cfg(any(not(target_os = "android"), test))]
 fn resolve_with(macos: bool, get: impl Fn(&str) -> Option<OsString>) -> io::Result<DesktopDirs> {
     if let Some(root) = get("ZAPLAUD_DATA_DIR") {
         let root = PathBuf::from(root);

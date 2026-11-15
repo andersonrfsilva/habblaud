@@ -568,6 +568,12 @@ fn safe_name(name: &str) -> String {
         name.into()
     }
 }
+#[cfg(target_os = "android")]
+fn downloads_dir() -> std::io::Result<PathBuf> {
+    Ok(zaplaud_store::DesktopDirs::resolve()?.data.join("Downloads"))
+}
+
+#[cfg(not(target_os = "android"))]
 fn downloads_dir() -> std::io::Result<PathBuf> {
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
@@ -593,6 +599,7 @@ fn downloads_dir() -> std::io::Result<PathBuf> {
     Ok(home.join("Downloads"))
 }
 
+#[cfg(any(not(target_os = "android"), test))]
 fn parse_download_dir(value: &str, home: &Path) -> Option<PathBuf> {
     let value = value.strip_prefix('"')?.strip_suffix('"')?;
     let relative = value == "$HOME" || value.starts_with("$HOME/");

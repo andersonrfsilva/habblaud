@@ -48,6 +48,7 @@ export component AppWindow inherits Window {
     default-font-weight: 400;
     preferred-width: 1100px; preferred-height: 760px; min-width: 320px; min-height: 400px; background: Theme.background;
     out property <bool> wide: root.width >= 840px;
+    in property <bool> android: false;
     property <bool> clock-list-visible: !LoginState.visible && !SettingsState.visible && (root.wide || !ConversationState.selected);
     property <bool> clock-conversation-visible: !LoginState.visible && !SettingsState.visible && ConversationState.selected;
     changed clock-list-visible => { Clock.list-visible = self.clock-list-visible; }
@@ -63,6 +64,10 @@ export component AppWindow inherits Window {
     changed http-open => { if !self.http-open && LoginState.visible { keys.focus(); } }
     changed settings-open => { if !self.settings-open { keys.focus(); ListState.focus-request += 1; } }
     keys := FocusScope {
+        x: root.android ? root.safe-area-insets.left : 0px;
+        y: root.android ? root.safe-area-insets.top : 0px;
+        width: root.width - self.x - (root.android ? root.safe-area-insets.right : 0px);
+        height: (root.android && root.virtual-keyboard-size.height > 0px ? root.virtual-keyboard-position.y : root.height - (root.android ? root.safe-area-insets.bottom : 0px)) - self.y;
         enabled: !root.overlay-open;
         changed enabled => { if self.enabled { self.focus(); ListState.focus-request += 1; } }
         key-pressed(event) => {
@@ -72,7 +77,7 @@ export component AppWindow inherits Window {
             return reject;
         }
         key-released(event) => {
-            if event.text == Key.Escape {
+            if event.text == Key.Escape || (root.android && event.text == Key.Back) {
                 if LoginState.confirm-http { LoginState.cancel-http(); }
                 else if LoginState.visible && LoginState.can-cancel { LoginState.cancel(); }
                 else if SettingsState.visible { SettingsState.close(); }
