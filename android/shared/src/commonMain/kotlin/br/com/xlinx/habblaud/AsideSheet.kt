@@ -35,7 +35,7 @@ import com.mikepenz.markdown.m3.markdownColor
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun AsideSheet(asides: AsideController, onClose: () -> Unit) {
+internal fun AsideSheet(asides: AsideController, api: HabblaudApi, onClose: () -> Unit) {
     val state by asides.state.collectAsState()
     val topic = state.topic
     val turns = topic?.turns.orEmpty()
@@ -72,7 +72,7 @@ internal fun AsideSheet(asides: AsideController, onClose: () -> Unit) {
                     state.loading && state.topics.isEmpty() -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                     turns.isEmpty() -> Text(stringResource(Res.string.aside_empty), Modifier.align(Alignment.Center), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     else -> LazyColumn(Modifier.fillMaxSize().testTag("aside-turns"), state = list, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(turns, key = { it.id }) { AsideTurnView(it) }
+                        items(turns, key = { it.id }) { AsideTurnView(it, api) }
                     }
                 }
             }
@@ -126,13 +126,13 @@ private fun TopicPicker(state: AsideState, asides: AsideController) {
 }
 
 @Composable
-private fun AsideTurnView(turn: AsideTurn) {
+private fun AsideTurnView(turn: AsideTurn, api: HabblaudApi) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Surface(Modifier.align(Alignment.End).fillMaxWidth(0.85f), shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.primaryContainer) {
             SelectionContainer { Text(turn.question, Modifier.padding(12.dp), color = MaterialTheme.colorScheme.onPrimaryContainer) }
         }
         if (turn.answer.isNotEmpty()) SelectionContainer {
-            Markdown(turn.answer, modifier = Modifier.fillMaxWidth(), colors = markdownColor(text = MaterialTheme.colorScheme.onSurface), components = markdownComponents(image = {}))
+            Markdown(turn.answer, modifier = Modifier.fillMaxWidth(), colors = markdownColor(text = MaterialTheme.colorScheme.onSurface), dimens = chatMarkdownDimens(), components = markdownComponents(image = {}, codeFence = { MermaidCodeFence(it, api) }, table = wrappingTable))
         }
         val status = when (turn.status) {
             "queued" -> stringResource(Res.string.aside_queued)

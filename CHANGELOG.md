@@ -16,6 +16,12 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Diagramas Mermaid nos clientes Zaplaud.** Blocos ` ```mermaid ` (flowcharts, sequência e demais tipos) aparecem
+  desenhados num cartão claro. O desktop Rust desenha localmente; o app Kotlin usa a nova rota `POST /api/mermaid`
+  do servidor. Diagrama inválido ou ainda chegando continua como bloco de código. Tocar ou clicar no diagrama
+  abre tela cheia com fundo branco e arrasto: Android/iOS ampliam por pinça; desktop Rust usa botões e teclado
+  +/−, até 8×. Duplo toque/clique restaura o enquadramento; Fechar ou Esc sai no desktop.
+  Os clientes preservam respostas abertas e posição de leitura ao sair e voltar; rolar cancela a restauração.
 - **Pasta padrão do elenco.** `HABBLAUD_CAST_FOLDER` define onde abrem as conversas novas do omp e ZeroClaw
   (personagens e "Novo"); sem ela, continuam na pasta pessoal. Retomar segue na pasta da conversa.
 - **Entrada do fork nos quatro READMEs.** Identifica `andersonrfsilva/habblaud`, preserva os créditos do projeto
@@ -154,6 +160,11 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Zaplaud (Android e iOS):** tabelas nas mensagens não cortam mais o texto com reticências: a célula quebra em
+  várias linhas e a coluna ficou mais larga (180 dp). Tabela que não cabe na tela continua rolando na horizontal.
+- **Zaplaud:** resposta resumida que você abriu continua aberta até ser recolhida, mesmo ao sair e voltar da
+  conversa, e a posição de leitura volta ao mesmo trecho (ou ao fim, se você acompanhava o fim). Abrir e recolher
+  resumos e grupos mantém o cabeçalho tocado no lugar, sem saltos quando chegam entradas ou resumos novos.
 - **Elenco:** agente chamado como "Novo" (nome e visual sorteados) não perde mais o botão Dispensar ao trocar de
   pasta ou de sessão. O servidor apagava o id `novo-…` nessas trocas, e sem ele a sessão deixava de contar como
   aberta pelo Habblaud.

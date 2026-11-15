@@ -149,7 +149,7 @@ actual class LocalStateStore(private val context: Context) : MessageStore {
     // Uma gravação por vez: as do fechamento da tela e as adiadas usam o mesmo `.tmp` e não podem se cruzar.
     internal actual var beforeConversationWrite: suspend () -> Unit = {}
     internal actual var afterConversationWrite: () -> Unit = {}
-    internal actual suspend fun setConversation(key: SessionKey, entries: List<TerminalEntry>, truncated: Boolean, write: ConversationWrite, summaries: Map<String, String>) {
+    internal actual suspend fun setConversation(key: SessionKey, entries: List<TerminalEntry>, truncated: Boolean, write: ConversationWrite, summaries: Map<String, String>, reading: ConversationReading) {
         try {
             beforeConversationWrite()
             coordinator.lock.withLock {
@@ -162,7 +162,7 @@ actual class LocalStateStore(private val context: Context) : MessageStore {
                         val file = conversationFile(key, data[cacheGenerationKey])
                         file.parentFile!!.mkdirs()
                         val tmp = java.io.File(file.parentFile, "${file.name}.tmp")
-                        tmp.writeText(encodeConversation(entries, truncated, summaries))
+                        tmp.writeText(encodeConversation(entries, truncated, summaries, reading))
                         check(tmp.renameTo(file))
                         coordinator.written[key] = write.sequence
                     }

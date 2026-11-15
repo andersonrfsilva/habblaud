@@ -1,0 +1,60 @@
+import { TextButton } from "../widgets/kit.slint";
+import { FilesState } from "../files.slint";
+
+export global DiagramState {
+    in-out property <image> diagram;
+    in-out property <bool> visible;
+    public function open(image: image) { self.diagram = image; self.visible = true; }
+}
+
+export component DiagramFullscreen inherits Rectangle {
+    background: white;
+    clip: true;
+    property <float> zoom: 1;
+    property <length> pan-x;
+    property <length> pan-y;
+    property <length> start-x;
+    property <length> start-y;
+    property <length> fit-width: min(root.width - 32px, (root.height - 72px) * DiagramState.diagram.width / max(1, DiagramState.diagram.height));
+    function reset() { root.zoom = 1; root.pan-x = 0px; root.pan-y = 0px; }
+    init => { keys.focus(); }
+    forward-focus: keys;
+    keys := FocusScope {
+        key-pressed(event) => {
+            if event.text == "+" || event.text == "=" { root.zoom = min(8, root.zoom * 1.25); return accept; }
+            if event.text == "-" { root.zoom = max(1, root.zoom / 1.25); return accept; }
+            if event.text == "0" { root.reset(); return accept; }
+            return reject;
+        }
+        key-released(event) => {
+            if event.text == Key.Escape { DiagramState.visible = false; return accept; }
+            return reject;
+        }
+        Image {
+            source: DiagramState.diagram;
+            width: root.fit-width * root.zoom;
+            height: self.width * DiagramState.diagram.height / max(1, DiagramState.diagram.width);
+            x: (root.width - self.width) / 2 + root.pan-x;
+            y: 48px + (root.height - 48px - self.height) / 2 + root.pan-y;
+            image-fit: contain;
+        }
+        drag := TouchArea {
+            pointer-event(event) => {
+                if event.kind == PointerEventKind.down { keys.focus(); root.start-x = root.pan-x; root.start-y = root.pan-y; }
+            }
+            moved => {
+                if self.pressed { root.pan-x = root.start-x + self.mouse-x - self.pressed-x; root.pan-y = root.start-y + self.mouse-y - self.pressed-y; }
+            }
+            double-clicked => { root.reset(); }
+        }
+        Rectangle { x: 0px; y: 0px; width: root.width; height: 48px; background: white; }
+        HorizontalLayout {
+            x: 8px; y: 4px; height: 40px; width: root.width - 16px; spacing: 8px;
+            TextButton { horizontal-stretch: 0; min-width: 48px; text: "−"; foreground: #202020; clicked => { root.zoom = max(1, root.zoom / 1.25); } }
+            TextButton { horizontal-stretch: 0; min-width: 64px; text: round(root.zoom * 100) + "%"; foreground: #202020; clicked => { root.reset(); } }
+            TextButton { horizontal-stretch: 0; min-width: 48px; text: "+"; foreground: #202020; clicked => { root.zoom = min(8, root.zoom * 1.25); } }
+            Rectangle {}
+            TextButton { horizontal-stretch: 0; text: FilesState.close-label; foreground: #202020; clicked => { DiagramState.visible = false; } }
+        }
+    }
+}

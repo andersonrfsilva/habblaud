@@ -33,7 +33,18 @@ val VIEWS = listOf("all", "prompts", "no_tools")
 val THEMES = listOf("system", "light", "dark")
 
 
-data class CachedConversation(val entries: List<TerminalEntry>, val truncated: Boolean, val summaries: Map<String, String> = emptyMap())
+data class ReadingPosition(val entryId: String? = null, val offset: Int = 0, val following: Boolean = true)
+data class ConversationReading(val expanded: Set<String> = emptySet(), val position: ReadingPosition = ReadingPosition()) {
+    fun expand(id: String, open: Boolean): ConversationReading =
+        copy(expanded = (expanded - id).let { if (open) (it + id).toList().takeLast(500).toSet() else it })
+}
+
+/** O índice é resolvido só depois de carregar a conversa; entradas novas não mudam a âncora. */
+internal fun readingIndex(ids: List<String>, position: ReadingPosition): Int? =
+    if (position.following) 0.takeIf { ids.isNotEmpty() }
+    else ids.indexOf(position.entryId).takeIf { it >= 0 }
+
+data class CachedConversation(val entries: List<TerminalEntry>, val truncated: Boolean, val summaries: Map<String, String> = emptyMap(), val reading: ConversationReading = ConversationReading())
 
 /** Chave do resumo de uma entrada: o id e o texto (uma entrada reescrita pede outro resumo). */
 internal fun summaryKey(entry: TerminalEntry): String = "${entry.id}:${entry.text.hashCode()}"
@@ -42,7 +53,7 @@ internal fun summaryKey(entry: TerminalEntry): String = "${entry.id}:${entry.tex
  * Guarda as últimas 500 entradas (a janela do `init` do servidor): o arquivo não cresce sem limite. Os resumos vão
  * junto, só os das entradas que ficaram.
  */
-internal fun encodeConversation(entries: List<TerminalEntry>, truncated: Boolean, summaries: Map<String, String> = emptyMap()): String = buildJsonObject {
+internal fun encodeConversation(entries: List<TerminalEntry>, truncated: Boolean, summaries: Map<String, String> = emptyMap(), reading: ConversationReading = ConversationReading()): String = buildJsonObject {
     val kept = entries.takeLast(500)
     put("truncated", truncated || entries.size > 500)
     put("entries", buildJsonArray {
@@ -57,12 +68,25 @@ internal fun encodeConversation(entries: List<TerminalEntry>, truncated: Boolean
     if (summaries.isNotEmpty()) put("summaries", buildJsonObject {
         kept.forEach { e -> val key = summaryKey(e); summaries[key]?.let { put(key, it) } }
     })
+    put("expanded", buildJsonArray { reading.expanded.toList().takeLast(500).forEach { add(it) } })
+    put("position", buildJsonObject {
+        reading.position.entryId?.let { put("entryId", it) }
+        put("offset", reading.position.offset)
+        put("following", reading.position.following)
+    })
 }.toString()
 
 internal fun decodeConversation(text: String): CachedConversation {
     val root = wireJson.parseToJsonElement(text).jsonObject
     val summaries = (root["summaries"] as? JsonObject)?.mapNotNull { (key, value) -> (value as? JsonPrimitive)?.takeIf { it.isString }?.let { key to it.content } }?.toMap().orEmpty()
-    return CachedConversation(root.objects("entries").mapNotNull(TerminalEntry::parse), root.flag("truncated"), summaries)
+    val expanded = (root["expanded"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.takeIf { it.isString }?.content }.takeLast(500).toSet()
+    val position = root["position"] as? JsonObject
+    val anchor = ReadingPosition(
+        (position?.get("entryId") as? JsonPrimitive)?.contentOrNull,
+        ((position?.get("offset") as? JsonPrimitive)?.intOrNull ?: 0).coerceAtLeast(0),
+        (position?.get("following") as? JsonPrimitive)?.booleanOrNull ?: true,
+    )
+    return CachedConversation(root.objects("entries").mapNotNull(TerminalEntry::parse), root.flag("truncated"), summaries, ConversationReading(expanded, anchor))
 }
 
 expect class LocalStateStore() : MessageStore {
@@ -77,7 +101,7 @@ expect class LocalStateStore() : MessageStore {
     suspend fun conversation(key: SessionKey): CachedConversation?
     internal var beforeConversationWrite: suspend () -> Unit
     internal var afterConversationWrite: () -> Unit
-    internal suspend fun setConversation(key: SessionKey, entries: List<TerminalEntry>, truncated: Boolean, write: ConversationWrite, summaries: Map<String, String> = emptyMap())
+    internal suspend fun setConversation(key: SessionKey, entries: List<TerminalEntry>, truncated: Boolean, write: ConversationWrite, summaries: Map<String, String> = emptyMap(), reading: ConversationReading = ConversationReading())
     suspend fun retryUntil(origin: String): Long
     suspend fun setRetryUntil(origin: String, until: Long)
     suspend fun servers(): List<String>

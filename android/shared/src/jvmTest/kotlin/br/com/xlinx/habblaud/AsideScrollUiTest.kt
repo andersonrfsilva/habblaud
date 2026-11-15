@@ -4,6 +4,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.*
 import androidx.compose.ui.semantics.SemanticsProperties
 import br.com.xlinx.habblaud.data.AsideController
+import br.com.xlinx.habblaud.data.HabblaudApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -21,6 +22,7 @@ class AsideScrollUiTest {
     @Test fun growingAnswerDoesNotMoveReaderAwayFromOlderTurns() = runDesktopComposeUiTest(width = 1000, height = 800) {
         val generation = AtomicInteger(0)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val api = HabblaudApi("http://127.0.0.1:1")
         val controller = AsideController({ _, _ ->
             val turns = (0..29).joinToString(",") { index ->
                 val answer = if (index == 29) "resposta ${"nova ".repeat(generation.get())}" else "resposta antiga $index"
@@ -30,7 +32,7 @@ class AsideScrollUiTest {
         }, scope, {})
         try {
             controller.open("agent")
-            setContent { MaterialTheme { AsideSheet(controller) {} } }
+            setContent { MaterialTheme { AsideSheet(controller, api) {} } }
             waitUntil(timeoutMillis = 15_000) { onAllNodesWithTag("aside-turns").fetchSemanticsNodes().isNotEmpty() }
             waitForIdle()
             onNodeWithTag("aside-turns").performScrollToIndex(10)
@@ -48,6 +50,7 @@ class AsideScrollUiTest {
         } finally {
             controller.close()
             scope.cancel()
+            api.close()
         }
     }
 }

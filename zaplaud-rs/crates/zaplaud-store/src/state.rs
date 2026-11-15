@@ -29,6 +29,32 @@ pub struct SessionMarks {
     pub pinned: bool,
     pub favorite: bool,
 }
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReadingState {
+    pub expanded: Vec<String>,
+    pub following: bool,
+    pub entry: String,
+    pub row: String,
+    pub offset: f32,
+}
+impl Default for ReadingState {
+    fn default() -> Self {
+        Self { expanded: Vec::new(), following: true, entry: String::new(), row: String::new(), offset: 0.0 }
+    }
+}
+impl ReadingState {
+    pub fn toggle(&mut self, id: String) {
+        if let Some(index) = self.expanded.iter().position(|entry| entry == &id) {
+            self.expanded.remove(index);
+        } else {
+            self.expanded.push(id);
+            if self.expanded.len() > 512 {
+                self.expanded.remove(0);
+            }
+        }
+    }
+}
 #[derive(Clone, Debug)]
 pub struct ConversationWrite {
     pub origin: String,
@@ -465,6 +491,35 @@ impl LocalStateStore {
     pub fn set_session_view(&self, key: &SessionKey, view: &str) -> Result<()> {
         self.set_session_setting(key, "view_", view, &VIEWS)
     }
+    pub fn reading_state(&self, key: &SessionKey) -> Result<ReadingState> {
+        self.state(|data| {
+            let value = data.get(&hash("reading_", key)?);
+            let mut state = ReadingState::default();
+            if let Some(value) = value {
+                state.expanded = value.get("expanded").and_then(Value::as_array)
+                    .map(|ids| ids.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+                    .unwrap_or_default();
+                let excess = state.expanded.len().saturating_sub(512);
+                state.expanded.drain(..excess);
+                state.following = value.get("following").and_then(Value::as_bool).unwrap_or(true);
+                state.entry = text(value, "entry").unwrap_or_default();
+                state.row = text(value, "row").unwrap_or_default();
+                state.offset = value.get("offset").and_then(Value::as_f64).unwrap_or_default() as f32;
+            }
+            Ok(state)
+        }, false)
+    }
+    pub fn set_reading_state(&self, key: &SessionKey, state: &ReadingState) -> Result<()> {
+        self.state(|data| {
+            require(data, &key.origin)?;
+            let expanded = &state.expanded[state.expanded.len().saturating_sub(512)..];
+            data.insert(hash("reading_", key)?, json!({
+                "expanded": expanded, "following": state.following,
+                "entry": state.entry, "row": state.row, "offset": state.offset,
+            }));
+            Ok(())
+        }, true)
+    }
     pub fn session_deliver_as(&self, key: &SessionKey) -> Result<String> {
         self.session_setting(key, "deliver_", &DELIVER_MODES, || self.deliver_as())
     }
@@ -739,7 +794,7 @@ impl LocalStateStore {
                 );
                 let t = tag(origin);
                 d.retain(|k, _| {
-                    !(["message_", "view_", "deliver_", "marks_"]
+                    !(["message_", "view_", "deliver_", "marks_", "reading_"]
                         .iter()
                         .any(|p| k.starts_with(&format!("{p}{t}_")))
                         || k == &format!("seen_replies_{t}"))

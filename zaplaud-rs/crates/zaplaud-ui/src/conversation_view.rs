@@ -19,7 +19,7 @@ use zaplaud_core::{
     rules::conversation::{self, SummaryEffect, SummaryEvent, SummaryState},
     rules::time,
 };
-use zaplaud_store::LocalStateStore;
+use zaplaud_store::{LocalStateStore, ReadingState};
 
 use zaplaud_ui::conversation_rows::{RenderRow, build_rows};
 enum Command {
@@ -27,6 +27,7 @@ enum Command {
     Toggle(String),
     Observe(String),
     Position(bool),
+    Anchor(String, String, f32, bool),
     Metadata(Box<SessionItem>),
     Preferences,
     ModelQuery,
@@ -79,6 +80,7 @@ struct SessionRun {
     view: String,
     enabled: bool,
     expanded: HashSet<String>,
+    reading: ReadingState,
     summaries: BTreeMap<String, SummaryState>,
     following: bool,
     new_count: usize,
@@ -91,6 +93,9 @@ impl Drop for SessionRun {
 }
 impl SessionRun {
     fn save(&self) {
+        if let Some(item) = self.controller.selected.as_ref() {
+            let _ = self.store.set_reading_state(&item.key, &self.reading);
+        }
         if !self.controller.cache_ready() {
             return;
         }
@@ -152,8 +157,8 @@ impl SessionRun {
         let count = self.new_count.min(i32::MAX as usize) as i32;
         let item = self.controller.selected.clone();
         let partial = self.controller.conversation.truncated;
+        let reading = self.reading.clone();
         update_ui(weak, move |window| {
-            set_rows(&window, rows, reset);
             let state = window.global::<ConversationViewState>();
             state.set_notice(notice.into());
             state.set_reduced(reduced.into());
@@ -161,9 +166,26 @@ impl SessionRun {
             state.set_view(view.into());
             state.set_new_count(count);
             if reset {
-                state.set_following(true);
-                state.set_end_request(state.get_end_request().wrapping_add(1));
+                state.set_restore_pending(!reading.following && !reading.entry.is_empty());
+                state.set_anchor_ticks(46);
+                state.set_stable_ticks(0);
+                state.set_measured_height(-1.);
+                state.set_following(reading.following);
+                state.set_capture_pending(false);
+                state.set_scan_index(-1);
+                state.set_anchor_index(-1);
+                state.set_anchor_entry(reading.entry.into());
+                state.set_anchor_row(reading.row.into());
+                state.set_anchor_offset(reading.offset);
+                if reading.following {
+                    state.set_end_request(state.get_end_request().wrapping_add(1));
+                }
             }
+            let anchor = state.get_anchor_row();
+            let entry = state.get_anchor_entry();
+            let index = zaplaud_ui::conversation_rows::anchor_index(&rows, &entry, &anchor);
+            set_rows(&window, rows, reset);
+            state.set_anchor_index(index.map_or(-1, |index| index as i32));
             if let Some(item) = item {
                 publish_info(&window, &item, &entries, partial);
             }
@@ -399,15 +421,17 @@ async fn run_session(
         .session_view(&item.key)
         .unwrap_or_else(|_| "all".into());
     let enabled = store.summarize().unwrap_or(false);
+    let reading = store.reading_state(&item.key).unwrap_or_default();
     let mut run = SessionRun {
         controller: ConversationController::default(),
         store,
         epoch,
         view,
         enabled,
-        expanded: HashSet::new(),
+        expanded: reading.expanded.iter().cloned().collect(),
+        reading: reading.clone(),
         summaries: BTreeMap::new(),
-        following: true,
+        following: reading.following,
         new_count: 0,
         last_visible: None,
     };
@@ -433,7 +457,12 @@ async fn run_session(
                         if run.store.set_session_view(&item.key,view).is_err() { update_ui(&weak,|w| w.global::<ConversationViewState>().set_notice(strings::STORAGE_ERROR.into())); }
                         run.render(&weak,false);
                     },
-                    Some(Command::Toggle(id)) => { if !run.expanded.remove(&id) { run.expanded.insert(id); } run.render(&weak,false); }
+                    Some(Command::Toggle(id)) => {
+                        run.reading.toggle(id);
+                        run.expanded = run.reading.expanded.iter().cloned().collect();
+                        run.save();
+                        run.render(&weak,false);
+                    }
                     Some(Command::Observe(id)) => {
                         let entry = run.controller.conversation.snapshot().find(|entry| entry.id == id).cloned();
                         if let Some(entry) = entry
@@ -448,7 +477,20 @@ async fn run_session(
                             }
                         }
                     }
-                    Some(Command::Position(following)) => { run.following = following; if following && run.new_count != 0 { run.new_count = 0; run.render(&weak,false); } }
+                    Some(Command::Position(following)) => {
+                        run.following = following;
+                        run.reading.following = following;
+                        save_at = Some(tokio::time::Instant::now()+Duration::from_secs(1));
+                        if following && run.new_count != 0 { run.new_count = 0; run.render(&weak,false); }
+                    }
+                    Some(Command::Anchor(entry,row,offset,following)) => {
+                        run.reading.entry = entry;
+                        run.reading.row = row;
+                        run.reading.offset = offset;
+                        run.reading.following = following;
+                        run.following = following;
+                        save_at = Some(tokio::time::Instant::now()+Duration::from_secs(1));
+                    }
                     Some(Command::Preferences) => {
                         run.enabled = run.store.summarize().unwrap_or(false);
                         run.view = run.store.session_view(&item.key).unwrap_or_else(|_| "all".into());
@@ -459,7 +501,7 @@ async fn run_session(
                         let changed = run.controller.selected.as_ref() != Some(item.as_ref());
                         run.controller.selected = Some(*item);
                         let enabled = run.store.summarize().unwrap_or(false);
-                        if run.enabled != enabled { run.enabled = enabled; run.render(&weak,true); }
+                        if run.enabled != enabled { run.enabled = enabled; run.render(&weak,false); }
                         else if changed {
                             let item = run.controller.selected.clone();
                             let entries = run.controller.entries();
@@ -602,6 +644,16 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
     state.on_model_query_changed(move |_| {
         let _ = send.send(Command::ModelQuery);
     });
+    let send = sender.clone();
+    let weak = window.as_weak();
+    state.on_reading_position(move |entry, row, offset, following| {
+        if let Some(window) = weak.upgrade() {
+            let state = window.global::<ConversationViewState>();
+            let index = state.get_rows().iter().position(|candidate| candidate.id == row);
+            state.set_anchor_index(index.map_or(-1, |index| index as i32));
+        }
+        let _ = send.send(Command::Anchor(entry.into(), row.into(), offset, following));
+    });
     let weak = window.as_weak();
     let commands = context.commands.clone();
     state.on_position(move |following| {
@@ -735,12 +787,23 @@ mod tests {
             view: "all".into(),
             enabled: false,
             expanded: HashSet::new(),
+            reading: ReadingState {
+                expanded: vec!["first".into()],
+                following: false,
+                entry: "first".into(),
+                row: "first".into(),
+                offset: -42.0,
+            },
             summaries: BTreeMap::new(),
             following: true,
             new_count: 0,
             last_visible: None,
         };
         drop(run);
+        let reading = store.reading_state(&item.key).unwrap();
+        assert_eq!(reading.expanded, vec!["first"]);
+        assert!(!reading.following);
+        assert_eq!(reading.offset, -42.0);
         let cache = store.conversation(&item.key).unwrap().unwrap();
         assert_eq!(cache.entries[0].text, "persisted");
         let mut reopened = ConversationController::default();

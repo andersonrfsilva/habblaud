@@ -29,6 +29,7 @@ url.workspace = true
 image = { version = "0.25", default-features = false, features = ["png"] }
 httpdate = "1"
 futures-util.workspace = true
+mermaid-rs-renderer = { version = "0.3.1", default-features = false }
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
 rfd = "0.17"

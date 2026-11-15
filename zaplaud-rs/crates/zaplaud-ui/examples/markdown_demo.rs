@@ -6,7 +6,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "../../zaplaud-core/tests/fixtures/conversation-init.json"
     ))?;
     let mut documents = vec![format!(
-        "# Título h1\n\n## Título h2\n\n### Título h3\n\n#### Título h4\n\n##### Título h5\n\n###### Título h6\n\nTexto **forte**, *itálico*, ~~riscado~~ e `código inline`, [abrir link](https://example.com).\n\n> Uma citação com **estilo**.\n\n1. Primeiro\n   - Filho\n     - Neto\n2. Segundo\n\n- [ ] Pendente\n- [x] Concluído\n\n---\n\n```rust\nlet exemplo = \"{}\";\n```\n\n| A | B | C | D | E | F |\n| :-- | :-: | --: | -- | -- | -- |\n| esquerda | centro | direita | **forte** | `código` | [link](https://example.com) |\n\n![Imagem desabilitada](https://example.com/image.png)\n\n<b>HTML literal</b>",
+        "# Título h1\n\n```mermaid\nflowchart LR\n  A[Pedido] --> B{{Válido?}}\n  B -->|sim| C[Processar]\n  B -->|não| D[Recusar]\n```\n\n## Título h2\n\n### Título h3\n\n#### Título h4\n\n##### Título h5\n\n###### Título h6\n\nTexto **forte**, *itálico*, ~~riscado~~ e `código inline`, [abrir link](https://example.com).\n\n> Uma citação com **estilo**.\n\n1. Primeiro\n   - Filho\n     - Neto\n2. Segundo\n\n- [ ] Pendente\n- [x] Concluído\n\n---\n\n```rust\nlet exemplo = \"{}\";\n```\n\n| A | B | C | D | E | F |\n| :-- | :-: | --: | -- | -- | -- |\n| esquerda | centro | direita | **forte** | `código` | [link](https://example.com) |\n\n![Imagem desabilitada](https://example.com/image.png)\n\n<b>HTML literal</b>",
         "x".repeat(300)
     )];
     if let Some(entries) = fixture.get("entries").and_then(serde_json::Value::as_array) {

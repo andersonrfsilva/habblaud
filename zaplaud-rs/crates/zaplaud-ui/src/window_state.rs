@@ -195,7 +195,16 @@ fn setup_loaded(
             initialized.store(true, Ordering::Relaxed);
         }
     });
+    let weak = window.as_weak();
     window.window().on_winit_window_event(move |window, event| {
+        // Capture gestures before Slint handles them, including gestures ending during restore.
+        if matches!(event, WindowEvent::MouseWheel { .. } | WindowEvent::Touch(_))
+            && let Some(window) = weak.upgrade()
+        {
+            let state = window.global::<crate::ConversationViewState>();
+            state.set_restore_pending(false);
+            state.set_anchor_ticks(0);
+        }
         if let WindowEvent::Focused(value) = event {
             FOCUS.with(|handlers| {
                 for handler in handlers.borrow().iter() {

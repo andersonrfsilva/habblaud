@@ -321,7 +321,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
     }) { castActions, castFab, castStatus ->
     var showInfo by remember(selected?.key) { mutableStateOf(false) }
     if (showInfo && selected != null) SessionInfoSheet(api, selected, state.entries, state.truncated) { showInfo = false }
-    if (asideOpen && selected?.agentId != null) AsideSheet(controller.asides) { asideOpen = false; controller.asides.close() }
+    if (asideOpen && selected?.agentId != null) AsideSheet(controller.asides, api) { asideOpen = false; controller.asides.close() }
     if (filesOpen) FilesSheet(api, selected, { onUnauthorized(api.origin) }) { filesOpen = false }
     val listTopBar: @Composable (ReadingState) -> Unit = { state ->
         TopAppBar(
@@ -527,27 +527,77 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
             val listState = remember(selected.key) { LazyListState() }
             val following by remember(listState) { derivedStateOf { listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0 } }
             var readingAnchor by remember(selected.key) { mutableStateOf<Pair<Float, () -> Float>?>(null) }
+            // Gesto da pessoa desde que a conversa abriu: um swipe rápido termina antes da restauração e ela não pode desfazê-lo.
+            var userScrolled by remember(selected.key) { mutableStateOf(false) }
+            val dragging by listState.interactionSource.collectIsDraggedAsState()
+            LaunchedEffect(dragging) { if (dragging) { readingAnchor = null; userScrolled = true } }
+            val manualScroll = remember(listState) {
+                object : NestedScrollConnection {
+                    override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                        if (source == NestedScrollSource.UserInput && available.y != 0f) { readingAnchor = null; userScrolled = true }
+                        return Offset.Zero
+                    }
+                }
+            }
             LaunchedEffect(readingAnchor) {
                 val (before, now) = readingAnchor ?: return@LaunchedEffect
                 // Aguarda a posição medida, não um número de quadros: o markdown pode terminar depois deles.
-                snapshotFlow { now() to listState.isScrollInProgress }
-                    .takeWhile { (_, scrolling) -> !scrolling }
-                    .collect { (position, _) ->
+                // A correção usa scrollBy: não pode cancelar a si própria ao iniciar essa rolagem. Dura pouco: segurar
+                // o cabeçalho para sempre fazia a lista pular a cada mudança de altura tardia (resumo, diagrama).
+                kotlinx.coroutines.withTimeoutOrNull(1_500) {
+                    snapshotFlow { now() }.collect { position ->
                         val delta = before - position
                         if (kotlin.math.abs(delta) >= 1f) listState.scrollBy(delta)
                     }
+                }
                 readingAnchor = null
             }
             var unread by remember(selected.key) { mutableIntStateOf(0) }
             var previousLastId by remember(selected.key) { mutableStateOf<String?>(null) }
             val shown = visibleEntries(state.entries, view)
             val rows = groupTurn(shown)
+            var restored by remember(selected.key) { mutableStateOf(false) }
+            val rowIds = rows.asReversed().map { it.entry.id }
+            val currentRowIds by rememberUpdatedState(rowIds)
+            // Restaura uma vez por abertura: relançar a cada mudança das linhas recomeçava no meio da medição.
+            LaunchedEffect(state.readingLoaded, loaded, rowIds.isEmpty()) {
+                if (!state.readingLoaded || !loaded || restored || rowIds.isEmpty()) return@LaunchedEffect
+                val position = state.reading.position
+                val index = readingIndex(currentRowIds, position)
+                val offset = if (index == null || position.following) 0 else position.offset
+                // A janela pode ter descartado a entrada antiga; nesse caso abre a mais antiga disponível. O índice é
+                // resolvido pela chave a cada passo: entradas novas podem chegar durante a medição.
+                fun target() = readingIndex(currentRowIds, position) ?: currentRowIds.lastIndex
+                // O markdown (e o diagrama) mede depois da primeira composição. Com a entrada ainda baixa, o offset
+                // salvo passaria do fim dela e a lista pularia para a seguinte, que nunca chega a ser medida. Por isso
+                // compõe a entrada no pé primeiro, espera a altura dela parar de mudar e só então aplica o offset.
+                if (!userScrolled) listState.scrollToItem(target(), 0)
+                if (offset > 0 && !userScrolled) kotlinx.coroutines.withTimeoutOrNull(1_500) {
+                    fun size() = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == target() }?.size
+                    var last = size()
+                    while (!userScrolled) {
+                        kotlinx.coroutines.delay(120)
+                        val now = size()
+                        if (now != null && now == last) break
+                        last = now
+                    }
+                }
+                if (!userScrolled) listState.scrollToItem(target(), offset)
+                restored = true
+            }
+            LaunchedEffect(listState, restored) {
+                if (!restored) return@LaunchedEffect
+                snapshotFlow {
+                    val id = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == listState.firstVisibleItemIndex }?.key as? String
+                    id?.let { ReadingPosition(it, listState.firstVisibleItemScrollOffset, listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) }
+                }.collect { position -> if (position != null) controller.position(selected.key, position) }
+            }
             val recovered = recoveredErrors(state.entries)
             val lastId = shown.lastOrNull()?.id
             val working = selected.agentId != null && selected.status == "working"
             LaunchedEffect(following) { if (following) unread = 0 }
             // Ao enviar, volta a seguir o fim: o prompt e a resposta que chegam aparecem sem rolar à mão.
-            fun stickToEnd() { unread = 0; scope.launch { listState.scrollToItem(0) } }
+            fun stickToEnd() { readingAnchor = null; unread = 0; scope.launch { listState.scrollToItem(0) } }
             // Entrada nova no pé seguindo o fim: a lista seguraria o item que estava no pé, pela chave, e o novo ficaria
             // escondido abaixo. Pedido ainda na composição, antes da medida que o insere: sem um quadro com o botão "↓"
             // piscando.
@@ -555,8 +605,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
             val bottomSeen = remember(selected.key) { arrayOfNulls<String>(1) }
             val wasFollowing = following
             if (bottom != bottomSeen[0]) {
-                readingAnchor = null
-                if (wasFollowing) listState.requestScrollToItem(0)
+                if (wasFollowing && restored && readingAnchor == null) listState.requestScrollToItem(0)
                 bottomSeen[0] = bottom
             }
             LaunchedEffect(lastId) {
@@ -593,14 +642,18 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
             }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 // No desktop a roda do mouse não termina gesto: sem puxada, o bate-papo paralelo fica só no menu.
-                LazyColumn(Modifier.fillMaxSize().then(if (platformPullGestures()) Modifier.nestedScroll(asideSwipe) else Modifier).testTag("conversation-list"), state = listState, reverseLayout = true, contentPadding = PaddingValues(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom)) {
+                LazyColumn(Modifier.fillMaxSize().nestedScroll(manualScroll).then(if (platformPullGestures()) Modifier.nestedScroll(asideSwipe) else Modifier).testTag("conversation-list"), state = listState, reverseLayout = true, contentPadding = PaddingValues(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom)) {
                     // Lista invertida: o primeiro item fica no pé da conversa, logo abaixo da última mensagem.
                     items(rows.asReversed(), key = { it.entry.id }) { row ->
                         val entry = row.entry
-                        EntryView(entry, results, row.count, row.tools, recovered = entry.id in recovered, cachedSummary = controller.summary(entry), summarize = if (summarizeReplies) { text -> controller.summarize(entry, text) } else null) { before, now ->
+                        EntryView(entry, results, row.count, row.tools, recovered = entry.id in recovered, cachedSummary = controller.summary(entry), expanded = entry.id in state.reading.expanded, onExpanded = { controller.expand(selected.key, entry.id, it) }, summarize = if (summarizeReplies) { text -> controller.summarize(entry, text) } else null, api = api) { before, now ->
                             // A lista é invertida: o item cresce para cima. Acompanha a posição medida do cabeçalho
                             // até a pessoa rolar ou tocar noutro cabeçalho, inclusive nas medidas tardias do markdown.
                             readingAnchor = before to now
+                            // Entrada do pé com offset grande: ao recolher, o offset passaria do fim dela e a lista
+                            // pularia para outra, sem medir o cabeçalho. Zera o offset; a âncora acima o devolve ao lugar.
+                            val index = rowIds.indexOf(entry.id)
+                            if (index >= 0 && index == listState.firstVisibleItemIndex) listState.requestScrollToItem(index)
                         }
                     }
                     if (state.truncated) item {
@@ -937,8 +990,7 @@ internal fun replyBrief(text: String): String {
 }
 
 @Composable
-private fun EntryView(entry: TerminalEntry, results: Map<String?, List<TerminalEntry>>, count: Int = 1, tools: List<TerminalEntry> = emptyList(), recovered: Boolean = false, cachedSummary: String? = null, summarize: (suspend (String) -> String)? = null, keepPlace: (before: Float, now: () -> Float) -> Unit = { _, _ -> }) {
-    var expanded by remember(entry.id) { mutableStateOf(false) }
+private fun EntryView(entry: TerminalEntry, results: Map<String?, List<TerminalEntry>>, count: Int = 1, tools: List<TerminalEntry> = emptyList(), recovered: Boolean = false, cachedSummary: String? = null, expanded: Boolean, onExpanded: (Boolean) -> Unit, summarize: (suspend (String) -> String)? = null, api: HabblaudApi, keepPlace: (before: Float, now: () -> Float) -> Unit = { _, _ -> }) {
     var headerY by remember { mutableFloatStateOf(0f) }
     if (entry.kind == "system") {
         // Resposta cortada pelo provedor e retomada logo depois: o texto que veio fica na bolha acima; aqui só um aviso discreto.
@@ -960,7 +1012,7 @@ private fun EntryView(entry: TerminalEntry, results: Map<String?, List<TerminalE
                     // Hora do último evento do grupo no cabeçalho (nas ferramentas, o último resultado também conta): dá
                     // para ver, sem expandir, se o agente segue trabalhando ou parou.
                     val last = if (entry.kind == "tool") (tools.mapNotNull { it.at } + tools.flatMap { results[it.id].orEmpty() }.mapNotNull { it.at }).maxOrNull() ?: entry.at else entry.at
-                    Row(Modifier.fillMaxWidth().onGloballyPositioned { headerY = it.positionInWindow().y }.clickable { val before = headerY; expanded = !expanded; keepPlace(before) { headerY } }, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().onGloballyPositioned { headerY = it.positionInWindow().y }.clickable { val before = headerY; keepPlace(before) { headerY }; onExpanded(!expanded) }, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(if (entry.kind == "tool") Icons.Default.Build else Icons.Outlined.Psychology, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(label, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         last?.let { Text(entryTime(it), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -1003,7 +1055,7 @@ private fun EntryView(entry: TerminalEntry, results: Map<String?, List<TerminalE
                     // Desligado vale mesmo onde o modelo já tinha resumido: o resumo guardado não volta.
                     val shown = brief ?: summary
                     if (summarized && !expanded) {
-                        Column(Modifier.fillMaxWidth().onGloballyPositioned { headerY = it.positionInWindow().y }.clickable { val before = headerY; expanded = true; keepPlace(before) { headerY } }, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Column(Modifier.fillMaxWidth().onGloballyPositioned { headerY = it.positionInWindow().y }.clickable { val before = headerY; keepPlace(before) { headerY }; onExpanded(true) }, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             if (shown == null) Text(stringResource(Res.string.summary_loading), style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             else {
                                 Text(shown, color = MaterialTheme.colorScheme.onSurface)
@@ -1011,7 +1063,7 @@ private fun EntryView(entry: TerminalEntry, results: Map<String?, List<TerminalE
                             }
                         }
                     } else {
-                        if (summarized) Text(stringResource(Res.string.summary_collapse), Modifier.onGloballyPositioned { headerY = it.positionInWindow().y }.clickable { val before = headerY; expanded = false; keepPlace(before) { headerY } }.padding(bottom = 4.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                        if (summarized) Text(stringResource(Res.string.summary_collapse), Modifier.onGloballyPositioned { headerY = it.positionInWindow().y }.clickable { val before = headerY; keepPlace(before) { headerY }; onExpanded(false) }.padding(bottom = 4.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                         SelectionContainer {
                             Markdown(
                                 entry.text,
@@ -1025,7 +1077,8 @@ private fun EntryView(entry: TerminalEntry, results: Map<String?, List<TerminalE
                                     h5 = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
                                     h6 = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
                                 ),
-                                components = markdownComponents(image = {}),
+                                dimens = chatMarkdownDimens(),
+                                components = markdownComponents(image = {}, codeFence = { MermaidCodeFence(it, api) }, table = wrappingTable),
                             )
                         }
                         if (entry.truncated) Text(stringResource(Res.string.result_truncated))

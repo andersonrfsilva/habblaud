@@ -23,7 +23,7 @@ pub fn set_android_data_dir(path: PathBuf) {
 mod state;
 pub use avatar::AvatarDiskCache;
 pub use cookies::{SecureSessionStorage, SessionPersistence};
-pub use state::{ConversationWrite, LocalStateStore, SessionMarks, StoreError, storage_hash};
+pub use state::{ConversationWrite, LocalStateStore, ReadingState, SessionMarks, StoreError, storage_hash};
 
 fn lock_file(file: &fs::File) -> io::Result<()> {
     #[cfg(not(target_os = "android"))]

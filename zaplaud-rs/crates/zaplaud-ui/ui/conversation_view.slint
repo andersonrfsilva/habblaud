@@ -64,6 +64,24 @@ export global ConversationViewState {
     in property <int> new-count;
     in property <int> end-request;
     in property <int> geometry-request;
+    in-out property <string> anchor-entry;
+    in-out property <string> anchor-row;
+    in-out property <length> anchor-offset;
+    in property <int> anchor-index: -1;
+    in-out property <length> scroll-target;
+    in-out property <int> scroll-request;
+    in-out property <int> capture-request;
+    in-out property <bool> capture-pending;
+    in-out property <length> scroll-y;
+    in-out property <int> scan-request;
+    in-out property <int> scan-index: -1;
+    in-out property <length> scan-y;
+    in-out property <length> scan-height;
+    in-out property <bool> restore-pending;
+    in-out property <int> anchor-ticks;
+    in-out property <int> stable-ticks;
+    in-out property <length> measured-height: -1px;
+    callback reading-position(string, string, float, bool);
     callback geometry(string, float, float, float);
     callback observe(string);
     callback toggle(string);
@@ -76,6 +94,38 @@ export global ConversationViewState {
 
 component EntryBubble inherits Rectangle {
     in property <ConversationRow> entry;
+    in property <int> row-index;
+    property <length> row-y: root.y;
+    property <int> capture-request: ConversationViewState.capture-request;
+    property <int> scan-request: ConversationViewState.scan-request;
+    property <int> anchor-index: ConversationViewState.anchor-index;
+    function align-anchor() {
+        if !ConversationViewState.following && !ConversationViewState.capture-pending && !ConversationViewState.restore-pending && ConversationViewState.anchor-ticks > 0 && root.row-index == ConversationViewState.anchor-index {
+            ConversationViewState.scroll-target = max(ConversationViewState.anchor-offset, 1px - root.height) - root.y;
+            ConversationViewState.scroll-request += 1;
+        }
+    }
+    changed row-y => { root.align-anchor(); }
+    changed height => { root.align-anchor(); }
+    changed anchor-index => { root.align-anchor(); }
+    changed scan-request => {
+        if ConversationViewState.scan-index < 0 || abs(root.row-index - ConversationViewState.anchor-index) < abs(ConversationViewState.scan-index - ConversationViewState.anchor-index) {
+            ConversationViewState.scan-index = root.row-index;
+            ConversationViewState.scan-y = root.y;
+            ConversationViewState.scan-height = root.height;
+        }
+    }
+    changed capture-request => {
+        if root.y + ConversationViewState.scroll-y <= 0px && root.y + root.height + ConversationViewState.scroll-y > 0px {
+            root.capture-anchor();
+        }
+    }
+    function capture-anchor() {
+        ConversationViewState.anchor-entry = root.entry.entry-id;
+        ConversationViewState.anchor-row = root.entry.id;
+        ConversationViewState.anchor-offset = root.y + ConversationViewState.scroll-y;
+        ConversationViewState.reading-position(root.entry.entry-id, root.entry.id, ConversationViewState.anchor-offset / 1px, ConversationViewState.following);
+    }
     init => { ConversationViewState.observe(root.entry.entry-id); }
     changed entry => { ConversationViewState.observe(root.entry.entry-id); }
     property <int> geometry-request: ConversationViewState.geometry-request;
@@ -86,6 +136,9 @@ component EntryBubble inherits Rectangle {
     function toggle-expanded() {
         ConversationViewState.following = false;
         ConversationViewState.position(false);
+        root.capture-anchor();
+        ConversationViewState.restore-pending = false;
+        ConversationViewState.anchor-ticks = 46;
         ConversationViewState.toggle(root.entry.entry-id);
     }
     height: content.preferred-height + (root.entry.last ? 8px : 0px);
@@ -183,15 +236,26 @@ component EntryBubble inherits Rectangle {
 export component ConversationView inherits Rectangle {
     vertical-stretch: 1;
     forward-focus: scroll-keys;
+    function cancel-restore() {
+        ConversationViewState.restore-pending = false;
+        ConversationViewState.anchor-ticks = 0;
+    }
     public function scroll-to(fraction: float) {
+        root.cancel-restore();
         ConversationViewState.following = fraction >= 1;
         messages.content-y = min(0px, messages.height - messages.content-height) * clamp(fraction, 0, 1);
+        ConversationViewState.capture-pending = true;
+        ConversationViewState.position(ConversationViewState.following);
     }
     public function page-up() {
+        root.cancel-restore();
         ConversationViewState.following = false;
         messages.content-y = min(0px, messages.content-y + messages.height * 0.9);
+        ConversationViewState.capture-pending = true;
+        ConversationViewState.position(false);
     }
     public function jump-to-end() {
+        root.cancel-restore();
         scroll-keys.focus();
         ConversationViewState.following = true;
         messages.content-y = min(0px, messages.height - messages.content-height);
@@ -199,6 +263,48 @@ export component ConversationView inherits Rectangle {
     }
     property <int> end-request: ConversationViewState.end-request;
     changed end-request => { root.jump-to-end(); }
+    property <int> scroll-request: ConversationViewState.scroll-request;
+    changed scroll-request => { messages.content-y = min(0px, max(messages.height - messages.content-height, ConversationViewState.scroll-target)); }
+    Timer {
+        interval: 16ms;
+        running: ConversationViewState.capture-pending;
+        triggered => {
+            ConversationViewState.capture-pending = false;
+            ConversationViewState.capture-request += 1;
+        }
+    }
+    // A lista virtual estima alturas até materializar a linha ancorada.
+    // O deslocamento salvo só entra depois de estabilizar a altura do markdown.
+    Timer {
+        interval: 32ms;
+        running: (ConversationViewState.restore-pending || ConversationViewState.anchor-ticks > 0) && !ConversationViewState.following;
+        triggered => {
+            if ConversationViewState.anchor-ticks > 0 && (!ConversationViewState.restore-pending || (ConversationViewState.scan-index == ConversationViewState.anchor-index && ConversationViewState.scan-index >= 0)) { ConversationViewState.anchor-ticks -= 1; }
+            if ConversationViewState.restore-pending && ConversationViewState.anchor-index >= 0 {
+                if ConversationViewState.scan-index >= 0 {
+                    if ConversationViewState.scan-index == ConversationViewState.anchor-index {
+                        if ConversationViewState.measured-height == ConversationViewState.scan-height { ConversationViewState.stable-ticks += 1; }
+                        else { ConversationViewState.stable-ticks = 0; }
+                        ConversationViewState.measured-height = ConversationViewState.scan-height;
+                        if ConversationViewState.stable-ticks >= 4 || ConversationViewState.anchor-ticks == 0 {
+                            messages.content-y = min(0px, max(messages.height - messages.content-height, max(ConversationViewState.anchor-offset, 1px - ConversationViewState.scan-height) - ConversationViewState.scan-y));
+                            ConversationViewState.restore-pending = false;
+                            ConversationViewState.anchor-ticks = 0;
+                        } else {
+                            messages.content-y = min(0px, max(messages.height - messages.content-height, -ConversationViewState.scan-y));
+                        }
+                    } else {
+                        ConversationViewState.stable-ticks = 0;
+                        ConversationViewState.measured-height = -1px;
+                        messages.content-y = min(0px, max(messages.height - messages.content-height,
+                            -ConversationViewState.scan-y - (ConversationViewState.anchor-index - ConversationViewState.scan-index) * max(1px, ConversationViewState.scan-height)));
+                    }
+                }
+                ConversationViewState.scan-index = -1;
+                ConversationViewState.scan-request += 1;
+            }
+        }
+    }
     VerticalLayout {
         padding-left: 16px;
         padding-right: 16px;
@@ -208,11 +314,13 @@ export component ConversationView inherits Rectangle {
         scroll-keys := FocusScope {
             vertical-stretch: 1;
             key-pressed(event) => {
+                if event.text == Key.Home || event.text == Key.PageUp || event.text == Key.PageDown { root.cancel-restore(); }
                 if event.text == Key.End { root.jump-to-end(); return accept; }
-                if event.text == Key.Home { ConversationViewState.following = false; messages.content-y = 0px; ConversationViewState.position(false); return accept; }
+                if event.text == Key.Home { ConversationViewState.following = false; messages.content-y = 0px; ConversationViewState.capture-pending = true; ConversationViewState.position(false); return accept; }
                 if event.text == Key.PageUp || event.text == Key.PageDown {
                     ConversationViewState.following = false;
                     messages.content-y = min(0px, max(messages.height - messages.content-height, messages.content-y + (event.text == Key.PageUp ? 1 : -1) * messages.height * 0.9));
+                    ConversationViewState.capture-pending = true;
                     ConversationViewState.position(false); return accept;
                 }
                 return reject;
@@ -220,11 +328,18 @@ export component ConversationView inherits Rectangle {
             messages := ScrollList {
                 width: parent.width; height: parent.height;
                 changed content-height => { if ConversationViewState.following { self.content-y = min(0px, self.height - self.content-height); } }
+                changed height => {
+                    if ConversationViewState.following { self.content-y = min(0px, self.height - self.content-height); }
+                }
+                changed content-y => { ConversationViewState.scroll-y = self.content-y; }
                 scrolled => {
+                    ConversationViewState.restore-pending = false;
+                    ConversationViewState.anchor-ticks = 0;
                     ConversationViewState.following = self.content-height <= self.height || self.content-y <= self.height - self.content-height + 2px;
                     ConversationViewState.position(ConversationViewState.following);
+                    ConversationViewState.capture-pending = true;
                 }
-                for row in ConversationViewState.rows: EntryBubble { width: messages.width; entry: row; }
+                for row[index] in ConversationViewState.rows: EntryBubble { width: messages.width; entry: row; row-index: index; }
             }
         }
     }

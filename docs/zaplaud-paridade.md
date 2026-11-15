@@ -23,6 +23,7 @@ vai para a tabela abaixo, com o motivo. Textos ficam em `android/shared/src/comm
 | Lista: abertas/recentes, busca, filtro por servidor, não lidas, subagentes | sim | sim | |
 | Fixar e favoritar sessões, com filtro Favoritas | sim | sim | marcas independentes e locais; fixadas primeiro dentro dos filtros, por atividade; remoção do servidor limpa só suas marcas |
 | Conversa com markdown, pensamentos e ferramentas compactos, resumo, ir para o fim | sim | sim | Rust: seleção dentro de um bloco + "Copiar mensagem" (limite do Slint) |
+| Resposta aberta e posição de leitura preservadas ao sair e voltar | sim | sim | estado local por conversa; rolar cancela a restauração; quem saiu acompanhando o fim volta ao fim |
 | Duas colunas a partir de 840 dp, conversa usando a largura toda | sim | sim | celular: uma coluna |
 | Compositor: rascunho, anexos, modos de envio, interrupção, anel de contexto, shake | sim | sim | Rust: sem arrastar arquivos para a janela (Slint 1.18) |
 | Aprovação e perguntas, com resumo `text` e entrada não textual em JSON | sim | sim | Kotlin rola na horizontal; Rust quebra a linha e mostra "mais N linhas" |
@@ -36,6 +37,23 @@ vai para a tabela abaixo, com o motivo. Textos ficam em `android/shared/src/comm
 | Avisos de aprovação, pergunta e fim de turno | sim | sim | Android: serviço em segundo plano; desktop: só com o app aberto |
 | Ícone na bandeja | não se aplica | sim | |
 | Chaveiro destrancado quando o padrão está trancado (Linux) | não se aplica | sim | |
+| Diagramas Mermaid desenhados na conversa | sim | sim | Kotlin pede o SVG ao servidor (`POST /api/mermaid`); Rust desenha localmente (`mermaid-rs-renderer`) |
+| Diagrama Mermaid em tela cheia, com zoom e arrasto | sim | sim | Kotlin: pinça; desktop: botões +/− e teclado +/−, até 8×; arrasto move, duplo clique/toque restaura, Esc ou Fechar sai |
+
+### Diagramas no cliente Kotlin
+
+Blocos fechados com linguagem `mermaid`, na conversa e no bate-papo paralelo, são enviados a
+`POST /api/mermaid` (`{ "source": "..." }`, até 20.000 caracteres). A rota usa a mesma permissão de
+mensagens dos resumos e devolve `image/svg+xml`, ou erro JSON 422 se o diagrama não for válido.
+O servidor usa `beautiful-mermaid`, com fundo branco e cores resolvidas para leitores SVG nativos,
+sem carregar fontes remotas. Tipos não suportados pela biblioteca continuam como código.
+
+Durante o carregamento, em blocos ainda abertos ou quando o pedido/leitor falha, permanece o bloco
+de código padrão. Os últimos 32 SVGs ficam em memória, separados por instância da API; SVG que o leitor
+recusa sai do cache. JVM/iOS usam `decodeToSvgPainter` de Compose Resources; Android usa AndroidSVG porque
+Compose Resources 1.12.2 não fornece esse leitor no Android. O AndroidSVG não aceita SVG 2
+(`orient="auto-start-reverse"`), por isso o servidor troca esses marcadores pelo equivalente com `orient="auto"`.
+Tocar no diagrama abre tela cheia: pinça amplia até 8×, arrastar move, toque duplo volta ao inicial.
 
 ## Verificação
 

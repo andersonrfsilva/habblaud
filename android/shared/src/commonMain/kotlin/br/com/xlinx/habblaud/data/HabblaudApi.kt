@@ -113,6 +113,14 @@ class HabblaudApi(val origin: String) : AutoCloseable {
     suspend fun access(): String = request("/api/access")
     /** Resumo da resposta do agente em até 5 frases (POST /api/summaries; o servidor guarda e reaproveita). */
     suspend fun summary(text: String): String = wireJson.parseToJsonElement(request("/api/summaries", buildJsonObject { put("text", text) })).jsonObject["summary"]!!.jsonPrimitive.content
+    suspend fun mermaid(source: String): ByteArray? = try {
+        request("/api/mermaid", buildJsonObject { put("source", source) }).encodeToByteArray()
+    } catch (e: Exception) {
+        currentCoroutineContext().ensureActive()
+        // O bloco volta a código; o motivo fica no log (logcat System.out no Android).
+        println("Zaplaud mermaid: pedido falhou: $e")
+        null
+    }
     suspend fun logout(): Boolean = try { request("/api/remote/logout", buildJsonObject {}); true } catch (_: IOException) { false } finally { cancelCalls(); cookies.clear() }
     suspend fun avatarBytes(path: String): ByteArray? {
         require(path.startsWith("/api/") && !path.startsWith("//"))

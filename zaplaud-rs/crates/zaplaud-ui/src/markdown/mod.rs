@@ -8,7 +8,8 @@
 //! o Markdown original. A lista externa deve virtualizar mensagens e chamar
 //! `parse` sob demanda; este módulo não retém mensagens nem cria runtimes.
 //!
-//! `MdBlock.kind` é `text`, `quote`, `code`, `table` ou `rule`; `level` é 1–6
+//! `MdBlock.kind` é `text`, `quote`, `code`, `table` ou `rule`. Blocos ```` ```mermaid ````
+//! válidos seguem `code`, com o diagrama renderizado localmente em `diagram`. `level` é 1–6
 //! para títulos e zero para parágrafos. `depth` é a indentação de listas a partir
 //! de zero, e `marker` conserva a numeração ou o estado da tarefa. `spans` expõe
 //! texto, bold, italic, strike, code e link; `rich` mantém o fluxo inline nativo.
@@ -258,11 +259,18 @@ pub fn parse(markdown: &str) -> Vec<MdBlock> {
             }
             Event::End(TagEnd::CodeBlock) => {
                 if let Some((language, text)) = state.code.take() {
+                    // Diagrama inválido ou incompleto (streaming) cai no bloco de código comum.
+                    let diagram = (language.trim() == "mermaid")
+                        .then(|| mermaid_rs_renderer::render(&text).ok())
+                        .flatten()
+                        .and_then(|svg| slint::Image::load_from_svg_data(svg.as_bytes()).ok())
+                        .unwrap_or_default();
                     state.blocks.push(MdBlock {
                         kind: "code".into(),
                         code_lines: text.lines().count().max(1) as i32,
                         text: text.into(),
                         language: language.into(),
+                        diagram,
                         depth: state.lists.len().saturating_sub(1) as i32,
                         ..Default::default()
                     });
@@ -425,6 +433,17 @@ mod tests {
         assert_eq!(blocks[0].language, "rust");
         assert_eq!(blocks[0].text, text);
         assert!(parse("").is_empty());
+    }
+
+    #[test]
+    fn mermaid_fences_render_diagrams_and_invalid_ones_stay_code() {
+        let blocks = parse("```mermaid\nflowchart LR\n  A[Início] --> B{Ok?}\n  B -->|sim| C\n```");
+        assert_eq!(blocks[0].kind, "code");
+        assert!(blocks[0].diagram.size().width > 0);
+        assert!(blocks[0].text.contains("flowchart LR"));
+        let invalid = parse("```mermaid\nnão é um diagrama\n```");
+        assert_eq!(invalid[0].diagram.size().width, 0);
+        assert_eq!(parse("```rust\nfn main() {}\n```")[0].diagram.size().width, 0);
     }
 
     #[test]

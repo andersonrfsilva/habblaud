@@ -129,11 +129,11 @@ actual class LocalStateStore actual constructor() : MessageStore {
     actual suspend fun conversation(key: SessionKey): CachedConversation? = read { if (key.origin !in origins(it)) null else privateRead(conversationPath(key, it))?.let { text -> runCatching { decodeConversation(text) }.getOrNull() } }
     internal actual var beforeConversationWrite: suspend () -> Unit = {}
     internal actual var afterConversationWrite: () -> Unit = {}
-    internal actual suspend fun setConversation(key: SessionKey, entries: List<TerminalEntry>, truncated: Boolean, write: ConversationWrite, summaries: Map<String, String>) {
+    internal actual suspend fun setConversation(key: SessionKey, entries: List<TerminalEntry>, truncated: Boolean, write: ConversationWrite, summaries: Map<String, String>, reading: ConversationReading) {
         try { beforeConversationWrite(); StateDisk.lock.withLock {
             val data = readState()
             if (write.origin != key.origin || write.epoch != conversationEpoch(key.origin) || key.origin !in origins(data) || write.sequence <= (StateDisk.written[key] ?: 0)) return@withLock
-            protectedWrite(conversationPath(key, data), encodeConversation(entries, truncated, summaries)); StateDisk.written[key] = write.sequence
+            protectedWrite(conversationPath(key, data), encodeConversation(entries, truncated, summaries, reading)); StateDisk.written[key] = write.sequence
         } } finally { afterConversationWrite() }
     }
     actual suspend fun retryUntil(origin: String): Long = (StateDisk.settings.objectForKey("retry_" + storageHash(origin)) as? NSNumber)?.longLongValue ?: 0

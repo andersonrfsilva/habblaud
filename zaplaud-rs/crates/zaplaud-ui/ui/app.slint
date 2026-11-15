@@ -2,6 +2,8 @@ import "fonts/NotoSansMono-Regular.ttf";
 export { Clock } from "clock.slint";
 import { Clock } from "clock.slint";
 import { Theme, Icons } from "resources.slint";
+import { DiagramFullscreen, DiagramState } from "markdown/diagram.slint";
+export { DiagramState } from "markdown/diagram.slint";
 import { Labels } from "labels.slint";
 import { LoginPane, LoginState } from "login.slint";
 import { ListPane, ListState } from "list.slint";
@@ -58,7 +60,7 @@ export component AppWindow inherits Window {
     forward-focus: keys;
     private property <bool> logout-open: ShellState.logout-origin != "";
     private property <bool> message-open: ShellState.message != "";
-    private property <bool> overlay-open: FilesState.visible || PermissionState.visible || AsideState.visible || CastState.visible || CastState.confirming || ConversationViewState.menu-open || ConversationViewState.info-open || ComposerState.confirm-visible || ComposerState.shake-confirm || ComposerState.picker-visible || root.logout-open || root.message-open;
+    private property <bool> overlay-open: DiagramState.visible || FilesState.visible || PermissionState.visible || AsideState.visible || CastState.visible || CastState.confirming || ConversationViewState.menu-open || ConversationViewState.info-open || ComposerState.confirm-visible || ComposerState.shake-confirm || ComposerState.picker-visible || root.logout-open || root.message-open;
     private property <bool> settings-open: SettingsState.visible;
     private property <bool> http-open: LoginState.confirm-http;
     changed http-open => { if !self.http-open && LoginState.visible { keys.focus(); } }
@@ -124,4 +126,5 @@ export component AppWindow inherits Window {
         text: ShellState.message; confirm: Labels.confirm;
         confirmed => { ShellState.message = ""; } dismissed => { ShellState.message = ""; }
     }
+    if DiagramState.visible: DiagramFullscreen {}
 }

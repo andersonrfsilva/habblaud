@@ -40,6 +40,8 @@ internal fun launchPersist(scope: CoroutineScope, block: suspend () -> Unit): Jo
     /** Respostas não lidas por sessão (só as com alguma), para o balão da tela principal. */
     val unread: Map<SessionKey, Int> = emptyMap(),
     val marks: Map<SessionKey, SessionMarks> = emptyMap(),
+    val reading: ConversationReading = ConversationReading(),
+    val readingLoaded: Boolean = false,
 )
 
 internal fun ReadingState.streamFailure(status: Int?, conversation: Boolean): ReadingState {
@@ -205,9 +207,22 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
     /** Sessão cuja conversa está em `conversation` (veio do aparelho ou do servidor) e pode ser guardada. */
     private var cachedKey: SessionKey? = null
     private var saveJob: Job? = null
+    private var writeJob: Job? = null
     /** Resumos da conversa aberta (`summaryKey` → resumo): gravados no mesmo arquivo dela, para não pedir de novo. */
     private val summaries = HashMap<String, String>()
     fun summary(entry: TerminalEntry): String? = summaries[summaryKey(entry)]
+    private var reading = ConversationReading()
+    fun expand(key: SessionKey, id: String, open: Boolean) {
+        if (mutable.value.selected?.key != key || !mutable.value.readingLoaded) return
+        reading = reading.expand(id, open)
+        mutable.value = mutable.value.copy(reading = reading)
+        persist()
+    }
+    fun position(key: SessionKey, position: ReadingPosition) {
+        if (mutable.value.selected?.key != key || !mutable.value.readingLoaded || reading.position == position) return
+        reading = reading.copy(position = position)
+        persist(500)
+    }
     /** Resumos pedidos e ainda sem resposta: o mesmo item não pede duas vezes. */
     private val pendingSummaries = HashMap<String, Deferred<Result<String>>>()
     /**
@@ -236,9 +251,10 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         val entries = conversation.snapshot().toList()
         val truncated = conversation.truncated
         val kept = HashMap(summaries)
+        val savedReading = reading
         val write = store.conversationWrite(api.origin, conversationEpoch)
         // Escopo próprio: stop()/close() rodam no descarte da tela, quando `scope` já foi cancelado.
-        launchPersist(persistScope) { store.setConversation(key, entries, truncated, write, kept) }
+        writeJob = launchPersist(persistScope) { store.setConversation(key, entries, truncated, write, kept, savedReading) }
     }
     private fun changed() { close(); mutable.value = mutable.value.copy(error = "changed") }
     private fun failure(event: StreamEvent.Failure, conversation: Boolean) {
@@ -253,9 +269,10 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
     }
     fun open(item: SessionItem) {
         persist(); cachedKey = null; dropSummaries()
+        reading = ConversationReading()
         generation++; val token = generation
         conversationJob?.cancel()
-        mutable.value = mutable.value.copy(selected = item, entries = emptyList(), truncated = false, reduced = false, error = null, readingError = null)
+        mutable.value = mutable.value.copy(selected = item, entries = emptyList(), truncated = false, reduced = false, error = null, readingError = null, reading = reading, readingLoaded = false)
         // Abrir lê tudo o que já chegou: sem isso, uma conversa parada (sem snapshot novo) voltaria com o balão.
         refreshUnread()
         messages.open(item.key); asides.close()
@@ -265,8 +282,13 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         conversationJob = scope.launch {
             // O que já foi lido aparece na hora; o servidor manda só o que veio depois da última entrada guardada.
             // Subagentes não ficam guardados: são conversas curtas, e cada uma viraria um arquivo a mais no aparelho.
+            // Voltar imediatamente não pode ler o arquivo anterior à gravação feita no fechamento.
+            writeJob?.join()
+            if (token != generation) return@launch
             val cached = if (item.sub) null else store.conversation(item.key)
             if (token != generation) return@launch
+            reading = cached?.reading ?: ConversationReading()
+            mutable.value = mutable.value.copy(reading = reading, readingLoaded = true)
             val last = cached?.entries?.lastOrNull { it.at != null }
             if (cached != null && cached.entries.isNotEmpty()) {
                 conversation.init(cached.entries, cached.truncated)

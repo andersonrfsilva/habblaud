@@ -2,6 +2,7 @@ import { ScrollView, ListView } from "std-widgets.slint";
 import { Theme } from "resources.slint";
 import { IconButton } from "../widgets/kit.slint";
 import { MaterialIcons } from "../widgets/material-icons.slint";
+import { DiagramState } from "diagram.slint";
 export { Theme }
 
 export struct MdSpan {
@@ -17,7 +18,7 @@ export struct MdBlock {
     level: int, depth: int, marker: string, language: string,
     links: [string],
     link-labels: [string],
-    code-lines: int,
+    code-lines: int, diagram: image,
     cells: [MdCell], columns: int,
 }
 
@@ -198,7 +199,38 @@ export component MarkdownView inherits Rectangle {
                 padding-top: block.continued-before ? 0px : 8px;
                 padding-bottom: block.continued-after ? 0px : 8px;
                 spacing: 4px;
-                ScrollView {
+                // O tema do renderizador é claro; o cartão branco mantém contraste no tema escuro.
+                if block.diagram.width > 0: HorizontalLayout {
+                    alignment: start;
+                    Rectangle {
+                        property <length> diagram-width: min(code-content.width - 16px, block.diagram.width * 1px);
+                        width: self.diagram-width;
+                        height: self.diagram-width * block.diagram.height / block.diagram.width;
+                        background: white;
+                        border-radius: 6px;
+                        clip: true;
+                        accessible-role: button;
+                        accessible-label: "Diagrama Mermaid";
+                        accessible-action-default => { DiagramState.open(block.diagram); }
+                        forward-focus: diagram-keys;
+                        border-width: diagram-keys.has-focus ? 2px : 0px;
+                        border-color: Theme.primary;
+                        diagram-keys := FocusScope {
+                            key-pressed(event) => {
+                                if event.text == Key.Return || event.text == Key.Space { DiagramState.open(block.diagram); return accept; }
+                                return reject;
+                            }
+                        }
+                        Image {
+                            source: block.diagram;
+                            image-fit: contain;
+                            accessible-role: image;
+                            accessible-label: "Diagrama Mermaid";
+                        }
+                        TouchArea { clicked => { DiagramState.open(block.diagram); } }
+                    }
+                }
+                if block.diagram.width == 0: ScrollView {
                     min-height: 0px;
                     preferred-height: code.preferred-height + (code-metrics.preferred-width > self.width ? 12px : 0px);
                     max-height: self.preferred-height;

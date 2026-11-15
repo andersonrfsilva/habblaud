@@ -53,6 +53,7 @@ kotlin {
             implementation(libs.coroutines.android)
             implementation(libs.okhttp)
             implementation(libs.ktor.client.okhttp)
+            implementation("com.caverock:androidsvg-aar:1.4")
         }
         iosMain.dependencies { implementation(libs.ktor.client.darwin) }
         jvmMain.dependencies {

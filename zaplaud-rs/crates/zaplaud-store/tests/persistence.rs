@@ -16,6 +16,38 @@ fn key(origin: &str) -> SessionKey {
         session_id: "same/é😀\"".into(),
     }
 }
+
+#[test]
+fn reading_state_restores_after_restart_and_bounds_oldest_expansions() -> Result<(), StoreError> {
+    let root = tempfile::tempdir()?;
+    let s = store(root.path());
+    let a = key("https://one.invalid");
+    let b = SessionKey { session_id: "other".into(), ..a.clone() };
+    s.add_server(&a.origin)?;
+    let mut reading = s.reading_state(&a)?;
+    assert!(reading.following);
+    for index in 0..514 {
+        reading.toggle(format!("entry-{index}"));
+    }
+    assert_eq!(reading.expanded.len(), 512);
+    assert_eq!(reading.expanded[0], "entry-2");
+    reading.toggle("entry-513".into());
+    reading.following = false;
+    reading.entry = "entry-100".into();
+    reading.row = "entry-100:piece:3".into();
+    reading.offset = -73.5;
+    s.set_reading_state(&a, &reading)?;
+    drop(s);
+    let s = store(root.path());
+    assert_eq!(s.reading_state(&a)?, reading);
+    assert_eq!(s.reading_state(&b)?, Default::default());
+    reading.following = true;
+    s.set_reading_state(&a, &reading)?;
+    assert!(store(root.path()).reading_state(&a)?.following);
+    s.remove_server(&a.origin)?;
+    assert_eq!(s.reading_state(&a)?, Default::default());
+    Ok(())
+}
 #[test]
 fn session_marks_keep_full_identity_and_shared_schema() -> Result<(), StoreError> {
     let root = tempfile::tempdir()?;
