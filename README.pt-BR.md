@@ -5,7 +5,7 @@
 <h1 align="center">Habblaud</h1>
 
 <p align="center">
-  <b>O escritório virtual dos seus agentes Claude Code, Codex, OMP, ZeroClaw e Antigravity.</b><br />
+  <b>O escritório virtual dos seus agentes Claude Code, Codex, OMP e ZeroClaw.</b><br />
   Cada projeto vira uma sala, cada agente vira um personagem em pixel art que mostra, em tempo real, o que está fazendo.
 </p>
 
@@ -26,8 +26,8 @@
 ---
 
 Este é o fork [andersonrfsilva/habblaud](https://github.com/andersonrfsilva/habblaud), derivado de
-[marmottajr/habblaud](https://github.com/marmottajr/habblaud). Ele acrescenta integrações OMP, runtimes opcionais
-ZeroClaw e Antigravity e clientes nativos Zaplaud. Referências do fork:
+[marmottajr/habblaud](https://github.com/marmottajr/habblaud). Ele acrescenta integrações OMP, runtime opcional
+ZeroClaw e clientes nativos Zaplaud. Referências do fork:
 
 - [Servidor, configuração e contratos das integrações](server/README.md).
 - Zaplaud: [Android e iPadOS](#aplicativo-android-zaplaud), [desktop Rust](zaplaud-rs/README.md)
@@ -890,8 +890,9 @@ e espera o próximo pedido, dar uma instrução nova ou corrigir o rumo, sem pro
 Na barra superior, abra **Elenco** para criar, editar ou apagar personagens fixos. Escolha nome, aparência e tipo:
 principal, advisor ou subagente. Para subagentes, informe os tipos observados, como `reviewer` ou `Explore`.
 
-- **Chamar:** **Chamar** abre uma sessão nova na pasta pessoal (`~`) do computador onde a sessão roda, ou
-  **Continuar** retoma a conversa mais recente do personagem. Retomar pelo histórico mantém a pasta da conversa.
+- **Chamar:** **Chamar** abre uma sessão nova na pasta padrão configurada (`HABBLAUD_CAST_FOLDER` para omp e
+  ZeroClaw; sem ela, a pasta pessoal `~`), ou **Continuar** retoma a conversa mais recente do personagem.
+  Retomar pelo histórico mantém a pasta da conversa.
 - **Vestir:** no lápis da gaveta de um agente principal, escolha um membro livre ou crie um a partir do agente.
   **Voltar ao sorteio** remove o vínculo da sessão. Se o membro estiver ocupado, a sessão recebe um personagem sorteado.
 - No omp, `HABBLAUD_CAST=<id>` pede um membro para a sessão. O advisor e os subagentes vestem membros compatíveis
@@ -1376,8 +1377,7 @@ das contas (letra, e-mail, organização) são lidos no host pelo `docker:up` e 
   Do `.claude.json` de cada conta Claude Code, aproveita e-mail, organização e cache do `/usage`; o uso ao vivo vem
   do mod ou tap. As integrações HTTP configuradas leem `HABBLAUD_SUMMARY_TOKEN_FILE` e `HABBLAUD_QUOTA_TOKEN_FILE`.
   A configuração Telegram recebe um token fornecido pelo operador e o grava localmente. Veja o [guia do servidor](server/README.md).
-- **Transferência de conversas:** resumos HTTP enviam texto ao endpoint configurado. A troca entre OMP e
-  Antigravity pode anexar contexto cumulativo à próxima mensagem humana, entregue ao provedor do runtime de destino.
+- **Transferência de conversas:** resumos HTTP enviam texto ao endpoint configurado.
   Os runtimes, inclusive o gateway local ZeroClaw, podem usar provedores externos de modelos; armazenamento local
   e mascaramento de segredos não tornam a inferência offline nem garantem anonimização.
 - **Segredos mascarados:** tokens e senhas com formato conhecido (`Bearer`, `-u usuário:senha`, `TOKEN=`, chaves

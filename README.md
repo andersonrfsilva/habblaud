@@ -5,7 +5,7 @@
 <h1 align="center">Habblaud</h1>
 
 <p align="center">
-  <b>The virtual office for your Claude Code, Codex, OMP, ZeroClaw and Antigravity agents.</b><br />
+  <b>The virtual office for your Claude Code, Codex, OMP and ZeroClaw agents.</b><br />
   Each project becomes a room, and each agent becomes a pixel-art character that shows, in real time, what it's doing.
 </p>
 
@@ -26,8 +26,8 @@
 ---
 
 This is the [andersonrfsilva/habblaud](https://github.com/andersonrfsilva/habblaud) fork of
-[marmottajr/habblaud](https://github.com/marmottajr/habblaud). It adds OMP integrations, optional ZeroClaw and
-Antigravity runtimes, and native Zaplaud clients. Technical guides, currently in Portuguese:
+[marmottajr/habblaud](https://github.com/marmottajr/habblaud). It adds OMP integrations, an optional ZeroClaw
+runtime, and native Zaplaud clients. Technical guides, currently in Portuguese:
 
 - [Server, configuration and integration contracts](server/README.md).
 - Zaplaud: [Android and iPadOS](README.pt-BR.md#aplicativo-android-zaplaud), [Rust desktop](zaplaud-rs/README.md)
@@ -639,8 +639,9 @@ and waits for the next request, give a new instruction or correct its course, wi
 Open **Cast** on the top bar to create, edit or delete fixed characters. Choose a name, appearance and kind:
 main, advisor or subagent. For subagents, enter observed types such as `reviewer` or `Explore`.
 
-- **Calling:** **Call** opens a new session in the home folder (`~`) of the computer running the session, or
-  **Continue** resumes the character's most recent conversation. Resuming from history keeps that conversation's folder.
+- **Calling:** **Call** opens a new session in the configured default folder (`HABBLAUD_CAST_FOLDER` for omp and
+  ZeroClaw; otherwise the home folder `~`), or **Continue** resumes the character's most recent conversation.
+  Resuming from history keeps that conversation's folder.
 - **Dress:** use the pencil in a main agent's details to select a free member or create one from the agent.
   **Back to random** removes the session binding. If the member is busy, the session gets a random character.
 - In omp, `HABBLAUD_CAST=<id>` requests a member for the session. Advisors and subagents use matching members.
@@ -1124,9 +1125,8 @@ metadata (letter, email, organization) is read on the host by `docker:up` and pa
   account's `.claude.json`, it uses email, organization and the `/usage` cache; live usage comes from the mod or tap.
   Configured HTTP integrations do read `HABBLAUD_SUMMARY_TOKEN_FILE` and `HABBLAUD_QUOTA_TOKEN_FILE`.
   Telegram setup accepts a token supplied by the operator and stores it locally. See [the server guide](server/README.md).
-- **Conversation transfers:** HTTP summaries send text to the configured endpoint. Switching between OMP and
-  Antigravity can attach cumulative conversation context to the next human message, delivered to the destination
-  runtime's provider. Agent runtimes, including the local ZeroClaw gateway, may use external model providers;
+- **Conversation transfers:** HTTP summaries send text to the configured endpoint.
+  Agent runtimes, including the local ZeroClaw gateway, may use external model providers;
   local storage and secret masking do not make inference offline or guarantee anonymization.
 - **Masked secrets:** tokens and passwords in known formats (`Bearer`, `-u usuário:senha`, `TOKEN=`, `sk-…`,
   `ghp_…`, `AKIA…` keys, JWTs, passwords in URLs) become `***` before they reach the browser.

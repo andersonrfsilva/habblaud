@@ -5,7 +5,7 @@
 <h1 align="center">Habblaud</h1>
 
 <p align="center">
-  <b>Le bureau virtuel de vos agents Claude Code, Codex, OMP, ZeroClaw et Antigravity.</b><br />
+  <b>Le bureau virtuel de vos agents Claude Code, Codex, OMP et ZeroClaw.</b><br />
   Chaque projet devient une salle, chaque agent un personnage en pixel art qui montre, en temps réel, ce qu'il est en train de faire.
 </p>
 
@@ -26,8 +26,8 @@
 ---
 
 Ce dépôt est le fork [andersonrfsilva/habblaud](https://github.com/andersonrfsilva/habblaud), dérivé de
-[marmottajr/habblaud](https://github.com/marmottajr/habblaud). Il ajoute les intégrations OMP, les runtimes
-facultatifs ZeroClaw et Antigravity et les clients natifs Zaplaud. Guides techniques, actuellement en portugais :
+[marmottajr/habblaud](https://github.com/marmottajr/habblaud). Il ajoute les intégrations OMP, le runtime
+facultatif ZeroClaw et les clients natifs Zaplaud. Guides techniques, actuellement en portugais :
 
 - [Serveur, configuration et contrats des intégrations](server/README.md).
 - Zaplaud : [Android et iPadOS](README.pt-BR.md#aplicativo-android-zaplaud), [bureau Rust](zaplaud-rs/README.md)
@@ -1148,9 +1148,8 @@ avec `no-new-privileges`. Les métadonnées des comptes (lettre, e-mail, organis
   l'utilisation en direct vient du mod ou de la dérivation de statusline. Les intégrations HTTP configurées lisent
   `HABBLAUD_SUMMARY_TOKEN_FILE` et `HABBLAUD_QUOTA_TOKEN_FILE`. La configuration Telegram reçoit un token fourni
   par l'opérateur et le stocke localement. Voir le [guide du serveur](server/README.md).
-- **Transfert des conversations :** les résumés HTTP envoient du texte à l'endpoint configuré. Le passage entre OMP et
-  Antigravity peut joindre un contexte cumulatif au prochain message humain, envoyé au fournisseur du runtime de
-  destination. Les runtimes, dont le gateway local ZeroClaw, peuvent utiliser des fournisseurs externes ; le stockage
+- **Transfert des conversations :** les résumés HTTP envoient du texte à l'endpoint configuré.
+  Les runtimes, dont le gateway local ZeroClaw, peuvent utiliser des fournisseurs externes ; le stockage
   local et le masquage des secrets ne rendent pas l'inférence hors ligne et ne garantissent pas l'anonymisation.
 - **Secrets masqués :** les tokens et mots de passe au format connu (`Bearer`, `-u usuário:senha`, `TOKEN=`, clés
   `sk-…`, `ghp_…`, `AKIA…`, JWT, mots de passe dans les URL) deviennent `***` avant d'arriver au navigateur.

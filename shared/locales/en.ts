@@ -2,6 +2,7 @@
 // As lacunas {0}, {1}... (e as nomeadas, como {sala}) precisam aparecer na tradução, em qualquer ordem.
 // Chave ausente = o texto fica em PT. `npm run i18n:check` lista os textos sem tradução e as chaves que sobraram.
 export const EN: Readonly<Record<string, string>> = {
+  "HABBLAUD_CAST_FOLDER precisa ser um caminho absoluto": "HABBLAUD_CAST_FOLDER must be an absolute path",
   "Agente fixo inválido": "Invalid fixed agent",
   "Diretório Telegram inválido": "Invalid Telegram directory",
   "Arquivo Telegram inválido": "Invalid Telegram file",

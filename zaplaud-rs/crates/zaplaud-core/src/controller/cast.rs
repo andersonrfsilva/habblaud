@@ -164,10 +164,11 @@ impl State {
                 Ok(())
             }
             Err(error) => {
-                if let Error::Api { status, detail, .. } = &error {
-                    if (400..=499).contains(status) && *status != 401 {
-                        self.result_detail = detail.trim().to_owned();
-                    }
+                if let Error::Api { status, detail, .. } = &error
+                    && (400..=499).contains(status)
+                    && *status != 401
+                {
+                    self.result_detail = detail.trim().to_owned();
                 }
                 self.result = match &error {
                     Error::Api { status: 409, .. } => "busy",

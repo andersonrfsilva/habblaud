@@ -10,8 +10,14 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Removido
+
+- A integração com o Antigravity CLI foi removida e não é mais suportada.
+
 ### Adicionado
 
+- **Pasta padrão do elenco.** `HABBLAUD_CAST_FOLDER` define onde abrem as conversas novas do omp e ZeroClaw
+  (personagens e "Novo"); sem ela, continuam na pasta pessoal. Retomar segue na pasta da conversa.
 - **Entrada do fork nos quatro READMEs.** Identifica `andersonrfsilva/habblaud`, preserva os créditos do projeto
   original e aponta para os guias do servidor, clientes Zaplaud e planos da revisão documental. Clone e migração
   de `origin` usam o fork; os avisos de privacidade distinguem execução local de envio de conversas e uso de tokens.
