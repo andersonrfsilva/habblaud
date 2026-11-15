@@ -1,7 +1,10 @@
 // Empacota o servidor (TypeScript) em um único arquivo ESM em dist/server e grava dist/build.json (commit e "cópia
 // modificada", ver scripts/build-info.mjs).
 import { build } from 'esbuild';
+import { readFileSync } from 'node:fs';
 import { writeBuildInfo } from './build-info.mjs';
+
+const { devDependencies = {} } = JSON.parse(readFileSync('package.json', 'utf8'));
 
 await build({
   entryPoints: ['server/index.ts'],
@@ -10,7 +13,9 @@ await build({
   platform: 'node',
   target: 'node20',
   format: 'esm',
-  packages: 'external',
+  // Dependências de runtime (ex.: beautiful-mermaid) entram no bundle: a imagem de produção copia só o dist/.
+  // As de desenvolvimento (vite no modo dev) ficam de fora.
+  external: Object.keys(devDependencies),
   sourcemap: true,
   logLevel: 'info',
 });

@@ -3559,6 +3559,7 @@ export const EN: Readonly<Record<string, string>> = {
   "perguntas paralelas só pelo próprio computador (http://localhost ou http://127.0.0.1)": "side questions only from the computer itself (http://localhost or http://127.0.0.1)",
   "resumo indisponível: omp ou conta do omp não encontrados": "summary unavailable: omp or omp account not found",
   "o resumo só pode ser pedido pelo próprio computador": "summaries can only be requested from the computer itself",
+  "diagramas só podem ser pedidos pelo próprio computador": "diagrams can only be requested from the computer itself",
   "falha ao resumir: {0}": "summary failed: {0}",
   "resumo desligado: escolha um modelo para o papel Tiny nas Configurações": "summaries off: pick a model for the Tiny role in Settings",
   "Mensagens: falha ao avisar a resolução de uma mensagem ({0}).": "Messages: failed to report that a message was resolved ({0}).",

@@ -98,6 +98,34 @@ function raw(base: string, path: string, opts: { method?: string; headers?: Reco
   });
 }
 
+describe('POST /api/mermaid', () => {
+  it('renderiza SVG portátil e recusa diagramas inválidos ou pedidos sem permissão', async () => {
+    const env = await start();
+    try {
+      for (const source of ['flowchart TD\nA[Início] --> B[Fim]', 'sequenceDiagram\nAlice->>Bob: Olá', 'stateDiagram-v2\n[*] --> Ativo', 'classDiagram\nclass Pessoa', 'erDiagram\nPESSOA ||--o{ PEDIDO : faz', 'xychart-beta\nx-axis [a, b]\nbar [1, 2]']) {
+        const response = await fetch(`${env.base}/api/mermaid`, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ source }) });
+        expect(response.status).toBe(200);
+        expect(response.headers.get('content-type')).toContain('image/svg+xml');
+        const svg = await response.text();
+        expect(svg).toContain('<svg');
+        expect(svg).toContain('<text');
+        // AndroidSVG descarta o desenho com SVG 2 (auto-start-reverse) e o CSS quebrado do @import cortado.
+        expect(svg).not.toMatch(/var\(|color-mix\(|@import|auto-start-reverse|display=swap/);
+      }
+      for (const source of ['not a diagram', '', 'x'.repeat(20_001), null]) {
+        const response = await fetch(`${env.base}/api/mermaid`, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ source }) });
+        expect(response.status).toBe(422);
+        expect(await response.json()).toHaveProperty('error');
+      }
+      expect((await fetch(`${env.base}/api/mermaid`)).status).toBe(405);
+      expect((await raw(env.base, '/api/mermaid', { method: 'POST', headers: { ...JSON_HEADERS, Host: 'habblaud.lan' }, body: JSON.stringify({ source: 'graph TD\nA --> B' }) })).status).toBe(403);
+    } finally {
+      await env.close();
+      env.cleanup();
+    }
+  });
+});
+
 describe('rotas do auxiliar do elenco', () => {
   it('publica o catálogo ZeroClaw antes de qualquer sessão e aceita somente GET', async () => {
     const launcher = new CastLauncher({ dataDir: '/tmp', member: () => undefined, agents: () => [], account: () => undefined, changed: () => {} });

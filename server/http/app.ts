@@ -30,6 +30,7 @@ import type { FileFetcher } from '../deliveries/fetcher';
 import { handleFilesRoute, type BrowseDeps } from './files';
 import { HOST_WAIT_MS } from '../host-wait';
 import { SUMMARY_INPUT_MAX, SummaryUnavailable, type Summarizer } from '../summaries/summarizer';
+import { MERMAID_SOURCE_MAX, mermaidSvg } from './mermaid';
 import { avatarPng } from './avatar';
 
 export interface ApiDeps {
@@ -658,6 +659,20 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       else if (!trusted(req, isRead ? 'terminal' : 'messages')) {
         sendJson(res, 403, { error: denied(req, tr('perguntas paralelas só pelo próprio computador (http://localhost ou http://127.0.0.1)')) });
       } else deps.asides.page(req, res, path, url);
+      return true;
+    }
+    if (path === '/api/mermaid') {
+      if (method !== 'POST') methodNotAllowed(res, 'POST');
+      else if (!trusted(req, 'messages')) sendJson(res, 403, { error: denied(req, tr('diagramas só podem ser pedidos pelo próprio computador')) });
+      else readJson(req).then((body) => {
+        const source = body && typeof body === 'object' ? (body as Record<string, unknown>).source : undefined;
+        if (typeof source !== 'string' || !source.trim() || source.length > MERMAID_SOURCE_MAX) return sendJson(res, 422, { error: tr('pedido inválido') });
+        let svg: string;
+        try { svg = mermaidSvg(source); }
+        catch { return sendJson(res, 422, { error: tr('pedido inválido') }); }
+        res.writeHead(200, { 'Content-Type': 'image/svg+xml; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end(svg);
+      }).catch((err) => fail(res, err));
       return true;
     }
     if (path === '/api/summaries') {
