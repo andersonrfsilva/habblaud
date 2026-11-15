@@ -119,26 +119,6 @@ describe('instruções pendentes Antigravity', () => {
 });
 
 describe('anexo de contexto Antigravity', () => {
-  it('mirrors only the person text when instructions and handoff accompany the prompt', async () => {
-    const s = await setup();
-    const directory = await mkdtemp(join(tmpdir(), 'antigravity-clean-user-'));
-    cleanups.push(() => rm(directory, { recursive: true, force: true }));
-    const handoff = new HandoffStore({ dir: directory });
-    const delivery = new AntigravityDelivery({ client: s.client, source: s.source, handoff });
-    const { sessionId } = await s.client.open({ cwd: directory, cast: 'novo-clean' });
-    delivery.setInstructions(sessionId, 'Seja breve.');
-    handoff.put('novo-clean', 'ALFA');
-    expect(await delivery.sendMessage(sessionId, 'Texto da pessoa')).toEqual({ ok: true });
-    await expect.poll(() => s.client.session(sessionId)?.busy).toBe(false);
-    await s.source.flush();
-    const path = s.source.transcriptPathOf(`antigravity:${sessionId}`)!;
-    const users = () => readFileSync(path, 'utf8').trim().split('\n').map(line => JSON.parse(line)).filter(record => record.message.role === 'user');
-    expect(users().map(record => record.message.content)).toEqual(['Texto da pessoa']);
-    await delivery.sendMessage(sessionId, 'Mensagem comum');
-    await expect.poll(() => s.client.session(sessionId)?.busy).toBe(false);
-    await s.source.flush();
-    expect(users().map(record => record.message.content)).toEqual(['Texto da pessoa', 'Mensagem comum']);
-  });
   it('envia resource_link antes do texto uma vez e restaura após falha', async () => {
     const s = await setup();
     const directory = await mkdtemp(join(tmpdir(), 'antigravity-handoff-'));

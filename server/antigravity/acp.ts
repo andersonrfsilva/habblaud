@@ -24,7 +24,7 @@ export class UnknownModel extends Error {}
 type Session = { sessionId: string; cwd: string; busy: boolean; cast?: string; model?: string; turn?: Promise<unknown> };
 type Permission = Extract<AcpEvent, { type: 'permission' }>;
 type Pending = { resolve: (value: unknown) => void; reject: (error: Error) => void; timer?: NodeJS.Timeout };
-type Options = { bin: string; socket?: string; skipPermissions: boolean; version: string; additionalDirectories?: string[]; env?: NodeJS.ProcessEnv; connect?: () => Duplex };
+type Options = { bin: string; socket?: string; skipPermissions: boolean; version: string; env?: NodeJS.ProcessEnv; connect?: () => Duplex };
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const rpcId = (v: unknown): v is string | number => typeof v === 'string' || typeof v === 'number';
 const MAX_LINE = 8 * 1024 * 1024;
@@ -39,9 +39,7 @@ export class AntigravityClient {
   private ready?: Promise<void>;
   private disconnect?: () => void;
 
-  constructor(private readonly opts: Options) {
-    if (opts.additionalDirectories?.some(path => !isAbsolute(path))) throw new Error('ACP additional directories must be absolute');
-  }
+  constructor(private readonly opts: Options) {}
   onEvent(listener: (event: AcpEvent) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -165,7 +163,7 @@ export class AntigravityClient {
   }
   async open(input: { cwd: string; resume?: string; replaces?: string; cast?: string; model?: string }): Promise<{ sessionId: string }> {
     await this.ensure();
-    const result = await this.call(input.resume ? 'session/resume' : 'session/new', { cwd: input.cwd, mcpServers: [], additionalDirectories: this.opts.additionalDirectories ?? [], ...(input.resume ? { sessionId: input.resume } : {}) });
+    const result = await this.call(input.resume ? 'session/resume' : 'session/new', { cwd: input.cwd, mcpServers: [], ...(input.resume ? { sessionId: input.resume } : {}) });
     if (!object(result)) throw new Error('Invalid ACP session');
     const sessionId = result.sessionId;
     if (typeof sessionId !== 'string') throw new Error('Invalid ACP session');

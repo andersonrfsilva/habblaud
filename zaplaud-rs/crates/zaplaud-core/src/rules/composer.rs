@@ -48,21 +48,6 @@ pub fn new_session_target<'a>(
             && item.key.session_id != previous.session_id
     })
 }
-pub fn switch_tool_target<'a>(
-    sessions: &'a [SessionItem],
-    previous: &SessionKey,
-    cast: Option<&str>,
-) -> Option<&'a SessionItem> {
-    let cast = cast?;
-    sessions.iter().find(|item| {
-        item.key.origin == previous.origin
-            && item.cast.as_deref() == Some(cast)
-            && item.agent_id.is_some()
-            && !item.sub
-            && !matches!(item.status.as_deref(), Some("offline" | "done"))
-            && item.key != *previous
-    })
-}
 pub fn session_controls_available(selected: &SessionItem, state: &ReadingState) -> bool {
     deliver_modes_available(selected)
         && can_send(

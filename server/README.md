@@ -35,8 +35,6 @@ por subprocesso `agy acp` ou por soquete Unix. Multiplexa sessões, turnos e ped
 - `sources/antigravity/source.ts` registra a conta e mantém agentes, status, título, modelo e contexto no escritório.
 - `sources/antigravity/mirror.ts` grava JSONL compatível com o leitor de terminal existente, com segredos mascarados,
   diretórios `0700` e arquivos `0600`.
-  O espelho vazio é criado na abertura, retomada e substituição da sessão, sem truncar um arquivo existente.
-  A fala gravada mantém o texto da pessoa, sem os prefixos de instruções e contexto; links de recurso não geram falas vazias.
 - `messages/antigravity.ts` entrega prompts pela fila compartilhada, STOP e conversa nova. A troca abre a nova
   sessão antes de fechar a antiga e preserva o id do agente.
 - `antigravity/permissions.ts` registra pedidos no `PermissionRegistry` e só responde permitir/negar após decisão
@@ -95,9 +93,6 @@ Sem histórico na interface, anexos arbitrários ou steer. Testes usam `fake-agy
     `file://` antes do texto; no omp, como caminho absoluto no texto, igual aos anexos existentes.
     A lista `models` dos agentes abertos pelo elenco inclui a outra ferramenta quando Antigravity está ligado.
     A lista aprendida do omp fica só na memória desta execução.
-11. O contato "Novo" mantém o mesmo `cast` (`novo-…`) nas duas direções da troca de ferramenta.
-    Seu nome e visual são persistidos pela identidade do contato, não pela sessão; nomes antigos salvos pela
-    sessão são copiados para essa identidade sem renomear o contato. Conversa nova também mantém nome e visual.
 
 ### Arquivos de contexto
 
@@ -112,10 +107,6 @@ Acima de 150 mil caracteres conserva os primeiros 20 mil e o fim, indicando a qu
 Gravações usam temporário e rename. O índice persiste o último arquivo e a pendência entre reinícios.
 Falhas de entrega restauram a pendência. Conversa nova pedida pela pessoa esquece o contexto já entregue;
 contexto ainda pendente é preservado. A limpeza na inicialização apaga arquivos com mais de 7 dias.
-
-O cliente ACP declara somente `<dataDir>/handoff` em `additionalDirectories` de todo `session/new` e
-`session/resume`. A pasta é criada antes, com modo `0700`. No `agy` 1.5.9, isso permite ler o contexto sem
-um pedido extra de permissão; não acrescenta flags nem responde pedidos de ferramenta automaticamente.
 
 O arquivo de contexto leva a conversa de uma ferramenta para o provedor da outra (do omp para o Google, ou do
 `agy` para o provedor do modelo do omp). Não transfere raciocínio, estado de ferramentas ou a sessão nativa:

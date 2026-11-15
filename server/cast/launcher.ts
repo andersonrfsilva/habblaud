@@ -141,7 +141,7 @@ export class CastLauncher {
   startNew(raw: unknown): { job: CastJobInfo } | { status: number; error: string } {
     return this.startNewInternal(raw);
   }
-  private startNewInternal(raw: unknown, internal?: { model: string; room: string; cast: string }): { job: CastJobInfo } | { status: number; error: string } {
+  private startNewInternal(raw: unknown, internal?: { model: string; room: string }): { job: CastJobInfo } | { status: number; error: string } {
     const body = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
     if ((body.account !== undefined && typeof body.account !== 'string') || !(internal ? ROLE_VALUE.test(internal.model) && !!resumeRoom(internal.room) : validModel(body, this.opts.zeroclaw)) || (body.prompt !== undefined && (typeof body.prompt !== 'string' || body.prompt.length > PROMPT_MAX || /^\s*-/.test(body.prompt)))) return { status: 422, error: tr('pedido inválido') };
     if (body.session !== undefined && (typeof body.session !== 'string' || !/^[0-9a-f][0-9a-f-]{7,199}$/i.test(body.session))) return { status: 422, error: tr('pedido inválido') };
@@ -150,7 +150,7 @@ export class CastLauncher {
     const room = internal?.room ?? (body.session === undefined ? undefined : resumeRoom(body.room));
     if (body.session !== undefined && !room) return { status: 422, error: tr('informe a pasta do projeto (caminho absoluto)') };
     const model = internal?.model ?? body.model as string | undefined;
-    const cast = internal?.cast ?? `${NEW_CAST_PREFIX}${randomUUID().slice(0, 8)}`;
+    const cast = `${NEW_CAST_PREFIX}${randomUUID().slice(0, 8)}`;
     if (!internal && body.session === undefined) this.opts.handoff?.forget(cast);
     if (this.useAntigravity(model, body.session as string | undefined)) {
       if (body.account !== undefined) return { status: 422, error: tr('pedido inválido') };
@@ -190,7 +190,8 @@ export class CastLauncher {
       if (entries.length || previous) this.opts.handoff.put(cast, renderHandoff({ from, model: agent.model, cwd, at: this.now(), entries, previous }));
       await this.waitJob(this.dismiss(agent));
       const input = { model, room: cwd };
-      const opening = cast.startsWith(NEW_CAST_PREFIX) ? this.startNewInternal({}, { ...input, cast }) : this.startMember(cast, { mode: 'new' }, input);
+      const opening = cast.startsWith(NEW_CAST_PREFIX) ? this.startNewInternal({}, input) : this.startMember(cast, { mode: 'new' }, input);
+      if ('job' in opening && opening.job.cast !== cast) this.opts.handoff.move(cast, opening.job.cast);
       const job = await this.waitJob(opening);
       const next = this.opts.agents().find(a => a.cast === job.cast && a.kind === 'main' && a.status !== 'offline' && a.status !== 'done');
       if (next) this.opts.switched?.(next, from, to, !!this.opts.handoff.pending(job.cast));

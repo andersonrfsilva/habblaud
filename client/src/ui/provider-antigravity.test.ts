@@ -2,33 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { accountProvider, fallbackShort, isAntigravity, looksLikeAntigravityId, PROVIDER_NAME, runtimeAllowsControl, runtimeAllowsDeliveryModes, runtimeAllowsMessages, runtimeAllowsOmpTools } from './provider';
 import { barActions } from './omp-bar';
 import type { AgentInfo } from '../../../shared/types';
-import { castBody, crossesTool, modelGroups, parseCastModelCatalog, runtimeAllowsModelChoice, runtimeAllowsThinking, switchSuccessor } from './provider';
+import { castBody, crossesTool, modelGroups, parseCastModelCatalog, runtimeAllowsModelChoice, runtimeAllowsThinking } from './provider';
 import { usageMessage } from './usage';
-
-describe('sucessor da troca de ferramenta', () => {
-  const from = { id: 'old', cast: 'novo-nina' };
-  const successor = { id: 'new', cast: from.cast, kind: 'main', status: 'idle', provider: 'antigravity' } as AgentInfo;
-
-  it('segue o mesmo contato com outra identidade', () => {
-    expect(switchSuccessor([successor], from)).toBe(successor);
-    expect(switchSuccessor([{ ...successor, provider: 'omp' }], from)?.id).toBe('new');
-  });
-
-  it.each([
-    { id: from.id },
-    { kind: 'sub' },
-    { status: 'offline' },
-    { status: 'done' },
-    { cast: 'other' },
-  ])('ignora candidato incompatível: %j', (change) => {
-    expect(switchSuccessor([{ ...successor, ...change } as AgentInfo], from)).toBeUndefined();
-  });
-
-  it('não acompanha conversa sem personagem nem lista sem sucessor', () => {
-    expect(switchSuccessor([successor], { id: from.id })).toBeUndefined();
-    expect(switchSuccessor([], from)).toBeUndefined();
-  });
-});
 
 it('explica a ausência de cota Antigravity', () => {
   expect(usageMessage({ provider: 'antigravity', usageStatus: 'disabled' })).toEqual(['o Antigravity não informa cota', 'o Antigravity não informa cota']);

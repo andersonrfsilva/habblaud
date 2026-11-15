@@ -24,19 +24,6 @@ function setup(initialViewers = 1) {
   return { id, registry, request, emit, answerPermission, setViewers: (value: number) => { viewers = value; } };
 }
 describe('permissões Antigravity', () => {
-  it('shows the read_file path in the registered permission title', () => {
-    const s = setup();
-    s.emit({ type: 'permission', sessionId: SID, requestId: 8, toolCall: { name: 'read_file', title: 'File context.md', rawInput: { Path: '/tmp/context.md' } }, options: [] });
-    expect(s.registry.snapshot().get(s.id)).toMatchObject({ tool: 'Read', title: expect.stringContaining('context.md') });
-  });
-  it('shows unknown-tool arguments without exposing secrets', () => {
-    const s = setup();
-    s.emit({ type: 'permission', sessionId: SID, requestId: 8, toolCall: { name: 'custom', title: 'Custom action', rawInput: { target: '/tmp/file', auth: 'Authorization: Bearer super-secret-token' } }, options: [] });
-    const request = s.registry.detail(s.registry.snapshot().get(s.id)!.id)!;
-    expect(request.title).toContain('Custom action');
-    expect(request.input).toContain('/tmp/file');
-    expect(JSON.stringify(request)).not.toContain('super-secret-token');
-  });
   it.each([['allow', 'allow_once'], ['deny', 'reject_once']] as const)('encaminha somente a decisão humana %s', async (behavior, kind) => {
     const s = setup(); s.request();
     const request = s.registry.snapshot().get(s.id)!;

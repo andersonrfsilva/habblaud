@@ -5,7 +5,6 @@
 //   npm start      -> node dist/server/index.js (serve dist/client)
 import http from 'node:http';
 import { join } from 'node:path';
-import { mkdirSync } from 'node:fs';
 import { codexDirsRefused, isDefaultDir } from './accounts/detect';
 import { AccountsService } from './accounts/service';
 import { QuotaCollector } from './accounts/quota';
@@ -248,10 +247,8 @@ if (zeroclawConnector && zeroclawMirror) {
   zeroclaw = new ZeroClawSource({ accounts, office, connector: zeroclawConnector, mirror: zeroclawMirror });
   agents.add(zeroclaw);
 }
-if (config.antigravity) mkdirSync(join(config.dataDir, 'handoff'), { recursive: true, mode: 0o700 });
 const antigravityClient = config.antigravity ? new AntigravityClient({
   bin: config.antigravityBin, socket: config.antigravitySocket, skipPermissions: config.antigravitySkipPermissions, version: config.version,
-  additionalDirectories: [join(config.dataDir, 'handoff')],
 }) : undefined;
 const antigravity = antigravityClient ? new AntigravitySource({
   accounts, office, client: antigravityClient, mirror: new AntigravityMirror({ dataDir: config.dataDir }), catalog: antigravityCatalog!,

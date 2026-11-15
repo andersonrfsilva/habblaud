@@ -341,8 +341,8 @@ export class Office {
       // Sessão que voltou durante o período de graça.
       delete existing.removeAt;
       if (p.cast && p.cast !== this.cast.binding(p.sessionId)) {
-        keepNewCast(existing.info, p.cast);
         this.applyCast(existing.info, this.castFor({ id: p.id, session: p.sessionId, explicit: p.cast }));
+        keepNewCast(existing.info, p.cast);
         this.castFallbackNotice(existing.info, p.cast);
         this.markDirty();
       }
@@ -352,7 +352,7 @@ export class Office {
     const roomId = normalizeCwd(p.cwd);
     this.ensureRoom(roomId, now);
     const chosen = this.castFor({ id: p.id, session: p.sessionId, explicit: p.cast });
-    const person = chosen ?? this.mainName(p.sessionId, p.cast, this.takenNames(undefined, p.sessionId));
+    const person = chosen ?? this.deps.names.assign(p.sessionId, this.takenNames(undefined, p.sessionId));
     const info: AgentInfo = {
       id: p.id,
       kind: 'main',
@@ -394,7 +394,6 @@ export class Office {
     const info = rec.info;
     const bound = this.cast.binding(info.sessionId);
     if (bound) this.cast.bind(sessionId, bound);
-    if (info.cast?.startsWith(NEW_CAST_PREFIX)) this.deps.names.remember(info.cast, { name: info.name, look: info.look });
     if (!info.cast) this.deps.names.remember(sessionId, { name: info.name, look: info.look });
     info.sessionId = sessionId;
     this.applyCast(info, this.castFor({ id, session: sessionId }));
@@ -887,18 +886,8 @@ export class Office {
     this.notice('character', info.id, 'info', text, info.roomId);
   }
 
-  private mainName(sessionId: string, cast: string | undefined, used: ReadonlySet<string>) {
-    if (!cast?.startsWith(NEW_CAST_PREFIX)) return this.deps.names.assign(sessionId, used);
-    const stored = this.deps.names.get(cast) ?? this.deps.names.get(sessionId);
-    if (stored) {
-      this.deps.names.remember(cast, stored);
-      return stored;
-    }
-    return this.deps.names.assign(cast, used);
-  }
-
   private applyCast(info: AgentInfo, member?: CastMember): void {
-    const person = member ?? (info.kind === 'main' ? this.mainName(info.sessionId, info.cast, this.takenNames(info.id)) : this.deps.names.assign(info.id, this.takenNames(info.id)));
+    const person = member ?? this.deps.names.assign(info.kind === 'main' ? info.sessionId : info.id, this.takenNames(info.id));
     info.name = person.name;
     info.look = person.look;
     info.seed = member?.seed ?? hash32(info.id);

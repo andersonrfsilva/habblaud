@@ -32,11 +32,6 @@ function setup() {
   return { accounts, office, source, emit, catalog, id: `antigravity:${SID}` };
 }
 describe('fonte Antigravity', () => {
-  it('exposes an existing empty transcript immediately after session-open', async () => {
-    const s = setup();
-    expect(readFileSync(s.source.transcriptPathOf(s.id)!, 'utf8')).toBe('');
-    await s.source.flush();
-  });
   it('registra conta, entra e acompanha trabalho, permissão e fechamento', async () => {
     const s = setup();
     expect(s.accounts.entriesOf('antigravity')[0].detected.short).toBe('G');
@@ -177,21 +172,5 @@ it('associates cast and prefixed model catalog with the main agent', async () =>
     info: { model: 'fake-b', models: [], modelOptions: [{ value: 'fake-b', name: 'Fake B' }] } });
   expect(s.office.get(`antigravity:${next}`)).toMatchObject({ cast: 'novo-alice', model: 'agy/fake-b', models: ['agy/fake-b'] });
   expect(s.catalog.agyModels()).toEqual(['agy/default', 'agy/fake-b']);
-  await s.source.flush();
-});
-
-it('preserves Novo identity when a replacement conversation is adopted', async () => {
-  const s = setup();
-  const old = '7f2c9ee1-2bdd-49ea-b431-3d56fc046302';
-  const next = '7f2c9ee1-2bdd-49ea-b431-3d56fc046303';
-  const info = { models: [], modelOptions: [] };
-  s.emit({ type: 'session-open', sessionId: old, cwd: '/tmp', cast: 'novo-stable', resumed: false, info });
-  const id = `antigravity:${old}`;
-  const { name, look } = s.office.get(id)!;
-  await s.source.replace(old, async () => {
-    s.emit({ type: 'session-open', sessionId: next, replaces: old, cwd: '/tmp', cast: 'novo-stable', resumed: false, info });
-    return { sessionId: next };
-  });
-  expect(s.office.get(id)).toMatchObject({ sessionId: next, cast: 'novo-stable', name, look });
   await s.source.flush();
 });
