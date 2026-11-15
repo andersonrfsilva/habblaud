@@ -172,7 +172,7 @@ const castLauncher: CastLauncher | undefined = config.terminal ? new CastLaunche
   idle: (agent) => office.castIdle(agent),
   zeroclaw: config.zeroclawCatalog ? new ZeroClawCast({
     catalog: config.zeroclawCatalog,
-    home: config.home,
+    home: config.castFolder ?? config.home,
     connector: () => zeroclawConnector,
     delivery: () => zeroclawDelivery,
     messages: () => late.messages,
@@ -181,6 +181,7 @@ const castLauncher: CastLauncher | undefined = config.terminal ? new CastLaunche
     afterOpen: async () => { await zeroclaw?.flush(); },
   }) : undefined,
   ...(config.castMax ? { max: config.castMax } : {}),
+  ...(config.castFolder ? { folder: config.castFolder } : {}),
 }) : undefined;
 late.castLauncher = castLauncher;
 // Resumo das respostas (Android): HTTP configurado ou Tiny do omp; manda texto ao modelo, então só com as mensagens.

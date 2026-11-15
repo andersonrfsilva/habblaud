@@ -51,6 +51,24 @@ describe('CastLauncher', () => {
     expect(job).toMatchObject({ op: 'start', cast: 'ana' });
     expect(job).not.toHaveProperty('folder');
   });
+  it('com pasta padrão configurada, personagem e "Novo" do omp abrem nela (o room do cliente continua ignorado)', () => {
+    const launcher = new CastLauncher({ dataDir: '/tmp', member: () => ({ ...member, last: { '/velha': 'aaaaaaaa-1' } }), agents: () => [], account: () => '/tmp', changed: () => {}, now: () => 0, folder: '/dev' });
+    launcher.poll();
+    expect(launcher.start('ana', { mode: 'new', room: '/qualquer' })).toHaveProperty('job');
+    expect(launcher.poll()).toContainEqual(expect.objectContaining({ op: 'start', cast: 'ana', folder: '/dev' }));
+    expect(launcher.startNew({})).toHaveProperty('job');
+    expect(launcher.poll().filter((job) => job.cast !== 'ana')).toContainEqual(expect.objectContaining({ op: 'start', folder: '/dev' }));
+  });
+  it.each(['latest', 'history', 'novo'])('retomar %s mantém a pasta da conversa com pasta padrão configurada', (mode) => {
+    const launcher = new CastLauncher({ dataDir: '/tmp', member: () => ({ ...member, last: { '/conversa': 'aaaaaaaa-1' } }),
+      agents: () => [], account: () => '/tmp', changed: () => {}, folder: '/padrao' });
+    launcher.poll();
+    const input = { room: '/conversa', session: 'aaaaaaaa-1' };
+    const result = mode === 'novo' ? launcher.startNew(input)
+      : launcher.start('ana', { mode: 'resume', ...(mode === 'history' ? input : {}) });
+    expect(result).toHaveProperty('job');
+    expect(launcher.poll()).toContainEqual(expect.objectContaining({ op: 'start', folder: '/conversa', resume: 'aaaaaaaa-1' }));
+  });
   it('Continuar sem session retoma a conversa mais recente do personagem, na pasta dela', () => {
     const { launcher, member: setMember } = setup();
     launcher.poll();

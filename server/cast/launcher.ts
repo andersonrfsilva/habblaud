@@ -21,6 +21,8 @@ interface Options {
   now?: () => number;
   /** Máximo de personagens abertos ao mesmo tempo (as "salas" de um tenant); ausente = sem limite. */
   max?: number;
+  /** Pasta das conversas novas do omp (HABBLAUD_CAST_FOLDER); ausente = a pasta pessoal do host. */
+  folder?: string;
   zeroclaw?: ZeroClawCast;
 }
 
@@ -56,7 +58,7 @@ export class CastLauncher {
     const limit = this.limitError();
     if (limit) return limit;
     if (this.opts.zeroclaw && this.isOpened(id)) return { status: 409, error: tr('personagem ocupado') };
-    // Nova sessão: sempre na pasta pessoal (o `room` de clientes antigos é ignorado).
+    // Nova sessão: sempre na pasta padrão (HABBLAUD_CAST_FOLDER, ou a pessoal; o `room` de clientes antigos é ignorado).
     // Retomar: `session` escolhida no histórico (pode ser de outro agente) vem com a pasta dela; sem ela, a conversa
     // mais recente do personagem (a última chave de `last`).
     let room: string | undefined;
@@ -91,11 +93,12 @@ export class CastLauncher {
         writeFileSync(instructionsFile, member.instructions, { mode: 0o600 });
       } catch { return { status: 500, error: tr('não foi possível gravar as instruções') }; }
     }
-    const job: CastJob = { id: randomUUID(), op: 'start', cast: id, ...(room ? { folder: room } : {}), agentDir, ...(member.model ? { model: member.model } : {}), ...(instructionsFile ? { instructionsFile } : {}), ...(resume ? { resume } : {}), ...(body.prompt ? { prompt: body.prompt as string } : {}) };
+    const folder = room ?? this.opts.folder;
+    const job: CastJob = { id: randomUUID(), op: 'start', cast: id, ...(folder ? { folder } : {}), agentDir, ...(member.model ? { model: member.model } : {}), ...(instructionsFile ? { instructionsFile } : {}), ...(resume ? { resume } : {}), ...(body.prompt ? { prompt: body.prompt as string } : {}) };
     return { job: this.enqueue(job) };
   }
   /**
-   * "Novo": agente fora do elenco, na pasta pessoal. O escritório sorteia nome e visual (como numa sessão aberta à mão);
+   * "Novo": agente fora do elenco, na pasta padrão configurada ou pessoal. O escritório sorteia nome e visual (como numa sessão aberta à mão);
    * o id `novo-…` só serve para acompanhar a chamada, dispensar e encerrar por ociosidade como um personagem.
    * Com `session`, retoma essa conversa do histórico na pasta dela (`room`).
    */
@@ -113,7 +116,8 @@ export class CastLauncher {
     const agentDir = this.opts.account(body.account as string | undefined);
     if (!agentDir) return { status: 422, error: tr('conta não encontrada') };
     const cast = `${NEW_CAST_PREFIX}${randomUUID().slice(0, 8)}`;
-    return { job: this.enqueue({ id: randomUUID(), op: 'start', cast, ...(room ? { folder: room } : {}), agentDir, ...(body.session ? { resume: body.session as string } : {}), ...(body.prompt ? { prompt: body.prompt as string } : {}) }) };
+    const folder = room ?? this.opts.folder;
+    return { job: this.enqueue({ id: randomUUID(), op: 'start', cast, ...(folder ? { folder } : {}), agentDir, ...(body.session ? { resume: body.session as string } : {}), ...(body.prompt ? { prompt: body.prompt as string } : {}) }) };
   }
   private limitError(): { status: number; error: string } | undefined {
     if (this.opts.max === undefined || this.openCount() < this.opts.max) return undefined;

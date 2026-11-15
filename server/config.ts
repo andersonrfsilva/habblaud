@@ -85,6 +85,8 @@ export interface ServerConfig {
   codex: boolean;
   /** Máximo de personagens do elenco abertos ao mesmo tempo (HABBLAUD_CAST_MAX, 1 a 50); ausente ou inválido = sem limite. */
   castMax?: number;
+  /** Pasta onde o elenco abre conversas novas do omp e ZeroClaw (HABBLAUD_CAST_FOLDER, absoluta); ausente = a pasta pessoal. */
+  castFolder?: string;
   /** Observa as sessões do omp (sources/omp/); HABBLAUD_OMP=0 desliga. */
   omp: boolean;
   /** Gateway ZeroClaw HTTP somente em loopback; ausente = fonte desligada. */
@@ -312,6 +314,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash || quotaUrl.includes('#')) throw invalid();
     quota = { url: url.href, tokenFile };
   }
+  const castFolder = env.HABBLAUD_CAST_FOLDER?.trim() || undefined;
+  if (castFolder && !isAbsolute(castFolder)) throw new Error(tr('HABBLAUD_CAST_FOLDER precisa ser um caminho absoluto'));
   return {
     port: Number.isFinite(port) && port > 0 && port < 65536 ? port : 4747,
     host,
@@ -333,6 +337,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     updateCheck: !env.HABBLAUD_UPDATE_CHECK?.trim() || isTruthy(env.HABBLAUD_UPDATE_CHECK),
     codex: !env.HABBLAUD_CODEX?.trim() || isTruthy(env.HABBLAUD_CODEX),
     ...(castMax(env.HABBLAUD_CAST_MAX) ? { castMax: castMax(env.HABBLAUD_CAST_MAX) } : {}),
+    ...(castFolder ? { castFolder } : {}),
     omp,
     zeroclawUrl,
     zeroclawCatalog,
