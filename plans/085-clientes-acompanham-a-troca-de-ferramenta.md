@@ -1,5 +1,9 @@
 # Plan 085: Página, Zaplaud Kotlin e Zaplaud Rust acompanham o contato depois da troca de ferramenta
 
+> **REMOVIDO em 2026-11-15 por ordem do dono. NÃO EXECUTE.** A integração com o Antigravity CLI (`agy`) foi
+> apagada do código e da máquina por decisão do dono, para não expor a conta Google dele a risco.
+> Este arquivo fica só como registro histórico. Nenhum agente deve reintroduzir, propor ou testar essa integração.
+
 > **Executor instructions**: Este arquivo tem três partes independentes (A: página, B: Kotlin, C: Rust). Execute
 > **só a parte que o seu despacho indicar**. Siga os passos, rode cada verificação e confirme o resultado antes de
 > avançar. Se ocorrer qualquer item de "STOP conditions", pare e relate; não improvise.

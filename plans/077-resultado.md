@@ -1,5 +1,8 @@
 # Resultado do plano 077: o que o `agy acp` 1.5.9 entrega a um cliente ACP
 
+> **REGISTRO HISTÓRICO.** A integração medida aqui foi removida em 2026-11-15 por decisão do dono. Não repita estas
+> medições nem use o `agy`.
+
 Medido em 2026-11-14 no `homexlinx`, `agy` 1.5.9, conta pessoal do dono (plano "Google AI Pro"), com login feito por
 ele. Cliente: sonda Node sem dependências, `clientInfo.name = "habblaud"`, falando só por stdin/stdout de `agy acp`.
 Nenhuma flag proibida. As capturas ficaram em `/tmp/agy-acp-spike/capturas/*.ndjson` durante a medição (apagadas no

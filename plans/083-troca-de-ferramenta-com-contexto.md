@@ -1,5 +1,9 @@
 # Plan 083: Trocar o modelo de um agente aberto troca de ferramenta (omp ⇄ Antigravity) e leva o contexto (servidor)
 
+> **REMOVIDO em 2026-11-15 por ordem do dono. NÃO EXECUTE.** A integração com o Antigravity CLI (`agy`) foi
+> apagada do código e da máquina por decisão do dono, para não expor a conta Google dele a risco.
+> Este arquivo fica só como registro histórico. Nenhum agente deve reintroduzir, propor ou testar essa integração.
+
 > **Executor instructions**: Siga o plano passo a passo. Rode cada verificação e confirme o resultado esperado antes
 > de avançar. Se ocorrer qualquer item de "STOP conditions", pare e relate; não improvise. Ao terminar, atualize a
 > linha deste plano em `plans/README.md` (a menos que um revisor diga que ele cuida do índice).
