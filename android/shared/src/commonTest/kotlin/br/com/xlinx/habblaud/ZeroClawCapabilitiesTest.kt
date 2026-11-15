@@ -65,6 +65,14 @@ class ZeroClawCapabilitiesTest {
         assertEquals(key, SessionKey.deserialize(key.serialize()))
     }
 
+    @Test fun dismissFromListOffersOnlyOpenCastContactsWithoutPendingJob() {
+        fun open(cast: String?, opened: Boolean = true) = item().copy(key = key.copy(sessionId = "s-$cast-$opened"), cast = cast, castOpened = opened)
+        val member = open("zelia")
+        val new = open(NEW_CAST_PREFIX + "abc")
+        val sessions = listOf(member, new, open("fora-do-elenco"), open("zelia", opened = false), open(null), open("ocupada"), member.copy(agentId = null))
+        assertEquals(listOf(member, new), dismissable(sessions, setOf("zelia", "ocupada"), mapOf("ocupada" to "queued", "zelia" to "done")))
+    }
+
     private val modelCatalog = """
         {"provider":"zeroclaw","models":[
             {"alias":"m_000000000001","model":"fixture/model-legivel"},

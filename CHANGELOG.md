@@ -27,6 +27,8 @@ do meio (0.**3**.0).
 - **Entrada do fork nos quatro READMEs.** Identifica `andersonrfsilva/habblaud`, preserva os créditos do projeto
   original e aponta para os guias do servidor, clientes Zaplaud e planos da revisão documental. Clone e migração
   de `origin` usam o fork; os avisos de privacidade distinguem execução local de envio de conversas e uso de tokens.
+- **Zaplaud (Android e iOS):** o menu ⋮ de cada sessão na lista ganhou "Dispensar contato", para dispensar sem
+  precisar abrir a conversa. No desktop Rust segue pelo menu da conversa.
 - **Sessões:** fixar e favoritar são ações independentes no Habblaud web e no Zaplaud Android/iOS e desktop Rust.
   Sessões fixadas aparecem primeiro sem ignorar os filtros; favoritas ficam acessíveis pela seção do Histórico
   no web e pelo filtro Favoritas nos clientes nativos. As marcações persistem localmente, por identidade completa
