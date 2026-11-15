@@ -45,7 +45,6 @@
     "omp:uninstall": "tsx scripts/omp-install.ts uninstall",
     "omp:status": "tsx scripts/omp-install.ts status",
     "codex:bridge": "tsx scripts/codex-bridge.ts",
-    "antigravity:relay": "tsx scripts/antigravity-relay.ts",
     "remote:setup": "tsx scripts/remote-setup.ts",
     "remote:mdns": "tsx scripts/remote-mdns.ts",
     "release": "tsx scripts/release.ts"

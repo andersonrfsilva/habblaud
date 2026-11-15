@@ -31,7 +31,6 @@ import { handleFilesRoute, type BrowseDeps } from './files';
 import { HOST_WAIT_MS } from '../host-wait';
 import { SUMMARY_INPUT_MAX, SummaryUnavailable, type Summarizer } from '../summaries/summarizer';
 import { avatarPng } from './avatar';
-import { handleAntigravityRoute, type AntigravityHttpDeps } from '../antigravity/http';
 
 export interface ApiDeps {
   office: Office;
@@ -92,7 +91,6 @@ export interface ApiDeps {
   setOmpRoomByProject?: (on: boolean) => boolean;
   /** Novo agente pelo escritório (/api/spawn e, para o auxiliar do host, /api/host/spawn/*; server/spawn/spawn.ts). */
   spawn?: SpawnService;
-  antigravity?: AntigravityHttpDeps;
   castLauncher?: CastLauncher;
   castNamed?: NamedAgentSettings;
   /** Pastas sugeridas no "Novo agente" (GET /api/spawn/folders; spawn/folders.ts): projetos recentes. */
@@ -456,7 +454,6 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
           version: deps.version,
           demo: office.isDemo(),
           docker: deps.inDocker,
-          ...(deps.antigravity ? { antigravity: true } : {}),
           remote,
           terminal: !!terminals && (!remote || trusted(req, 'terminal')),
           permissions: !!deps.permissions && (!remote || trusted(req, 'permissions')),
@@ -490,7 +487,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
           messages: !!deps.messages && trusted(req, 'messages'),
           messageSessionGuard: !!deps.messages && trusted(req, 'messages'),
           terminal: !!terminals && trusted(req, 'terminal'),
-          spawn: (!!deps.spawn || !!deps.antigravity) && trusted(req, 'spawn'),
+          spawn: !!deps.spawn && trusted(req, 'spawn'),
           world: !!deps.world && !!deps.terminal && !remote && isLoopbackHost(req.headers.host),
           files: !!deps.browse && trusted(req, 'terminal'),
         };
@@ -555,17 +552,6 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
     }
     const castStart = /^\/api\/cast\/([a-z0-9-]{1,40})\/start$/.exec(path);
     const castDismiss = /^\/api\/agents\/([^/]+)\/dismiss$/.exec(path);
-    if (castDismiss) {
-      let id: string;
-      try { id = decodeURIComponent(castDismiss[1]); } catch { sendJson(res, 400, { error: tr('id inválido') }); return true; }
-      const agent = office.get(id);
-      if (agent?.provider === 'antigravity' && deps.antigravity) {
-        if (method !== 'POST') methodNotAllowed(res, 'POST');
-        else if (!deps.terminal || !trusted(req, 'terminal')) sendJson(res, 403, { error: denied(req, tr('o elenco só pode ser editado pelo próprio computador')) });
-        else deps.antigravity.client.close(agent.sessionId).then(() => sendJson(res, 202, {})).catch(err => fail(res, err));
-        return true;
-      }
-    }
     if (path === '/api/cast/models' || path === '/api/cast/jobs' || path === '/api/cast/new' || path === '/api/cast/roles' || castStart || castDismiss) {
       const launcher = deps.castLauncher;
       // Mesma trava do terminal: local, ou a porta remota com login e `terminal` em HABBLAUD_REMOTE_ALLOW.
@@ -688,11 +674,6 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
           catch (err) { sendJson(res, err instanceof SummaryUnavailable ? 503 : 502, { error: err instanceof SummaryUnavailable ? err.message : tr('falha ao resumir: {0}', [err instanceof Error ? err.message : String(err)]) }); }
         }).catch((err) => fail(res, err));
       }
-      return true;
-    }
-    if (deps.antigravity && (path === '/api/antigravity' || path.startsWith('/api/antigravity/'))) {
-      if (!trusted(req, 'spawn')) sendJson(res, 403, { error: denied(req, tr('agentes novos só são abertos pelo próprio computador (http://localhost)')) });
-      else void handleAntigravityRoute(req, res, path, deps.antigravity);
       return true;
     }
     if (path === '/api/spawn' || path.startsWith('/api/spawn/')) {

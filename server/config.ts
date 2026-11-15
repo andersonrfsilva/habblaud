@@ -83,10 +83,6 @@ export interface ServerConfig {
   updateCheck: boolean;
   /** Observa as sessões do Codex (sources/codex/); HABBLAUD_CODEX=0 desliga. */
   codex: boolean;
-  antigravity: boolean;
-  antigravityBin: string;
-  antigravitySocket?: string;
-  antigravitySkipPermissions: boolean;
   /** Máximo de personagens do elenco abertos ao mesmo tempo (HABBLAUD_CAST_MAX, 1 a 50); ausente ou inválido = sem limite. */
   castMax?: number;
   /** Observa as sessões do omp (sources/omp/); HABBLAUD_OMP=0 desliga. */
@@ -316,10 +312,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash || quotaUrl.includes('#')) throw invalid();
     quota = { url: url.href, tokenFile };
   }
-  const antigravitySocket = env.HABBLAUD_ANTIGRAVITY_SOCKET?.trim() || undefined;
-  if (antigravitySocket && !isAbsolute(antigravitySocket)) {
-    throw new Error(tr('HABBLAUD_ANTIGRAVITY_SOCKET precisa ser um caminho absoluto'));
-  }
   return {
     port: Number.isFinite(port) && port > 0 && port < 65536 ? port : 4747,
     host,
@@ -340,10 +332,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     repo: pkg.repo,
     updateCheck: !env.HABBLAUD_UPDATE_CHECK?.trim() || isTruthy(env.HABBLAUD_UPDATE_CHECK),
     codex: !env.HABBLAUD_CODEX?.trim() || isTruthy(env.HABBLAUD_CODEX),
-    antigravity: isTruthy(env.HABBLAUD_ANTIGRAVITY),
-    antigravityBin: env.HABBLAUD_ANTIGRAVITY_BIN?.trim() || 'agy',
-    antigravitySocket,
-    antigravitySkipPermissions: isTruthy(env.HABBLAUD_ANTIGRAVITY_SKIP_PERMISSIONS),
     ...(castMax(env.HABBLAUD_CAST_MAX) ? { castMax: castMax(env.HABBLAUD_CAST_MAX) } : {}),
     omp,
     zeroclawUrl,

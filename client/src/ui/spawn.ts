@@ -3,7 +3,7 @@
 // (GET /api/spawn/folders: histórico de sessões + salas), para escolher com um toque; "Outra pasta" aceita um caminho
 // digitado. O pedido pode levar anexos (POST /api/spawn/attachments, um por arquivo, antes do pedido) e ser ditado
 // (ui/dictation.ts, Whisper local no Mac). Pasta que o Claude Code não conhece cai no app (Enter lá).
-import { isNeutralBrand, tr } from '../../../shared/i18n';
+import { tr } from '../../../shared/i18n';
 import { isDemoId } from '../../../shared/timeline';
 import type { OfficeSnapshot } from '../../../shared/types';
 import { uploadAttachment } from '../net/store';
@@ -124,25 +124,8 @@ export class SpawnPanel {
   private selected = '';
   private typing = false;
   private files: PendingFile[] = [];
-  private readonly tool: HTMLSelectElement;
-  private readonly toolRow: HTMLElement;
-  private readonly automaticWarning: HTMLElement;
-  private readonly attachBtn: HTMLButtonElement;
-  private readonly claudeHint: HTMLElement;
-  private antigravitySkipPermissions = false;
-  private antigravitySelected = false;
 
   constructor(private readonly ctx: UiContext) {
-    this.tool = h('select', { class: 'ui-rename__input', attrs: { id: 'ui-spawn-tool' } },
-      h('option', { text: 'Claude Code', attrs: { value: 'claude' } }),
-      h('option', { text: 'Antigravity', attrs: { value: 'antigravity' } }));
-    this.toolRow = h('div', { hidden: true },
-      h('label', { class: 'ui-spawn__label', attrs: { for: 'ui-spawn-tool' }, text: tr('Ferramenta') }), this.tool);
-    this.automaticWarning = h('p', { class: 'ui-rename__hint', hidden: true, text: tr('Permissões automáticas ligadas: o Antigravity roda comandos sem perguntar.') });
-    this.tool.addEventListener('change', () => {
-      this.clearFiles();
-      this.renderTool();
-    });
     this.folderList = h('div', { class: 'ui-spawn__folders', role: 'radiogroup', attrs: { 'aria-label': tr('Projetos recentes') } });
     this.otherBtn = h('button', { class: 'ui-spawn__other', type: 'button', on: { click: () => this.showOther(true) } }, tr('+ Outra pasta'));
     this.folder = h('input', {
@@ -161,7 +144,6 @@ export class SpawnPanel {
       this.fileInput.value = '';
     });
     const attachBtn = h('button', { class: 'ui-btn ui-spawn__attach', type: 'button', attrs: { title: tr('Anexar imagens ou arquivos ao pedido') }, on: { click: () => this.fileInput.click() } });
-    this.attachBtn = attachBtn;
     const clip = h('span', { attrs: { 'aria-hidden': 'true' } });
     clip.innerHTML = ICONS.attach;
     attachBtn.append(clip, h('span', { text: tr('Anexar') }));
@@ -177,7 +159,6 @@ export class SpawnPanel {
     this.fileList = h('ul', { class: 'ui-spawn__files', attrs: { 'aria-label': tr('Anexos') } });
     this.submitBtn = h('button', { class: 'ui-btn ui-perm__btn ui-perm__btn--allow ui-spawn__go', type: 'button', on: { click: () => void this.submit() } }, tr('Começar'));
     this.status = h('p', { class: 'ui-rename__hint ui-spawn__status', attrs: { role: 'status', 'aria-live': 'polite' } });
-    this.claudeHint = h('p', { class: 'ui-rename__hint', text: tr('Começa na hora uma sessão do Claude Code em segundo plano no computador, na pasta escolhida; as permissões chegam aqui. Pasta que o Claude Code ainda não conhece abre no app do Claude e espera o Enter lá. Anexos vão para ~/.habblaud/attachments e o pedido leva os caminhos.') });
     for (const field of [this.folder, this.prompt] as HTMLElement[]) {
       field.addEventListener('keydown', (e: KeyboardEvent) => {
         e.stopPropagation();
@@ -200,8 +181,6 @@ export class SpawnPanel {
       h(
         'div',
         { class: 'ui-set-group ui-spawn__body' },
-        this.toolRow,
-        this.automaticWarning,
         h('p', { class: 'ui-spawn__label', attrs: { id: 'ui-spawn-folders-label' }, text: tr('Projeto') }),
         this.folderList,
         this.otherBtn,
@@ -210,7 +189,7 @@ export class SpawnPanel {
         this.prompt,
         h('div', { class: 'ui-spawn__tools' }, this.dictate.el, attachBtn, this.fileInput),
         this.fileList,
-        this.claudeHint,
+        h('p', { class: 'ui-rename__hint', text: tr('Começa na hora uma sessão do Claude Code em segundo plano no computador, na pasta escolhida; as permissões chegam aqui. Pasta que o Claude Code ainda não conhece abre no app do Claude e espera o Enter lá. Anexos vão para ~/.habblaud/attachments e o pedido leva os caminhos.') }),
         this.submitBtn,
         this.status,
       ),
@@ -236,7 +215,6 @@ export class SpawnPanel {
     if (!this.folders.length) this.setFolders(spawnFolders(this.ctx.store.snapshot).map((path) => ({ path, name: path.split(/[\\/]/).pop() || path, lastAt: 0 })));
     void this.loadFolders();
     void this.checkDictation();
-    void this.checkAntigravity();
     if (!this.busy) setText(this.status, '');
     const r = anchor.getBoundingClientRect();
     this.el.style.top = `${Math.round(r.bottom + 8)}px`;
@@ -262,29 +240,6 @@ export class SpawnPanel {
     } catch {
       // fica a lista das salas
     }
-  }
-
-  private async checkAntigravity(): Promise<void> {
-    if (isNeutralBrand()) return;
-    try {
-      const result = await api<{ available: boolean; skipPermissions: boolean | null }>('/api/antigravity');
-      setHidden(this.toolRow, !result.available);
-      this.antigravitySkipPermissions = result.skipPermissions === true;
-      if (!result.available) this.tool.value = 'claude';
-    } catch {
-      this.tool.value = 'claude';
-      setHidden(this.toolRow, true);
-    }
-    this.renderTool();
-  }
-
-  private renderTool(): void {
-    const antigravity = this.tool.value === 'antigravity';
-    this.antigravitySelected = antigravity;
-    setHidden(this.attachBtn, antigravity);
-    setHidden(this.fileList, antigravity);
-    setHidden(this.claudeHint, antigravity);
-    setHidden(this.automaticWarning, !antigravity || !this.antigravitySkipPermissions);
   }
 
   private async checkDictation(): Promise<void> {
@@ -395,15 +350,6 @@ export class SpawnPanel {
     const prompt = this.prompt.value;
     this.submitBtn.disabled = true;
     try {
-      if (this.antigravitySelected) {
-        await api('/api/antigravity/sessions', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folder, prompt }),
-        });
-        this.say(tr('Antigravity aberto: o agente aparece no escritório em instantes.'));
-        if (this.prompt.value === prompt) this.prompt.value = '';
-        writePref(folder);
-        return;
-      }
       const ids: string[] = [];
       for (const [i, f] of batch.entries()) {
         this.say(batch.length > 1 ? tr('Enviando anexos ({0} de {1})…', [i + 1, batch.length]) : tr('Enviando o anexo…'));

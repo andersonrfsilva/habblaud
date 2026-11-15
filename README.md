@@ -865,10 +865,6 @@ Everything works without configuring anything. If you need to adjust something, 
 | `HABBLAUD_CODEX_DIRS` | automatic detection | Codex folders, comma-separated (instead of `~/.codex*` and `CODEX_HOME`). |
 | `HABBLAUD_CODEX_BIN` | `codex` from PATH (on Windows, `codex.exe`) | The Codex binary that delivers the messages (`codex queue`), in Node mode or in `npm run codex:bridge`. |
 | `HABBLAUD_OMP` | on | `0` turns off omp (oh-my-pi) in the office. |
-| `HABBLAUD_ANTIGRAVITY` | off | `1` enables Antigravity over ACP. Personal use only; keep disabled in SaaS tenants. |
-| `HABBLAUD_ANTIGRAVITY_BIN` | `agy` from PATH | Official binary used directly; in socket mode, configure it in the host relay environment. |
-| `HABBLAUD_ANTIGRAVITY_SOCKET` | — | Absolute Unix socket path; when set, replaces the direct subprocess with the host relay. |
-| `HABBLAUD_ANTIGRAVITY_SKIP_PERMISSIONS` | off | `1` allows commands without asking. In socket mode, only the relay environment controls this. |
 | `HABBLAUD_OMP_DIRS` | automatic detection | omp folders, comma-separated (in place of `PI_CODING_AGENT_DIR` and `~/.omp/agent`). |
 | `HABBLAUD_OMP_USAGE` | on (off in Docker) | `0` turns off the plan usage of omp accounts (Habblaud stops running `omp usage --json`). |
 | `HABBLAUD_OMP_BIN` | `omp` from PATH, otherwise `~/.bun/bin/omp` | The omp executable used for plan usage (a path or a name on the PATH). |
@@ -884,45 +880,6 @@ Everything works without configuring anything. If you need to adjust something, 
 `HABBLAUD_REMOTE_*` apply (in `.env` or in the environment), as do `HABBLAUD_CLAUDE_DIRS`, `HABBLAUD_CODEX_DIRS`, `HABBLAUD_OMP_DIRS`, `HABBLAUD_USAGE_DIR` and
 `HABBLAUD_ACCOUNTS` (read by `docker:up` on the host); the rest are fixed inside the container. Options: `npm run docker:up -- --no-build` (starts without rebuilding),
 `npm run docker:down` (stops) and `npm run docker:logs` (follows the logs).
-
-## Antigravity
-
-Personal, opt-in integration through the official `agy` ACP protocol, measured on version 1.5.9. Never enable it
-in SaaS tenants. Habblaud does not read or mount Antigravity credentials. Sign in with the official `agy` on the host.
-
-**Direct mode:** install the official `agy`, sign in, then start Habblaud:
-
-```sh
-HABBLAUD_ANTIGRAVITY=1 npm start
-```
-
-Set `HABBLAUD_ANTIGRAVITY_BIN=/path/to/agy` when the binary is not on PATH. One lazy connection serves all
-conversations and closes when the last session is dismissed.
-
-**Podman / socket mode:** run this on the host:
-
-```sh
-npm run antigravity:relay
-```
-
-The default socket is `~/.habblaud/antigravity-acp.sock`, mode `0600`. Override it with
-`npm run antigravity:relay -- --socket /absolute/path/acp.sock`. Its directory must belong to the user and must not
-be writable by others. The owner can install `deploy/podman/habblaud-antigravity.service` as a user unit.
-Uncomment the two Antigravity environment settings in `deploy/podman/habblaud.container` and apply the updated
-configuration to the installation. The existing state volume carries the socket; do not mount the login or binary.
-
-Open **New agent**, select **Antigravity**, choose a folder and optionally enter a prompt. Supported: queued messages,
-human tool approvals, STOP, new conversation, Dismiss and terminal reading. Local/remote office access rules still
-apply. Not included: cast integration, history UI, quota, model switching, attachments, steer, parallel conversations,
-or dedicated Zaplaud integration.
-
-Habblaud opens the official `agy` through ACP and does not use its login independently. Antigravity's Terms prohibit
-accessing the service with third-party software; whether a custom ACP client falls within that rule is a matter of
-interpretation, and users bear the risk of their account being blocked. `HABBLAUD_ANTIGRAVITY_SKIP_PERMISSIONS=1`
-makes `agy` run commands and edit files without asking: use it only in a disposable folder or machine.
-
-In direct mode, the permissions flag belongs to Habblaud's environment. In socket mode, it belongs exclusively to
-the host relay environment; setting it only in the container does not enable it.
 
 ## Habblaud World
 
