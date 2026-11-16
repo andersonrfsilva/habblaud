@@ -162,6 +162,9 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Zaplaud (Android e iOS):** o bate-papo paralelo volta a acompanhar o fim: abre na última resposta, mostra a
+  pergunta enviada e segue a resposta enquanto ela cresce. Lendo mais acima, a lista fica parada. Antes ela não
+  saía do lugar, porque a rolagem automática pedia um deslocamento que estourava a conta.
 - **ZeroClaw:** após reconexão ou reinício, recupera respostas finais ausentes pelo histórico HTTP quando o turno termina.
   Texto e data evitam duplicatas; raciocínio e ferramentas perdidos não podem ser recuperados.
 - **Zaplaud (Android e iOS):** tabelas nas mensagens não cortam mais o texto com reticências: a célula quebra em

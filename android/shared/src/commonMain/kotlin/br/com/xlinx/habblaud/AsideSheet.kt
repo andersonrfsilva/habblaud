@@ -4,6 +4,7 @@ import br.com.xlinx.habblaud.resources.*
 import org.jetbrains.compose.resources.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -49,11 +50,16 @@ internal fun AsideSheet(asides: AsideController, api: HabblaudApi, onClose: () -
             wasScrolling = scrolling && !automatic
         }
     }
-    // Pergunta nova ou resposta crescendo: mostra o fim só enquanto o usuário o acompanha.
-    LaunchedEffect(topic?.id, turns.size, turns.lastOrNull()?.answer?.length) {
-        if (following && !list.isScrollInProgress && turns.isNotEmpty()) {
+    // Acompanha o fim enquanto o usuário o acompanha: pergunta nova, resposta crescendo e markdown que mede depois.
+    // Observa a lista, não o tamanho do texto, e encosta no fim sem animação. animateScrollToItem(…, Int.MAX_VALUE)
+    // estourava a conta do deslocamento e a lista não saía do lugar.
+    LaunchedEffect(list, topic?.id) {
+        snapshotFlow { following && list.canScrollForward && !list.isScrollInProgress }.collect { behind ->
+            // A mudança pode chegar no meio de uma medição; rolar só no quadro seguinte, se ainda fizer sentido.
+            withFrameNanos { }
+            if (!behind || !following || !list.canScrollForward || list.isScrollInProgress) return@collect
             autoScrolling = true
-            try { list.animateScrollToItem(turns.lastIndex, Int.MAX_VALUE) }
+            try { list.scrollBy(100_000f) }
             finally { autoScrolling = false }
         }
     }
@@ -92,7 +98,7 @@ internal fun AsideSheet(asides: AsideController, api: HabblaudApi, onClose: () -
                     }
                 } else {
                     val sendLabel = stringResource(Res.string.aside_send)
-                    FilledIconButton(onClick = { asides.ask(draft); draft = "" }, enabled = draft.isNotBlank() && !state.sending, modifier = Modifier.testTag("aside-send").semantics { contentDescription = sendLabel }) {
+                    FilledIconButton(onClick = { asides.ask(draft); draft = ""; following = true }, enabled = draft.isNotBlank() && !state.sending, modifier = Modifier.testTag("aside-send").semantics { contentDescription = sendLabel }) {
                         Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null)
                     }
                 }
