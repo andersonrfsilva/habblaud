@@ -162,6 +162,8 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **ZeroClaw:** após reconexão ou reinício, recupera respostas finais ausentes pelo histórico HTTP quando o turno termina.
+  Texto e data evitam duplicatas; raciocínio e ferramentas perdidos não podem ser recuperados.
 - **Zaplaud (Android e iOS):** tabelas nas mensagens não cortam mais o texto com reticências: a célula quebra em
   várias linhas e a coluna ficou mais larga (180 dp). Tabela que não cabe na tela continua rolando na horizontal.
 - **Zaplaud:** resposta resumida que você abriu continua aberta até ser recolhida, mesmo ao sair e voltar da
