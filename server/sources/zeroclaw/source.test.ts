@@ -34,7 +34,7 @@ async function setup() {
   const history = new ZeroClawHistory({ connector, mirror, account: () => source.accountId,
     openAgentOf: (_account, id) => office.list().find((a) => a.sessionId === id && a.status !== 'offline')?.id });
   await source.start();
-  return { gateway, accounts, office, mirror, connector, source, history };
+  return { dataDir, gateway, accounts, office, mirror, connector, source, history };
 }
 const open = { sessionId: SID, agent: 'assistant', name: 'Teste', cwd: '/projetos/teste' };
 
@@ -82,6 +82,88 @@ describe('fonte ZeroClaw', () => {
     await s.source.flush();
     expect(s.office.get(id)?.status).toBe('offline');
     expect(s.history.resolve(s.source.accountId, SID)).toHaveProperty('path', path);
+  });
+
+  it.each([
+    { label: 'perdeu o fim do bloco', chunk: 'resposta ', expected: 1 },
+    { label: 'não perdeu texto', chunk: 'resposta completa', expected: 0 },
+  ])('recupera HTTP depois da reconexão: $label', async ({ chunk, expected }) => {
+    const s = await setup();
+    await s.connector.openSession(open);
+    await s.connector.sendMessage(SID, 'pergunta');
+    let receivedChunk = false;
+    s.connector.onEvent((event) => { if (event.type === 'frame' && event.frame.type === 'chunk') receivedChunk = true; });
+    s.gateway.connections[0].send({ type: 'chunk', content: chunk });
+    await settled(s.source, () => receivedChunk);
+    if (!expected) {
+      // A ferramenta fecha o bloco, mas o turno continua ativo quando o socket cai.
+      s.gateway.connections[0].send({ type: 'tool_call', id: 'pending', name: 'shell', args: {} });
+      await settled(s.source, () => readFileSync(s.mirror.pathOf(SID), 'utf8').includes(chunk));
+    }
+    s.gateway.messages.set(SID, [
+      { role: 'assistant', content: 'resposta antiga', created_at: '2020-01-01T00:00:00Z' },
+      { role: 'assistant', content: 'resposta completa', created_at: new Date().toISOString() },
+    ]);
+    s.gateway.connections[0].drop();
+    await vi.waitFor(() => expect(s.gateway.connections).toHaveLength(2), { timeout: 4000 });
+    await settled(s.source, () => !s.connector.session(SID)?.busy && !s.mirror.needsRecovery(SID));
+    const recovered = (await s.mirror.load(SID)).map((line) => JSON.parse(line)).filter((record) => record.uuid.startsWith('recovered-'));
+    expect(recovered).toHaveLength(expected);
+    if (expected) expect(recovered[0].message.content).toEqual([{ type: 'text', text: 'resposta completa' }]);
+    const before = await s.mirror.load(SID);
+    await s.connector.refreshTurnState(SID);
+    await s.source.flush();
+    expect(await s.mirror.load(SID)).toEqual(before);
+  });
+
+  it('aguarda done quando o turno reconectado ainda está ativo', async () => {
+    const s = await setup();
+    await s.connector.openSession(open);
+    await s.connector.sendMessage(SID, 'pergunta');
+    s.gateway.states.set(SID, 'running');
+    let receivedChunk = false;
+    s.connector.onEvent((event) => { if (event.type === 'frame' && event.frame.type === 'chunk') receivedChunk = true; });
+    s.gateway.connections[0].send({ type: 'chunk', content: 'parte ' });
+    await settled(s.source, () => receivedChunk);
+    s.gateway.connections[0].drop();
+    await vi.waitFor(() => expect(s.gateway.connections).toHaveLength(2), { timeout: 4000 });
+    await settled(s.source, () => s.connector.session(SID)?.connected === true && s.mirror.needsRecovery(SID));
+    await s.connector.refreshTurnState(SID);
+    await s.source.flush();
+    expect(s.gateway.requests.filter((request) => request.path.endsWith('/messages'))).toHaveLength(1);
+    expect((await s.mirror.load(SID)).some((line) => line.includes('recovered-'))).toBe(false);
+    s.gateway.messages.set(SID, [{ role: 'assistant', content: 'parte perdida e final', created_at: new Date().toISOString() }]);
+    s.gateway.states.set(SID, 'idle');
+    s.gateway.connections[1].send({ type: 'done', full_response: 'parte perdida e final' });
+    await settled(s.source, () => !s.mirror.needsRecovery(SID));
+    const recovered = (await s.mirror.load(SID)).map((line) => JSON.parse(line)).filter((record) => record.uuid.startsWith('recovered-'));
+    expect(recovered).toHaveLength(1);
+    expect(recovered[0].message.content[0].text).toBe('parte perdida e final');
+  });
+
+  it('recupera duas respostas depois de reiniciar sem duplicar na segunda reinicialização', async () => {
+    const s = await setup();
+    await s.connector.openSession(open);
+    await s.connector.sendMessage(SID, 'pergunta');
+    s.gateway.connections[0].send({ type: 'chunk', content: 'bloco não persistido' });
+    await s.source.flush();
+    s.source.stop();
+    s.gateway.messages.set(SID, [
+      { role: 'assistant', content: 'primeira', created_at: new Date().toISOString() },
+      { role: 'assistant', content: 'segunda', created_at: new Date(Date.now() + 1000).toISOString() },
+    ]);
+    for (let restart = 0; restart < 2; restart++) {
+      const mirror = new ZeroClawMirror({ dataDir: s.dataDir });
+      let source: ZeroClawSource;
+      const connector = new ZeroClawConnector({ url: s.gateway.url, dataDir: s.dataDir, metadataOf: (id) => mirror.metadataOf(id), beforeOpen: (input) => source.prepare(input) });
+      source = new ZeroClawSource({ accounts: s.accounts, office: s.office, connector, mirror });
+      cleanup.push(() => source.stop());
+      await source.start();
+      await settled(source, () => !connector.session(SID)?.busy && !mirror.needsRecovery(SID));
+      const recovered = (await mirror.load(SID)).map((line) => JSON.parse(line)).filter((record) => record.uuid.startsWith('recovered-'));
+      expect(recovered.map((record) => record.message.content[0].text)).toEqual(['primeira', 'segunda']);
+      source.stop();
+    }
   });
 
   it('aprovação espera; erro não termina turno; HTTP parado não fabrica sucesso', async () => {

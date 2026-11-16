@@ -119,7 +119,7 @@ export class ZeroClawSource implements AgentSource {
       this.error = undefined;
       for (const session of this.opts.connector.openSessions()) {
         if (session.connected) this.enter(session);
-        if (session.connected && (session.busy || session.continuityLost)) {
+        if (session.connected && (session.busy || session.continuityLost || this.opts.mirror.needsRecovery(session.sessionId))) {
           // Falha de uma sessão não derruba a fonte: o gateway respondeu, e marcar a fonte como fora deixaria o elenco
           // inteiro "auxiliar indisponível" enquanto uma única sessão estiver com estado desconhecido.
           try { await this.opts.connector.refreshTurnState(session.sessionId); } catch (error) {
@@ -163,7 +163,16 @@ export class ZeroClawSource implements AgentSource {
       this.error = undefined;
       this.enter(event.descriptor);
     }
+    const recover = this.opts.mirror.needsRecovery(event.sessionId)
+      && (event.type === 'turn-state' && event.terminalConfirmed && !event.busy
+        || event.type === 'frame' && (event.frame.type === 'done' || event.frame.type === 'aborted'));
     await this.opts.mirror.consume(event);
+    if (recover) {
+      const response = await this.opts.connector.request(`/api/sessions/${event.sessionId}/messages`);
+      const messages = Array.isArray(response) ? response : response && typeof response === 'object' && 'messages' in response ? response.messages : undefined;
+      if (!Array.isArray(messages)) throw new Error('ZeroClaw: histórico de recuperação inválido');
+      await this.opts.mirror.recover(event.sessionId, messages);
+    }
     const t = this.trackers.get(event.sessionId);
     if (!t) return;
     if (event.type === 'session-close') {

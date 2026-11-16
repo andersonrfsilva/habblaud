@@ -17,8 +17,8 @@ export interface SessionMetadata {
 }
 
 type RecordLine = Record<string, unknown>;
-// shortcut: deltas ficam em memória até o fim do bloco (o terminal só acrescenta entradas); queda do socket ou reinício no meio do turno perde o bloco no terminal (sem replay; o histórico do gateway guarda a resposta), recuperar via /api/sessions/{id}/messages se isso incomodar.
-type Turn = { chunks: boolean; startedAt?: number; unknown: boolean; title?: string; seen: Set<string>; pending?: { kind: 'text' | 'thinking'; text: string } };
+// shortcut: raciocínio e ferramentas ausentes não existem no histórico HTTP; só as respostas finais podem ser recuperadas.
+type Turn = { chunks: boolean; startedAt?: number; unknown: boolean; recoveryPending?: boolean; title?: string; seen: Set<string>; pending?: { kind: 'text' | 'thinking'; text: string } };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const object = (value: unknown): value is RecordLine => !!value && typeof value === 'object' && !Array.isArray(value);
 const missing = (error: unknown): boolean => object(error) && error.code === 'ENOENT';
@@ -133,6 +133,49 @@ export class ZeroClawMirror {
       this.turns.delete(sessionId);
       await this.read(sessionId);
       if (records.length) await this.touch(sessionId, records);
+    });
+  }
+
+  needsRecovery(sessionId: string): boolean {
+    return this.turns.get(sessionId)?.recoveryPending === true;
+  }
+
+  /** Recupera respostas finais, nunca ferramentas ou raciocínio. Datas HTTP têm precisão de segundos. */
+  recover(sessionId: string, messages: unknown[]): Promise<void> {
+    return this.serial(sessionId, async () => {
+      const records = (await this.read(sessionId, true)).map((line) => JSON.parse(line) as RecordLine);
+      const gap = records.findLastIndex((record) => record.type === 'system' && record.level === 'warning'
+        && typeof record.content === 'string' && record.content.startsWith('Lacuna no acompanhamento ZeroClaw:'));
+      if (gap < 0) return;
+      const previous = records.slice(0, gap).findLast((record) => record.type === 'assistant' || record.type === 'user');
+      const cutoff = previous ? Math.floor(Date.parse(String(previous.timestamp)) / 1000) * 1000 : 0;
+      const user = records.findLastIndex((record) => record.type === 'user' && object(record.message) && typeof record.message.content === 'string');
+      const userRecord = records[user];
+      const historyUser = userRecord && object(userRecord.message) ? messages.findLastIndex((message) => object(message)
+        && message.role === 'user' && message.content === (userRecord.message as RecordLine).content
+        && Math.abs((typeof message.created_at === 'number' ? message.created_at * 1000 : Date.parse(String(message.created_at))) - Date.parse(String(userRecord.timestamp))) < 1000) : -1;
+      const texts: string[] = [];
+      let accumulated = '';
+      for (const record of records.slice(user + 1)) {
+        if (record.type !== 'assistant' || !object(record.message) || !Array.isArray(record.message.content)) continue;
+        const content = record.message.content.filter(object).filter((block) => block.type === 'text').map((block) => block.text).join('');
+        if (content) accumulated += content;
+        if (record.message.stop_reason === 'end_turn' && accumulated) { texts.push(accumulated); accumulated = ''; }
+      }
+      if (accumulated) texts.push(accumulated);
+      // Só importa datas >= último registro de conversa antes da lacuna, arredondado ao segundo.
+      // Texto exato da resposta já presente consome uma ocorrência; UUID texto+data evita nova importação.
+      for (const message of messages.slice(historyUser + 1)) {
+        if (!object(message) || message.role !== 'assistant' || !text(message.content)) continue;
+        const at = typeof message.created_at === 'number' ? message.created_at * 1000 : Date.parse(String(message.created_at));
+        if (!Number.isFinite(at) || Math.abs(at) > 8.64e15 || at < cutoff) continue;
+        const id = `recovered-${createHash('sha256').update(JSON.stringify([at, message.content])).digest('hex')}`;
+        if (this.turns.get(sessionId)!.seen.has(id)) continue;
+        const duplicate = texts.indexOf(message.content);
+        if (duplicate >= 0) { texts.splice(duplicate, 1); continue; }
+        await this.append(sessionId, [this.record(sessionId, { type: 'assistant', message: { id, role: 'assistant', content: [{ type: 'text', text: message.content }], stop_reason: 'end_turn' } }, at, id)]);
+      }
+      this.turns.get(sessionId)!.recoveryPending = false;
     });
   }
 
@@ -342,6 +385,7 @@ export class ZeroClawMirror {
     if (turn.unknown) return;
     await this.info(sessionId, 'warning', 'Lacuna no acompanhamento ZeroClaw: eventos e ferramentas podem estar ausentes; nenhum prompt foi reenviado.');
     turn.unknown = true;
+    turn.recoveryPending = true;
   }
 
   private info(sessionId: string, level: string, content: string): Promise<void> {
