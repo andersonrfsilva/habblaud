@@ -23,6 +23,11 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
@@ -36,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import br.com.xlinx.habblaud.data.HabblaudApi
 import com.mikepenz.markdown.compose.components.MarkdownComponentModel
 import com.mikepenz.markdown.compose.elements.MarkdownCodeFence
+import com.mikepenz.markdown.compose.elements.MarkdownCodeBlock
 import kotlinx.coroutines.CancellationException
 import org.intellij.markdown.MarkdownTokenTypes
 import org.intellij.markdown.ast.findChildOfType
@@ -45,6 +51,18 @@ import org.intellij.markdown.ast.getTextInNode
 private val mermaidCache = mutableMapOf<Pair<HabblaudApi, String>, ByteArray>()
 
 @Composable
+internal fun CopyableCodeBlock(model: MarkdownComponentModel) {
+    val source = remember(model.content, model.node) { model.node.getTextInNode(model.content).toString().replaceIndent() }
+    val clipboard = LocalClipboardManager.current
+    Column(Modifier.fillMaxWidth()) {
+        TextButton(onClick = { clipboard.setText(AnnotatedString(source)) }, modifier = Modifier.align(Alignment.End)) {
+            Text(stringResource(Res.string.copy))
+        }
+        MarkdownCodeBlock(model.content, model.node, model.typography.code)
+    }
+}
+
+@Composable
 internal fun MermaidCodeFence(model: MarkdownComponentModel, api: HabblaudApi) {
     val language = model.node.findChildOfType(MarkdownTokenTypes.FENCE_LANG)?.getTextInNode(model.content)?.toString()?.trim()
     val closed = model.node.children.lastOrNull()?.type == MarkdownTokenTypes.CODE_FENCE_END
@@ -52,6 +70,17 @@ internal fun MermaidCodeFence(model: MarkdownComponentModel, api: HabblaudApi) {
         model.node.children.filter { it.type == MarkdownTokenTypes.CODE_FENCE_CONTENT }
             .joinToString("\n") { it.getTextInNode(model.content).toString() }
     }
+    val clipboard = LocalClipboardManager.current
+    Column(Modifier.fillMaxWidth()) {
+        TextButton(onClick = { clipboard.setText(AnnotatedString(source)) }, modifier = Modifier.align(Alignment.End)) {
+            Text(stringResource(Res.string.copy))
+        }
+        MermaidContent(model, api, language, closed, source)
+    }
+}
+
+@Composable
+private fun MermaidContent(model: MarkdownComponentModel, api: HabblaudApi, language: String?, closed: Boolean, source: String) {
     if (!language.equals("mermaid", ignoreCase = true) || !closed || source.isBlank() || source.length > 20_000) {
         MarkdownCodeFence(model.content, model.node, model.typography.code)
         return

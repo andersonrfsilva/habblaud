@@ -7,6 +7,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.unit.DpOffset
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
@@ -63,6 +65,9 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -320,7 +325,10 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
         }
     }) { castActions, castFab, castStatus, castDismissFor ->
     var showInfo by remember(selected?.key) { mutableStateOf(false) }
-    if (showInfo && selected != null) SessionInfoSheet(api, selected, state.entries, state.truncated) { showInfo = false }
+    if (showInfo && selected != null) SessionInfoSheet(api, selected, state.entries, state.truncated, onParent = { parent ->
+        showInfo = false
+        controller.openKey(parent)
+    }) { showInfo = false }
     if (asideOpen && selected?.agentId != null) AsideSheet(controller.asides, api) { asideOpen = false; controller.asides.close() }
     if (filesOpen) FilesSheet(api, selected, { onUnauthorized(api.origin) }) { filesOpen = false }
     val listTopBar: @Composable (ReadingState) -> Unit = { state ->
@@ -335,7 +343,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
             actions = {
                 Box {
                     val menuLabel = stringResource(Res.string.menu)
-                    IconButton(onClick = { menuExpanded = true }, modifier = Modifier.semantics { contentDescription = menuLabel }) { Icon(Icons.Default.MoreVert, contentDescription = null) }
+                    IconButton(onClick = { menuExpanded = true }, modifier = Modifier.testTag("list-menu").semantics { contentDescription = menuLabel }) { Icon(Icons.Default.MoreVert, contentDescription = null) }
                     DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                         DropdownMenuItem(modifier = Modifier.testTag("files-menu"), text = { Text(stringResource(Res.string.files_title)) }, onClick = { menuExpanded = false; filesOpen = true })
                         DropdownMenuItem(text = { Text(stringResource(Res.string.settings)) }, onClick = { menuExpanded = false; settingsOpen = true })
@@ -464,48 +472,48 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                 }
                 items(items, key = { it.key.serialize() }) { session ->
                     Column(Modifier.fillMaxWidth().animateContentSize()) {
-                    Row(Modifier.fillMaxWidth().testTag("session-row:${session.key.provider}:${session.key.sessionId}").then(if (highlight && selected?.key == session.key) Modifier.background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(12.dp)) else Modifier).clickable { open(session) }.padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    val marks = state.marks[session.key] ?: SessionMarks()
+                    var marksMenu by remember(session.key) { mutableStateOf(false) }
+                    val haptics = LocalHapticFeedback.current
+                    // Fixar, favoritar e dispensar ficam no toque longo, como no Telegram: a linha usa a largura toda.
+                    Box {
+                    Row(Modifier.fillMaxWidth().testTag("session-row:${session.key.provider}:${session.key.sessionId}").then(if (highlight && selected?.key == session.key) Modifier.background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(12.dp)) else Modifier).combinedClickable(onLongClickLabel = stringResource(Res.string.menu), onLongClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); marksMenu = true }) { open(session) }.padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         CharacterAvatar(apis.getValue(session.key.origin), session, 48.dp)
                         Column(Modifier.weight(1f)) {
                             // Não lida: título, personagem e linha de status em negrito, como num chat.
-                            val weight = if (state.unread[session.key] != null) FontWeight.Bold else null
-                            Text(session.title, style = MaterialTheme.typography.titleMedium, fontWeight = weight, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                if (state.marks[session.key]?.pinned == true) Icon(Icons.Default.PushPin, contentDescription = stringResource(Res.string.pinned_sessions), modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
-                                if (state.marks[session.key]?.favorite == true) Icon(Icons.Default.Star, contentDescription = stringResource(Res.string.favorite_sessions), modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                            val unread = state.unread[session.key]
+                            val weight = if (unread != null) FontWeight.Bold else null
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(session.title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = weight, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                (session.replies.lastOrNull() ?: session.lastAt)?.let { Text(relativeTime(it, short = true), modifier = Modifier.padding(top = 4.dp), style = MaterialTheme.typography.labelSmall, color = if (unread != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
                             }
-                            Text(listOfNotNull(session.characterName?.takeIf { it != session.title }, session.project?.substringAfterLast('/'), statusLabel(session.status ?: session.activity), serverLabel(session.key.origin).takeIf { apis.size > 1 && filter == null }).joinToString(" · "), modifier = if (apis.size > 1 && filter == null) Modifier.testTag("session-server:${serverLabel(session.key.origin)}") else Modifier, style = MaterialTheme.typography.bodyMedium, fontWeight = weight, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                if (marks.pinned) Icon(Icons.Default.PushPin, contentDescription = stringResource(Res.string.pinned_sessions), modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                                if (marks.favorite) Icon(Icons.Default.Star, contentDescription = stringResource(Res.string.favorite_sessions), modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                                Text(listOfNotNull(session.characterName?.takeIf { it != session.title }, session.project?.substringAfterLast('/'), statusLabel(session.status ?: session.activity), serverLabel(session.key.origin).takeIf { apis.size > 1 && filter == null }).joinToString(" · "), modifier = Modifier.weight(1f).then(if (apis.size > 1 && filter == null) Modifier.testTag("session-server:${serverLabel(session.key.origin)}") else Modifier), style = MaterialTheme.typography.bodyMedium, fontWeight = weight, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                unread?.let { count ->
+                                    val label = pluralStringResource(Res.plurals.unread_replies, count, count)
+                                    Badge(Modifier.semantics { contentDescription = label }, containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary) {
+                                        Text(if (count >= REPLIES_SHOWN) "$REPLIES_SHOWN+" else count.toString(), style = MaterialTheme.typography.labelMedium)
+                                    }
+                                }
+                            }
                             if (session.agentId != null && session.status == "working") StatusLine(session)
                             if (session.permission) TextButton(onClick = { permissionSession = session }) { Text(stringResource(Res.string.permission_pending), color = MaterialTheme.colorScheme.error) }
                         }
-                        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            (session.replies.lastOrNull() ?: session.lastAt)?.let { Text(relativeTime(it), style = MaterialTheme.typography.labelSmall, color = if (state.unread[session.key] != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
-                            state.unread[session.key]?.let { count ->
-                                val label = pluralStringResource(Res.plurals.unread_replies, count, count)
-                                Badge(Modifier.semantics { contentDescription = label }, containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary) {
-                                    Text(if (count >= REPLIES_SHOWN) "$REPLIES_SHOWN+" else count.toString(), style = MaterialTheme.typography.labelMedium)
-                                }
-                            }
-                        }
-                        val marks = state.marks[session.key] ?: SessionMarks()
-                        var marksMenu by remember(session.key) { mutableStateOf(false) }
-                        Box {
-                            IconButton(onClick = { marksMenu = true }) {
-                                Icon(Icons.Default.MoreVert, contentDescription = stringResource(Res.string.menu))
-                            }
-                            DropdownMenu(expanded = marksMenu, onDismissRequest = { marksMenu = false }) {
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(if (marks.pinned) Res.string.unpin_session else Res.string.pin_session)) },
-                                    leadingIcon = { Icon(if (marks.pinned) Icons.Default.PushPin else Icons.Outlined.PushPin, contentDescription = null) },
-                                    onClick = { marksMenu = false; controllers.getValue(session.key.origin).toggleMark(session.key, pin = true) },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(if (marks.favorite) Res.string.unfavorite_session else Res.string.favorite_session)) },
-                                    leadingIcon = { Icon(if (marks.favorite) Icons.Default.Star else Icons.Outlined.StarBorder, contentDescription = null) },
-                                    onClick = { marksMenu = false; controllers.getValue(session.key.origin).toggleMark(session.key, pin = false) },
-                                )
-                                castDismissFor(session) { marksMenu = false }
-                            }
+                    }
+                        DropdownMenu(expanded = marksMenu, onDismissRequest = { marksMenu = false }, offset = DpOffset(60.dp, 0.dp)) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(if (marks.pinned) Res.string.unpin_session else Res.string.pin_session)) },
+                                leadingIcon = { Icon(if (marks.pinned) Icons.Default.PushPin else Icons.Outlined.PushPin, contentDescription = null) },
+                                onClick = { marksMenu = false; controllers.getValue(session.key.origin).toggleMark(session.key, pin = true) },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(if (marks.favorite) Res.string.unfavorite_session else Res.string.favorite_session)) },
+                                leadingIcon = { Icon(if (marks.favorite) Icons.Default.Star else Icons.Outlined.StarBorder, contentDescription = null) },
+                                onClick = { marksMenu = false; controllers.getValue(session.key.origin).toggleMark(session.key, pin = false) },
+                            )
+                            castDismissFor(session) { marksMenu = false }
                         }
                     }
                     // Subagentes e advisors pendurados no principal enquanto trabalham; somem sozinhos quando terminam.
@@ -616,34 +624,8 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                 val index = shown.indexOfLast { it.id == before }
                 unread += if (index >= 0) shown.size - index - 1 else 1
             }
-            // Puxar para cima além da mensagem mais nova abre o bate-papo paralelo (agente do omp que aceita mensagens).
-            val canAside = selected.agentId != null && !selected.sub && selected.key.provider == "omp" && selected.canMessage && state.messagesAllowed && state.messageGuard && state.connection == "connected"
-            val asideAgent by rememberUpdatedState(if (canAside) selected.agentId else null)
-            val asidePx = with(LocalDensity.current) { ASIDE_PULL.toPx() }
-            val asideHaptics = LocalHapticFeedback.current
-            val asideSwipe = remember(asidePx) {
-                object : NestedScrollConnection {
-                    var pulled = 0f
-                    /** null até o gesto andar; true se ele já começou no fim da conversa. */
-                    var startedAtEnd: Boolean? = null
-                    override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                        if (source != NestedScrollSource.UserInput) return Offset.Zero
-                        // Lista invertida: no fim da conversa, o dedo subindo sobra como rolagem negativa não consumida.
-                        // Só conta o gesto que começou no fim: a sobra de uma rolagem que chega ao fim não abre nada.
-                        if (startedAtEnd == null && (consumed.y != 0f || available.y != 0f)) startedAtEnd = consumed.y == 0f && available.y < 0f
-                        val agent = asideAgent
-                        if (startedAtEnd == true && available.y < 0f && consumed.y == 0f && agent != null && !asideOpen) {
-                            pulled -= available.y
-                            if (pulled >= asidePx) { pulled = 0f; startedAtEnd = false; controller.asides.open(agent); asideOpen = true; asideHaptics.performHapticFeedback(HapticFeedbackType.LongPress) }
-                        } else if (available.y > 0f || consumed.y != 0f) pulled = 0f
-                        return Offset.Zero
-                    }
-                    override suspend fun onPreFling(available: Velocity): Velocity { pulled = 0f; startedAtEnd = null; return Velocity.Zero }
-                }
-            }
             Box(Modifier.weight(1f).fillMaxWidth()) {
-                // No desktop a roda do mouse não termina gesto: sem puxada, o bate-papo paralelo fica só no menu.
-                LazyColumn(Modifier.fillMaxSize().nestedScroll(manualScroll).then(if (platformPullGestures()) Modifier.nestedScroll(asideSwipe) else Modifier).testTag("conversation-list"), state = listState, reverseLayout = true, contentPadding = PaddingValues(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom)) {
+                LazyColumn(Modifier.fillMaxSize().nestedScroll(manualScroll).testTag("conversation-list"), state = listState, reverseLayout = true, contentPadding = PaddingValues(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom)) {
                     // Lista invertida: o primeiro item fica no pé da conversa, logo abaixo da última mensagem.
                     items(rows.asReversed(), key = { it.entry.id }) { row ->
                         val entry = row.entry
@@ -726,7 +708,13 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                     val what = stringResource(when (result.kind) { "model" -> Res.string.model_menu; "thinking" -> Res.string.thinking_menu; else -> Res.string.shake_short })
                     ChatBanner(stringResource(when (result.status) { "pending" -> Res.string.command_pending; "sent" -> Res.string.command_sent; "failed" -> Res.string.command_failed; else -> Res.string.command_unknown }, what))
                 }
-                composer.error?.let { error -> if (error != "confirm") Text(stringResource(when (error) { "storage" -> Res.string.storage_error; "unknown" -> Res.string.message_unknown; "attachment" -> Res.string.attachment_error; "attachments_expired" -> Res.string.attachments_expired; else -> Res.string.message_send_error }), color = MaterialTheme.colorScheme.error) }
+                composer.error?.let { error -> if (error != "confirm") {
+                    Text(stringResource(when (error) { "storage" -> Res.string.storage_error; "unknown" -> Res.string.message_unknown; "attachment" -> Res.string.attachment_error; "attachments_expired" -> Res.string.attachments_expired; else -> Res.string.message_send_error }), color = MaterialTheme.colorScheme.error)
+                    TextButton(onClick = { stickToEnd(); controller.messages.send(agentId) },
+                        enabled = enabled && !composer.loading && !composer.sending && composer.unavailable.isEmpty() && (composer.draft.text.isNotBlank() || composer.draft.attachments.isNotEmpty())) {
+                        Text(stringResource(Res.string.confirm))
+                    }
+                } }
                 if (composer.error == "confirm" && agentId != null) AlertDialog(
                     onDismissRequest = { controller.messages.dismissConfirmation() },
                     title = { Text(stringResource(Res.string.message_retry_title)) },
@@ -918,13 +906,13 @@ internal fun stopwatch(ms: Long): String {
 }
 
 @Composable
-private fun relativeTime(timestamp: Long): String {
+private fun relativeTime(timestamp: Long, short: Boolean = false): String {
     val minutes = ((uiNowMillis() - timestamp).coerceAtLeast(0) / 60_000)
     return when {
         minutes < 1 -> stringResource(Res.string.time_now)
-        minutes < 60 -> stringResource(Res.string.time_minutes, minutes)
-        minutes < 1440 -> stringResource(Res.string.time_hours, minutes / 60)
-        else -> stringResource(Res.string.time_days, minutes / 1440)
+        minutes < 60 -> stringResource(if (short) Res.string.time_minutes_short else Res.string.time_minutes, minutes)
+        minutes < 1440 -> stringResource(if (short) Res.string.time_hours_short else Res.string.time_hours, minutes / 60)
+        else -> stringResource(if (short) Res.string.time_days_short else Res.string.time_days, minutes / 1440)
     }
 }
 
@@ -942,8 +930,6 @@ private fun ChatBanner(message: String, modifier: Modifier = Modifier) {
 private const val REPLIES_SHOWN = 99
 /** Quanto puxar além do topo da lista para revelar a busca: grande o bastante para não acontecer por acidente. */
 private val REVEAL_PULL = 120.dp
-/** Puxada para abrir o bate-papo paralelo: maior que a da busca, porque o fim da conversa é onde mais se rola. */
-private val ASIDE_PULL = 180.dp
 /** Respostas até este tamanho já cabem em poucas frases: ficam inteiras, sem pedir resumo. */
 private const val SUMMARY_MIN_CHARS = 500
 /** O servidor aceita até 32 Ki caracteres; o resumo de uma resposta maior olha só o começo dela. */
@@ -993,6 +979,7 @@ internal fun replyBrief(text: String): String {
 @Composable
 private fun EntryView(entry: TerminalEntry, results: Map<String?, List<TerminalEntry>>, count: Int = 1, tools: List<TerminalEntry> = emptyList(), recovered: Boolean = false, cachedSummary: String? = null, expanded: Boolean, onExpanded: (Boolean) -> Unit, summarize: (suspend (String) -> String)? = null, api: HabblaudApi, keepPlace: (before: Float, now: () -> Float) -> Unit = { _, _ -> }) {
     var headerY by remember { mutableFloatStateOf(0f) }
+    val clipboard = LocalClipboardManager.current
     if (entry.kind == "system") {
         // Resposta cortada pelo provedor e retomada logo depois: o texto que veio fica na bolha acima; aqui só um aviso discreto.
         val text = if (recovered) stringResource(Res.string.response_interrupted) else entry.text
@@ -1067,7 +1054,7 @@ private fun EntryView(entry: TerminalEntry, results: Map<String?, List<TerminalE
                         if (summarized) Text(stringResource(Res.string.summary_collapse), Modifier.onGloballyPositioned { headerY = it.positionInWindow().y }.clickable { val before = headerY; keepPlace(before) { headerY }; onExpanded(false) }.padding(bottom = 4.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                         SelectionContainer {
                             Markdown(
-                                entry.text,
+                                remember(entry.text) { markdownImageLinks(entry.text) },
                                 modifier = Modifier.fillMaxWidth(),
                                 colors = markdownColor(text = if (entry.kind == "user") MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface),
                                 typography = markdownTypography(
@@ -1079,14 +1066,19 @@ private fun EntryView(entry: TerminalEntry, results: Map<String?, List<TerminalE
                                     h6 = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
                                 ),
                                 dimens = chatMarkdownDimens(),
-                                components = markdownComponents(image = {}, codeFence = { MermaidCodeFence(it, api) }, table = wrappingTable),
+                                components = markdownComponents(codeFence = { MermaidCodeFence(it, api) }, codeBlock = { CopyableCodeBlock(it) }, table = wrappingTable),
                             )
                         }
                         if (entry.truncated) Text(stringResource(Res.string.result_truncated))
                     }
                 }
                 // Pensamento e ferramentas já mostram a hora no cabeçalho.
-                if (entry.kind != "tool" && entry.kind != "thinking") entry.at?.let { Text(entryTime(it), Modifier.align(Alignment.End), style = MaterialTheme.typography.labelSmall, color = (if (entry.kind == "user") MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant).copy(alpha = 0.7f)) }
+                if (entry.kind != "tool" && entry.kind != "thinking") Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { clipboard.setText(AnnotatedString(entry.text)) }, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = stringResource(Res.string.copy), modifier = Modifier.size(16.dp))
+                    }
+                    entry.at?.let { Text(entryTime(it), style = MaterialTheme.typography.labelSmall, color = (if (entry.kind == "user") MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant).copy(alpha = 0.7f)) }
+                }
             }
         }
     }
@@ -1190,10 +1182,20 @@ internal fun recoveredErrors(entries: List<TerminalEntry>): Set<String> {
     return recovered
 }
 
-/** Informações da sessão: cabeçalho, um cartão com o essencial e os detalhes técnicos recolhidos. */
+/** Informações da sessão principal ou subagente, usando somente os campos disponíveis no snapshot. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SessionInfoSheet(api: HabblaudApi, session: SessionItem, entries: List<TerminalEntry>, truncated: Boolean, onClose: () -> Unit) {
+private fun SessionInfoSheet(api: HabblaudApi, session: SessionItem, entries: List<TerminalEntry>, truncated: Boolean, onParent: (SessionKey) -> Unit, onClose: () -> Unit) {
+    val owner = LocalLifecycleOwner.current
+    var now by remember { mutableLongStateOf(uiNowMillis()) }
+    LaunchedEffect(owner) {
+        owner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                now = uiNowMillis()
+                kotlinx.coroutines.delay(1000 - now % 1000)
+            }
+        }
+    }
     ModalBottomSheet(onDismissRequest = onClose, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -1206,41 +1208,66 @@ private fun SessionInfoSheet(api: HabblaudApi, session: SessionItem, entries: Li
                     Text(state, Modifier.padding(horizontal = 12.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium)
                 }
             }
-            Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
-                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    session.model?.let { InfoLine(Res.string.model_menu, it.substringAfter('/')) }
-                    if (ompTools(session.key.provider)) session.thinking?.let { InfoLine(Res.string.thinking_menu, thinkingLabel(it)) }
-                    if (reliableContext(session.key.provider, session.contextTokens, session.contextWindow)) {
-                        val fraction = (session.contextTokens!!.toFloat() / session.contextWindow!!).coerceIn(0f, 1f)
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            InfoLine(Res.string.info_context, "${(fraction * 100).toInt()}% · ${session.contextTokens!! / 1000} mil de ${session.contextWindow!! / 1000} mil")
-                            LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth(), drawStopIndicator = {})
-                        }
-                    }
-                    session.lastAt?.let { InfoLine(Res.string.info_last_activity, relativeTime(it)) }
-                    InfoLine(Res.string.info_loaded, stringResource(Res.string.info_loaded_value, entries.count { it.kind == "user" }, entries.count { it.kind == "assistant" }) + if (truncated) " · " + stringResource(Res.string.info_partial) else "")
-                }
+            InfoSection(Res.string.info_status_section) {
+                session.role?.takeIf { it.isNotBlank() }?.let { InfoLine(Res.string.info_role, it) }
+                session.task?.takeIf { it.isNotBlank() }?.let { InfoLine(Res.string.info_task, it) }
+                val state = if (session.agentId == null) stringResource(Res.string.info_closed) else statusLabel(session.status) ?: session.status
+                state?.let { InfoLine(Res.string.info_status, it) }
+                session.statusSince?.let { InfoLine(Res.string.info_elapsed, stopwatch((now - it).coerceAtLeast(0))) }
+                session.activity?.takeIf { it.isNotBlank() }?.let { InfoLine(Res.string.info_activity, it) }
+                session.lastAt?.let { InfoLine(Res.string.info_last_activity, relativeTime(it)) }
+                InfoLine(Res.string.info_loaded, stringResource(Res.string.info_loaded_value, entries.count { it.kind == "user" }, entries.count { it.kind == "assistant" }) + if (truncated) " · " + stringResource(Res.string.info_partial) else "")
             }
-            var details by remember { mutableStateOf(false) }
-            TextButton(onClick = { details = !details }) { Text(stringResource(if (details) Res.string.info_hide_details else Res.string.info_show_details)) }
-            if (details) SelectionContainer {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    session.project?.let { InfoLine(Res.string.info_project, it) }
-                    InfoLine(Res.string.info_provider, "${session.key.provider} · ${session.key.account}")
-                    InfoLine(Res.string.info_session, session.key.sessionId)
-                    InfoLine(Res.string.info_server, session.key.origin)
-                }
+            if (!session.model.isNullOrBlank() || !session.thinking.isNullOrBlank()) InfoSection(Res.string.info_model_section) {
+                session.model?.takeIf { it.isNotBlank() }?.let { InfoLine(Res.string.model_menu, it) }
+                session.thinking?.takeIf { it.isNotBlank() }?.let { InfoLine(Res.string.thinking_menu, thinkingLabel(it)) }
             }
+            if (reliableContext(session.key.provider, session.contextTokens, session.contextWindow)) InfoSection(Res.string.info_context_section) {
+                val fraction = (session.contextTokens!!.toFloat() / session.contextWindow!!).coerceIn(0f, 1f)
+                InfoLine(Res.string.info_context, "${session.contextTokens} / ${session.contextWindow} · ${(fraction * 100).toInt()}%")
+                LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth(), drawStopIndicator = {})
+            }
+            InfoSection(Res.string.info_technical_section) {
+                session.project?.takeIf { it.isNotBlank() }?.let { InfoLine(Res.string.info_project, it, copyable = true) }
+                InfoLine(Res.string.info_provider, session.key.provider, copyable = true)
+                InfoLine(Res.string.info_account, session.key.account, copyable = true)
+                session.parentKey?.let { parent ->
+                    InfoLine(Res.string.info_parent, parent.sessionId, copyable = true, onClick = { onParent(parent) })
+                }
+                session.agentId?.let { InfoLine(Res.string.info_agent, it, copyable = true) }
+                val id = if (session.sub) session.serverSessionId else session.key.sessionId
+                id?.takeIf { it.isNotBlank() }?.let { InfoLine(Res.string.info_session, it, copyable = true) }
+                InfoLine(Res.string.info_server, session.key.origin, copyable = true)
+            }
+        }
+    }
+}
+
+@Composable
+private fun InfoSection(title: StringResource, content: @Composable ColumnScope.() -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(stringResource(title), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+        Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), content = content)
         }
     }
 }
 
 /** Rótulo à esquerda, valor à direita, numa linha. */
 @Composable
-private fun InfoLine(label: StringResource, value: String) {
+private fun InfoLine(label: StringResource, value: String, copyable: Boolean = false, onClick: (() -> Unit)? = null) {
+    if (value.isBlank()) return
+    val clipboard = LocalClipboardManager.current
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
         Text(stringResource(label), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.End)
+        SelectionContainer(Modifier.weight(1f)) {
+            Text(value, Modifier.fillMaxWidth().then(if (onClick == null) Modifier else Modifier.clickable(onClick = onClick)),
+                style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.End,
+                color = if (onClick == null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.primary)
+        }
+        if (copyable) IconButton(onClick = { clipboard.setText(AnnotatedString(value)) }, modifier = Modifier.size(32.dp)) {
+            Icon(Icons.Default.ContentCopy, contentDescription = stringResource(Res.string.copy) + " " + stringResource(label), modifier = Modifier.size(18.dp))
+        }
     }
 }
 

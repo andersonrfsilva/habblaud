@@ -194,11 +194,77 @@ impl SessionRun {
 }
 
 fn info_row(label: &str, value: String) -> InfoRow {
-    InfoRow {
-        label: label.into(),
-        value: value.into(),
-    }
+    InfoRow { label: label.into(), value: value.into(), ..Default::default() }
 }
+fn info_rows(
+    item: &SessionItem,
+    entries: &[zaplaud_core::model::TerminalEntry],
+    partial: bool,
+) -> Vec<InfoRow> {
+    let mut rows = Vec::new();
+    let mut section = |label: &str, mut values: Vec<InfoRow>| {
+        values.retain(|row| !row.value.trim().is_empty());
+        if !values.is_empty() {
+            rows.push(InfoRow { label: label.into(), section: true, ..Default::default() });
+            rows.extend(values);
+        }
+    };
+    let status = if item.agent_id.is_none() {
+        strings::INFO_CLOSED
+    } else {
+        match item.status.as_deref() {
+            Some("working" | "busy" | "running") => strings::STATUS_WORKING,
+            Some("idle") => strings::STATUS_IDLE,
+            Some("waiting") => strings::STATUS_WAITING,
+            Some(status) => status,
+            None => strings::INFO_OPEN,
+        }
+    };
+    let last = item.last_at.map(|at| {
+        let relative = time::relative_time(at, now_millis());
+        let amount = relative.amount.map(|amount| amount.to_string());
+        crate::formatted(relative.key, &amount.as_deref().into_iter().collect::<Vec<_>>())
+    }).unwrap_or_default();
+    let prompts = entries.iter().filter(|entry| entry.kind == "user").count().to_string();
+    let replies = entries.iter().filter(|entry| entry.kind == "assistant").count().to_string();
+    let mut loaded = crate::formatted("info_loaded_value", &[&prompts, &replies]);
+    if partial { loaded.push_str(&format!(" · {}", strings::INFO_PARTIAL)); }
+    section(strings::INFO_STATUS_SECTION, vec![
+        info_row(strings::INFO_ROLE, item.role.clone().unwrap_or_default()),
+        info_row(strings::INFO_TASK, item.task.clone().unwrap_or_default()),
+        info_row(strings::INFO_STATUS, status.into()),
+        InfoRow { elapsed: true, ..info_row(strings::INFO_ELAPSED, item.status_since.map(|at| at.to_string()).unwrap_or_default()) },
+        info_row(strings::INFO_ACTIVITY, item.activity.clone().unwrap_or_default()),
+        info_row(strings::INFO_LAST_ACTIVITY, last),
+        info_row(strings::INFO_LOADED, loaded),
+    ]);
+    section(strings::INFO_MODEL_SECTION, vec![
+        info_row(strings::MODEL_MENU, item.model.clone().unwrap_or_default()),
+        info_row(strings::THINKING_MENU, item.thinking.as_ref().map(|thinking| crate::formatted(&format!("thinking_{thinking}"), &[])).unwrap_or_default()),
+    ]);
+    let context = zaplaud_core::rules::composer::reliable_context(&item.key.provider)
+        .then(|| item.context_tokens.zip(item.context_window))
+        .flatten()
+        .filter(|(tokens, window)| *tokens >= 0 && *window > 0)
+        .map(|(tokens, window)| format!("{tokens} / {window} ({}%)", (tokens as f64 / window as f64 * 100.).clamp(0., 100.) as i32))
+        .unwrap_or_default();
+    section(strings::INFO_CONTEXT_SECTION, vec![info_row(strings::INFO_CONTEXT, context)]);
+    let technical = |label, value| InfoRow { copyable: true, ..info_row(label, value) };
+    section(strings::INFO_TECHNICAL_SECTION, vec![
+        technical(strings::INFO_PROJECT, item.project.clone().unwrap_or_default()),
+        technical(strings::INFO_PROVIDER, item.key.provider.clone()),
+        technical(strings::INFO_ACCOUNT, item.key.account.clone()),
+        InfoRow {
+            parent_key: item.parent_key.as_ref().and_then(|key| key.serialize().ok()).unwrap_or_default().into(),
+            ..technical(strings::INFO_PARENT, item.parent_key.as_ref().map(|key| key.session_id.clone()).unwrap_or_default())
+        },
+        technical(strings::INFO_AGENT, item.agent_id.clone().unwrap_or_default()),
+        technical(strings::INFO_SESSION, if item.sub { item.server_session_id.clone().unwrap_or_default() } else { item.key.session_id.clone() }),
+        technical(strings::INFO_SERVER, item.key.origin.clone()),
+    ]);
+    rows
+}
+
 fn publish_info(
     window: &AppWindow,
     item: &SessionItem,
@@ -206,93 +272,7 @@ fn publish_info(
     partial: bool,
 ) {
     let state = window.global::<ConversationViewState>();
-    let mut rows = Vec::new();
-    if let Some(model) = &item.model {
-        rows.push(info_row(
-            strings::MODEL_MENU,
-            model
-                .split_once('/')
-                .map_or(model.as_str(), |(_, model)| model)
-                .into(),
-        ));
-    }
-    if let Some(thinking) = &item.thinking {
-        rows.push(info_row(
-            strings::THINKING_MENU,
-            crate::formatted(&format!("thinking_{thinking}"), &[]),
-        ));
-    }
-    let fraction = item
-        .context_tokens
-        .zip(item.context_window)
-        .filter(|_| zaplaud_core::rules::composer::reliable_context(&item.key.provider))
-        .map(|(tokens, window)| (tokens as f32 / window as f32).clamp(0., 1.));
-    if let (Some(fraction), Some(tokens), Some(size)) =
-        (fraction, item.context_tokens, item.context_window)
-    {
-        rows.push(info_row(
-            strings::INFO_CONTEXT,
-            format!(
-                "{}% · {} mil de {} mil",
-                (fraction * 100.) as i32,
-                tokens / 1000,
-                size / 1000
-            ),
-        ));
-    }
-    state.set_context_fraction(fraction.unwrap_or(-1.));
-    if let Some(at) = item.last_at {
-        let relative = time::relative_time(at, now_millis());
-        let amount = relative.amount.map(|amount| amount.to_string());
-        rows.push(info_row(
-            strings::INFO_LAST_ACTIVITY,
-            crate::formatted(
-                relative.key,
-                &amount.as_deref().into_iter().collect::<Vec<_>>(),
-            ),
-        ));
-    }
-    let prompts = entries
-        .iter()
-        .filter(|e| e.kind == "user")
-        .count()
-        .to_string();
-    let replies = entries
-        .iter()
-        .filter(|e| e.kind == "assistant")
-        .count()
-        .to_string();
-    let mut loaded = crate::formatted("info_loaded_value", &[&prompts, &replies]);
-    if partial {
-        loaded.push_str(&format!(" · {}", strings::INFO_PARTIAL));
-    }
-    rows.push(info_row(strings::INFO_LOADED, loaded));
-    state.set_info(ModelRc::new(VecModel::from(rows)));
-    state.set_details(ModelRc::new(VecModel::from(vec![
-        info_row(
-            strings::INFO_PROJECT,
-            item.project.clone().unwrap_or_default(),
-        ),
-        info_row(
-            strings::INFO_PROVIDER,
-            format!("{} · {}", item.key.provider, item.key.account),
-        ),
-        info_row(strings::INFO_SESSION, item.key.session_id.clone()),
-        info_row(strings::INFO_SERVER, item.key.origin.clone()),
-    ])));
-    state.set_info_status(
-        if item.agent_id.is_none() {
-            strings::INFO_CLOSED
-        } else {
-            match item.status.as_deref() {
-                Some("working" | "busy" | "running") => strings::STATUS_WORKING,
-                Some("idle") => strings::STATUS_IDLE,
-                Some("waiting") => strings::STATUS_WAITING,
-                _ => strings::INFO_OPEN,
-            }
-        }
-        .into(),
-    );
+    state.set_info(ModelRc::new(VecModel::from(info_rows(item, entries, partial))));
     let current_model = item
         .model
         .as_deref()
@@ -583,8 +563,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
         strings::VIEW_NO_TOOLS.into(),
     ])));
     state.set_info_label(strings::SESSION_INFO.into());
-    state.set_details_label(strings::INFO_SHOW_DETAILS.into());
-    state.set_hide_details_label(strings::INFO_HIDE_DETAILS.into());
+    state.set_copy_label(strings::COPY.into());
     state.set_deliver_label(strings::DELIVER_MODE.into());
     state.set_model_label(strings::MODEL_MENU.into());
     state.set_thinking_label(strings::THINKING_MENU.into());
@@ -598,6 +577,10 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
             .map(|level| crate::formatted(&format!("thinking_{level}"), &[]).into())
             .collect::<Vec<_>>(),
     )));
+    let commands = context.commands.clone();
+    state.on_open_parent(move |key| {
+        let _ = commands.send(Event::Open(key.into()));
+    });
     let weak = window.as_weak();
     window.global::<ConversationState>().on_info(move || {
         if let Some(w) = weak.upgrade() {
@@ -699,12 +682,20 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                         let server = snapshot.servers.iter().find(|server| server.api.origin() == item.key.origin);
                         (item.key.clone(), server.is_some_and(|s| s.reading.terminal_allowed), server.is_some_and(|s| s.needs_login))
                     });
-                    if selected == key { if let (Some(sender),Some(item)) = (&current,&snapshot.selected) { let _ = sender.send(Command::Metadata(Box::new(item.clone()))); } continue; }
+                    if selected == key {
+                        if let Some(item) = &snapshot.selected {
+                            if let Some(sender) = &current { let _ = sender.send(Command::Metadata(Box::new(item.clone()))); }
+                            else { let item = item.clone(); update_ui(&weak, move |w| publish_info(&w, &item, &[], true)); }
+                        }
+                        continue;
+                    }
                     stop_session(&mut task).await;
                     selected = key;
                     current = None;
-                    update_ui(&weak,|w| { let state = w.global::<ConversationViewState>(); state.set_info_open(false);state.set_menu_open(false);state.set_details_open(false);state.set_model_query("".into()); set_rows(&w,Vec::new(),true); });
+                    update_ui(&weak,|w| { let state = w.global::<ConversationViewState>(); state.set_info_open(false);state.set_menu_open(false);state.set_model_query("".into()); set_rows(&w,Vec::new(),true); });
                     if let Some(item) = &snapshot.selected && let Some(server) = snapshot.servers.iter().find(|s| s.api.origin() == item.key.origin) {
+                        let metadata = item.clone();
+                        update_ui(&weak, move |w| publish_info(&w, &metadata, &[], true));
                         if !server.reading.terminal_allowed || server.needs_login { update_ui(&weak,|w| w.global::<ConversationViewState>().set_notice(strings::TERMINAL_BLOCKED.into()));continue; }
                         let (sender,receiver) = mpsc::unbounded_channel(); current = Some(sender);
                         task = Some(context.runtime.spawn(run_session(item.clone(),server.api.clone(),weak.clone(),context.commands.clone(),receiver)));
@@ -743,6 +734,38 @@ pub(crate) fn open_system(target: &std::ffi::OsStr) -> std::io::Result<()> {
 mod tests {
     use super::*;
     use zaplaud_core::model::SessionKey;
+    #[test]
+    fn details_group_metadata_hide_empty_values_and_link_parent() {
+        let parent = SessionKey { origin: "https://test".into(), provider: "omp".into(), account: "default".into(), session_id: "parent".into() };
+        let item = SessionItem {
+            key: SessionKey { session_id: "parent/sub".into(), ..parent.clone() },
+            agent_id: Some("sub-agent".into()),
+            sub: true,
+            role: Some("researcher".into()),
+            task: Some("Inspect logs".into()),
+            parent_key: Some(parent.clone()),
+            server_session_id: Some("actual-sub-session".into()),
+            status_since: Some(1000),
+            model: Some("provider/model".into()),
+            context_tokens: Some(20),
+            context_window: Some(100),
+            ..Default::default()
+        };
+        let rows = info_rows(&item, &[], false);
+        assert_eq!(rows.iter().filter(|row| row.section).map(|row| row.label.as_str()).collect::<Vec<_>>(), [
+            strings::INFO_STATUS_SECTION, strings::INFO_MODEL_SECTION,
+            strings::INFO_CONTEXT_SECTION, strings::INFO_TECHNICAL_SECTION,
+        ]);
+        assert!(rows.iter().filter(|row| !row.section).all(|row| !row.value.trim().is_empty()));
+        assert!(rows.iter().any(|row| row.label == strings::MODEL_MENU && row.value == "provider/model"));
+        assert!(rows.iter().any(|row| row.label == strings::INFO_SESSION && row.value == "actual-sub-session" && row.copyable));
+        let link = rows.iter().find(|row| row.label == strings::INFO_PARENT).unwrap();
+        assert_eq!(SessionKey::deserialize(&link.parent_key).unwrap(), parent);
+        assert!(rows.iter().any(|row| row.elapsed && row.value == "1000"));
+        assert!(!rows.iter().any(|row| row.label == strings::INFO_PROJECT));
+        let missing = info_rows(&SessionItem { sub: true, ..Default::default() }, &[], false);
+        assert!(!missing.iter().any(|row| row.label == strings::INFO_SESSION || row.label == strings::INFO_CONTEXT_SECTION || row.label == strings::INFO_MODEL_SECTION));
+    }
     #[test]
     fn links_allow_only_web_origins() {
         for url in ["https://example.org/a?q=1", "http://localhost:123/a"] {

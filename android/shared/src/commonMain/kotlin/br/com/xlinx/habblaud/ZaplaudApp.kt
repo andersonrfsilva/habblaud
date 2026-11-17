@@ -9,6 +9,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import br.com.xlinx.habblaud.data.*
@@ -36,6 +38,14 @@ fun ZaplaudApp(store: LocalStateStore = remember { LocalStateStore() }) {
     }
     val theme by store.theme.collectAsState(initial = "system")
     val dark = when (theme) { "light" -> false; "dark" -> true; else -> isSystemInDarkTheme() }
+    val uriHandler = LocalUriHandler.current
+    val safeUriHandler = remember(uriHandler) {
+        object : UriHandler {
+            override fun openUri(uri: String) {
+                if (isHttpMarkdownLink(uri)) uriHandler.openUri(uri)
+            }
+        }
+    }
             MaterialTheme(colorScheme = if (dark) darkColorScheme(
                 primary = Color(0xFF9CDCC6), onPrimary = Color(0xFF00382A),
                 primaryContainer = Color(0xFF195342), onPrimaryContainer = Color(0xFFB8F5DD),
@@ -57,6 +67,7 @@ fun ZaplaudApp(store: LocalStateStore = remember { LocalStateStore() }) {
                 surfaceContainer = Color(0xFFEBF3EE), surfaceContainerHigh = Color(0xFFE3EFE7),
                 surfaceContainerHighest = Color(0xFFDBEAE1)
             )) {
+                CompositionLocalProvider(LocalUriHandler provides safeUriHandler) {
                 var servers by remember { mutableStateOf<List<String>>(emptyList()) }
                 val apis = remember { mutableStateMapOf<String, HabblaudApi>() }
                 var needsLogin by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -159,6 +170,7 @@ fun ZaplaudApp(store: LocalStateStore = remember { LocalStateStore() }) {
                     text = { Text(message) },
                     confirmButton = { TextButton(onClick = { message = "" }) { Text(stringResource(Res.string.confirm)) } }
                 )
+                }
             }
 }
 

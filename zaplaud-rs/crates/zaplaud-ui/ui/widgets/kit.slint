@@ -348,7 +348,8 @@ export component ProgressRing inherits Rectangle {
 export component Tooltip inherits Rectangle {
     in property <string> text;
     callback clicked();
-    area := TouchArea { clicked => { root.clicked(); } }
+    callback pointer-event(PointerEvent, length);
+    area := TouchArea { clicked => { root.clicked(); } pointer-event(event) => { root.pointer-event(event, self.mouse-x); } }
     @children
     if area.has-hover: Rectangle {
         y: -32px; height: 28px; width: label.preferred-width + 16px;

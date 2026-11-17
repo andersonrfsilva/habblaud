@@ -2,6 +2,10 @@ package br.com.xlinx.habblaud
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.*
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.ClipboardManager
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.text.AnnotatedString
 import br.com.xlinx.habblaud.data.HabblaudApi
 import com.mikepenz.markdown.compose.components.markdownComponents
 import com.mikepenz.markdown.m3.Markdown
@@ -18,6 +22,11 @@ class MermaidCodeFenceTest {
         val calls = AtomicInteger()
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         val source = "graph TD\nA --> B"
+        val clipboard = object : ClipboardManager {
+            var content: AnnotatedString? = null
+            override fun getText() = content
+            override fun setText(annotatedString: AnnotatedString) { content = annotatedString }
+        }
         server.createContext("/api/mermaid") { exchange ->
             calls.incrementAndGet()
             val body = exchange.requestBody.readBytes().decodeToString()
@@ -36,13 +45,19 @@ class MermaidCodeFenceTest {
         val api = HabblaudApi("http://127.0.0.1:${server.address.port}")
         try {
             setContent {
-                MaterialTheme {
-                    Markdown("```mermaid\n$source\n```\n\n```kotlin\nval answer = 42\n```\n\n```mermaid\ninvalid diagram\n```\n\n```mermaid\ngraph TD\nC -->", components = markdownComponents(codeFence = { MermaidCodeFence(it, api) }))
+                CompositionLocalProvider(LocalClipboardManager provides clipboard) {
+                    MaterialTheme {
+                        Markdown("    val indented = true\n\n```mermaid\n$source\n```\n\n```kotlin\nval answer = 42\n```\n\n```mermaid\ninvalid diagram\n```\n\n```mermaid\ngraph TD\nC -->", components = markdownComponents(codeFence = { MermaidCodeFence(it, api) }, codeBlock = { CopyableCodeBlock(it) }))
+                    }
                 }
             }
             waitUntil(timeoutMillis = 15_000) { onAllNodesWithContentDescription(source).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithContentDescription(source).assertExists()
             onNodeWithText("val answer = 42").assertExists()
+            onAllNodesWithText("Copiar")[0].performClick()
+            runOnIdle { assertEquals("val indented = true", clipboard.getText()?.text) }
+            onAllNodesWithText("Copiar")[2].performClick()
+            runOnIdle { assertEquals("val answer = 42", clipboard.getText()?.text) }
             onNodeWithText("invalid diagram").assertExists()
             onNodeWithText("graph TD", substring = true).assertExists()
             waitUntil(timeoutMillis = 15_000) { calls.get() == 2 }
@@ -51,5 +66,14 @@ class MermaidCodeFenceTest {
             api.close()
             server.stop(0)
         }
+    }
+    @Test fun markdownImagesRemainVisibleAsLinksWithoutFetchingThem() = runDesktopComposeUiTest {
+        setContent {
+            MaterialTheme {
+                Markdown(markdownImageLinks("![Preview](https://example.invalid/private.png)"))
+            }
+        }
+        waitUntil(timeoutMillis = 15_000) { onAllNodesWithText("Preview").fetchSemanticsNodes().isNotEmpty() }
+        onNodeWithText("Preview").assertExists()
     }
 }

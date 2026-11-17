@@ -164,6 +164,10 @@ pub struct SessionItem {
     pub sub: bool,
     pub replies: Vec<i64>,
     pub status_since: Option<i64>,
+    pub role: Option<String>,
+    pub task: Option<String>,
+    pub parent_key: Option<SessionKey>,
+    pub server_session_id: Option<String>,
 }
 impl SessionItem {
     pub fn parse(
@@ -222,6 +226,11 @@ impl SessionItem {
             model: string(o, "model"),
             thinking: string(o, "thinking"),
             models: strings(o, "models"),
+            role: string(o, "role"),
+            task: (string(o, "kind").as_deref() == Some("sub"))
+                .then(|| string(o, "title"))
+                .flatten(),
+            server_session_id: string(o, "sessionId"),
             replies: o
                 .get("replies")
                 .and_then(Value::as_array)
@@ -252,6 +261,24 @@ pub struct SubAgent {
     pub avatar: Option<Avatar>,
     pub advisor: bool,
     pub activity: Option<String>,
+    #[serde(default)]
+    pub role: Option<String>,
+    #[serde(default)]
+    pub task: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub thinking: Option<String>,
+    #[serde(default)]
+    pub context_tokens: Option<i64>,
+    #[serde(default)]
+    pub context_window: Option<i64>,
+    #[serde(default)]
+    pub status_since: Option<i64>,
+    #[serde(default)]
+    pub last_at: Option<i64>,
+    #[serde(default)]
+    pub session_id: Option<String>,
 }
 pub fn sub_session(parent: &SessionItem, sub: &SubAgent) -> SessionItem {
     let mut key = parent.key.clone();
@@ -266,6 +293,16 @@ pub fn sub_session(parent: &SessionItem, sub: &SubAgent) -> SessionItem {
         avatar: sub.avatar.clone(),
         character_name: Some(sub.name.clone()),
         sub: true,
+        role: sub.role.clone(),
+        task: sub.task.clone(),
+        model: sub.model.clone(),
+        thinking: sub.thinking.clone(),
+        context_tokens: sub.context_tokens,
+        context_window: sub.context_window,
+        status_since: sub.status_since,
+        last_at: sub.last_at,
+        parent_key: Some(parent.key.clone()),
+        server_session_id: sub.session_id.clone(),
         ..SessionItem::default()
     }
 }
@@ -324,6 +361,15 @@ impl Snapshot {
                     avatar: Avatar::parse(o),
                     advisor: string(o, "role").as_deref() == Some("__advisor"),
                     activity,
+                    role: string(o, "role"),
+                    task: string(o, "title"),
+                    model: string(o, "model"),
+                    thinking: string(o, "thinking"),
+                    context_tokens: o.get("context").and_then(|v| integer(v, "tokens")).filter(|n| *n >= 0),
+                    context_window: o.get("context").and_then(|v| integer(v, "window")).filter(|n| *n > 0),
+                    status_since: integer(o, "statusSince").filter(|n| *n > 0).map(|n| local_time(n, server_time, now)),
+                    last_at: integer(o, "lastEventAt").or_else(|| integer(o, "lastAt")),
+                    session_id: string(o, "sessionId"),
                 });
             }
         }
@@ -1252,6 +1298,31 @@ mod tests {
         );
         assert_eq!(item.models, ["ok"]);
         assert!(item.subagents[0].advisor);
+    }
+    #[test]
+    fn subagent_details_keep_actual_metadata_and_parent_link() {
+        let raw = json!({"serverTime":10000,"agents":[
+            {"id":"main","kind":"main","provider":"omp","account":"default","sessionId":"parent","model":"parent-model","context":{"tokens":999,"window":1000}},
+            {"id":"sub","kind":"sub","parentId":"main","name":"Researcher","title":"Inspect logs","status":"working","role":"researcher","model":"provider/sub-model","thinking":"high","context":{"tokens":20,"window":100},"statusSince":9000,"lastEventAt":9500,"sessionId":"real-sub"}
+        ]});
+        let snapshot = Snapshot::parse_at("https://test", &raw.to_string(), 12000).unwrap();
+        let parent = &snapshot.sessions[0];
+        let sub = sub_session(parent, &parent.subagents[0]);
+        assert_eq!(sub.parent_key.as_ref(), Some(&parent.key));
+        assert_eq!(sub.server_session_id.as_deref(), Some("real-sub"));
+        assert_eq!(sub.key.session_id, "parent/sub");
+        assert_eq!(sub.role.as_deref(), Some("researcher"));
+        assert_eq!(sub.task.as_deref(), Some("Inspect logs"));
+        assert_eq!(sub.model.as_deref(), Some("provider/sub-model"));
+        assert_eq!(sub.thinking.as_deref(), Some("high"));
+        assert_eq!((sub.context_tokens, sub.context_window), (Some(20), Some(100)));
+        assert_eq!(sub.status_since, Some(11000));
+        assert_eq!(sub.last_at, Some(9500));
+        assert!(!sub.can_message);
+        let missing = Snapshot::parse_at("https://test", r#"{"agents":[{"id":"main","kind":"main","account":"default","sessionId":"parent","model":"parent-model"},{"id":"sub","kind":"sub","parentId":"main","status":"working"}]}"#, 12000).unwrap();
+        let parent = &missing.sessions[0];
+        let sub = sub_session(parent, &parent.subagents[0]);
+        assert!(sub.model.is_none() && sub.context_tokens.is_none() && sub.server_session_id.is_none());
     }
     #[test]
     fn conversation_deduplicates_evicts_and_rejects_before_mutation() {

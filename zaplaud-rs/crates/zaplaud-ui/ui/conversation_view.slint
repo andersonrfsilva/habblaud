@@ -17,7 +17,7 @@ export struct ConversationRow {
     label: string, time: string, expanded: bool, summarized: bool,
     tools: [ToolDetail],
 }
-export struct InfoRow { label: string, value: string }
+export struct InfoRow { label: string, value: string, section: bool, copyable: bool, parent-key: string, elapsed: bool }
 export struct ModelChoice { value: string, label: string, header: bool }
 export global ConversationViewState {
     in property <[ConversationRow]> rows;
@@ -49,16 +49,10 @@ export global ConversationViewState {
     in-out property <string> menu-page;
     in property <string> back;
     in property <string> info-label;
-    in property <string> details-label;
-    in property <string> hide-details-label;
-    in property <string> info-status;
     in property <[InfoRow]> info;
-    in property <[InfoRow]> details;
-    in property <float> context-fraction: -1;
     in-out property <bool> info-open;
     in-out property <bool> menu-open;
     in-out property <bool> window-focused;
-    in-out property <bool> details-open;
     in-out property <bool> view-menu;
     in-out property <bool> following: true;
     in property <int> new-count;
@@ -89,6 +83,8 @@ export global ConversationViewState {
     callback position(bool);
     callback open-link(string);
     callback copy(string);
+    callback open-parent(string);
+    in property <string> copy-label;
     callback model-query-changed(string);
 }
 
@@ -495,22 +491,28 @@ export component SessionInfoSheet inherits Sheet {
         padding: 20px; spacing: 16px;
         HorizontalLayout { Rectangle {} Avatar { width: 72px; height: 72px; source: ConversationState.avatar; initials: ConversationState.initials; } Rectangle {} }
         Text { text: ConversationState.title; color: Theme.on-surface; font-size: 22px; horizontal-alignment: center; wrap: word-wrap; }
-        Text { text: ConversationState.subtitle; color: Theme.on-surface-variant; font-size: 14px; horizontal-alignment: center; }
-        Pill { text: ConversationViewState.info-status; }
-        Rectangle { background: Theme.surface-container-high; border-radius: 16px;
-            VerticalLayout { padding: 16px; spacing: 12px;
-                for row in ConversationViewState.info: HorizontalLayout { spacing: 12px;
-                    Text { text: row.label; color: Theme.on-surface-variant; font-size: 14px; }
-                    TextInput { text: row.value; read-only: true; wrap: word-wrap; color: Theme.on-surface; horizontal-alignment: right; font-size: 14px; }
+        if ConversationState.subtitle != "": Text { text: ConversationState.subtitle; color: Theme.on-surface-variant; font-size: 14px; horizontal-alignment: center; wrap: word-wrap; }
+        for row in ConversationViewState.info: VerticalLayout {
+            spacing: 6px;
+            if row.section: Text { text: row.label; color: Theme.primary; font-size: 14px; font-weight: 700; }
+            if !row.section: VerticalLayout {
+                spacing: 4px;
+                Text { text: row.label; color: Theme.on-surface-variant; font-size: 12px; }
+                HorizontalLayout {
+                    spacing: 8px;
+                    if row.parent-key == "": TextInput {
+                        text: row.elapsed ? Clock.elapsed(row.value, Clock.tick) : row.value;
+                        read-only: true; wrap: word-wrap; color: Theme.on-surface; font-size: 14px;
+                    }
+                    if row.parent-key != "": TextButton {
+                        text: row.value;
+                        clicked => { ConversationViewState.info-open = false; ConversationViewState.open-parent(row.parent-key); }
+                    }
+                    if row.copyable: TextButton {
+                        text: ConversationViewState.copy-label;
+                        clicked => { ConversationViewState.copy(row.value); }
+                    }
                 }
-                if ConversationViewState.context-fraction >= 0: Rectangle { height: 4px; background: Theme.outline-variant; Rectangle { width: parent.width * ConversationViewState.context-fraction; background: Theme.primary; } }
-            }
-        }
-        TextButton { text: ConversationViewState.details-open ? ConversationViewState.hide-details-label : ConversationViewState.details-label; clicked => { ConversationViewState.details-open = !ConversationViewState.details-open; } }
-        if ConversationViewState.details-open: VerticalLayout { spacing: 8px;
-            for row in ConversationViewState.details: VerticalLayout {
-                Text { text: row.label; color: Theme.on-surface-variant; font-size: 14px; }
-                TextInput { text: row.value; read-only: true; wrap: word-wrap; color: Theme.on-surface; font-size: 14px; }
             }
         }
     } }
@@ -520,7 +522,7 @@ export component ConversationStatus inherits Rectangle {
     visible: ConversationViewState.working || CastState.status != "";
     preferred-height: ConversationViewState.working || CastState.status != "" ? 32px : 0px;
     vertical-stretch: 0;
-    property <bool> elapsed-needed: root.visible && ConversationState.selected && ConversationViewState.working && ConversationViewState.status-since != "";
+    property <bool> elapsed-needed: ConversationState.selected && (ConversationViewState.info-open || (root.visible && ConversationViewState.working)) && ConversationViewState.status-since != "";
     changed elapsed-needed => { Clock.conversation-needed = self.elapsed-needed; }
     HorizontalLayout { padding-left: 16px; padding-right: 16px; spacing: 6px;
         if ConversationViewState.working: Avatar { width: 20px; height: 20px; source: ConversationState.avatar; initials: ConversationState.initials; }

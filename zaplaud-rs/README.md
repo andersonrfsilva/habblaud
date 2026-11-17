@@ -30,7 +30,7 @@ node --import tsx scripts/android-smoke.ts --port 14780 --allow terminal,message
 ```
 
 Use usuário e senha fictícios `android-test`. HTTP exige confirmação na tela; HTTPS não. O cliente não segue redirecionamentos. HTTPS confia nas CAs do sistema e nas raízes webpki, inclusive CAs privadas instaladas localmente. A API aceita persistência de cookies pelo contrato `SessionPersistence`; `SecureSessionStorage` usa o chaveiro do sistema, com fallback em memória quando indisponível. `ZAPLAUD_KEYRING=memory` força o modo sem persistência entre processos. Entradas existentes malformadas ou de versão desconhecida no chaveiro impedem gravações, sem apagar cookies de outras origens.
-Respostas `429` bloqueiam novas tentativas por no máximo 24 h, tanto para segundos quanto para datas HTTP. Essa proteção difere do Kotlin atual, que ainda aceita prazos sem esse limite; o cliente Kotlin não foi alterado.
+Respostas `429` bloqueiam novas tentativas por no máximo 24 h, tanto para segundos quanto para datas HTTP, nos dois clientes.
 
 ## Distribuição Linux
 
@@ -138,6 +138,7 @@ O integrador monta um `VerticalLayout` em `ConversationPane.conversation-content
 `ConversationViewState.menu-open` e `info-open`. O menu aceita filhos para as ações de compositor,
 aside e cast. A ação de envio pode incrementar `ConversationViewState.end-request` para acompanhar o fim.
 `ConversationViewState.copy(string)` preserva o Markdown original; links aceitam somente HTTP/HTTPS.
+A ficha de informações usa a mesma ordem no Android e no desktop: Estado, Modelo, Contexto e Identificadores / Técnico. Subagentes usam somente seus próprios campos do snapshot, sem herdar modelo ou contexto da sessão principal; campos ausentes ficam ocultos. A chave local do transcript de um subagente é sintética (`sessão/agente`), mas a ficha mostra somente o `sessionId` real recebido do servidor. O vínculo de sessão principal abre a conversa correspondente.
 O cache é salvo com `ConversationWrite` e epoch da origem; fechar/trocar a seleção também salva, sem esperar o debounce.
 
 O renderizador por software do Slint 1.18.1 usa coordenadas físicas `i16`.

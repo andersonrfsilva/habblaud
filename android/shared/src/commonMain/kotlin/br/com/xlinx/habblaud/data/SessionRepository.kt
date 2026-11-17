@@ -20,13 +20,19 @@ internal fun liveOrClosed(item: SessionItem): SessionItem =
     if (item.status == "offline") item.copy(agentId = null, canMessage = false) else item
 
 /** Subagentes e advisors trabalhando agora, por agente principal; quem terminou ou parou não entra. */
-internal fun activeSubagents(agents: List<JsonObject>): Map<String, List<SubAgent>> = agents
+internal fun activeSubagents(agents: List<JsonObject>, serverTime: Long = 0): Map<String, List<SubAgent>> = agents
     .filter { it.string("kind") == "sub" && it.string("status") == "working" }
     .mapNotNull { o ->
         val parent = o.string("parentId") ?: return@mapNotNull null
         val id = o.string("id") ?: return@mapNotNull null
         val activity = (o["activity"] as? JsonObject)?.let { it.string("summary") ?: it.string("text") }
-        parent to SubAgent(id, o.string("name") ?: id, parseAvatar(o), o.string("role") == "__advisor", activity)
+        val context = o["context"] as? JsonObject
+        parent to SubAgent(id, o.string("name") ?: id, parseAvatar(o), o.string("role") == "__advisor", activity,
+            role = o.string("role"), task = o.string("title"), status = o.string("status"),
+            statusSince = o.string("statusSince")?.toLongOrNull()?.takeIf { it > 0 }?.let { localTime(it, serverTime) },
+            lastAt = o.string("lastEventAt")?.toLongOrNull(), model = o.string("model"), thinking = o.string("thinking"),
+            contextTokens = context?.string("tokens")?.toLongOrNull()?.takeIf { it >= 0 },
+            contextWindow = context?.string("window")?.toLongOrNull()?.takeIf { it > 0 }, sessionId = o.string("sessionId"))
     }
     .groupBy({ it.first }, { it.second })
 
@@ -67,7 +73,7 @@ class SessionRepository(private val api: HabblaudApi) {
         serverTime = root.string("serverTime")?.toLongOrNull() ?: serverTime
         val rooms = root.objects("rooms").associate { it.string("id") to (it.string("path") ?: it.string("name")) }
         val agents = root.objects("agents")
-        val subs = activeSubagents(agents)
+        val subs = activeSubagents(agents, serverTime)
         open = agents.filter { it.string("kind") == "main" && it.string("parentId") == null }.mapNotNull { agent ->
             item(agent, rooms[agent.string("roomId")])?.let { it.copy(subagents = it.agentId?.let(subs::get).orEmpty()) }?.let(::liveOrClosed)
         }
@@ -97,7 +103,8 @@ class SessionRepository(private val api: HabblaudApi) {
             models = (o["models"] as? kotlinx.serialization.json.JsonArray)?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { p -> p.isString }?.content }.orEmpty(),
             replies = (o["replies"] as? kotlinx.serialization.json.JsonArray)?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.longOrNull }.orEmpty(),
             roomId = o.string("roomId"),
-            statusSince = o.string("statusSince")?.toLongOrNull()?.takeIf { it > 0 }?.let { localTime(it, serverTime) })
+            statusSince = o.string("statusSince")?.toLongOrNull()?.takeIf { it > 0 }?.let { localTime(it, serverTime) },
+            role = o.string("role"))
     }
 
 }

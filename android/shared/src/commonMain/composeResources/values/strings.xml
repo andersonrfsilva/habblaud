@@ -126,6 +126,9 @@
     <string name="time_minutes">há %1$d min</string>
     <string name="time_hours">há %1$d h</string>
     <string name="time_days">há %1$d d</string>
+    <string name="time_minutes_short">%1$d min</string>
+    <string name="time_hours_short">%1$d h</string>
+    <string name="time_days_short">%1$d d</string>
     <string name="go_to_end">Ir para o fim</string>
     <string name="menu">Menu</string>
     <string name="permission_suggestion">Sempre permitir %1$s (%2$s)</string>
@@ -274,4 +277,17 @@
         <item quantity="one">%1$d resposta não lida</item>
         <item quantity="other">%1$d respostas não lidas</item>
     </plurals>
+    <string name="copy">Copiar</string>
+    <string name="info_status_section">Estado</string>
+    <string name="info_model_section">Modelo</string>
+    <string name="info_context_section">Contexto</string>
+    <string name="info_technical_section">Identificadores / Técnico</string>
+    <string name="info_role">Papel</string>
+    <string name="info_task">Tarefa</string>
+    <string name="info_status">Estado</string>
+    <string name="info_elapsed">Tempo no estado</string>
+    <string name="info_activity">Atividade</string>
+    <string name="info_account">Conta</string>
+    <string name="info_parent">Sessão principal</string>
+    <string name="info_agent">Agente</string>
 </resources>

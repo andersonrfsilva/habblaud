@@ -21,6 +21,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -133,12 +135,16 @@ private fun TopicPicker(state: AsideState, asides: AsideController) {
 
 @Composable
 private fun AsideTurnView(turn: AsideTurn, api: HabblaudApi) {
+    val clipboard = LocalClipboardManager.current
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Surface(Modifier.align(Alignment.End).fillMaxWidth(0.85f), shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.primaryContainer) {
             SelectionContainer { Text(turn.question, Modifier.padding(12.dp), color = MaterialTheme.colorScheme.onPrimaryContainer) }
         }
         if (turn.answer.isNotEmpty()) SelectionContainer {
-            Markdown(turn.answer, modifier = Modifier.fillMaxWidth(), colors = markdownColor(text = MaterialTheme.colorScheme.onSurface), dimens = chatMarkdownDimens(), components = markdownComponents(image = {}, codeFence = { MermaidCodeFence(it, api) }, table = wrappingTable))
+            Markdown(remember(turn.answer) { markdownImageLinks(turn.answer) }, modifier = Modifier.fillMaxWidth(), colors = markdownColor(text = MaterialTheme.colorScheme.onSurface), dimens = chatMarkdownDimens(), components = markdownComponents(codeFence = { MermaidCodeFence(it, api) }, codeBlock = { CopyableCodeBlock(it) }, table = wrappingTable))
+        }
+        if (turn.answer.isNotEmpty()) TextButton(onClick = { clipboard.setText(AnnotatedString(turn.answer)) }, modifier = Modifier.align(Alignment.End)) {
+            Text(stringResource(Res.string.copy))
         }
         val status = when (turn.status) {
             "queued" -> stringResource(Res.string.aside_queued)

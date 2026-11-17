@@ -28,8 +28,8 @@ vai para a tabela abaixo, com o motivo. Textos ficam em `android/shared/src/comm
 | Compositor: rascunho, anexos, modos de envio, interrupção, anel de contexto, shake | sim | sim | Rust: sem arrastar arquivos para a janela (Slint 1.18) |
 | Aprovação e perguntas, com resumo `text` e entrada não textual em JSON | sim | sim | Kotlin rola na horizontal; Rust quebra a linha e mostra "mais N linhas" |
 | Chamar personagem (também com conversa aberta em tela larga), dispensar, retomar | sim | sim | pasta da conversa aberta vem primeiro |
-| Dispensar pelo menu ⋮ da sessão na lista | sim | **pendente** | Rust: dispensar segue pelo menu da conversa, que fica ao lado da lista |
-| Bate-papo paralelo, sem pular para o fim quando se lê acima | sim | sim | puxada para abrir só no toque; no desktop, pelo menu |
+| Linha da lista compacta: horário curto ao lado do título, não lidas na linha de baixo, ações sem botão ⋮ | sim | sim | Kotlin: toque longo; desktop: clique direito. Dispensar pela lista segue **pendente** no Rust (fica no menu da conversa) |
+| Bate-papo paralelo, sem pular para o fim quando se lê acima | sim | sim | abre só pelo menu da conversa |
 | Arquivos da pasta de trabalho: navegar e baixar | sim | sim | Android: Downloads (MediaStore); iOS: pasta do app; desktop: Downloads |
 | Configurações, papéis, resumos por HTTP | sim | sim | |
 | Seletores de modelo: nomes normalizados, busca, OpenRouter por fabricante e preservação do modelo atual | sim | sim | sessão e papéis; datas e variantes distinguem rótulos sem alterar o ID escolhido |
@@ -40,6 +40,10 @@ vai para a tabela abaixo, com o motivo. Textos ficam em `android/shared/src/comm
 | Chaveiro destrancado quando o padrão está trancado (Linux) | não se aplica | sim | |
 | Diagramas Mermaid desenhados na conversa | sim | sim | Kotlin pede o SVG ao servidor (`POST /api/mermaid`); Rust desenha localmente (`mermaid-rs-renderer`) |
 | Diagrama Mermaid em tela cheia, com zoom e arrasto | sim | sim | Kotlin: pinça; desktop: botões +/− e teclado +/−, até 8×; arrasto move, duplo clique/toque restaura, Esc ou Fechar sai |
+| Detalhes da sessão e do subagente: seções Estado, Modelo, Contexto e Identificadores; campos vazios ocultos | sim | sim | subagente mostra papel, tarefa, modelo e contexto próprios e leva à sessão principal; identificadores copiáveis |
+| Copiar bloco de código, código do Mermaid e mensagem inteira | sim | sim | |
+| Imagens do markdown viram link; links externos só `http`/`https` | sim | sim | nenhum cliente baixa imagem inline |
+| Tentar de novo após erro de envio | sim | sim | envio ambíguo continua pedindo confirmação |
 
 ### Diagramas no cliente Kotlin
 

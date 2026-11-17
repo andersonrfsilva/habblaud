@@ -121,7 +121,7 @@ pub fn subtitle(item: &SessionItem, multiple: bool) -> String {
 fn relative_time(at: i64, now: i64) -> String {
     let value = zaplaud_core::rules::time::relative_time(at, now);
     match value.amount {
-        Some(amount) => formatted(value.key, &[&amount.to_string()]),
+        Some(amount) => formatted(&format!("{}_short", value.key), &[&amount.to_string()]),
         None => strings::TIME_NOW.into(),
     }
 }

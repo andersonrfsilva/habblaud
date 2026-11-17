@@ -365,7 +365,7 @@ class FixtureUiInstrumentedTest {
         compose.onAllNodes(hasText("o que você está fazendo?", substring = true)).assertCountEquals(0)
     }
 
-    @Test fun longSwipeUpAtConversationEndOpensParallelChat() {
+    @Test fun swipeAtConversationEndDoesNotOpenParallelChat() {
         scenario = ActivityScenario.launch(MainActivity::class.java)
         await(R.string.message_text)
         compose.onNodeWithContentDescription(text(R.string.back_sessions)).performClick()
@@ -373,30 +373,8 @@ class FixtureUiInstrumentedTest {
         compose.onNodeWithText("caderno · trabalhando").performClick()
         compose.waitUntil(15_000) { compose.onAllNodesWithTag("conversation-list").fetchSemanticsNodes().isNotEmpty() }
         compose.waitForIdle()
-        // Curto: só rola (nada além do fim para revelar).
-        compose.onNodeWithTag("conversation-list").performTouchInput { swipeUp(startY = bottom - 20f, endY = bottom - 20f - 40.dp.toPx(), durationMillis = 400) }
-        compose.waitForIdle()
-        compose.onAllNodesWithTag("aside-input").assertCountEquals(0)
-        // Longo, de baixo para cima no fim da conversa: abre o bate-papo paralelo.
+        // O bate-papo paralelo abre só pelo menu: puxar além do fim da conversa não abre nada.
         compose.onNodeWithTag("conversation-list").performTouchInput { swipeUp(startY = bottom - 20f, endY = top + 20f, durationMillis = 600) }
-        compose.waitUntil(15_000) { compose.onAllNodesWithTag("aside-input").fetchSemanticsNodes().isNotEmpty() }
-    }
-
-    @Test fun swipeThatReturnsToConversationEndDoesNotOpenParallelChat() {
-        scenario = ActivityScenario.launch(MainActivity::class.java)
-        await(R.string.message_text)
-        compose.onNodeWithContentDescription(text(R.string.back_sessions)).performClick()
-        compose.waitUntil(15_000) { compose.onAllNodes(hasText("caderno · trabalhando")).fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("caderno · trabalhando").performClick()
-        compose.waitUntil(15_000) { compose.onAllNodesWithTag("conversation-list").fetchSemanticsNodes().isNotEmpty() }
-        compose.waitForIdle()
-        // Um só gesto: desce no histórico, volta ao fim e segue além dele. A sobra não abre o bate-papo paralelo.
-        compose.onNodeWithTag("conversation-list").performTouchInput {
-            down(center)
-            repeat(10) { moveBy(androidx.compose.ui.geometry.Offset(0f, 30.dp.toPx())) }
-            repeat(30) { moveBy(androidx.compose.ui.geometry.Offset(0f, -30.dp.toPx())) }
-            up()
-        }
         compose.waitForIdle()
         compose.onAllNodesWithTag("aside-input").assertCountEquals(0)
     }

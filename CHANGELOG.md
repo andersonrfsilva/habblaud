@@ -13,9 +13,19 @@ do meio (0.**3**.0).
 ### Removido
 
 - A integração com o Antigravity CLI foi removida e não é mais suportada.
+- **Zaplaud:** o bate-papo paralelo não abre mais pela puxada no fim da conversa; abre só pelo menu.
 
 ### Adicionado
 
+- **Zaplaud:** linha da lista de sessões mais compacta. O horário vai para o canto do título, sem o "há"; o contador
+  de não lidas fica na linha de baixo; as ações da sessão saem do botão ⋮ e vão para o toque longo (Android) ou o
+  clique direito (desktop).
+
+- **Detalhes da sessão reorganizados nos clientes Zaplaud.** A tela de detalhes, da sessão principal e dos subagentes,
+  agora tem seções (Estado, Modelo, Contexto, Identificadores), esconde campos vazios e permite copiar identificadores.
+  Subagentes mostram papel, tarefa, modelo e contexto próprios e levam à sessão principal.
+- **Zaplaud Android:** copiar blocos de código, código do Mermaid e mensagens inteiras; botão para tentar de novo após
+  erro de envio; imagens do markdown aparecem como link; links externos só abrem se forem `http` ou `https`.
 - **Diagramas Mermaid nos clientes Zaplaud.** Blocos ` ```mermaid ` (flowcharts, sequência e demais tipos) aparecem
   desenhados num cartão claro. O desktop Rust desenha localmente; o app Kotlin usa a nova rota `POST /api/mermaid`
   do servidor. Diagrama inválido ou ainda chegando continua como bloco de código. Tocar ou clicar no diagrama

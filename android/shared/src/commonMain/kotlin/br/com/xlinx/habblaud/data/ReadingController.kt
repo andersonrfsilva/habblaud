@@ -160,8 +160,9 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                             if (selected?.agentId != null && sessions.any { it.agentId == selected.agentId && it.key != selected.key }) changed()
                             // A conversa de um subagente não está na lista: segue aberta como está até o leitor fechar.
                             mutable.value = mutable.value.copy(sessions = sessions, selected = mutable.value.selected?.let { selectedItem ->
-                                if (selectedItem.sub) sessions.firstNotNullOfOrNull { s -> s.subagents.find { it.id == selectedItem.agentId } }
-                                    .let { live -> selectedItem.copy(status = if (live != null) "working" else "done", activity = live?.activity ?: selectedItem.activity) }
+                                if (selectedItem.sub) sessions.firstNotNullOfOrNull { parent ->
+                                    parent.subagents.find { it.id == selectedItem.agentId }?.let { subSession(parent, it) }
+                                } ?: selectedItem.copy(status = "done")
                                 else sessions.find { it.key == selectedItem.key } ?: selectedItem.copy(agentId = null, canMessage = false)
                             })
                             publishMarks()

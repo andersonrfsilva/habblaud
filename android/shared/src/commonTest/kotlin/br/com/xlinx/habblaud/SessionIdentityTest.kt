@@ -75,4 +75,32 @@ class SessionIdentityTest {
         assertEquals("Usando advise", subs["m"]?.first()?.activity)
         assertEquals(listOf("Eva"), subs["x"]?.map { it.name })
     }
+    @Test fun subagentDetailsKeepSnapshotMetadataAndRealSessionIdentity() {
+        val agents = wireJson.parseToJsonElement("""{"agents":[
+            {"id":"child","kind":"sub","parentId":"main","name":"Ada","status":"working","role":"Explore",
+             "title":"Find callers","sessionId":"actual-child-session","statusSince":1000,"lastEventAt":2000,
+             "model":"provider/child-model","thinking":"high","context":{"tokens":1234,"window":20000}},
+            {"id":"empty","kind":"sub","parentId":"main","name":"Bob","status":"working"}
+        ]}""").jsonObject.objects("agents")
+        val subs = br.com.xlinx.habblaud.data.activeSubagents(agents).getValue("main")
+        val key = SessionKey("https://example.test", "omp", "account", "parent-session")
+        val parent = SessionItem(key, "main", "Parent", "/project", "working", null,
+            model = "parent-model", contextTokens = 9999, contextWindow = 10000)
+        val child = br.com.xlinx.habblaud.data.subSession(parent, subs.first())
+        assertEquals("Explore", child.role)
+        assertEquals("Find callers", child.task)
+        assertEquals("provider/child-model", child.model)
+        assertEquals("high", child.thinking)
+        assertEquals(1234L, child.contextTokens)
+        assertEquals(20000L, child.contextWindow)
+        assertEquals(1000L, child.statusSince)
+        assertEquals(2000L, child.lastAt)
+        assertEquals(key, child.parentKey)
+        assertEquals("actual-child-session", child.serverSessionId)
+        assertNotEquals(child.key.sessionId, child.serverSessionId)
+        val empty = br.com.xlinx.habblaud.data.subSession(parent, subs.last())
+        assertNull(empty.model)
+        assertNull(empty.contextTokens)
+        assertNull(empty.serverSessionId)
+    }
 }

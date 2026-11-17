@@ -62,7 +62,7 @@ class FilesDesktopAcceptanceTest {
                             }
                         }
                         loginToFixture(port)
-                        onNodeWithContentDescription("Menu").performClick()
+                        onNodeWithTag("list-menu").performClick()
                         onNodeWithTag("files-menu").performClick()
                         waitUntil(timeoutMillis = 30_000) { onAllNodesWithTag("files-entry:documentos").fetchSemanticsNodes().isNotEmpty() }
                         onNodeWithTag("files-entry:documentos").performClick()
