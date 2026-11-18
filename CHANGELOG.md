@@ -163,6 +163,7 @@ do meio (0.**3**.0).
 ### Alterado
 
 - **Zaplaud (Android e iPad):** a lista de sessões abre sem esperar a resposta de todos os servidores cadastrados.
+- **Zaplaud Android:** o cache de conversas tem teto de 64 MiB. Conversas removidas do cache são baixadas novamente ao abrir.
 - **Histórico:** sessão encerrada que rodou em pasta temporária (`/tmp`) volta a aparecer quando tem título ou
   primeiro pedido. Só ficam de fora as sessões sem nenhuma instrução sua.
 - **Elenco:** chamar um personagem ou "Novo" não pede mais pasta: a sessão nova abre sempre na pasta pessoal (`~`) do
