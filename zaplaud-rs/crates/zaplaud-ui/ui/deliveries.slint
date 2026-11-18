@@ -1,0 +1,143 @@
+import { Theme } from "resources.slint";
+import { DownloadPanel, FilesDownloadRow, FilesState } from "files.slint";
+import { Sheet, TextButton, IconButton, ScrollContainer, Divider, ProgressRing } from "widgets/kit.slint";
+import { MaterialIcons } from "widgets/material-icons.slint";
+
+export struct DeliveryAttachmentRow { id: string, name: string, caption: string }
+export struct DeliveryRow {
+    id: string, headline: string, time: string, summary: string, count: string,
+    request: string, response: string, attachments: [DeliveryAttachmentRow],
+}
+
+export global DeliveriesState {
+    in property <bool> visible;
+    in property <bool> available;
+    in property <bool> loading;
+    in property <string> error;
+    in property <string> download-error;
+    in property <[DeliveryRow]> rows;
+    in property <[FilesDownloadRow]> downloads;
+    in property <string> title;
+    in property <string> menu-label;
+    in property <string> refresh-label;
+    in property <string> loading-label;
+    in property <string> empty-label;
+    in property <string> request-label;
+    in property <string> download-label;
+    callback open();
+    callback close();
+    callback refresh();
+    callback download(string, string);
+    callback cancel(int);
+    callback open-download(int, bool);
+}
+
+component DeliveryCard inherits VerticalLayout {
+    in property <DeliveryRow> entry;
+    in property <bool> expanded;
+    callback toggle();
+    spacing: 8px;
+    TextButton {
+        accessible-label: root.entry.headline == "" ? DeliveriesState.title : root.entry.headline;
+        accessible-expanded: root.expanded;
+        trailing-icon: root.expanded ? MaterialIcons.keyboard-arrow-up : MaterialIcons.keyboard-arrow-down;
+        min-height: heading.preferred-height;
+        preferred-height: heading.preferred-height;
+        clicked => { root.toggle(); }
+        heading := VerticalLayout {
+            width: parent.width - 32px; height: self.preferred-height;
+            padding: 8px; spacing: 4px;
+            Text { text: root.entry.headline; font-size: 16px; font-weight: 500; color: Theme.on-surface; wrap: word-wrap; overflow: elide; max-lines: 2; }
+            Text { text: root.entry.time; font-size: 12px; color: Theme.on-surface-variant; }
+            if root.entry.summary != "": Text {
+                text: root.entry.summary; font-size: 14px; color: Theme.on-surface;
+                wrap: word-wrap; overflow: elide; max-lines: 3;
+            }
+            if root.entry.count != "": Text { text: root.entry.count; font-size: 12px; color: Theme.on-surface-variant; }
+        }
+    }
+    if root.expanded: VerticalLayout {
+        padding-left: 8px; padding-right: 8px; padding-bottom: 8px; spacing: 8px;
+        Text { text: DeliveriesState.request-label; color: Theme.on-surface; font-weight: 500; }
+        Text { text: root.entry.request; color: Theme.on-surface; wrap: word-wrap; }
+        if root.entry.response != "": Rectangle {
+            height: metrics.preferred-height;
+            // O Text mede as linhas na largura real; o TextInput permite selecionar a resposta inteira.
+            metrics := Text { visible: false; width: parent.width; text: root.entry.response; wrap: word-wrap; }
+            TextInput {
+                width: parent.width; height: parent.height;
+                text: root.entry.response; read-only: true; wrap: word-wrap;
+                color: Theme.on-surface; accessible-role: text; accessible-label: root.entry.response;
+                selection-background-color: Theme.primary; selection-foreground-color: Theme.on-primary;
+            }
+        }
+        for attachment in root.entry.attachments: HorizontalLayout {
+            spacing: 8px;
+            VerticalLayout { alignment: center; min-width: 0px;
+                Text { text: attachment.name; color: Theme.on-surface; wrap: word-wrap; }
+                if attachment.caption != "": Text { text: attachment.caption; font-size: 12px; color: Theme.on-surface-variant; wrap: word-wrap; }
+            }
+            TextButton {
+                horizontal-stretch: 0;
+                text: DeliveriesState.download-label;
+                accessible-label: self.text + ": " + attachment.name;
+                clicked => { DeliveriesState.download(attachment.id, attachment.name); }
+            }
+        }
+    }
+    Divider {}
+}
+
+export component DeliveriesSheet inherits Sheet {
+    title: DeliveriesState.title;
+    dismissed => { DeliveriesState.close(); }
+    forward-focus: close;
+    init => { close.focus(); }
+    private property <string> expanded-id;
+    VerticalLayout { padding: 16px; spacing: 8px;
+        FocusScope { width: 0px; height: 0px; key-pressed(event) => {
+            if event.text == Key.Backtab || (event.text == Key.Tab && event.modifiers.shift) { last.focus(); return accept; }
+            return reject;
+        } }
+        HorizontalLayout { spacing: 8px;
+            Text { text: DeliveriesState.title; font-size: 22px; color: Theme.on-surface; vertical-alignment: center; }
+            close := IconButton { icon: MaterialIcons.close; label: FilesState.close-label; clicked => { DeliveriesState.close(); } }
+        }
+        HorizontalLayout { alignment: start;
+            TextButton { text: DeliveriesState.refresh-label; enabled: !DeliveriesState.loading; clicked => { DeliveriesState.refresh(); } }
+        }
+        Rectangle { vertical-stretch: 1; min-height: 64px;
+            if DeliveriesState.loading: VerticalLayout { alignment: center; spacing: 8px;
+                HorizontalLayout { alignment: center; ProgressRing { label: DeliveriesState.loading-label; } }
+                Text { text: DeliveriesState.loading-label; color: Theme.on-surface-variant; horizontal-alignment: center; }
+            }
+            if !DeliveriesState.loading && (DeliveriesState.error != "" || DeliveriesState.rows.length == 0): Text {
+                text: DeliveriesState.error != "" ? DeliveriesState.error : DeliveriesState.empty-label;
+                color: DeliveriesState.error != "" ? Theme.error : Theme.on-surface-variant;
+                wrap: word-wrap; horizontal-alignment: center; vertical-alignment: center;
+            }
+            if !DeliveriesState.loading && DeliveriesState.error == "" && DeliveriesState.rows.length > 0: list := ScrollContainer {
+                content-width: self.visible-width;
+                content-height: cards.preferred-height;
+                horizontal-scrollbar-policy: always-off;
+                cards := VerticalLayout { width: list.visible-width; height: self.preferred-height; spacing: 8px;
+                    for delivery in DeliveriesState.rows: DeliveryCard {
+                        entry: delivery;
+                        expanded: root.expanded-id == delivery.id;
+                        toggle => { root.expanded-id = self.expanded ? "" : delivery.id; }
+                    }
+                }
+            }
+        }
+        if DeliveriesState.download-error != "": Text { text: DeliveriesState.download-error; color: Theme.error; wrap: word-wrap; }
+        if DeliveriesState.downloads.length > 0: DownloadPanel {
+            downloads: DeliveriesState.downloads;
+            cancel(id) => { DeliveriesState.cancel(id); }
+            open-download(id, folder) => { DeliveriesState.open-download(id, folder); }
+        }
+        last := FocusScope { width: 0px; height: 0px; key-pressed(event) => {
+            if event.text == Key.Tab && !event.modifiers.shift { close.focus(); return accept; }
+            return reject;
+        } }
+    }
+}

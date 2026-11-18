@@ -39,6 +39,34 @@ export global FilesState {
     callback open-download(int, bool);
 }
 
+export component DownloadPanel inherits VerticalLayout {
+    in property <[FilesDownloadRow]> downloads;
+    callback cancel(int);
+    callback open-download(int, bool);
+    spacing: 8px;
+    vertical-stretch: 0;
+    Divider {}
+    Text { text: FilesState.downloads-label; color: Theme.on-surface; font-size: 16px; font-weight: 500; }
+    ScrollList {
+        height: min(224px, root.downloads.length * 112px);
+        vertical-stretch: 0;
+        for download in root.downloads: VerticalLayout { height: 112px; spacing: 4px; padding-bottom: 8px;
+            Text { text: download.name; color: Theme.on-surface; font-size: 14px; overflow: elide; }
+            Text { text: download.status; color: Theme.on-surface-variant; font-size: 12px; overflow: elide; }
+            if download.running: Rectangle {
+                height: 4px; background: Theme.surface-container-highest; border-radius: 2px;
+                accessible-role: progress-indicator; accessible-label: download.name + ": " + download.status;
+                Rectangle { width: parent.width * max(0, min(1, download.progress)); height: parent.height; border-radius: 2px; background: Theme.primary; }
+            }
+            HorizontalLayout { alignment: end; spacing: 4px;
+                if download.running: TextButton { text: Labels.cancel; clicked => { root.cancel(download.id); } }
+                if download.done: TextButton { text: FilesState.open-label; clicked => { root.open-download(download.id, false); } }
+                if download.done: TextButton { text: FilesState.show-folder-label; clicked => { root.open-download(download.id, true); } }
+            }
+        }
+    }
+}
+
 component RootPicker inherits TextButton {
     text: FilesState.root-index >= 0 && FilesState.root-index < FilesState.roots.length ? FilesState.roots[FilesState.root-index].label : FilesState.root-label;
     accessible-label: FilesState.root-label + ": " + self.text;
@@ -160,25 +188,10 @@ component FilesPanel inherits FocusScope {
         if !FilesState.loading && FilesState.truncated-label != "": Text {
             text: FilesState.truncated-label; color: Theme.on-surface-variant; font-size: 12px; wrap: word-wrap;
         }
-        if FilesState.downloads.length > 0: Divider {}
-        if FilesState.downloads.length > 0: Text { text: FilesState.downloads-label; color: Theme.on-surface; font-size: 16px; font-weight: 500; }
-        if FilesState.downloads.length > 0: ScrollList {
-            height: min(224px, FilesState.downloads.length * 112px);
-            vertical-stretch: 0;
-            for download in FilesState.downloads: VerticalLayout { height: 112px; spacing: 4px; padding-bottom: 8px;
-                Text { text: download.name; color: Theme.on-surface; font-size: 14px; overflow: elide; }
-                Text { text: download.status; color: Theme.on-surface-variant; font-size: 12px; overflow: elide; }
-                if download.running: Rectangle {
-                    height: 4px; background: Theme.surface-container-highest; border-radius: 2px;
-                    accessible-role: progress-indicator; accessible-label: download.name + ": " + download.status;
-                    Rectangle { width: parent.width * max(0, min(1, download.progress)); height: parent.height; border-radius: 2px; background: Theme.primary; }
-                }
-                HorizontalLayout { alignment: end; spacing: 4px;
-                    if download.running: TextButton { text: Labels.cancel; clicked => { FilesState.cancel(download.id); } }
-                    if download.done: TextButton { text: FilesState.open-label; clicked => { FilesState.open-download(download.id, false); } }
-                    if download.done: TextButton { text: FilesState.show-folder-label; clicked => { FilesState.open-download(download.id, true); } }
-                }
-            }
+        if FilesState.downloads.length > 0: DownloadPanel {
+            downloads: FilesState.downloads;
+            cancel(id) => { FilesState.cancel(id); }
+            open-download(id, folder) => { FilesState.open-download(id, folder); }
         }
         last := FocusScope { width: 0px; height: 0px; key-pressed(event) => {
             if event.text == Key.Tab && !event.modifiers.shift { close.focus(); return accept; }

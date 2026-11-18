@@ -17,6 +17,7 @@ mod clock;
 mod composer;
 mod conversation;
 mod conversation_view;
+mod deliveries;
 pub mod feature;
 mod files;
 mod images;
