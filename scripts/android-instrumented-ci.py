@@ -35,7 +35,7 @@ REQUIRED_SHARED = {
     'PersistenceInstrumentedTest', 'ConversationEpochInstrumentedTest',
     'LastSessionOrderInstrumentedTest', 'AvatarCacheInstrumentedTest',
     'SessionCookieStoreTest', 'LocalStateStoreTest',
-    'PersistenceFailureInstrumentedTest',
+    'PersistenceFailureInstrumentedTest', 'AlertWatcherInstrumentedTest',
 }
 
 
@@ -188,7 +188,7 @@ def main():
             reverses.append(files_port)
         started = time.time()
         gradle = subprocess.Popen([
-            './gradlew', '--max-workers=6', ':shared:connectedAndroidDeviceTest', ':app:connectedDebugAndroidTest',
+            './gradlew', '--max-workers=4', ':shared:connectedAndroidDeviceTest', ':app:connectedDebugAndroidTest',
             '-Pandroid.testInstrumentationRunnerArguments.fixture=true',
             f'-Pandroid.testInstrumentationRunnerArguments.fixtureLocalPort={port}',
             f'-Pandroid.testInstrumentationRunnerArguments.filesOrigin={files_fixtures[0][1]}',
