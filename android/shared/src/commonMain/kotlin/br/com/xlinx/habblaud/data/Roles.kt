@@ -107,7 +107,7 @@ private fun modelGroupKey(model: String): String {
  */
 fun roleModelGroups(models: List<String>, keep: String? = null, query: String = ""): List<Pair<String, List<String>>> {
     val all = (models + listOfNotNull(keep)).filter { '/' in it }.toSet()
-    val terms = query.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
+    val terms = query.trim().lowercase().split(SPACES).filter { it.isNotEmpty() }
     val shown = all.filter { m ->
         val hiddenRouterVariant = m.startsWith("openrouter/") && (HIDDEN_VARIANT.containsMatchIn(m) || m.startsWith("openrouter/~"))
         val kept = m == keep || !(m.endsWith(":batch") || hiddenRouterVariant || DATED.find(m)?.let { all.contains(m.substring(0, it.range.first)) } == true)
@@ -126,12 +126,14 @@ fun roleModelGroups(models: List<String>, keep: String? = null, query: String = 
 }
 
 private val DATED = Regex("-\\d{8}$")
+private val NAME_PARTS = Regex("[^a-z0-9]+")
+private val SPACES = Regex("\\s+")
 private val HIDDEN_VARIANT = Regex(":(?:batch|free|extended)$")
 
 /** Partes alfanuméricas em ordem; texto em ordem alfabética, número do maior para o menor (`opus-5-5` antes de `opus-4-8`). */
 private fun compareModelNames(a: String, b: String): Int {
-    val x = a.lowercase().split(Regex("[^a-z0-9]+")).filter { it.isNotEmpty() }
-    val y = b.lowercase().split(Regex("[^a-z0-9]+")).filter { it.isNotEmpty() }
+    val x = a.lowercase().split(NAME_PARTS).filter { it.isNotEmpty() }
+    val y = b.lowercase().split(NAME_PARTS).filter { it.isNotEmpty() }
     for (i in 0 until minOf(x.size, y.size)) {
         val p = x[i].toLongOrNull(); val q = y[i].toLongOrNull()
         val c = when {
