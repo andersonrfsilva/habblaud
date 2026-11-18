@@ -20,6 +20,7 @@ do meio (0.**3**.0).
 - **Zaplaud:** o menu da conversa abre as Entregas da sessão, com o pedido, a resposta e os arquivos de cada
   trabalho concluído, e baixa os arquivos.
 - **Zaplaud:** Configurações mostra, por servidor, o que a conexão pode fazer (conversas, mensagens, aprovações, arquivos) e o que pedir ao operador quando algo está bloqueado.
+- **Zaplaud (Android, iPad e desktop):** Configurações mostra, por servidor, o que a conexão pode fazer (conversas, mensagens, aprovações, arquivos) e o que pedir ao operador quando algo está bloqueado.
 - **Zaplaud:** a tela de Configurações mostra a versão e o número da compilação no Android e no iPad; o ícone do Android agora é adaptativo e aceita temas do lançador.
 - **Zaplaud:** blocos ```` ```svg ```` aparecem desenhados na conversa, como os diagramas Mermaid, com tela cheia e zoom.
 - **Zaplaud:** imagens do markdown aparecem abaixo do texto. Imagens embutidas (`data:`) e arquivos do computador do
@@ -182,6 +183,13 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Zaplaud desktop:** o bate-papo paralelo só apaga a pergunta quando o servidor aceita o envio.
+- **Zaplaud desktop:** o bate-papo paralelo volta a atualizar a resposta após uma falha de rede.
+- **Zaplaud desktop:** um conflito de envio ou comando não fecha outra conversa aberta enquanto a operação estava em curso.
+- **Zaplaud desktop:** Recentes é atualizada sem reconectar quando uma sessão sai da lista ao vivo e ainda não está no histórico.
+- **Zaplaud desktop:** trocar de conversa ou servidor cancela a confirmação de retomar ou dispensar, sem enviar a ação.
+- **Zaplaud desktop:** botão Cancelar, Esc e clique fora não fecham a folha de permissão durante o envio da decisão.
+- **Zaplaud desktop:** imagens que falham mostram um aviso. O cliente recusa imagens grandes demais, URLs com credenciais e redirecionamentos.
 - **Zaplaud (Android e iOS):** imagens grandes demais ou que falham exibem um aviso; imagens remotas não seguem redirecionamentos.
 - **Zaplaud:** o Android não renderiza SVGs com declarações de documento ou entidade; no Android e no iOS, diagramas Mermaid acima de 2 MiB aparecem como código.
 - **Acesso remoto:** “Sair” e o vencimento da sessão fecham na hora os streams já abertos.

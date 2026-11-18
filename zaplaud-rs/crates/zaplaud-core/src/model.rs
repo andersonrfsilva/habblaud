@@ -365,9 +365,17 @@ impl Snapshot {
                     task: string(o, "title"),
                     model: string(o, "model"),
                     thinking: string(o, "thinking"),
-                    context_tokens: o.get("context").and_then(|v| integer(v, "tokens")).filter(|n| *n >= 0),
-                    context_window: o.get("context").and_then(|v| integer(v, "window")).filter(|n| *n > 0),
-                    status_since: integer(o, "statusSince").filter(|n| *n > 0).map(|n| local_time(n, server_time, now)),
+                    context_tokens: o
+                        .get("context")
+                        .and_then(|v| integer(v, "tokens"))
+                        .filter(|n| *n >= 0),
+                    context_window: o
+                        .get("context")
+                        .and_then(|v| integer(v, "window"))
+                        .filter(|n| *n > 0),
+                    status_since: integer(o, "statusSince")
+                        .filter(|n| *n > 0)
+                        .map(|n| local_time(n, server_time, now)),
                     last_at: integer(o, "lastEventAt").or_else(|| integer(o, "lastAt")),
                     session_id: string(o, "sessionId"),
                 });
@@ -412,6 +420,7 @@ pub struct SessionCollection {
     pub open: Vec<SessionItem>,
     pub cast: Vec<Value>,
     pub server_time: i64,
+    pub recent_stale: bool,
 }
 impl SessionCollection {
     pub fn parse_snapshot(
@@ -430,6 +439,7 @@ impl SessionCollection {
         self.recent = objects(&root(data)?, "sessions")
             .filter_map(|v| SessionItem::parse(origin, v, None, self.server_time, now))
             .collect();
+        self.recent_stale = false;
         Ok(())
     }
     pub fn set_cast(&mut self, data: &str) -> Result<(), serde_json::Error> {
@@ -438,12 +448,21 @@ impl SessionCollection {
     }
     pub fn snapshot(&mut self, snapshot: Snapshot) -> Vec<SessionItem> {
         self.server_time = integer(&snapshot.raw, "serverTime").unwrap_or(self.server_time);
-        self.open = snapshot.sessions;
-        self.sessions()
+        let previous = std::mem::replace(&mut self.open, snapshot.sessions);
+        let (sessions, stale) =
+            self.merge_sessions(if self.recent_stale { &[] } else { &previous });
+        self.recent_stale |= stale;
+        sessions
     }
     pub fn sessions(&self) -> Vec<SessionItem> {
+        self.merge_sessions(&[]).0
+    }
+    fn merge_sessions(&self, previous: &[SessionItem]) -> (Vec<SessionItem>, bool) {
         let live: HashSet<_> = self.open.iter().map(|v| &v.key).collect();
         let historical: HashMap<_, _> = self.recent.iter().map(|v| (&v.key, v)).collect();
+        let stale = previous
+            .iter()
+            .any(|item| !live.contains(&item.key) && !historical.contains_key(&item.key));
         let mut result: Vec<_> = self
             .open
             .iter()
@@ -493,7 +512,7 @@ impl SessionCollection {
                     next
                 }),
         );
-        result
+        (result, stale)
     }
 }
 
@@ -676,6 +695,47 @@ impl Access {
             messages: flag(o, "messages"),
             message_session_guard: flag(o, "messageSessionGuard"),
             permissions: flag(o, "permissions"),
+        }
+    }
+}
+
+/// Flags informadas em `/api/access`, sem converter ausência em negação.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServerAccess {
+    pub reading: Option<bool>,
+    messages: Option<bool>,
+    message_guard: Option<bool>,
+    pub permissions: Option<bool>,
+    pub files: Option<bool>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MessagingAccess {
+    NotReported,
+    Blocked,
+    GuardRequired,
+    Allowed,
+}
+
+impl ServerAccess {
+    pub fn parse(value: &Value) -> Option<Self> {
+        let fields = value.as_object()?;
+        let flag = |name| fields.get(name).and_then(Value::as_bool);
+        Some(Self {
+            reading: flag("terminal"),
+            messages: flag("messages"),
+            message_guard: flag("messageSessionGuard"),
+            permissions: flag("permissions"),
+            files: flag("files"),
+        })
+    }
+
+    pub fn messaging_state(self) -> MessagingAccess {
+        match (self.messages, self.message_guard) {
+            (None, _) => MessagingAccess::NotReported,
+            (Some(false), _) => MessagingAccess::Blocked,
+            (Some(true), Some(true)) => MessagingAccess::Allowed,
+            (Some(true), _) => MessagingAccess::GuardRequired,
         }
     }
 }
@@ -1315,14 +1375,19 @@ mod tests {
         assert_eq!(sub.task.as_deref(), Some("Inspect logs"));
         assert_eq!(sub.model.as_deref(), Some("provider/sub-model"));
         assert_eq!(sub.thinking.as_deref(), Some("high"));
-        assert_eq!((sub.context_tokens, sub.context_window), (Some(20), Some(100)));
+        assert_eq!(
+            (sub.context_tokens, sub.context_window),
+            (Some(20), Some(100))
+        );
         assert_eq!(sub.status_since, Some(11000));
         assert_eq!(sub.last_at, Some(9500));
         assert!(!sub.can_message);
         let missing = Snapshot::parse_at("https://test", r#"{"agents":[{"id":"main","kind":"main","account":"default","sessionId":"parent","model":"parent-model"},{"id":"sub","kind":"sub","parentId":"main","status":"working"}]}"#, 12000).unwrap();
         let parent = &missing.sessions[0];
         let sub = sub_session(parent, &parent.subagents[0]);
-        assert!(sub.model.is_none() && sub.context_tokens.is_none() && sub.server_session_id.is_none());
+        assert!(
+            sub.model.is_none() && sub.context_tokens.is_none() && sub.server_session_id.is_none()
+        );
     }
     #[test]
     fn conversation_deduplicates_evicts_and_rejects_before_mutation() {

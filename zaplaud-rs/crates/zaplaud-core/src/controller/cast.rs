@@ -6,6 +6,17 @@ use crate::{
 };
 use std::collections::HashSet;
 
+pub fn confirmation_target<'a>(
+    target: &'a SessionItem,
+    current: &SessionItem,
+    origin: &str,
+) -> Option<&'a SessionItem> {
+    (target.key.origin == origin
+        && target.key == current.key
+        && target.agent_id == current.agent_id)
+        .then_some(target)
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct State {
     pub availability: String,

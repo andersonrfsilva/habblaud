@@ -3,6 +3,7 @@ use crate::{
     state::Event as AppEvent, strings, update_ui,
 };
 use slint::{ComponentHandle, ModelRc, VecModel};
+use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
 use zaplaud_core::{
     controller::aside,
@@ -85,6 +86,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
         let mut input = None;
         let (initial, mut state) = watch::channel(State::default());
         drop(initial);
+        let mut accepted = None;
         let (unauth, mut notices) = mpsc::unbounded_channel();
         loop {
             tokio::select! {
@@ -97,7 +99,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                     eligible = available && selected.as_ref().is_some_and(|s| s.can_message) && snapshot.servers.iter().find(|server| selected.as_ref().is_some_and(|s| s.key.origin == server.api.origin())).is_some_and(|server| !server.needs_login && server.reading.messages_allowed && server.reading.message_guard && server.reading.connection == "connected");
                     let enabled = eligible;
                     update_ui(&weak, move |window| { let global = window.global::<AsideState>(); global.set_available(available); global.set_enabled(enabled); });
-                    if changed { if let Some(task) = runner.take() { task.abort(); } input = None; publish(&weak, State::default()); }
+                    if changed { if let Some(task) = runner.take() { task.abort(); } input = None; publish(&weak, State::default(), None); }
                 }
                 event = receive.recv() => {
                     let Some(event) = event else { break };
@@ -106,33 +108,36 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                         if let (Some(api), Some(agent)) = (api.clone(), selected.as_ref().and_then(|s| s.agent_id.clone())) {
                             if let Some(task) = runner.take() { task.abort(); }
                             let (send, receive) = mpsc::unbounded_channel(); let (out, changes) = watch::channel(State::default()); state = changes;
+                            accepted = None;
                             runner = Some(tokio::spawn(aside::run(api, receive, out, unauth.clone(), visibility.clone())));
                             let _ = send.send(Event::Open(agent)); input = Some(send);
                         }
                     } else if matches!(event, Event::Close) {
                         if let Some(task) = runner.take() { task.abort(); }
-                        input = None; publish(&weak, State::default());
+                        input = None; publish(&weak, State::default(), None);
                     } else if let Some(send) = &input { let _ = send.send(event); }
                 }
-                changed = state.changed(), if runner.is_some() => { if changed.is_ok() { publish(&weak, state.borrow().clone()); } }
+                changed = state.changed(), if runner.is_some() => {
+                    if changed.is_ok() {
+                        let mut next = state.borrow_and_update().clone();
+                        let draft = next.accepted_draft.take().filter(|draft|
+                            !accepted.as_ref().is_some_and(|previous| Arc::ptr_eq(previous, draft)));
+                        if let Some(draft) = &draft { accepted = Some(Arc::clone(draft)); }
+                        publish(&weak, next, draft);
+                    }
+                }
                 Some(()) = notices.recv() => { if let Some(api) = &api { let _ = commands.send(AppEvent::Unauthorized(api.origin().into())); } }
             }
         }
         if let Some(task) = runner { task.abort(); }
     });
 }
-fn publish(weak: &slint::Weak<AppWindow>, state: State) {
+fn publish(weak: &slint::Weak<AppWindow>, state: State, accepted: Option<Arc<String>>) {
     update_ui(weak, move |window| {
         let global = window.global::<AsideState>();
         let aside = state.aside;
         global.set_visible(aside.agent_id.is_some());
-        if should_clear_draft(
-            global.get_sending(),
-            aside.sending,
-            aside.error.is_some(),
-            &global.get_draft(),
-            &global.get_submitted_draft(),
-        ) {
+        if accepted.is_some_and(|draft| draft.as_str() == global.get_draft().as_str()) {
             global.set_draft("".into());
         }
         global.set_loading(aside.loading);
@@ -264,19 +269,9 @@ fn nonblank_draft(text: &str) -> bool {
     text.chars().any(|character| !character.is_whitespace())
 }
 
-fn should_clear_draft(
-    was_sending: bool,
-    sending: bool,
-    failed: bool,
-    draft: &str,
-    submitted: &str,
-) -> bool {
-    was_sending && !sending && !failed && draft == submitted
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{nonblank_draft, should_clear_draft, turn_rows, valid_draft};
+    use super::{nonblank_draft, turn_rows, valid_draft};
 
     #[test]
     fn aside_send_requires_nonblank_text() {
@@ -334,28 +329,5 @@ mod tests {
         }
         assert_eq!(rows.iter().filter(|row| row.end).count(), 1);
         assert!(rows.last().is_some_and(|row| row.end));
-    }
-
-    #[test]
-    fn aside_draft_survives_failure_and_concurrent_edit() {
-        assert!(should_clear_draft(
-            true, false, false, "pergunta", "pergunta"
-        ));
-        assert!(!should_clear_draft(
-            true, false, true, "pergunta", "pergunta"
-        ));
-        assert!(!should_clear_draft(
-            true,
-            false,
-            false,
-            "nova pergunta",
-            "pergunta"
-        ));
-        assert!(!should_clear_draft(
-            true, true, false, "pergunta", "pergunta"
-        ));
-        assert!(!should_clear_draft(
-            false, false, false, "pergunta", "pergunta"
-        ));
     }
 }

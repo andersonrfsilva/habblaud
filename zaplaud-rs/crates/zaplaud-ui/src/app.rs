@@ -176,8 +176,12 @@ pub async fn run(
             {
                 let _ = sender.send(Event::Login {
                     origin: origin.into(),
-                    user: option_env!("ZAPLAUD_PROBE_USER").unwrap_or("android-test").into(),
-                    password: option_env!("ZAPLAUD_PROBE_PASSWORD").unwrap_or("android-test").into(),
+                    user: option_env!("ZAPLAUD_PROBE_USER")
+                        .unwrap_or("android-test")
+                        .into(),
+                    password: option_env!("ZAPLAUD_PROBE_PASSWORD")
+                        .unwrap_or("android-test")
+                        .into(),
                 });
             }
             for origin in servers {
@@ -324,7 +328,11 @@ pub async fn run(
                     continue;
                 }
                 let origin = api.origin().to_owned();
-                let marks = match state.persistence.call(move |store| store.session_marks(&origin)).await {
+                let marks = match state
+                    .persistence
+                    .call(move |store| store.session_marks(&origin))
+                    .await
+                {
                     Ok(marks) => marks,
                     Err(_) => {
                         login_error(&weak, strings::STORAGE_ERROR.into());
@@ -338,7 +346,7 @@ pub async fn run(
                     .iter()
                     .position(|s| s.api.origin() == api.origin())
                 {
-                    state.servers.remove(index).task.abort();
+                    state.servers.remove(index);
                 }
                 let origin = api.origin().to_owned();
                 let seen = state
@@ -366,6 +374,7 @@ pub async fn run(
                     reading,
                     generation,
                     task,
+                    recent_task: None,
                     marks,
                 });
                 update_ui(&weak, |window| {
@@ -403,19 +412,51 @@ pub async fn run(
                     .servers
                     .iter_mut()
                     .find(|s| s.api.origin() == origin && s.generation == generation)
-                    && server
-                        .reading
-                        .apply_stream_event(
-                            StreamEvent::Data {
-                                event_type: "snapshot".into(),
-                                data,
-                                first_connection: false,
-                            },
-                            now_millis(),
-                        )
-                        .is_err()
                 {
-                    server.reading.failure(Some(-1));
+                    let reading = &mut server.reading;
+                    if reading.snapshot_data(&data, now_millis()).is_err() {
+                        reading.failure(Some(-1));
+                    } else if reading.repository.recent_stale
+                        && reading.state.terminal_allowed
+                        && !reading.needs_login
+                        && server.recent_task.is_none()
+                    {
+                        let api = server.api.clone();
+                        let send = sender.clone();
+                        server.recent_task = Some(tokio::spawn(async move {
+                            let result = api.request("/api/sessions/recent", None).await;
+                            let _ = send.send(Event::RecentRefreshed {
+                                origin,
+                                generation,
+                                result,
+                            });
+                        }));
+                    }
+                }
+            }
+            Event::RecentRefreshed {
+                origin,
+                generation,
+                result,
+            } => {
+                let Some(server) = state
+                    .servers
+                    .iter_mut()
+                    .find(|s| s.api.origin() == origin && s.generation == generation)
+                else {
+                    continue;
+                };
+                server.recent_task = None;
+                let reading = &mut server.reading;
+                match result {
+                    Ok(data) => {
+                        let _ = reading.refresh_recent(Some(&data));
+                    }
+                    Err(Error::Api { status: 403, .. }) => {
+                        let _ = reading.refresh_recent(None);
+                    }
+                    Err(Error::Unauthorized) => reading.needs_login = true,
+                    Err(_) => {}
                 }
             }
             Event::Connection {
@@ -461,10 +502,14 @@ pub async fn run(
                 state.favorites = favorites;
             }
             Event::ToggleMark { key, pin } => {
-                let Ok(key) = SessionKey::deserialize(&key) else { continue };
+                let Ok(key) = SessionKey::deserialize(&key) else {
+                    continue;
+                };
                 if update_marks(&mut state, key, pin).await.is_err() {
                     update_ui(&weak, |window| {
-                        window.global::<crate::ShellState>().set_message(strings::STORAGE_ERROR.into());
+                        window
+                            .global::<crate::ShellState>()
+                            .set_message(strings::STORAGE_ERROR.into());
                     });
                 }
             }
@@ -490,9 +535,26 @@ pub async fn run(
                     }
                 }
             }
-            Event::Close => {
+            Event::Close | Event::CloseSession(_) => {
+                let target = if let Event::CloseSession(key) = event {
+                    let selected = state
+                        .servers
+                        .iter()
+                        .find_map(|server| server.reading.state.selected.as_ref());
+                    if selected.is_none_or(|item| item.key != key) {
+                        continue;
+                    }
+                    Some(key)
+                } else {
+                    None
+                };
                 for server in &mut state.servers {
-                    server.reading.close();
+                    if target
+                        .as_ref()
+                        .is_none_or(|key| key.origin == server.api.origin())
+                    {
+                        server.reading.close();
+                    }
                 }
                 let _ = state
                     .persistence
@@ -631,12 +693,13 @@ pub async fn run(
     if crate::composer::flush().await.is_err() {
         eprintln!("{}", strings::STORAGE_ERROR);
     }
-    for server in state.servers {
-        server.task.abort();
-    }
 }
 async fn update_marks(state: &mut AppState, key: SessionKey, pin: bool) -> Result<(), String> {
-    let Some(server) = state.servers.iter_mut().find(|server| server.api.origin() == key.origin) else {
+    let Some(server) = state
+        .servers
+        .iter_mut()
+        .find(|server| server.api.origin() == key.origin)
+    else {
         return Ok(());
     };
     if find_session(&server.reading, &key).is_none() {
@@ -649,7 +712,10 @@ async fn update_marks(state: &mut AppState, key: SessionKey, pin: bool) -> Resul
     } else {
         marks.favorite = !marks.favorite;
     }
-    state.persistence.call(move |store| store.set_session_marks(&key, marks)).await?;
+    state
+        .persistence
+        .call(move |store| store.set_session_marks(&key, marks))
+        .await?;
     if marks == zaplaud_store::SessionMarks::default() {
         server.marks.remove(&id);
     } else {
@@ -717,7 +783,7 @@ async fn remove_logged_out(state: &mut AppState, origin: &str) -> bool {
         .iter()
         .position(|server| server.api.origin() == origin)
     {
-        state.servers.remove(index).task.abort();
+        state.servers.remove(index);
     }
     if state.filter.as_deref() == Some(origin) {
         state.filter = None;
@@ -776,30 +842,54 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let data = root.path().join("data");
         let store = zaplaud_store::LocalStateStore::with_dirs(zaplaud_store::DesktopDirs {
-            data: data.clone(), cache: root.path().join("cache"),
-        }).unwrap();
+            data: data.clone(),
+            cache: root.path().join("cache"),
+        })
+        .unwrap();
         let key = SessionKey {
-            origin: "https://a".into(), provider: "omp".into(),
-            account: "account".into(), session_id: "session".into(),
+            origin: "https://a".into(),
+            provider: "omp".into(),
+            account: "account".into(),
+            session_id: "session".into(),
         };
         store.add_server(&key.origin).unwrap();
         let mut reading = ReadingController::new(key.origin.clone(), HashMap::new(), None);
-        reading.state.sessions.push(zaplaud_core::model::SessionItem {
-            key: key.clone(), ..Default::default()
-        });
+        reading
+            .state
+            .sessions
+            .push(zaplaud_core::model::SessionItem {
+                key: key.clone(),
+                ..Default::default()
+            });
         let mut state = AppState::new(Box::new(store));
         state.servers.push(ServerState {
-            api: HabblaudApi::new(&key.origin).unwrap(), reading, generation: 1,
-            task: tokio::spawn(async {}), marks: HashMap::new(),
+            api: HabblaudApi::new(&key.origin).unwrap(),
+            reading,
+            generation: 1,
+            task: tokio::spawn(async {}),
+            recent_task: None,
+            marks: HashMap::new(),
         });
         let id = zaplaud_store::storage_hash(&key.serialize().unwrap());
         update_marks(&mut state, key.clone(), true).await.unwrap();
         update_marks(&mut state, key.clone(), false).await.unwrap();
-        assert_eq!(state.servers[0].marks[&id], zaplaud_store::SessionMarks { pinned: true, favorite: true });
+        assert_eq!(
+            state.servers[0].marks[&id],
+            zaplaud_store::SessionMarks {
+                pinned: true,
+                favorite: true
+            }
+        );
         std::fs::write(data.join("local_state.json"), b"malformed").unwrap();
         assert!(update_marks(&mut state, key, true).await.is_err());
-        assert_eq!(state.servers[0].marks[&id], zaplaud_store::SessionMarks { pinned: true, favorite: true });
-        state.servers.remove(0).task.abort();
+        assert_eq!(
+            state.servers[0].marks[&id],
+            zaplaud_store::SessionMarks {
+                pinned: true,
+                favorite: true
+            }
+        );
+        state.servers.remove(0);
     }
 
     #[tokio::test]
@@ -843,6 +933,7 @@ mod tests {
             reading: ReadingController::new("https://a".into(), HashMap::new(), None),
             generation: 1,
             task: tokio::spawn(async {}),
+            recent_task: None,
             marks: HashMap::new(),
         });
         std::fs::write(data.join("local_state.json"), b"malformed").unwrap();
@@ -869,6 +960,7 @@ mod tests {
             reading,
             generation: 1,
             task: tokio::spawn(async {}),
+            recent_task: None,
             marks: HashMap::new(),
         });
         let mut writes = HashMap::new();

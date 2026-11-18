@@ -87,7 +87,8 @@ impl AppPersistence for zaplaud_store::LocalStateStore {
             .map_err(|error| error.to_string())
     }
     fn session_marks(&self, origin: &str) -> Result<HashMap<String, SessionMarks>, String> {
-        self.session_marks(origin).map_err(|error| error.to_string())
+        self.session_marks(origin)
+            .map_err(|error| error.to_string())
     }
     fn set_session_marks(&mut self, key: &SessionKey, marks: SessionMarks) -> Result<(), String> {
         zaplaud_store::LocalStateStore::set_session_marks(self, key, marks)
@@ -130,6 +131,11 @@ pub enum Event {
         access: Access,
         repository: SessionCollection,
     },
+    RecentRefreshed {
+        origin: String,
+        generation: u64,
+        result: Result<String, zaplaud_core::Error>,
+    },
     SnapshotData {
         origin: String,
         generation: u64,
@@ -142,6 +148,7 @@ pub enum Event {
     },
     Open(String),
     Close,
+    CloseSession(SessionKey),
     Filter {
         origin: String,
         query: String,
@@ -149,7 +156,10 @@ pub enum Event {
         favorites: bool,
     },
     Avatar(String),
-    ToggleMark { key: String, pin: bool },
+    ToggleMark {
+        key: String,
+        pin: bool,
+    },
     AvatarFinished {
         key: String,
         failed: bool,
@@ -172,7 +182,16 @@ pub struct ServerState {
     pub reading: ReadingController,
     pub generation: u64,
     pub task: tokio::task::JoinHandle<()>,
+    pub recent_task: Option<tokio::task::JoinHandle<()>>,
     pub marks: HashMap<String, SessionMarks>,
+}
+impl Drop for ServerState {
+    fn drop(&mut self) {
+        self.task.abort();
+        if let Some(task) = &self.recent_task {
+            task.abort();
+        }
+    }
 }
 pub struct AppState {
     pub servers: Vec<ServerState>,

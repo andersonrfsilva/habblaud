@@ -123,6 +123,10 @@ impl HabblaudApi {
     pub async fn access(&self) -> Result<Access, Error> {
         Ok(Access::parse(&self.json("/api/access", None).await?))
     }
+    pub async fn server_access(&self) -> Result<ServerAccess, Error> {
+        ServerAccess::parse(&self.json("/api/access", None).await?)
+            .ok_or(Error::InvalidResponse("acesso do servidor"))
+    }
     pub async fn snapshot(&self) -> Result<Snapshot, Error> {
         Ok(Snapshot::parse(
             self.origin(),

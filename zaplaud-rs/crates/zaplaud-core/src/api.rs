@@ -17,6 +17,7 @@ use url::Url;
 mod files;
 mod reconnect;
 mod routes;
+pub use files::MAX_IMAGE_BYTES;
 pub use reconnect::*;
 pub use routes::*;
 const MAX_EVENT_BYTES: usize = 8 * 1024 * 1024;
@@ -57,6 +58,20 @@ impl UrlPolicy {
             return None;
         }
         Some(url.origin().ascii_serialization())
+    }
+
+    pub fn remote_image(input: &str) -> Option<Url> {
+        let (_, rest) = input.split_once("://")?;
+        let authority = rest.split(['/', '?', '#', '\\']).next()?;
+        if authority.is_empty() || authority.contains('@') {
+            return None;
+        }
+        let url = Url::parse(input).ok()?;
+        (matches!(url.scheme(), "http" | "https")
+            && url.host_str().is_some()
+            && url.username().is_empty()
+            && url.password().is_none())
+        .then_some(url)
     }
 }
 

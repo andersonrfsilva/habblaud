@@ -194,7 +194,11 @@ impl SessionRun {
 }
 
 fn info_row(label: &str, value: String) -> InfoRow {
-    InfoRow { label: label.into(), value: value.into(), ..Default::default() }
+    InfoRow {
+        label: label.into(),
+        value: value.into(),
+        ..Default::default()
+    }
 }
 fn info_rows(
     item: &SessionItem,
@@ -205,7 +209,11 @@ fn info_rows(
     let mut section = |label: &str, mut values: Vec<InfoRow>| {
         values.retain(|row| !row.value.trim().is_empty());
         if !values.is_empty() {
-            rows.push(InfoRow { label: label.into(), section: true, ..Default::default() });
+            rows.push(InfoRow {
+                label: label.into(),
+                section: true,
+                ..Default::default()
+            });
             rows.extend(values);
         }
     };
@@ -220,48 +228,125 @@ fn info_rows(
             None => strings::INFO_OPEN,
         }
     };
-    let last = item.last_at.map(|at| {
-        let relative = time::relative_time(at, now_millis());
-        let amount = relative.amount.map(|amount| amount.to_string());
-        crate::formatted(relative.key, &amount.as_deref().into_iter().collect::<Vec<_>>())
-    }).unwrap_or_default();
-    let prompts = entries.iter().filter(|entry| entry.kind == "user").count().to_string();
-    let replies = entries.iter().filter(|entry| entry.kind == "assistant").count().to_string();
+    let last = item
+        .last_at
+        .map(|at| {
+            let relative = time::relative_time(at, now_millis());
+            let amount = relative.amount.map(|amount| amount.to_string());
+            crate::formatted(
+                relative.key,
+                &amount.as_deref().into_iter().collect::<Vec<_>>(),
+            )
+        })
+        .unwrap_or_default();
+    let prompts = entries
+        .iter()
+        .filter(|entry| entry.kind == "user")
+        .count()
+        .to_string();
+    let replies = entries
+        .iter()
+        .filter(|entry| entry.kind == "assistant")
+        .count()
+        .to_string();
     let mut loaded = crate::formatted("info_loaded_value", &[&prompts, &replies]);
-    if partial { loaded.push_str(&format!(" · {}", strings::INFO_PARTIAL)); }
-    section(strings::INFO_STATUS_SECTION, vec![
-        info_row(strings::INFO_ROLE, item.role.clone().unwrap_or_default()),
-        info_row(strings::INFO_TASK, item.task.clone().unwrap_or_default()),
-        info_row(strings::INFO_STATUS, status.into()),
-        InfoRow { elapsed: true, ..info_row(strings::INFO_ELAPSED, item.status_since.map(|at| at.to_string()).unwrap_or_default()) },
-        info_row(strings::INFO_ACTIVITY, item.activity.clone().unwrap_or_default()),
-        info_row(strings::INFO_LAST_ACTIVITY, last),
-        info_row(strings::INFO_LOADED, loaded),
-    ]);
-    section(strings::INFO_MODEL_SECTION, vec![
-        info_row(strings::MODEL_MENU, item.model.clone().unwrap_or_default()),
-        info_row(strings::THINKING_MENU, item.thinking.as_ref().map(|thinking| crate::formatted(&format!("thinking_{thinking}"), &[])).unwrap_or_default()),
-    ]);
+    if partial {
+        loaded.push_str(&format!(" · {}", strings::INFO_PARTIAL));
+    }
+    section(
+        strings::INFO_STATUS_SECTION,
+        vec![
+            info_row(strings::INFO_ROLE, item.role.clone().unwrap_or_default()),
+            info_row(strings::INFO_TASK, item.task.clone().unwrap_or_default()),
+            info_row(strings::INFO_STATUS, status.into()),
+            InfoRow {
+                elapsed: true,
+                ..info_row(
+                    strings::INFO_ELAPSED,
+                    item.status_since
+                        .map(|at| at.to_string())
+                        .unwrap_or_default(),
+                )
+            },
+            info_row(
+                strings::INFO_ACTIVITY,
+                item.activity.clone().unwrap_or_default(),
+            ),
+            info_row(strings::INFO_LAST_ACTIVITY, last),
+            info_row(strings::INFO_LOADED, loaded),
+        ],
+    );
+    section(
+        strings::INFO_MODEL_SECTION,
+        vec![
+            info_row(strings::MODEL_MENU, item.model.clone().unwrap_or_default()),
+            info_row(
+                strings::THINKING_MENU,
+                item.thinking
+                    .as_ref()
+                    .map(|thinking| crate::formatted(&format!("thinking_{thinking}"), &[]))
+                    .unwrap_or_default(),
+            ),
+        ],
+    );
     let context = zaplaud_core::rules::composer::reliable_context(&item.key.provider)
         .then(|| item.context_tokens.zip(item.context_window))
         .flatten()
         .filter(|(tokens, window)| *tokens >= 0 && *window > 0)
-        .map(|(tokens, window)| format!("{tokens} / {window} ({}%)", (tokens as f64 / window as f64 * 100.).clamp(0., 100.) as i32))
+        .map(|(tokens, window)| {
+            format!(
+                "{tokens} / {window} ({}%)",
+                (tokens as f64 / window as f64 * 100.).clamp(0., 100.) as i32
+            )
+        })
         .unwrap_or_default();
-    section(strings::INFO_CONTEXT_SECTION, vec![info_row(strings::INFO_CONTEXT, context)]);
-    let technical = |label, value| InfoRow { copyable: true, ..info_row(label, value) };
-    section(strings::INFO_TECHNICAL_SECTION, vec![
-        technical(strings::INFO_PROJECT, item.project.clone().unwrap_or_default()),
-        technical(strings::INFO_PROVIDER, item.key.provider.clone()),
-        technical(strings::INFO_ACCOUNT, item.key.account.clone()),
-        InfoRow {
-            parent_key: item.parent_key.as_ref().and_then(|key| key.serialize().ok()).unwrap_or_default().into(),
-            ..technical(strings::INFO_PARENT, item.parent_key.as_ref().map(|key| key.session_id.clone()).unwrap_or_default())
-        },
-        technical(strings::INFO_AGENT, item.agent_id.clone().unwrap_or_default()),
-        technical(strings::INFO_SESSION, if item.sub { item.server_session_id.clone().unwrap_or_default() } else { item.key.session_id.clone() }),
-        technical(strings::INFO_SERVER, item.key.origin.clone()),
-    ]);
+    section(
+        strings::INFO_CONTEXT_SECTION,
+        vec![info_row(strings::INFO_CONTEXT, context)],
+    );
+    let technical = |label, value| InfoRow {
+        copyable: true,
+        ..info_row(label, value)
+    };
+    section(
+        strings::INFO_TECHNICAL_SECTION,
+        vec![
+            technical(
+                strings::INFO_PROJECT,
+                item.project.clone().unwrap_or_default(),
+            ),
+            technical(strings::INFO_PROVIDER, item.key.provider.clone()),
+            technical(strings::INFO_ACCOUNT, item.key.account.clone()),
+            InfoRow {
+                parent_key: item
+                    .parent_key
+                    .as_ref()
+                    .and_then(|key| key.serialize().ok())
+                    .unwrap_or_default()
+                    .into(),
+                ..technical(
+                    strings::INFO_PARENT,
+                    item.parent_key
+                        .as_ref()
+                        .map(|key| key.session_id.clone())
+                        .unwrap_or_default(),
+                )
+            },
+            technical(
+                strings::INFO_AGENT,
+                item.agent_id.clone().unwrap_or_default(),
+            ),
+            technical(
+                strings::INFO_SESSION,
+                if item.sub {
+                    item.server_session_id.clone().unwrap_or_default()
+                } else {
+                    item.key.session_id.clone()
+                },
+            ),
+            technical(strings::INFO_SERVER, item.key.origin.clone()),
+        ],
+    );
     rows
 }
 
@@ -272,21 +357,18 @@ fn publish_info(
     partial: bool,
 ) {
     let state = window.global::<ConversationViewState>();
-    state.set_info(ModelRc::new(VecModel::from(info_rows(item, entries, partial))));
-    let current_model = item
-        .model
-        .as_deref()
-        .and_then(|cur| {
-            if cur.contains('/') {
-                return Some(cur);
-            }
-            item.models
-                .iter()
-                .find(|m| {
-                    m.as_str() == cur || m.split_once('/').is_some_and(|(_, name)| name == cur)
-                })
-                .map(String::as_str)
-        });
+    state.set_info(ModelRc::new(VecModel::from(info_rows(
+        item, entries, partial,
+    ))));
+    let current_model = item.model.as_deref().and_then(|cur| {
+        if cur.contains('/') {
+            return Some(cur);
+        }
+        item.models
+            .iter()
+            .find(|m| m.as_str() == cur || m.split_once('/').is_some_and(|(_, name)| name == cur))
+            .map(String::as_str)
+    });
     let all_groups = zaplaud_core::rules::composer::role_model_groups(&item.models, current_model);
     let total_models: usize = all_groups.iter().map(|(_, list)| list.len()).sum();
     let query = state.get_model_query();
@@ -632,7 +714,10 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
     state.on_reading_position(move |entry, row, offset, following| {
         if let Some(window) = weak.upgrade() {
             let state = window.global::<ConversationViewState>();
-            let index = state.get_rows().iter().position(|candidate| candidate.id == row);
+            let index = state
+                .get_rows()
+                .iter()
+                .position(|candidate| candidate.id == row);
             state.set_anchor_index(index.map_or(-1, |index| index as i32));
         }
         let _ = send.send(Command::Anchor(entry.into(), row.into(), offset, following));
@@ -710,7 +795,10 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
 
 #[cfg(target_os = "android")]
 pub(crate) fn open_system(_: &std::ffi::OsStr) -> std::io::Result<()> {
-    Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "External applications are unavailable in the Android probe"))
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "External applications are unavailable in the Android probe",
+    ))
 }
 
 #[cfg(not(target_os = "android"))]
@@ -736,9 +824,17 @@ mod tests {
     use zaplaud_core::model::SessionKey;
     #[test]
     fn details_group_metadata_hide_empty_values_and_link_parent() {
-        let parent = SessionKey { origin: "https://test".into(), provider: "omp".into(), account: "default".into(), session_id: "parent".into() };
+        let parent = SessionKey {
+            origin: "https://test".into(),
+            provider: "omp".into(),
+            account: "default".into(),
+            session_id: "parent".into(),
+        };
         let item = SessionItem {
-            key: SessionKey { session_id: "parent/sub".into(), ..parent.clone() },
+            key: SessionKey {
+                session_id: "parent/sub".into(),
+                ..parent.clone()
+            },
             agent_id: Some("sub-agent".into()),
             sub: true,
             role: Some("researcher".into()),
@@ -752,19 +848,48 @@ mod tests {
             ..Default::default()
         };
         let rows = info_rows(&item, &[], false);
-        assert_eq!(rows.iter().filter(|row| row.section).map(|row| row.label.as_str()).collect::<Vec<_>>(), [
-            strings::INFO_STATUS_SECTION, strings::INFO_MODEL_SECTION,
-            strings::INFO_CONTEXT_SECTION, strings::INFO_TECHNICAL_SECTION,
-        ]);
-        assert!(rows.iter().filter(|row| !row.section).all(|row| !row.value.trim().is_empty()));
-        assert!(rows.iter().any(|row| row.label == strings::MODEL_MENU && row.value == "provider/model"));
-        assert!(rows.iter().any(|row| row.label == strings::INFO_SESSION && row.value == "actual-sub-session" && row.copyable));
-        let link = rows.iter().find(|row| row.label == strings::INFO_PARENT).unwrap();
+        assert_eq!(
+            rows.iter()
+                .filter(|row| row.section)
+                .map(|row| row.label.as_str())
+                .collect::<Vec<_>>(),
+            [
+                strings::INFO_STATUS_SECTION,
+                strings::INFO_MODEL_SECTION,
+                strings::INFO_CONTEXT_SECTION,
+                strings::INFO_TECHNICAL_SECTION,
+            ]
+        );
+        assert!(
+            rows.iter()
+                .filter(|row| !row.section)
+                .all(|row| !row.value.trim().is_empty())
+        );
+        assert!(
+            rows.iter()
+                .any(|row| row.label == strings::MODEL_MENU && row.value == "provider/model")
+        );
+        assert!(rows.iter().any(|row| row.label == strings::INFO_SESSION
+            && row.value == "actual-sub-session"
+            && row.copyable));
+        let link = rows
+            .iter()
+            .find(|row| row.label == strings::INFO_PARENT)
+            .unwrap();
         assert_eq!(SessionKey::deserialize(&link.parent_key).unwrap(), parent);
         assert!(rows.iter().any(|row| row.elapsed && row.value == "1000"));
         assert!(!rows.iter().any(|row| row.label == strings::INFO_PROJECT));
-        let missing = info_rows(&SessionItem { sub: true, ..Default::default() }, &[], false);
-        assert!(!missing.iter().any(|row| row.label == strings::INFO_SESSION || row.label == strings::INFO_CONTEXT_SECTION || row.label == strings::INFO_MODEL_SECTION));
+        let missing = info_rows(
+            &SessionItem {
+                sub: true,
+                ..Default::default()
+            },
+            &[],
+            false,
+        );
+        assert!(!missing.iter().any(|row| row.label == strings::INFO_SESSION
+            || row.label == strings::INFO_CONTEXT_SECTION
+            || row.label == strings::INFO_MODEL_SECTION));
     }
     #[test]
     fn links_allow_only_web_origins() {

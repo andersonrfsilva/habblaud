@@ -92,8 +92,10 @@ async fn drive(
         let event = tokio::select! {
             changed = visibility.changed() => {
                 if changed.is_err() { break; }
-                calls.abort_all(); delay.abort_all();
+                calls = JoinSet::new();
+                delay = JoinSet::new();
                 state.polling = false; state.dirty = false; state.aside.sending = false;
+                state.pending_draft = None;
                 if !*visibility.borrow() { output.send_replace(state.clone()); continue; }
                 Event::Poll
             }
@@ -107,8 +109,8 @@ async fn drive(
         for effect in effects {
             match effect {
                 Effect::CancelPoll => {
-                    calls.abort_all();
-                    delay.abort_all();
+                    calls = JoinSet::new();
+                    delay = JoinSet::new();
                 }
                 Effect::Unauthorized => {
                     let _ = unauthorized.send(());

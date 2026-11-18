@@ -266,7 +266,10 @@ fn push_model_word(label: &mut String, word: &str) {
         ("vl", "VL"),
         ("gpt", "GPT"),
     ];
-    if let Some((_, name)) = known.iter().find(|(name, _)| word.eq_ignore_ascii_case(name)) {
+    if let Some((_, name)) = known
+        .iter()
+        .find(|(name, _)| word.eq_ignore_ascii_case(name))
+    {
         label.push_str(name);
     } else if let Some(size) = word.strip_suffix('b').or_else(|| word.strip_suffix('B'))
         && !size.is_empty()
@@ -292,7 +295,10 @@ pub fn model_option_label(model: &str) -> String {
     let mut variants = name.split(':');
     let dated = variants.next().unwrap_or_default();
     let name = undated(dated);
-    let mut words = name.split(['-', '_']).filter(|word| !word.is_empty()).peekable();
+    let mut words = name
+        .split(['-', '_'])
+        .filter(|word| !word.is_empty())
+        .peekable();
     let mut label = String::with_capacity(model.len());
     let first = words.next().unwrap_or_default();
     push_model_word(&mut label, first);
@@ -331,7 +337,11 @@ pub fn model_option_label(model: &str) -> String {
     }
     for variant in variants {
         label.push_str(" · ");
-        for (index, word) in variant.split(['-', '_']).filter(|word| !word.is_empty()).enumerate() {
+        for (index, word) in variant
+            .split(['-', '_'])
+            .filter(|word| !word.is_empty())
+            .enumerate()
+        {
             if index != 0 {
                 label.push(' ');
             }
@@ -778,9 +788,11 @@ pub enum Event {
     DismissControlConfirmation,
     DismissCommandResult,
 }
-fn callbacks(failure: &Failure, effects: &mut Vec<Effect>) {
+fn callbacks(failure: &Failure, same_session: bool, effects: &mut Vec<Effect>) {
     if failure.session_changed {
-        effects.push(Effect::SessionChanged);
+        if same_session {
+            effects.push(Effect::SessionChanged);
+        }
     } else if failure.status == Some(401) {
         effects.push(Effect::Unauthorized);
     }
@@ -833,7 +845,8 @@ fn fail_send(state: &mut State, token: u64, failure: Failure, effects: &mut Vec<
                 purpose: SavePurpose::Restore,
             });
         }
-        if state.composer.key.as_ref() == Some(&send.key) {
+        let same_session = state.composer.key.as_ref() == Some(&send.key);
+        if same_session {
             state.composer.operation = op;
             state.composer.error = Some(
                 if unknown {
@@ -848,7 +861,7 @@ fn fail_send(state: &mut State, token: u64, failure: Failure, effects: &mut Vec<
                 .into(),
             );
         }
-        callbacks(&failure, effects);
+        callbacks(&failure, same_session, effects);
     }
     finish_send(state, token, effects);
 }
@@ -1400,12 +1413,13 @@ pub fn reduce(mut state: State, event: Event) -> (State, Vec<Effect>) {
                         purpose: SavePurpose::Restore,
                     });
                 }
-                if state.composer.key.as_ref() == Some(&control.key) {
+                let same_session = state.composer.key.as_ref() == Some(&control.key);
+                if same_session {
                     state.composer.control = op;
                     state.composer.control_error =
                         Some(if unknown { "unknown" } else { "failed" }.into());
                 }
-                callbacks(&failure, &mut effects);
+                callbacks(&failure, same_session, &mut effects);
             }
         }
         Event::PollResult {
@@ -1513,12 +1527,13 @@ pub fn reduce(mut state: State, event: Event) -> (State, Vec<Effect>) {
             failure,
         } => {
             if let Some(command) = state.commands.get_mut(&token) {
+                let same_session = state.composer.key.as_ref() == Some(&command.key);
                 if let Some(id) = id {
                     command.id = Some(id);
                 }
                 let mut result = None;
                 if let Some(failure) = &failure {
-                    callbacks(failure, &mut effects);
+                    callbacks(failure, same_session, &mut effects);
                     result = Some(if failure.status == Some(404) && command.polls > 0 {
                         "unknown"
                     } else if failure.definite() {
@@ -1534,12 +1549,12 @@ pub fn reduce(mut state: State, event: Event) -> (State, Vec<Effect>) {
                     || command.polls >= 15
                     || command.id.is_none()
                     || !state.visible
-                    || state.composer.key.as_ref() != Some(&command.key)
+                    || !same_session
                 {
                     result = Some("unknown");
                 }
                 if let Some(result) = result {
-                    if state.composer.key.as_ref() == Some(&command.key) {
+                    if same_session {
                         state.composer.command_result = Some(CommandResult {
                             kind: command.kind.clone(),
                             status: result.into(),

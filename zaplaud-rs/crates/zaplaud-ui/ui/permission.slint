@@ -59,7 +59,7 @@ export global PermissionState {
     callback set-reason(string);
 }
 export component PermissionSheet inherits Sheet {
-    dismissed => { PermissionState.close(); }
+    dismissed => { if !PermissionState.busy { PermissionState.close(); } }
     title: PermissionState.title;
     private property <string> displayed-id: PermissionState.request-id;
     forward-focus: first;
@@ -68,14 +68,14 @@ export component PermissionSheet inherits Sheet {
     FocusScope {
     enabled: root.active;
     width: min(480px, root.width); height: root.height;
-    key-released(event) => { if event.text == Key.Escape { PermissionState.close(); return accept; } return reject; }
+    key-released(event) => { if event.text == Key.Escape { root.dismissed(); return accept; } return reject; }
     ScrollContainer {
         width: parent.width; height: parent.height; content-width: self.width;
         VerticalLayout { alignment: start; padding-left: 20px; padding-right: 20px; padding-bottom: 24px; padding-top: 20px; spacing: 6px;
             first := FocusScope {
                 height: 0px;
                 key-pressed(event) => {
-                    if event.text == Key.Backtab || (event.text == Key.Tab && event.modifiers.shift) { cancel.focus(); return accept; }
+                    if event.text == Key.Backtab || (event.text == Key.Tab && event.modifiers.shift) { if !PermissionState.busy { cancel.focus(); } return accept; }
                     return reject;
                 }
             }
@@ -135,7 +135,7 @@ export component PermissionSheet inherits Sheet {
                     if event.text == Key.Tab && !event.modifiers.shift { first.focus(); return accept; }
                     return reject;
                 }
-                cancel := TextButton { text: PermissionState.cancel-label; clicked => { PermissionState.close(); } }
+                cancel := TextButton { text: PermissionState.cancel-label; enabled: !PermissionState.busy; clicked => { root.dismissed(); } }
             }
         }
     }

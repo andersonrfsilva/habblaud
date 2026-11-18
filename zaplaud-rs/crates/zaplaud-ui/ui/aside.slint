@@ -13,7 +13,6 @@ export global AsideState {
     in property <bool> sending;
     in property <bool> running;
     in-out property <string> draft;
-    in-out property <string> submitted-draft;
     callback valid-draft(string) -> bool;
     pure callback nonblank-draft(string) -> bool;
     in property <string> title;
@@ -99,7 +98,7 @@ export component AsideSheet inherits Rectangle {
                     }
                 }
                 if AsideState.running: IconButton { icon: MaterialIcons.stop; label: AsideState.stop-label; background: Theme.error-container; foreground: Theme.on-error-container; clicked => { AsideState.stop(); } }
-                if !AsideState.running: IconButton { icon: MaterialIcons.send; label: AsideState.send-label; background: Theme.primary; foreground: Theme.on-primary; enabled: !AsideState.sending && AsideState.nonblank-draft(AsideState.draft); clicked => { AsideState.submitted-draft = AsideState.draft; AsideState.ask(AsideState.draft); } }
+                if !AsideState.running: IconButton { icon: MaterialIcons.send; label: AsideState.send-label; background: Theme.primary; foreground: Theme.on-primary; enabled: !AsideState.sending && AsideState.nonblank-draft(AsideState.draft); clicked => { AsideState.ask(AsideState.draft); } }
             }
         }
     }

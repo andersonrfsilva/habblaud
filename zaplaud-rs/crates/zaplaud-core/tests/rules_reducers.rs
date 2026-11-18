@@ -4,6 +4,110 @@ use zaplaud_core::{
     model::*,
     rules::{aside as a, composer as c, permission as p},
 };
+
+#[test]
+fn server_access_preserves_missing_flags_and_requires_message_guard() {
+    let access = ServerAccess::parse(&json!({"terminal": false, "permissions": true})).unwrap();
+    assert_eq!(access.reading, Some(false));
+    assert_eq!(access.permissions, Some(true));
+    assert_eq!(access.files, None);
+    assert_eq!(access.messaging_state(), MessagingAccess::NotReported);
+
+    for (data, expected) in [
+        (json!({"messages": true}), MessagingAccess::GuardRequired),
+        (
+            json!({"messages": true, "messageSessionGuard": false}),
+            MessagingAccess::GuardRequired,
+        ),
+        (
+            json!({"messages": false, "messageSessionGuard": true}),
+            MessagingAccess::Blocked,
+        ),
+        (
+            json!({"messages": true, "messageSessionGuard": true}),
+            MessagingAccess::Allowed,
+        ),
+        (json!({"messages": "true"}), MessagingAccess::NotReported),
+    ] {
+        assert_eq!(
+            ServerAccess::parse(&data).unwrap().messaging_state(),
+            expected
+        );
+    }
+    assert!(ServerAccess::parse(&json!([])).is_none());
+}
+
+#[test]
+fn disappearing_session_refreshes_recent_only_when_missing() {
+    use zaplaud_core::controller::reading::ReadingController;
+
+    let mut reading = ReadingController::new("https://example.test".into(), HashMap::new(), None);
+    let live = r#"{"agents":[{"id":"agent","kind":"main","provider":"omp","account":"a","sessionId":"one"}]}"#;
+    let recent = r#"{"sessions":[{"provider":"omp","account":"a","sessionId":"one"}]}"#;
+    let empty = r#"{"agents":[]}"#;
+    reading.snapshot_data(live, 0).unwrap();
+    assert!(!reading.repository.recent_stale);
+    reading.snapshot_data(empty, 0).unwrap();
+    assert!(reading.repository.recent_stale);
+    reading.snapshot_data(empty, 0).unwrap();
+    assert!(reading.repository.recent_stale);
+
+    reading.refresh_recent(Some(recent)).unwrap();
+    assert!(!reading.repository.recent_stale);
+    assert_eq!(reading.state.sessions[0].key, key("one"));
+    assert!(reading.state.sessions[0].agent_id.is_none());
+    reading.snapshot_data(live, 0).unwrap();
+    reading.snapshot_data(empty, 0).unwrap();
+    assert!(!reading.repository.recent_stale);
+}
+
+#[test]
+fn cast_confirmation_retains_original_target_or_cancels() {
+    use zaplaud_core::controller::cast::confirmation_target;
+
+    let target = SessionItem {
+        key: key("one"),
+        agent_id: Some("agent".into()),
+        project: Some("original".into()),
+        ..SessionItem::default()
+    };
+    let mut current = target.clone();
+    current.project = Some("changed".into());
+    assert_eq!(
+        confirmation_target(&target, &current, &target.key.origin)
+            .and_then(|session| session.project.as_deref()),
+        Some("original")
+    );
+    assert!(confirmation_target(&target, &current, "https://other.test").is_none());
+    current.agent_id = Some("replacement".into());
+    assert!(confirmation_target(&target, &current, &target.key.origin).is_none());
+    current.agent_id = target.agent_id.clone();
+    current.key = key("two");
+    assert!(confirmation_target(&target, &current, &target.key.origin).is_none());
+}
+
+#[test]
+fn notification_cancels_other_servers_pending_restore() {
+    use zaplaud_core::controller::reading::ReadingController;
+
+    let saved = key("saved");
+    let mut notified = key("notice");
+    notified.origin = "https://other.test".into();
+    let mut old = ReadingController::new(saved.origin.clone(), HashMap::new(), Some(saved));
+    let mut new = ReadingController::new(notified.origin.clone(), HashMap::new(), None);
+
+    // A ação Abrir fecha os controladores das outras origens e seleciona pelo id.
+    old.close();
+    new.open_key(notified.clone());
+    let old_snapshot = r#"{"agents":[{"id":"old","kind":"main","provider":"omp","account":"a","sessionId":"saved"}]}"#;
+    old.snapshot_data(old_snapshot, 0).unwrap();
+    assert!(old.state.selected.is_none());
+    assert!(new.state.selected.is_none());
+    let new_snapshot = r#"{"agents":[{"id":"new","kind":"main","provider":"omp","account":"a","sessionId":"notice"}]}"#;
+    new.snapshot_data(new_snapshot, 0).unwrap();
+    assert_eq!(new.state.selected.unwrap().key, notified);
+}
+
 fn key(session: &str) -> SessionKey {
     SessionKey {
         origin: "https://example.test".into(),
@@ -231,6 +335,124 @@ fn kotlin_missing_status_unknown_and_session_conflict_preserves_draft() {
     assert_eq!(h.locals[&key("one")].draft.text, "pedido");
     assert!(h.locals[&key("one")].operation.is_none());
 }
+
+#[test]
+fn stale_message_poll_keeps_next_ambiguous_operation() {
+    let mut h = Harness::default();
+    let session = key("one");
+    h.open(session.clone());
+    h.edit("primeira");
+    let (token, _) = h.send(false);
+    h.accept(token, "old", "queued");
+    h.edit("segunda");
+    let (token, _) = h.send(false);
+    h.event(c::Event::SendFailed {
+        token,
+        failure: c::Failure::default(),
+    });
+    let expected = h.state.composer.operation.clone().unwrap();
+    assert_eq!(expected.status, "unknown");
+    assert_eq!(expected.id, None);
+
+    for (status, failure) in [
+        (Some("delivered".into()), None),
+        (
+            None,
+            Some(c::Failure {
+                status: Some(404),
+                ..c::Failure::default()
+            }),
+        ),
+    ] {
+        assert!(
+            h.event(c::Event::PollResult {
+                key: session.clone(),
+                id: "old".into(),
+                control: false,
+                status,
+                error: None,
+                failure,
+            })
+            .is_empty()
+        );
+        assert_eq!(h.state.composer.operation.as_ref(), Some(&expected));
+    }
+
+    let local = h.locals.remove(&session).unwrap();
+    assert_eq!(local.operation.as_ref(), Some(&expected));
+    assert_eq!(
+        c::update_message(
+            local,
+            &c::MessageUpdate::Polled {
+                control: false,
+                id: "old".into(),
+                operation: MessageOperation {
+                    id: Some("old".into()),
+                    status: "delivered".into(),
+                    ..MessageOperation::default()
+                },
+            },
+        )
+        .operation,
+        Some(expected)
+    );
+}
+
+#[test]
+fn late_conflicts_do_not_close_another_conversation() {
+    for action in ["send", "interrupt", "shake"] {
+        let mut h = Harness::default();
+        h.open(key("one"));
+        let failure = c::Failure {
+            status: Some(409),
+            session_changed: true,
+            ..c::Failure::default()
+        };
+        let reply = match action {
+            "send" => {
+                h.edit("pedido");
+                let (token, _) = h.send(false);
+                c::Event::SendFailed { token, failure }
+            }
+            "interrupt" => {
+                let token = interrupt(&mut h, false)
+                    .into_iter()
+                    .find_map(|effect| match effect {
+                        c::Effect::Interrupt { token, .. } => Some(token),
+                        _ => None,
+                    })
+                    .unwrap();
+                c::Event::ControlFailed { token, failure }
+            }
+            _ => {
+                let token = h
+                    .event(c::Event::Command {
+                        agent_id: "agent".into(),
+                        kind: "shake".into(),
+                        value: String::new(),
+                        eligible: true,
+                    })
+                    .into_iter()
+                    .find_map(|effect| match effect {
+                        c::Effect::OmpControl { token, .. } => Some(token),
+                        _ => None,
+                    })
+                    .unwrap();
+                c::Event::CommandResult {
+                    token,
+                    id: None,
+                    status: None,
+                    failure: Some(failure),
+                }
+            }
+        };
+        h.open(key("two"));
+        let effects = h.event(reply);
+        assert!(!effects.contains(&c::Effect::SessionChanged), "{action}");
+        assert_eq!(h.state.composer.key, Some(key("two")));
+    }
+}
+
 fn interrupt(h: &mut Harness, confirmed: bool) -> Vec<c::Effect> {
     h.event(c::Event::Interrupt {
         agent_id: "agent".into(),
@@ -627,6 +849,102 @@ fn kotlin_aside_polls_until_complete_and_keeps_trim_topic_new_semantics() {
         topic_id: None
     }));
 }
+
+#[test]
+fn aside_acknowledges_only_a_server_accepted_draft() {
+    let (state, _) = a::reduce(a::State::default(), a::Event::Open("agent".into()));
+    let (state, _) = a::reduce(state, a::Event::Ask("recusada".into()));
+    let (state, _) = a::reduce(
+        state,
+        a::Event::Failed {
+            agent_id: "agent".into(),
+            status: Some(409),
+            detail: None,
+            call: a::Call::Ask,
+        },
+    );
+    assert!(state.accepted_draft.is_none());
+    let (state, _) = a::reduce(state, a::Event::Ask("sem tópico".into()));
+    let (state, _) = a::reduce(
+        state,
+        a::Event::Asked {
+            agent_id: "agent".into(),
+            topic: None,
+        },
+    );
+    assert!(state.accepted_draft.is_none());
+    let (state, _) = a::reduce(state, a::Event::Ask("  aceita  ".into()));
+    let (state, _) = a::reduce(
+        state,
+        a::Event::Asked {
+            agent_id: "agent".into(),
+            topic: Some(topic("t", "complete")),
+        },
+    );
+    assert_eq!(
+        state.accepted_draft.as_deref().map(String::as_str),
+        Some("  aceita  ")
+    );
+}
+
+#[test]
+fn aside_running_reply_retries_failed_poll_and_clears_error() {
+    let (state, _) = a::reduce(a::State::default(), a::Event::Open("agent".into()));
+    let (state, _) = a::reduce(
+        state,
+        a::Event::Polled {
+            agent_id: "agent".into(),
+            topics: Some(vec![topic("t", "running")]),
+        },
+    );
+    let (state, _) = a::reduce(
+        state,
+        a::Event::PollDue {
+            agent_id: "agent".into(),
+        },
+    );
+    let (state, effects) = a::reduce(
+        state,
+        a::Event::Failed {
+            agent_id: "agent".into(),
+            status: None,
+            detail: None,
+            call: a::Call::Poll,
+        },
+    );
+    assert_eq!(state.aside.error.as_deref(), Some("network"));
+    assert!(state.aside.running());
+    assert_eq!(
+        effects,
+        [a::Effect::DelayPoll {
+            agent_id: "agent".into(),
+            millis: 3_000,
+        }]
+    );
+    let (state, effects) = a::reduce(
+        state,
+        a::Event::PollDue {
+            agent_id: "agent".into(),
+        },
+    );
+    assert_eq!(
+        effects,
+        [a::Effect::GetAsides {
+            agent_id: "agent".into(),
+        }]
+    );
+    let (state, effects) = a::reduce(
+        state,
+        a::Event::Polled {
+            agent_id: "agent".into(),
+            topics: Some(vec![topic("t", "complete")]),
+        },
+    );
+    assert!(state.aside.error.is_none());
+    assert!(!state.polling);
+    assert!(effects.is_empty());
+}
+
 #[test]
 fn aside_dirty_poll_does_not_stop_on_pre_send_snapshot() {
     let (state, _) = a::reduce(a::State::default(), a::Event::Open("agent".into()));
@@ -954,6 +1272,25 @@ fn deciding_permission() -> (p::State, u64) {
         p::Effect::DecidePermission { token: actual, .. } if *actual == token
     )));
     (state, token)
+}
+
+#[test]
+fn permission_dismiss_is_ignored_until_decision_finishes() {
+    let (state, token) = deciding_permission();
+    let (state, effects) = p::reduce(state, p::Event::Close);
+    assert!(state.busy);
+    assert!(effects.is_empty());
+
+    let (state, _) = p::reduce(
+        state,
+        p::Event::DecisionFailed {
+            token,
+            status: Some(400),
+            cancelled: false,
+        },
+    );
+    let (_, effects) = p::reduce(state, p::Event::Close);
+    assert_eq!(effects, [p::Effect::Close]);
 }
 
 #[test]

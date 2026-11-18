@@ -219,20 +219,7 @@ impl Backend for NativeBackend {
             .send(state::Event::Unauthorized(origin.into()));
     }
     fn session_changed(&self, key: &SessionKey) {
-        let same = self
-            .snapshot
-            .read()
-            .ok()
-            .and_then(|snapshot| snapshot.clone())
-            .is_some_and(|snapshot| {
-                snapshot
-                    .selected
-                    .as_ref()
-                    .is_some_and(|item| &item.key == key)
-            });
-        if same {
-            let _ = self.commands.send(state::Event::Close);
-        }
+        let _ = self.commands.send(state::Event::CloseSession(key.clone()));
     }
 }
 enum Action {

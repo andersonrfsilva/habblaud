@@ -1,11 +1,14 @@
 use super::utf16_len;
 use crate::model::{ASIDE_QUESTION_MAX, AsideState, AsideTopic};
+use std::sync::Arc;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct State {
     pub aside: AsideState,
     pub polling: bool,
     pub dirty: bool,
+    pub accepted_draft: Option<Arc<String>>,
+    pub(crate) pending_draft: Option<Arc<String>>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Call {
@@ -121,6 +124,7 @@ pub fn reduce(mut state: State, event: Event) -> (State, Vec<Effect>) {
                     topic_id: state.aside.topic().map(|topic| topic.id.clone()),
                 });
                 state.aside.sending = true;
+                state.pending_draft = Some(Arc::new(question));
                 state.aside.error = None;
             }
         }
@@ -136,7 +140,9 @@ pub fn reduce(mut state: State, event: Event) -> (State, Vec<Effect>) {
         }
         Event::Asked { agent_id, topic } if state.aside.agent_id.as_deref() == Some(&agent_id) => {
             state.aside.sending = false;
+            let draft = state.pending_draft.take();
             if let Some(topic) = topic {
+                state.accepted_draft = draft.or(state.accepted_draft);
                 state.aside.topics.retain(|old| old.id != topic.id);
                 state.aside.topic_id = Some(topic.id.clone());
                 state.aside.topics.insert(0, topic);
@@ -161,14 +167,15 @@ pub fn reduce(mut state: State, event: Event) -> (State, Vec<Effect>) {
             let valid = topics.is_some();
             if let Some(topics) = topics {
                 state.aside.topics = topics;
+                state.aside.error = None;
             }
             if state.dirty {
                 state.dirty = false;
                 effects.push(Effect::GetAsides { agent_id });
-            } else if valid && state.aside.running() {
+            } else if state.aside.running() {
                 effects.push(Effect::DelayPoll {
                     agent_id,
-                    millis: 700,
+                    millis: if valid { 700 } else { 3_000 },
                 });
             } else {
                 state.polling = false;
@@ -187,8 +194,15 @@ pub fn reduce(mut state: State, event: Event) -> (State, Vec<Effect>) {
                 state.aside.error = Some(detail.unwrap_or_else(|| "network".into()));
                 if call == Call::Ask {
                     state.aside.sending = false;
+                    state.pending_draft = None;
                 }
                 if call == Call::Poll {
+                    if status == Some(401) {
+                        state.aside.loading = false;
+                        state.polling = false;
+                        state.dirty = false;
+                        return (state, effects);
+                    }
                     let (next, more) = reduce(
                         state,
                         Event::Polled {

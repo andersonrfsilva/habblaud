@@ -115,8 +115,14 @@ fn svg_theme_colors(svg: &str) -> String {
     let mut out = String::with_capacity(svg.len());
     let mut rest = svg;
     while let Some(start) = rest.find("var(--") {
-        let Some(len) = rest[start..].find(')') else { break };
-        let name = rest[start + 6..start + len].split(',').next().unwrap_or_default().trim();
+        let Some(len) = rest[start..].find(')') else {
+            break;
+        };
+        let name = rest[start + 6..start + len]
+            .split(',')
+            .next()
+            .unwrap_or_default()
+            .trim();
         out.push_str(&rest[..start]);
         out.push_str(match name {
             "fg" => "#1f2328",
@@ -252,7 +258,10 @@ pub fn parse(markdown: &str) -> Vec<MdBlock> {
                     Tag::Link { dest_url, .. } => (images::is_image_link(&dest_url), dest_url),
                     _ => unreachable!(),
                 };
-                if image && !images::kind(&dest_url).is_empty() && !state.images.iter().any(|dest| **dest == *dest_url) {
+                if image
+                    && !images::kind(&dest_url).is_empty()
+                    && !state.images.iter().any(|dest| **dest == *dest_url)
+                {
                     state.images.push(dest_url.to_string());
                 }
                 state.inline.links.push(dest_url.to_string());
@@ -497,7 +506,10 @@ mod tests {
         assert!(blocks[0].text.contains("flowchart LR"));
         let invalid = parse("```mermaid\nnão é um diagrama\n```");
         assert_eq!(invalid[0].diagram.size().width, 0);
-        assert_eq!(parse("```rust\nfn main() {}\n```")[0].diagram.size().width, 0);
+        assert_eq!(
+            parse("```rust\nfn main() {}\n```")[0].diagram.size().width,
+            0
+        );
     }
 
     #[test]
@@ -507,9 +519,14 @@ mod tests {
         assert_eq!(blocks[0].diagram.size().width, 40);
         assert!(blocks[0].text.contains("<rect"));
         assert_eq!(parse("```svg\n<svg><rect\n```")[0].diagram.size().width, 0);
-        let themed = parse("```svg\n<svg viewBox=\"0 0 90 47\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"9\" height=\"9\" fill=\"var(--accent)\" stroke=\"var(--nope, red)\"/></svg>\n```");
+        let themed = parse(
+            "```svg\n<svg viewBox=\"0 0 90 47\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"9\" height=\"9\" fill=\"var(--accent)\" stroke=\"var(--nope, red)\"/></svg>\n```",
+        );
         assert_eq!(themed[0].diagram.size().width, 90);
-        assert_eq!(svg_theme_colors("a var(--fg) b var( --x"), "a #1f2328 b var( --x");
+        assert_eq!(
+            svg_theme_colors("a var(--fg) b var( --x"),
+            "a #1f2328 b var( --x"
+        );
     }
 
     #[test]
@@ -542,9 +559,19 @@ mod tests {
         assert_eq!(blocks[2].language, "remote");
         assert_eq!(blocks[2].text, "https://example.com/image.png");
         assert_eq!(parse("![](/tmp/a.png)")[0].language, "file");
-        assert!(parse("![x](javascript:alert(1))").iter().all(|block| block.kind != "image"));
-        let linked = parse("[foto](/tmp/a.PNG) [site](https://example.com/page) <https://example.com/b.jpg?x=1>");
-        let drawn: Vec<_> = linked.iter().filter(|block| block.kind == "image").map(|block| block.text.as_str()).collect();
+        assert!(
+            parse("![x](javascript:alert(1))")
+                .iter()
+                .all(|block| block.kind != "image")
+        );
+        let linked = parse(
+            "[foto](/tmp/a.PNG) [site](https://example.com/page) <https://example.com/b.jpg?x=1>",
+        );
+        let drawn: Vec<_> = linked
+            .iter()
+            .filter(|block| block.kind == "image")
+            .map(|block| block.text.as_str())
+            .collect();
         assert_eq!(drawn, ["/tmp/a.PNG", "https://example.com/b.jpg?x=1"]);
     }
 

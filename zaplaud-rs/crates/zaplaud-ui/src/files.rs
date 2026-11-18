@@ -570,7 +570,9 @@ fn safe_name(name: &str) -> String {
 }
 #[cfg(target_os = "android")]
 fn downloads_dir() -> std::io::Result<PathBuf> {
-    Ok(zaplaud_store::DesktopDirs::resolve()?.data.join("Downloads"))
+    Ok(zaplaud_store::DesktopDirs::resolve()?
+        .data
+        .join("Downloads"))
 }
 
 #[cfg(not(target_os = "android"))]

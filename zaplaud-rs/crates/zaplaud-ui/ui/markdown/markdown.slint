@@ -30,7 +30,9 @@ export global MarkdownGeometry {
 /// Imagens `![alt](destino)`: `get` devolve a já carregada; `revision` refaz o binding quando uma chega.
 export global MarkdownImages {
     in-out property <int> revision;
+    in property <string> failed-label;
     pure callback get(string, int) -> image;
+    pure callback failed(string, int) -> bool;
     callback load(string);
 }
 
@@ -288,6 +290,11 @@ export component MarkdownView inherits Rectangle {
                     }
                     TouchArea { clicked => { DiagramState.open(image-box.picture); } }
                 }
+            }
+            if MarkdownImages.failed(block.text, MarkdownImages.revision): Text {
+                text: MarkdownImages.failed-label;
+                color: Theme.error;
+                wrap: word-wrap;
             }
             if image-box.picture.width == 0 && block.language == "remote": HorizontalLayout {
                 alignment: start;
