@@ -172,6 +172,7 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Zaplaud Android:** o login guardado não se perde se o app for encerrado no meio de uma gravação.
 - **Zaplaud (Android e iOS):** o bate-papo paralelo volta a acompanhar o fim: abre na última resposta, mostra a
   pergunta enviada e segue a resposta enquanto ela cresce. Lendo mais acima, a lista fica parada. Antes ela não
   saía do lugar, porque a rolagem automática pedia um deslocamento que estourava a conta.
