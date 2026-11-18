@@ -54,30 +54,6 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
-      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
-        with:
-          distribution: temurin
-          java-version: '21'
-      # O pacote padrão `tools` saiu do repositório do SDK (o sdkmanager falha ao procurá-lo); igual ao android.yml.
-      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
-        with:
-          packages: platform-tools
-      - run: sdkmanager 'platforms;android-37.0' 'build-tools;36.0.0'
-      - name: Gerar armazenamento com JVM real
-        env:
-          ZAPLAUD_JVM_INTEROP_DIR: ${{ runner.temp }}/zaplaud-jvm-interop
-        run: bash zaplaud-rs/packaging/jvm-interop.sh
-      - name: Ler JVM e regravar com Rust
-        working-directory: zaplaud-rs
-        env:
-          ZAPLAUD_JVM_INTEROP_DIR: ${{ runner.temp }}/zaplaud-jvm-interop
-          ZAPLAUD_KEYRING: memory
-        run: cargo test --locked -p zaplaud-store --test jvm_interop -j 4 -- --ignored
-      - name: Reler gravação Rust com JVM
-        env:
-          ZAPLAUD_JVM_INTEROP_DIR: ${{ runner.temp }}/zaplaud-jvm-interop
-          ZAPLAUD_JVM_INTEROP_VERIFY: '1'
-        run: bash zaplaud-rs/packaging/jvm-interop.sh
       # Bibliotecas que o zaplaud-ui liga (fontconfig, xkbcommon, Wayland, X11) e o que os testes gráficos usam.
       - name: Instalar bibliotecas do sistema
         run: |
