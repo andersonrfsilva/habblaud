@@ -36,6 +36,12 @@ fun MainViewController(): UIViewController {
 @Composable actual fun PlatformBackHandler(enabled: Boolean, onBack: () -> Unit) { }
 @Composable actual fun PlatformSearchShortcut(enabled: Boolean, onSearch: () -> Unit) { }
 actual fun platformSendsOnEnter(): Boolean = false
+@Composable actual fun appVersion(): String = remember {
+    val bundle = NSBundle.mainBundle
+    val name = bundle.objectForInfoDictionaryKey("CFBundleShortVersionString") as? String ?: return@remember ""
+    val code = bundle.objectForInfoDictionaryKey("CFBundleVersion") as? String ?: return@remember ""
+    "$name ($code)"
+}
 @Composable actual fun animationsEnabled(): Boolean {
     var enabled by remember { mutableStateOf(!UIAccessibilityIsReduceMotionEnabled()) }
     DisposableEffect(Unit) {

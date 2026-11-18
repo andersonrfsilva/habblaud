@@ -300,6 +300,8 @@ fun SettingsScreen(apis: Map<String, HabblaudApi>, store: LocalStateStore, onClo
                 }
             }
             TextButton(onClick = { onLogin(null) }, Modifier.padding(horizontal = 8.dp)) { Text(stringResource(Res.string.add_server)) }
+            val version = appVersion()
+            if (version.isNotEmpty()) Hint(stringResource(Res.string.settings_version, version))
         }
     }
 }
@@ -308,7 +310,10 @@ fun SettingsScreen(apis: Map<String, HabblaudApi>, store: LocalStateStore, onClo
 private fun Section(label: StringResource) = Text(stringResource(label), Modifier.padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 4.dp), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
 
 @Composable
-private fun Hint(label: StringResource) = Text(stringResource(label), Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+private fun Hint(label: StringResource) = Hint(stringResource(label))
+
+@Composable
+private fun Hint(label: String) = Text(label, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
 @Composable
 private fun RadioRow(label: String, selected: Boolean, onClick: () -> Unit) {

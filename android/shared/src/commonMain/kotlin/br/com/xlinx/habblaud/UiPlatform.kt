@@ -27,6 +27,7 @@ val LocalNotificationPlatform = staticCompositionLocalOf<NotificationPlatform> {
 expect fun platformSendsOnEnter(): Boolean
 @Composable expect fun rememberAttachmentPicker(onResult: (List<String>) -> Unit): () -> Unit
 @Composable expect fun animationsEnabled(): Boolean
+@Composable expect fun appVersion(): String
 expect fun uiNowMillis(): Long
 expect fun platformEntryTime(at: Long, now: Long): String
 expect fun platformDeadline(at: Long): String
