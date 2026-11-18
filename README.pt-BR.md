@@ -303,6 +303,10 @@ no aparelho, permitindo a instalação pelo aplicativo de origem quando o Androi
 O release usa R8 para otimizar e reduzir código e recursos. Antes de distribuir mudanças nas regras de otimização,
 valide login, lista, conversa, envio, avatar e notificação no emulador com a fixture e compare as métricas no aparelho.
 
+Antes de distribuir um APK release ou um IPA, some 1 ao `versionCode` em `android/app/build.gradle.kts` e ao
+`CURRENT_PROJECT_VERSION` nas duas configurações em `ios/Zaplaud.xcodeproj/project.pbxproj`. Ajuste `versionName`
+e `MARKETING_VERSION` e faça o commit `chore(zaplaud): versão X.Y (N)`. O `versionCode` nunca diminui nem se repete.
+
 #### Testes instrumentados com fixture
 
 A CI Android executa a suíte instrumentada completa em emulador x86_64 isolado com KVM, Java 17, Node 22.12 e SDK
