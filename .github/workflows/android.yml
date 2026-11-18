@@ -3,11 +3,12 @@ name: Android
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, producao]
     paths:
       - '.github/workflows/android.yml'
       - 'android/**'
       - 'scripts/android-instrumented-ci.py'
+      - 'scripts/android-files-instrumented.py'
       - 'scripts/android-smoke.ts'
       - 'server/**'
       - 'shared/**'
@@ -21,6 +22,7 @@ on:
       - '.github/workflows/android.yml'
       - 'android/**'
       - 'scripts/android-instrumented-ci.py'
+      - 'scripts/android-files-instrumented.py'
       - 'scripts/android-smoke.ts'
       - 'server/**'
       - 'shared/**'
@@ -67,6 +69,16 @@ jobs:
       - run: sdkmanager 'platforms;android-37.0' 'build-tools;36.0.0'
       - run: ./gradlew :shared:testAndroidHostTest :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
         working-directory: android
+      - name: APK release (R8) com chave descartável do CI
+        working-directory: android
+        env:
+          HABBLAUD_KEYSTORE: ${{ runner.temp }}/ci.jks
+          HABBLAUD_KEYSTORE_PASSWORD: ci-descartavel
+          HABBLAUD_KEY_ALIAS: ci
+          HABBLAUD_KEY_PASSWORD: ci-descartavel
+        run: |
+          keytool -genkeypair -keystore "$HABBLAUD_KEYSTORE" -storepass "$HABBLAUD_KEYSTORE_PASSWORD" -keypass "$HABBLAUD_KEY_PASSWORD" -alias "$HABBLAUD_KEY_ALIAS" -keyalg RSA -keysize 2048 -validity 1 -dname 'CN=CI descartavel'
+          ./gradlew :app:assembleRelease
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
@@ -112,6 +124,7 @@ jobs:
             echo "ok=true" >> "$GITHUB_OUTPUT"
           else
             echo "::warning::Sem /dev/kvm neste runner: os testes instrumentados do Android não rodaram."
+            echo 'Sem /dev/kvm neste runner: os testes instrumentados do Android não rodaram.' >> "$GITHUB_STEP_SUMMARY"
             echo "ok=false" >> "$GITHUB_OUTPUT"
           fi
       - if: steps.kvm.outputs.ok == 'true'
