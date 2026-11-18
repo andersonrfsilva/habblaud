@@ -173,7 +173,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                             refreshUnread()
                             if (repository.recentStale && recentJob?.isActive != true) {
                                 recentJob = scope.launch {
-                                    try { repository.refreshRecent() } catch (_: IOException) { return@launch }
+                                    try { repository.refreshRecent() } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; return@launch }
                                     mutable.value = mutable.value.copy(sessions = repository.sessions())
                                     publishMarks()
                                     refreshUnread()
