@@ -132,6 +132,8 @@ actual class LocalStateStore(private val context: Context) : MessageStore {
     // Conversas guardadas no aparelho: abrir uma sessão mostra o que já foi lido na hora, e o servidor só manda o que
     // veio depois (init incremental). Arquivos em filesDir, apagados ao sair da conta ou trocar de servidor.
     private val conversations = java.io.File(context.filesDir, "conversations")
+    internal var conversationCacheMaxBytes = CONVERSATION_CACHE_MAX_BYTES
+    internal var conversationCacheTrimInterval = CONVERSATION_CACHE_TRIM_INTERVAL
     private val cacheGenerationKey = stringPreferencesKey("conversation_generation")
     private val coordinator = synchronized(conversationCoordinators) {
         conversationCoordinators.getOrPut(conversations.absolutePath) { ConversationCoordinator() }
@@ -148,10 +150,10 @@ actual class LocalStateStore(private val context: Context) : MessageStore {
         // O mesmo caminho base de conversationFile; temporários vizinhos terminam em .json.tmp.
         val files = conversations.walkTopDown().filter { it.isFile && it.extension == "json" }.toList()
         var total = files.sumOf { it.length() }
-        if (total <= CONVERSATION_CACHE_MAX_BYTES) return
+        if (total <= conversationCacheMaxBytes) return
         var removed = false
         for (file in files.sortedBy { it.lastModified() }) {
-            if (total <= CONVERSATION_CACHE_MAX_BYTES) break
+            if (total <= conversationCacheMaxBytes) break
             if (file == keep) continue
             val size = file.length()
             if (file.delete()) {
@@ -190,7 +192,7 @@ actual class LocalStateStore(private val context: Context) : MessageStore {
                         check(tmp.renameTo(file))
                         coordinator.written[key] = write.sequence
                         // shortcut: conferência a cada 20 gravações; o teto pode ser ultrapassado por pouco entre conferências
-                        if (++coordinator.writesSinceTrim >= CONVERSATION_CACHE_TRIM_INTERVAL) {
+                        if (++coordinator.writesSinceTrim >= conversationCacheTrimInterval) {
                             coordinator.writesSinceTrim = 0
                             trimConversationCache(file, generation)
                         }
