@@ -43,7 +43,7 @@ vai para a tabela abaixo, com o motivo. Textos ficam em `android/shared/src/comm
 | Detalhes da sessão e do subagente: seções Estado, Modelo, Contexto e Identificadores; campos vazios ocultos | sim | sim | subagente mostra papel, tarefa, modelo e contexto próprios e leva à sessão principal; identificadores copiáveis |
 | Copiar bloco de código, código do Mermaid e mensagem inteira | sim | sim | |
 | Imagens do markdown viram link; links externos só `http`/`https` | sim | sim | nenhum cliente baixa imagem inline |
-| Tentar de novo após erro de envio | sim | sim | envio ambíguo continua pedindo confirmação |
+| Tentar de novo após erro de envio | sim | sim | Envio ambíguo continua pedindo confirmação. Pendente de conferência no Rust: conflito de envio ou comando após trocar de conversa. A consulta de status Rust já confere o id da operação. |
 
 ### Diagramas no cliente Kotlin
 
