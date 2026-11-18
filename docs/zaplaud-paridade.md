@@ -40,7 +40,7 @@ vai para a tabela abaixo, com o motivo. Textos ficam em `android/shared/src/comm
 | Seletores de modelo: nomes normalizados, busca, OpenRouter por fabricante e preservação do modelo atual | sim | sim | sessão e papéis; datas e variantes distinguem rótulos sem alterar o ID escolhido |
 | ZeroClaw: controles permitidos, sem anel de contexto, elenco pelo runtime | sim | sim | |
 | Espera de `Retry-After` no login limitada a 24 h | sim | sim | |
-| Notificação prioriza a conversa do aviso sobre a última conversa de outro servidor | sim (Android) | pendente de conferência no Rust | A ação «Abrir» no desktop usa a seleção comum e fecha os outros controladores; falta conferir a disputa com a restauração usando dois servidores. |
+| Notificação prioriza a conversa do aviso sobre a última conversa de outro servidor | sim (Android) | sim | «Abrir» cancela a restauração dos outros servidores e abre a sessão do aviso assim que estiver na lista. |
 | Avisos de aprovação, pergunta e fim de turno | sim | sim | Android: serviço em segundo plano; **iPad: sem avisos**; desktop: só com o app aberto |
 | Ícone na bandeja | não se aplica | sim | |
 | Chaveiro destrancado quando o padrão está trancado (Linux) | não se aplica | sim | |

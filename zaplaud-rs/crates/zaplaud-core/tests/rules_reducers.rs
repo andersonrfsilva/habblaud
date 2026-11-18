@@ -54,6 +54,28 @@ fn cast_confirmation_retains_original_target_or_cancels() {
     assert!(confirmation_target(&target, &current, &target.key.origin).is_none());
 }
 
+#[test]
+fn notification_cancels_other_servers_pending_restore() {
+    use zaplaud_core::controller::reading::ReadingController;
+
+    let saved = key("saved");
+    let mut notified = key("notice");
+    notified.origin = "https://other.test".into();
+    let mut old = ReadingController::new(saved.origin.clone(), HashMap::new(), Some(saved));
+    let mut new = ReadingController::new(notified.origin.clone(), HashMap::new(), None);
+
+    // A ação Abrir fecha os controladores das outras origens e seleciona pelo id.
+    old.close();
+    new.open_key(notified.clone());
+    let old_snapshot = r#"{"agents":[{"id":"old","kind":"main","provider":"omp","account":"a","sessionId":"saved"}]}"#;
+    old.snapshot_data(old_snapshot, 0).unwrap();
+    assert!(old.state.selected.is_none());
+    assert!(new.state.selected.is_none());
+    let new_snapshot = r#"{"agents":[{"id":"new","kind":"main","provider":"omp","account":"a","sessionId":"notice"}]}"#;
+    new.snapshot_data(new_snapshot, 0).unwrap();
+    assert_eq!(new.state.selected.unwrap().key, notified);
+}
+
 fn key(session: &str) -> SessionKey {
     SessionKey {
         origin: "https://example.test".into(),
