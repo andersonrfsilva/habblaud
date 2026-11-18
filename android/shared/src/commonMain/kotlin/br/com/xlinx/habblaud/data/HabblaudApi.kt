@@ -140,7 +140,7 @@ class HabblaudApi(val origin: String) : AutoCloseable {
     } catch (e: Exception) {
         currentCoroutineContext().ensureActive()
         // O bloco volta a código; o motivo fica no log (logcat System.out no Android).
-        println("Zaplaud mermaid: pedido falhou: $e")
+        println("Zaplaud mermaid: pedido falhou (${e::class.simpleName})")
         null
     }
     suspend fun logout(): Boolean = try { request("/api/remote/logout", buildJsonObject {}); true } catch (_: IOException) { false } finally { cancelCalls(); cookies.clear() }
