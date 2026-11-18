@@ -244,7 +244,9 @@ class MessageController(
                     if (marked && (!dispatched || definite)) runCatching { store.updateMessage(key) { it.copy(operation = previous) } }
                 }
                 if (state.value.key == key) mutable.value = state.value.copy(operation = if (dispatched && !definite) MessageOperation(status = "unknown", revision = draft.revision) else previous, error = if (dispatched && !definite) "unknown" else if (preparing) "attachment" else if (e is ApiException && e.attachmentsExpired) "attachments_expired" else "send")
-                if (conflict) changed() else if (e is ApiException && e.status == 401) unauthorized()
+                if (conflict) {
+                    if (state.value.key == key) changed()
+                } else if (e is ApiException && e.status == 401) unauthorized()
                 if (e is CancellationException) throw e
             } finally {
                 draft.attachments.forEach { item ->
@@ -295,7 +297,9 @@ class MessageController(
                 val definite = e is ApiException && e.status in 400..499
                 if (marked && (!dispatched || definite)) withContext(NonCancellable) { store.updateMessage(key) { it.copy(control = previous) } }
                 if (state.value.key == key) mutable.value = state.value.copy(control = if (dispatched && !definite) MessageOperation() else previous, controlError = if (dispatched && !definite) "unknown" else "failed")
-                if (e is ApiException && e.code == "session_changed") changed() else if (e is ApiException && e.status == 401) unauthorized()
+                if (e is ApiException && e.code == "session_changed") {
+                    if (state.value.key == key) changed()
+                } else if (e is ApiException && e.status == 401) unauthorized()
                 if (e is CancellationException) throw e
             } finally { controlling.remove(key) }
         }.also(::trackCommand)
@@ -331,7 +335,9 @@ class MessageController(
                 when (status) { "delivered" -> "sent"; "failed" -> "failed"; else -> "unknown" }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                if (e is ApiException && e.code == "session_changed") changed() else if (e is ApiException && e.status == 401) unauthorized()
+                if (e is ApiException && e.code == "session_changed") {
+                    if (state.value.key == key) changed()
+                } else if (e is ApiException && e.status == 401) unauthorized()
                 if (e is ApiException && e.status in 400..499) "failed" else "unknown"
             }
             if (state.value.key == key) mutable.value = state.value.copy(commandResult = CommandResult(kind, result))
