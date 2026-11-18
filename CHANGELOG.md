@@ -18,8 +18,9 @@ do meio (0.**3**.0).
 ### Adicionado
 
 - **Zaplaud:** linha da lista de sessões mais compacta. O horário vai para o canto do título, sem o "há"; o contador
-  de não lidas fica na linha de baixo; as ações da sessão saem do botão ⋮ e vão para o toque longo (Android) ou o
-  clique direito (desktop).
+  de não lidas fica na linha de baixo; as ações da sessão abrem com toque longo no Android e no iPad ou com
+  clique direito no desktop. "Dispensar contato" fica nesse menu no Android e no iPad; no desktop Rust, segue
+  no menu da conversa.
 
 - **Detalhes da sessão reorganizados nos clientes Zaplaud.** A tela de detalhes, da sessão principal e dos subagentes,
   agora tem seções (Estado, Modelo, Contexto, Identificadores), esconde campos vazios e permite copiar identificadores.
@@ -37,8 +38,6 @@ do meio (0.**3**.0).
 - **Entrada do fork nos quatro READMEs.** Identifica `andersonrfsilva/habblaud`, preserva os créditos do projeto
   original e aponta para os guias do servidor, clientes Zaplaud e planos da revisão documental. Clone e migração
   de `origin` usam o fork; os avisos de privacidade distinguem execução local de envio de conversas e uso de tokens.
-- **Zaplaud (Android e iOS):** o menu ⋮ de cada sessão na lista ganhou "Dispensar contato", para dispensar sem
-  precisar abrir a conversa. No desktop Rust segue pelo menu da conversa.
 - **Sessões:** fixar e favoritar são ações independentes no Habblaud web e no Zaplaud Android/iOS e desktop Rust.
   Sessões fixadas aparecem primeiro sem ignorar os filtros; favoritas ficam acessíveis pela seção do Histórico
   no web e pelo filtro Favoritas nos clientes nativos. As marcações persistem localmente, por identidade completa
@@ -112,8 +111,7 @@ do meio (0.**3**.0).
   no topo da conversa. Modelos de outras famílias ficam sem símbolo.
 - **Zaplaud:** bate-papo paralelo pelo menu da conversa de um agente do omp: perguntas sobre o que ele está fazendo,
   respondidas sem interromper o agente nem entrar na conversa dele (a mesma `/api/asides` da janela lateral da
-  página). Troca entre as conversas da sessão, abre uma nova e para a pergunta em andamento. Também abre com uma
-  puxada longa para cima no fim da conversa; uma curta só rola.
+  página). Troca entre as conversas da sessão, abre uma nova e para a pergunta em andamento.
 - **Zaplaud:** conecta a vários servidores Habblaud ao mesmo tempo: uma lista com as sessões de todos, filtro por
   servidor, login e saída por servidor e notificações Android de todos. Atualizar mantém o login e os rascunhos do
   servidor atual. A migração descarta somente o cache antigo de conversas e preserva as marcas de leitura no iPad.
@@ -204,9 +202,6 @@ do meio (0.**3**.0).
 - **Zaplaud:** em telas largas, chamar um contato continua disponível com uma conversa aberta, a pasta atual vem
   primeiro e a conversa ocupa toda a coluna direita. Aprovações mostram o resumo e entradas JSON; o bate-papo
   paralelo preserva a leitura do histórico. O bloqueio de login por excesso de tentativas dura no máximo 24 horas.
-- **Zaplaud:** o bate-papo paralelo não abre mais sem querer. A puxada para cima só conta se o gesto começar já no fim
-  da conversa (a sobra de uma rolagem que volta do histórico não abre nada) e precisa ser mais longa (180 dp). No
-  desktop a puxada saiu, porque a roda do mouse acumulava sem fim de gesto; lá o bate-papo abre pelo menu da conversa.
 - **ZeroClaw:** depois do /new, o terminal passa a mostrar a conversa nova; antes continuava na sessão anterior do
   personagem e escondia as respostas novas.
 - **ZeroClaw:** cada resposta aparece como um item só no terminal, e não um item por pedaço recebido do streaming. O
