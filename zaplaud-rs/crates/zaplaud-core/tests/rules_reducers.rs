@@ -666,6 +666,64 @@ fn aside_acknowledges_only_a_server_accepted_draft() {
 }
 
 #[test]
+fn aside_running_reply_retries_failed_poll_and_clears_error() {
+    let (state, _) = a::reduce(a::State::default(), a::Event::Open("agent".into()));
+    let (state, _) = a::reduce(
+        state,
+        a::Event::Polled {
+            agent_id: "agent".into(),
+            topics: Some(vec![topic("t", "running")]),
+        },
+    );
+    let (state, _) = a::reduce(
+        state,
+        a::Event::PollDue {
+            agent_id: "agent".into(),
+        },
+    );
+    let (state, effects) = a::reduce(
+        state,
+        a::Event::Failed {
+            agent_id: "agent".into(),
+            status: None,
+            detail: None,
+            call: a::Call::Poll,
+        },
+    );
+    assert_eq!(state.aside.error.as_deref(), Some("network"));
+    assert!(state.aside.running());
+    assert_eq!(
+        effects,
+        [a::Effect::DelayPoll {
+            agent_id: "agent".into(),
+            millis: 3_000,
+        }]
+    );
+    let (state, effects) = a::reduce(
+        state,
+        a::Event::PollDue {
+            agent_id: "agent".into(),
+        },
+    );
+    assert_eq!(
+        effects,
+        [a::Effect::GetAsides {
+            agent_id: "agent".into(),
+        }]
+    );
+    let (state, effects) = a::reduce(
+        state,
+        a::Event::Polled {
+            agent_id: "agent".into(),
+            topics: Some(vec![topic("t", "complete")]),
+        },
+    );
+    assert!(state.aside.error.is_none());
+    assert!(!state.polling);
+    assert!(effects.is_empty());
+}
+
+#[test]
 fn aside_dirty_poll_does_not_stop_on_pre_send_snapshot() {
     let (state, _) = a::reduce(a::State::default(), a::Event::Open("agent".into()));
     let (state, _) = a::reduce(

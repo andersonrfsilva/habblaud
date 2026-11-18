@@ -167,14 +167,15 @@ pub fn reduce(mut state: State, event: Event) -> (State, Vec<Effect>) {
             let valid = topics.is_some();
             if let Some(topics) = topics {
                 state.aside.topics = topics;
+                state.aside.error = None;
             }
             if state.dirty {
                 state.dirty = false;
                 effects.push(Effect::GetAsides { agent_id });
-            } else if valid && state.aside.running() {
+            } else if state.aside.running() {
                 effects.push(Effect::DelayPoll {
                     agent_id,
-                    millis: 700,
+                    millis: if valid { 700 } else { 3_000 },
                 });
             } else {
                 state.polling = false;
@@ -196,6 +197,12 @@ pub fn reduce(mut state: State, event: Event) -> (State, Vec<Effect>) {
                     state.pending_draft = None;
                 }
                 if call == Call::Poll {
+                    if status == Some(401) {
+                        state.aside.loading = false;
+                        state.polling = false;
+                        state.dirty = false;
+                        return (state, effects);
+                    }
                     let (next, more) = reduce(
                         state,
                         Event::Polled {
