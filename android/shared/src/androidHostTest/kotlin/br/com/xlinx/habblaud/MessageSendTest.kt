@@ -99,6 +99,37 @@ class MessageSendTest {
             assertEquals(2, server.requestCount); restored.stop()
         } finally { server.shutdown() }
     }
+    @Test fun olderPollDoesNotClearUncertainSend() = runBlocking {
+        val server = MockWebServer(); server.start(); val store = MemoryStore()
+        val c = controller(this, store, server)
+        try {
+            server.enqueue(MockResponse().setBody("{\"id\":\"opA\",\"status\":\"queued\"}"))
+            server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST))
+            repeat(2) { server.enqueue(MockResponse().setBody("{\"status\":\"queued\"}")) }
+            open(c, a); c.edit(text = "A"); c.send("agent")
+            waitFor { c.state.value.operation?.id == "opA" && !c.state.value.sending }
+            c.edit(text = "B"); c.send("agent")
+            waitFor { c.state.value.operation?.status == "unknown" && !c.state.value.sending }
+
+            // A second GET proves the first poll response was processed.
+            waitFor { server.requestCount == 4 }
+            repeat(2) {
+                val request = server.takeRequest()
+                assertEquals("POST", request.method)
+                assertEquals("/api/messages", request.path)
+            }
+            repeat(2) {
+                val request = server.takeRequest()
+                assertEquals("GET", request.method)
+                assertEquals("/api/messages/opA", request.path)
+            }
+            assertEquals("unknown", c.state.value.operation?.status)
+            c.send("agent")
+            assertEquals("confirm", c.state.value.error)
+            assertFalse(c.state.value.sending)
+            assertEquals(4, server.requestCount)
+        } finally { c.stop(); server.shutdown() }
+    }
     @Test fun missingStatusIsUnknownNotFailure() = runBlocking {
         val server = MockWebServer(); server.start(); val store = MemoryStore()
         try {
