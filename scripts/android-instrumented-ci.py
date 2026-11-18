@@ -124,23 +124,27 @@ def main():
         tests = sum(int(s.attrib['tests']) for s in suites)
         failures = sum(int(s.attrib['failures']) for s in suites)
         errors = sum(int(s.attrib['errors']) for s in suites)
-        has_fixture = any('FixtureUiInstrumentedTest' in case.get('classname', '')
-                          for suite in suites for case in suite.iter('testcase'))
-        if not suites or tests <= 0 or failures or errors or not has_fixture:
-            raise RuntimeError('Android test XML does not meet acceptance criteria')
+        required_app = {
+            'FixtureUiInstrumentedTest', 'FixtureFilesInstrumentedTest', 'HttpLoginInstrumentedTest',
+            'NotificationPrivacyInstrumentedTest', 'StatusLineInstrumentedTest',
+        }
         required_shared = {
             'PersistenceInstrumentedTest', 'ConversationEpochInstrumentedTest',
             'LastSessionOrderInstrumentedTest', 'AvatarCacheInstrumentedTest',
             'SessionCookieStoreTest', 'LocalStateStoreTest',
+            'PersistenceFailureInstrumentedTest',
         }
         executed = {
             case.get('classname', '').rsplit('.', 1)[-1]
             for suite in suites for case in suite.iter('testcase')
             if case.find('skipped') is None
         }
-        missing_shared = required_shared - executed
-        if missing_shared:
-            raise RuntimeError(f'Migrated shared device tests did not execute: {sorted(missing_shared)}')
+        missing = sorted((required_app | required_shared) - executed)
+        if not suites or tests <= 0 or failures or errors or missing:
+            raise RuntimeError(
+                f'Android test XML does not meet acceptance criteria: '
+                f'{tests} tests, {failures} failures, {errors} errors; missing classes: {missing}'
+            )
         print(f'Android test results: {tests} tests, {failures} failures, {errors} errors')
         succeeded = True
         return 0
