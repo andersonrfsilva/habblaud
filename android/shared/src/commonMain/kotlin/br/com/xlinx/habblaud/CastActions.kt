@@ -83,10 +83,10 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
     var jobs by remember(api) { mutableStateOf(emptyMap<String, String>()) }
     var catalog by remember(api) { mutableStateOf(CastModelCatalog(null, emptyList(), null)) }
     val runtime = catalog.runtime
-    var dialog by remember { mutableStateOf("") }
-    var choice by remember { mutableStateOf<CastChoice?>(null) }
+    var dialog by remember(api, selected?.key) { mutableStateOf("") }
+    var choice by remember(api, selected?.key) { mutableStateOf<CastChoice?>(null) }
     // Quem o "Dispensar" vai fechar: a conversa aberta, ou o contato escolhido pelo menu da lista.
-    var target by remember { mutableStateOf<SessionItem?>(null) }
+    var target by remember(api, selected?.key) { mutableStateOf<SessionItem?>(null) }
     var result by remember { mutableStateOf("") }
     // Motivo que o servidor mandou ao recusar (por exemplo "só 1 personagem trabalha por vez: dispense o atual…").
     var resultDetail by remember { mutableStateOf<String?>(null) }
@@ -280,9 +280,17 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
         Text(if (dialog == "dismiss") listOfNotNull(target?.let { it.characterName ?: it.title }, stringResource(Res.string.cast_dismiss_confirm)).joinToString("\n") else listOfNotNull(choice?.name, selected?.project).joinToString("\n"))
     }, confirmButton = {
         TextButton(enabled = !sending, onClick = {
+            val s = selected
+            val c = choice
             if (dialog == "dismiss") target?.agentId?.let { submit("/api/agents/${it.encodeURLPathPart()}/dismiss", buildJsonObject {}) }
-            else if (choice!!.id.isEmpty()) submit("/api/cast/new", buildJsonObject { put("room", selected!!.project); put("session", selected.key.sessionId); put("account", selected.key.account) })
-            else submit("/api/cast/${choice!!.id.encodeURLPathPart()}/start", buildJsonObject { put("mode", "resume"); put("room", selected!!.project); put("session", selected.key.sessionId); put("account", selected.key.account) })
+            else if (dialog == "resume") {
+                if (s == null || c == null) {
+                    dialog = ""
+                    return@TextButton
+                }
+                if (c.id.isEmpty()) submit("/api/cast/new", buildJsonObject { put("room", s.project); put("session", s.key.sessionId); put("account", s.key.account) })
+                else submit("/api/cast/${c.id.encodeURLPathPart()}/start", buildJsonObject { put("mode", "resume"); put("room", s.project); put("session", s.key.sessionId); put("account", s.key.account) })
+            }
         }) { Text(stringResource(Res.string.cast_confirm)) }
     }, dismissButton = { TextButton(onClick = { dialog = "" }) { Text(stringResource(Res.string.cancel)) } })
 }
