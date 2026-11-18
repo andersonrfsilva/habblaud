@@ -92,6 +92,8 @@ Convenções do servidor: sem dependências de runtime; textos por `tr('...')`; 
 
 **Pode modificar**:
 - `server/http/remote.ts`, `server/http/sse.ts`, `server/http/app.ts`
+- `server/index.ts`: **só a ligação** (criar a instância de `RemoteSessions` antes do manipulador da API e passar a
+  mesma instância ao portão remoto e às dependências do app); nenhuma outra mudança nesse arquivo
 - o arquivo que implementa `terminals.attach` (ache com `grep -rn 'class TerminalStreams' server/`)
 - `server/asides/http.ts`
 - testes Vitest correspondentes (ao lado de cada arquivo; ache os existentes com `ls server/http/*.test.ts server/asides/*.test.ts`)
@@ -116,9 +118,11 @@ watch(token: string | undefined, end: () => void): () => void
 ```
 
 Implementação: `parse(token)`; se inválido ou já revogado, chame `end()` e devolva uma função vazia. Senão,
-guarde `end` num `Map<string, Set<() => void>>` pela assinatura e arme um `setTimeout` para `parsed.exp - now`
-(com `unref()`), que chama `end`. `revoke()` chama e remove todos os interessados daquela assinatura. A função
-devolvida remove o interessado e cancela o temporizador.
+guarde `end` num `Map<string, Set<() => void>>` pela assinatura e arme um temporizador para o vencimento que
+chama `end`. A sessão dura 30 dias e o `setTimeout` do Node aceita no máximo 2^31−1 ms (~24,8 dias): arme
+`Math.min(restante, 2_000_000_000)` e, ao disparar antes do vencimento, arme de novo (sempre com `unref()`).
+`revoke()` chama e remove todos os interessados daquela assinatura. A função devolvida remove o interessado e
+cancela o temporizador.
 
 Teste Vitest (use `vi.useFakeTimers()` e o relógio injetável `now` do construtor): `revoke` chama `end` uma
 vez; o vencimento chama `end`; cancelar impede a chamada.
