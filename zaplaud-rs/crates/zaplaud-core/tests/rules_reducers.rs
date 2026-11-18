@@ -231,6 +231,62 @@ fn kotlin_missing_status_unknown_and_session_conflict_preserves_draft() {
     assert_eq!(h.locals[&key("one")].draft.text, "pedido");
     assert!(h.locals[&key("one")].operation.is_none());
 }
+
+#[test]
+fn late_conflicts_do_not_close_another_conversation() {
+    for action in ["send", "interrupt", "shake"] {
+        let mut h = Harness::default();
+        h.open(key("one"));
+        let failure = c::Failure {
+            status: Some(409),
+            session_changed: true,
+            ..c::Failure::default()
+        };
+        let reply = match action {
+            "send" => {
+                h.edit("pedido");
+                let (token, _) = h.send(false);
+                c::Event::SendFailed { token, failure }
+            }
+            "interrupt" => {
+                let token = interrupt(&mut h, false)
+                    .into_iter()
+                    .find_map(|effect| match effect {
+                        c::Effect::Interrupt { token, .. } => Some(token),
+                        _ => None,
+                    })
+                    .unwrap();
+                c::Event::ControlFailed { token, failure }
+            }
+            _ => {
+                let token = h
+                    .event(c::Event::Command {
+                        agent_id: "agent".into(),
+                        kind: "shake".into(),
+                        value: String::new(),
+                        eligible: true,
+                    })
+                    .into_iter()
+                    .find_map(|effect| match effect {
+                        c::Effect::OmpControl { token, .. } => Some(token),
+                        _ => None,
+                    })
+                    .unwrap();
+                c::Event::CommandResult {
+                    token,
+                    id: None,
+                    status: None,
+                    failure: Some(failure),
+                }
+            }
+        };
+        h.open(key("two"));
+        let effects = h.event(reply);
+        assert!(!effects.contains(&c::Effect::SessionChanged), "{action}");
+        assert_eq!(h.state.composer.key, Some(key("two")));
+    }
+}
+
 fn interrupt(h: &mut Harness, confirmed: bool) -> Vec<c::Effect> {
     h.event(c::Event::Interrupt {
         agent_id: "agent".into(),

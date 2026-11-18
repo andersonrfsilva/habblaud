@@ -502,9 +502,26 @@ pub async fn run(
                     }
                 }
             }
-            Event::Close => {
+            Event::Close | Event::CloseSession(_) => {
+                let target = if let Event::CloseSession(key) = event {
+                    let selected = state
+                        .servers
+                        .iter()
+                        .find_map(|server| server.reading.state.selected.as_ref());
+                    if selected.is_none_or(|item| item.key != key) {
+                        continue;
+                    }
+                    Some(key)
+                } else {
+                    None
+                };
                 for server in &mut state.servers {
-                    server.reading.close();
+                    if target
+                        .as_ref()
+                        .is_none_or(|key| key.origin == server.api.origin())
+                    {
+                        server.reading.close();
+                    }
                 }
                 let _ = state
                     .persistence

@@ -143,6 +143,7 @@ pub enum Event {
     },
     Open(String),
     Close,
+    CloseSession(SessionKey),
     Filter {
         origin: String,
         query: String,

@@ -788,9 +788,11 @@ pub enum Event {
     DismissControlConfirmation,
     DismissCommandResult,
 }
-fn callbacks(failure: &Failure, effects: &mut Vec<Effect>) {
+fn callbacks(failure: &Failure, same_session: bool, effects: &mut Vec<Effect>) {
     if failure.session_changed {
-        effects.push(Effect::SessionChanged);
+        if same_session {
+            effects.push(Effect::SessionChanged);
+        }
     } else if failure.status == Some(401) {
         effects.push(Effect::Unauthorized);
     }
@@ -843,7 +845,8 @@ fn fail_send(state: &mut State, token: u64, failure: Failure, effects: &mut Vec<
                 purpose: SavePurpose::Restore,
             });
         }
-        if state.composer.key.as_ref() == Some(&send.key) {
+        let same_session = state.composer.key.as_ref() == Some(&send.key);
+        if same_session {
             state.composer.operation = op;
             state.composer.error = Some(
                 if unknown {
@@ -858,7 +861,7 @@ fn fail_send(state: &mut State, token: u64, failure: Failure, effects: &mut Vec<
                 .into(),
             );
         }
-        callbacks(&failure, effects);
+        callbacks(&failure, same_session, effects);
     }
     finish_send(state, token, effects);
 }
@@ -1410,12 +1413,13 @@ pub fn reduce(mut state: State, event: Event) -> (State, Vec<Effect>) {
                         purpose: SavePurpose::Restore,
                     });
                 }
-                if state.composer.key.as_ref() == Some(&control.key) {
+                let same_session = state.composer.key.as_ref() == Some(&control.key);
+                if same_session {
                     state.composer.control = op;
                     state.composer.control_error =
                         Some(if unknown { "unknown" } else { "failed" }.into());
                 }
-                callbacks(&failure, &mut effects);
+                callbacks(&failure, same_session, &mut effects);
             }
         }
         Event::PollResult {
@@ -1523,12 +1527,13 @@ pub fn reduce(mut state: State, event: Event) -> (State, Vec<Effect>) {
             failure,
         } => {
             if let Some(command) = state.commands.get_mut(&token) {
+                let same_session = state.composer.key.as_ref() == Some(&command.key);
                 if let Some(id) = id {
                     command.id = Some(id);
                 }
                 let mut result = None;
                 if let Some(failure) = &failure {
-                    callbacks(failure, &mut effects);
+                    callbacks(failure, same_session, &mut effects);
                     result = Some(if failure.status == Some(404) && command.polls > 0 {
                         "unknown"
                     } else if failure.definite() {
@@ -1544,12 +1549,12 @@ pub fn reduce(mut state: State, event: Event) -> (State, Vec<Effect>) {
                     || command.polls >= 15
                     || command.id.is_none()
                     || !state.visible
-                    || state.composer.key.as_ref() != Some(&command.key)
+                    || !same_session
                 {
                     result = Some("unknown");
                 }
                 if let Some(result) = result {
-                    if state.composer.key.as_ref() == Some(&command.key) {
+                    if same_session {
                         state.composer.command_result = Some(CommandResult {
                             kind: command.kind.clone(),
                             status: result.into(),
