@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { AccountsService } from '../accounts/service';
 import { createApiHandler } from '../http/app';
 import { createRequestGuard } from '../http/guard';
+import type { RemoteFeature } from '../http/remote';
 import { Hub } from '../http/sse';
 import { setQuiet } from '../log';
 import { NameStore } from '../model/names';
@@ -28,7 +29,7 @@ afterEach(async () => {
   close = undefined;
 });
 
-async function serve(opts: { asides?: boolean; remote?: boolean } = {}) {
+async function serve(opts: { asides?: boolean; remoteAllow?: readonly RemoteFeature[] } = {}) {
   const tmp = tempDir();
   const office = new Office({ names: new NameStore(null), version: 't', startedAt: 0, accounts: () => [], sources: () => [], accountName: () => undefined });
   office.addMain({ id: AGENT, provider: 'omp', account: '.omp', sessionId: SID, cwd: '/p/loja', role: 'Agente principal', startedAt: 0, status: 'idle' });
@@ -50,7 +51,7 @@ async function serve(opts: { asides?: boolean; remote?: boolean } = {}) {
     version: 't',
     inDocker: false,
     ...(opts.asides === false ? {} : { asides: { page: createAsideRoutes(store), progress: (req, res) => handleAsideProgress(req, res, store) } }),
-    ...(opts.remote ? { remote: { is: () => true, allows: () => true } } : {}),
+    ...(opts.remoteAllow ? { remote: { is: () => true, allows: (feature) => opts.remoteAllow!.includes(feature) } } : {}),
   });
   const guard = createRequestGuard({ allowedHosts: new Set(['habblaud.lan']) });
   const server = http.createServer((req, res) => {
@@ -109,6 +110,29 @@ describe('/api/asides (página)', () => {
     expect(await request(base, '/api/asides', { method: 'PUT', headers: JSON_HEADERS })).toMatchObject({ status: 405 });
   });
 
+  it.each([false, true])('preserva o histórico na resposta só com acesso ao terminal (%s)', async (canRead) => {
+    const { base, store } = await serve({ remoteAllow: canRead ? ['messages', 'terminal'] : ['messages'] });
+    let topicId: string | undefined;
+    for (const question of ['primeira', 'segunda']) {
+      const seeded = store.ask({ agentId: AGENT, question, topicId });
+      if (!('topic' in seeded)) throw new Error('Não foi possível preparar a conversa');
+      topicId = seeded.topic.id;
+      store.progress({ sessionId: SID, turnId: seeded.topic.turns.at(-1)!.id, text: `resposta à ${question}`, state: 'complete' });
+    }
+
+    const result = await request(base, '/api/asides', { method: 'POST', body: { agentId: AGENT, question: 'terceira', topicId } });
+    expect(result.status).toBe(201);
+    const topic = asTopic(result.json);
+    expect(topic.id).toBe(topicId);
+    const newTurn = { question: 'terceira', answer: '', status: 'queued' };
+    expect(topic.turns).toMatchObject(canRead ? [
+      { question: 'primeira', answer: 'resposta à primeira' },
+      { question: 'segunda', answer: 'resposta à segunda' },
+      newTurn,
+    ] : [newTurn]);
+    expect(store.list(AGENT)!.topics[0]!.turns).toHaveLength(3);
+  });
+
   it('sem deps.asides as rotas da página dão 403', async () => {
     const { base } = await serve({ asides: false });
     expect(await request(base, `/api/asides?agentId=${encodeURIComponent(AGENT)}`)).toMatchObject({ status: 403 });
@@ -144,7 +168,7 @@ describe('POST /api/omp/aside (extensão)', () => {
   });
 
   it('pela porta remota: 403 (a rota é só do próprio computador)', async () => {
-    const { base } = await serve({ remote: true });
+    const { base } = await serve({ remoteAllow: ['messages', 'terminal'] });
     expect(await request(base, '/api/omp/aside', { method: 'POST', body: {} })).toMatchObject({ status: 403 });
   });
 });

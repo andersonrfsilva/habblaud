@@ -68,7 +68,7 @@ export interface ApiDeps {
    * (mesmo `ServerConfig.messages`); as travas ficam aqui.
    */
   asides?: {
-    page: (req: IncomingMessage, res: ServerResponse, path: string, url: URL) => void;
+    page: (req: IncomingMessage, res: ServerResponse, path: string, url: URL, canRead: boolean) => void;
     progress: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
   };
   /**
@@ -670,7 +670,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       if (!deps.asides) sendJson(res, 403, { error: MESSAGES_OFF() });
       else if (!trusted(req, isRead ? 'terminal' : 'messages')) {
         sendJson(res, 403, { error: denied(req, tr('perguntas paralelas só pelo próprio computador (http://localhost ou http://127.0.0.1)')) });
-      } else deps.asides.page(req, res, path, url);
+      } else deps.asides.page(req, res, path, url, trusted(req, 'terminal'));
       return true;
     }
     if (path === '/api/mermaid') {
