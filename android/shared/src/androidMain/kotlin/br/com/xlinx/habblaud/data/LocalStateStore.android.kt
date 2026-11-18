@@ -24,11 +24,15 @@ private val Context.rateState by preferencesDataStore(name = "login_rate")
 /** Configurações do aparelho: sobrevivem a sair da conta e a trocar de servidor (local_state é apagado nesses casos). */
 private val Context.appSettings by preferencesDataStore(name = "settings")
 
+private const val CONVERSATION_CACHE_MAX_BYTES = 64L * 1024 * 1024
+private const val CONVERSATION_CACHE_TRIM_INTERVAL = 20
+
 private class ConversationCoordinator {
     val lock = kotlinx.coroutines.sync.Mutex()
     val epochs = mutableMapOf<String, Long>()
     var sequence = 0L
     var sessionWritten = 0L
+    var writesSinceTrim = 0
     val written = mutableMapOf<SessionKey, Long>()
 }
 private val conversationCoordinators = mutableMapOf<String, ConversationCoordinator>()
@@ -138,6 +142,25 @@ actual class LocalStateStore(private val context: Context) : MessageStore {
     }
     private fun conversationFile(key: SessionKey, generation: String?): java.io.File =
         java.io.File(java.io.File(if (generation == null) conversations else java.io.File(conversations, generation), tag(key.origin)), hashed("", key).name + ".json")
+
+    /** Apaga as conversas menos recentes até a soma caber no teto; nunca a que acabou de ser gravada. */
+    private fun trimConversationCache(keep: java.io.File, generation: String?) {
+        // O mesmo caminho base de conversationFile; temporários vizinhos terminam em .json.tmp.
+        val files = conversations.walkTopDown().filter { it.isFile && it.extension == "json" }.toList()
+        var total = files.sumOf { it.length() }
+        if (total <= CONVERSATION_CACHE_MAX_BYTES) return
+        var removed = false
+        for (file in files.sortedBy { it.lastModified() }) {
+            if (total <= CONVERSATION_CACHE_MAX_BYTES) break
+            if (file == keep) continue
+            val size = file.length()
+            if (file.delete()) {
+                total -= size
+                removed = true
+            }
+        }
+        if (removed) coordinator.written.keys.removeAll { !conversationFile(it, generation).exists() }
+    }
     actual suspend fun conversation(key: SessionKey): CachedConversation? = coordinator.lock.withLock {
         migrateServersLocked()
         val data = context.localState.data.first()
@@ -159,12 +182,18 @@ actual class LocalStateStore(private val context: Context) : MessageStore {
                 if (key.origin !in serverList(data) || write.sequence <= (coordinator.written[key] ?: 0)) return@withLock
                 withContext(Dispatchers.IO) {
                     runCatching {
-                        val file = conversationFile(key, data[cacheGenerationKey])
+                        val generation = data[cacheGenerationKey]
+                        val file = conversationFile(key, generation)
                         file.parentFile!!.mkdirs()
                         val tmp = java.io.File(file.parentFile, "${file.name}.tmp")
                         tmp.writeText(encodeConversation(entries, truncated, summaries, reading))
                         check(tmp.renameTo(file))
                         coordinator.written[key] = write.sequence
+                        // shortcut: conferência a cada 20 gravações; o teto pode ser ultrapassado por pouco entre conferências
+                        if (++coordinator.writesSinceTrim >= CONVERSATION_CACHE_TRIM_INTERVAL) {
+                            coordinator.writesSinceTrim = 0
+                            trimConversationCache(file, generation)
+                        }
                     }
                 }
             }
