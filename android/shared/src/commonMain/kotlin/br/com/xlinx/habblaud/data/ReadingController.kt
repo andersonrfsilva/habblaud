@@ -135,6 +135,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         active = true
         accessReady = false
         messages.start()
+        asides.resume()
         stateJob = scope.launch {
             try {
                 var retry = 2000L
@@ -181,7 +182,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         persist(); saveSeen(0); active = false; accessReady = false; generation++
         stateJob?.cancel(); conversationJob?.cancel()
         pendingSummaries.values.toList().forEach { it.cancel() }; pendingSummaries.clear()
-        messages.stop(); asides.close(); api.cancelCalls()
+        messages.stop(); asides.pause(); api.cancelCalls()
         mutable.value = mutable.value.copy(connection = "offline", readingError = if (mutable.value.selected != null && mutable.value.readingError == null) "network" else mutable.value.readingError)
     }
     fun close() { persist(); cachedKey = null; dropSummaries(); generation++; conversationJob?.cancel(); messages.close(); asides.close(); restore = null; val write = store.conversationWrite(api.origin, conversationEpoch); launchPersist(scope) { store.setLastSession(null, write) }; mutable.value = mutable.value.copy(selected = null, entries = emptyList(), error = null, readingError = null); refreshUnread() }
@@ -269,6 +270,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         if (item != null) open(item) else { restore = key; restoreLoaded = true }
     }
     fun open(item: SessionItem) {
+        val sameSession = mutable.value.selected?.key == item.key
         persist(); cachedKey = null; dropSummaries()
         reading = ConversationReading()
         generation++; val token = generation
@@ -276,7 +278,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         mutable.value = mutable.value.copy(selected = item, entries = emptyList(), truncated = false, reduced = false, error = null, readingError = null, reading = reading, readingLoaded = false)
         // Abrir lê tudo o que já chegou: sem isso, uma conversa parada (sem snapshot novo) voltaria com o balão.
         refreshUnread()
-        messages.open(item.key); asides.close()
+        messages.open(item.key); if (!sameSession) asides.close()
         if (!active || !accessReady || !repository.terminalAllowed) return
         val base = if (item.agentId != null) "/api/agents/${encode(item.agentId)}/terminal" else "/api/sessions/${encode(item.key.account)}/${encode(item.key.sessionId)}/terminal"
         if (!item.sub) { val write = store.conversationWrite(api.origin, conversationEpoch); launchPersist(scope) { store.setLastSession(item.key, write) } }

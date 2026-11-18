@@ -3,6 +3,7 @@ package br.com.xlinx.habblaud
 import br.com.xlinx.habblaud.data.ApiException
 import br.com.xlinx.habblaud.data.AsideController
 import br.com.xlinx.habblaud.data.wireJson
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -11,6 +12,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import java.io.IOException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -67,6 +69,82 @@ class AsideControllerTest {
             assertNull(wireJson.parseToJsonElement(posts[1].second!!).jsonObject["topicId"])
             assertEquals("t2", c.state.value.topic!!.id)
             assertEquals(listOf("t2", "t1"), c.state.value.topics.map { it.id })
+        } finally { scope.cancel() }
+    }
+
+    @Test fun rejectedQuestionKeepsDraftCallback() = runBlocking {
+        var accepted = 0
+        var reject = true
+        val scope = CoroutineScope(coroutineContext + SupervisorJob())
+        val c = AsideController({ _, body ->
+            when {
+                body == null -> """{"topics":[]}"""
+                reject -> throw ApiException(409, detail = "já há uma pergunta em andamento")
+                else -> """{"topic":${topic("t1", "complete")}}"""
+            }
+        }, scope, {})
+        try {
+            c.open("a")
+            waitFor { !c.state.value.loading }
+            c.ask("x") { accepted++ }
+            waitFor { !c.state.value.sending }
+            assertEquals(0, accepted)
+            assertEquals("já há uma pergunta em andamento", c.state.value.error)
+            reject = false
+            c.ask("x") { accepted++ }
+            waitFor { !c.state.value.sending }
+            assertEquals(1, accepted)
+        } finally { scope.cancel() }
+    }
+
+    @Test fun pauseKeepsAgentAndResumePollsAgain() = runBlocking {
+        var gets = 0
+        val cancelStarted = CompletableDeferred<Unit>()
+        val cancelReply = CompletableDeferred<String>()
+        val scope = CoroutineScope(coroutineContext + SupervisorJob())
+        val c = AsideController({ _, body ->
+            if (body == null) {
+                gets++
+                """{"topics":[${topic("t1", "running")}]}"""
+            } else {
+                cancelStarted.complete(Unit)
+                cancelReply.await()
+            }
+        }, scope, {})
+        try {
+            c.open("a")
+            waitFor { c.state.value.running }
+            c.cancel()
+            withTimeout(5000) { cancelStarted.await() }
+            c.pause()
+            assertEquals("a", c.state.value.agentId)
+            assertEquals("t1", c.state.value.topic?.id)
+            cancelReply.complete("{}")
+            delay(1000)
+            assertEquals(1, gets)
+            c.resume()
+            waitFor { gets >= 2 }
+        } finally { scope.cancel() }
+    }
+
+    @Test fun pollingSurvivesOneFailure() = runBlocking {
+        var gets = 0
+        val scope = CoroutineScope(coroutineContext + SupervisorJob())
+        val c = AsideController({ _, body ->
+            assertNull(body)
+            when (++gets) {
+                1 -> """{"topics":[${topic("t1", "running")}]}"""
+                2 -> throw IOException("offline")
+                else -> """{"topics":[${topic("t1", "complete", "fim")}]}"""
+            }
+        }, scope, {})
+        try {
+            c.open("a")
+            waitFor { c.state.value.error == "network" }
+            assertTrue(c.state.value.running)
+            waitFor { c.state.value.topic?.turns?.single()?.status == "complete" }
+            assertNull(c.state.value.error)
+            assertEquals(3, gets)
         } finally { scope.cancel() }
     }
 

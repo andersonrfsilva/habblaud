@@ -100,7 +100,7 @@ internal fun AsideSheet(asides: AsideController, api: HabblaudApi, onClose: () -
                     }
                 } else {
                     val sendLabel = stringResource(Res.string.aside_send)
-                    FilledIconButton(onClick = { asides.ask(draft); draft = ""; following = true }, enabled = draft.isNotBlank() && !state.sending, modifier = Modifier.testTag("aside-send").semantics { contentDescription = sendLabel }) {
+                    FilledIconButton(onClick = { val sent = draft; asides.ask(sent) { if (draft == sent) draft = "" }; following = true }, enabled = draft.isNotBlank() && !state.sending, modifier = Modifier.testTag("aside-send").semantics { contentDescription = sendLabel }) {
                         Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null)
                     }
                 }

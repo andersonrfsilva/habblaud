@@ -43,6 +43,7 @@ data class AsideState(
 /** Limites do servidor (shared/asides.ts). */
 const val ASIDE_QUESTION_MAX = 20_000
 private const val ASIDE_POLL_MS = 700L
+private const val ASIDE_RETRY_MS = 3_000L
 
 internal fun parseAsideTopic(o: JsonObject): AsideTopic? {
     val id = o.string("id") ?: return null
@@ -65,23 +66,38 @@ class AsideController(
     private val mutable = MutableStateFlow(AsideState())
     val state: StateFlow<AsideState> = mutable
     private var poller: Job? = null
+    private var paused = false
 
     fun open(agentId: String) {
+        paused = false
         poller?.cancel(); poller = null
         mutable.value = AsideState(agentId = agentId, loading = true)
         poll()
     }
 
     fun close() {
+        paused = false
         poller?.cancel(); poller = null
         mutable.value = AsideState()
+    }
+
+    /** App em segundo plano: para de consultar, mas mantém o agente e a conversa para a volta. */
+    fun pause() {
+        paused = true
+        poller?.cancel(); poller = null
+        mutable.value = mutable.value.copy(sending = false)
+    }
+
+    fun resume() {
+        paused = false
+        if (mutable.value.agentId != null) poll()
     }
 
     fun choose(topicId: String) { mutable.value = mutable.value.copy(topicId = topicId, fresh = false, error = null) }
 
     fun startNew() { mutable.value = mutable.value.copy(fresh = true, error = null) }
 
-    fun ask(question: String) {
+    fun ask(question: String, onAccepted: () -> Unit = {}) {
         val current = mutable.value
         val agentId = current.agentId ?: return
         val text = question.trim()
@@ -95,7 +111,10 @@ class AsideController(
             if (now.agentId != agentId) return@launch
             mutable.value = if (topic == null) now.copy(sending = false)
             else now.copy(sending = false, topics = listOf(topic) + now.topics.filter { it.id != topic.id }, topicId = topic.id, fresh = false)
-            if (topic != null) poll()
+            if (topic != null) {
+                onAccepted()
+                poll()
+            }
         }
     }
 
@@ -111,6 +130,7 @@ class AsideController(
 
     /** Consulta agora e repete enquanto houver pergunta em andamento. */
     private fun poll() {
+        if (paused) return
         // Uma consulta já no ar pode ter saído antes da pergunta/parada: `dirty` faz o laço consultar de novo.
         dirty = true
         if (poller?.isActive == true) return
@@ -122,9 +142,14 @@ class AsideController(
                 val now = mutable.value
                 if (now.agentId != agentId) return@launch
                 val topics = body?.let { wireJson.parseToJsonElement(it).jsonObject.objects("topics").mapNotNull(::parseAsideTopic) }
-                mutable.value = if (topics == null) now.copy(loading = false) else now.copy(loading = false, topics = topics)
+                mutable.value = if (topics == null) now.copy(loading = false) else now.copy(loading = false, topics = topics, error = null)
                 if (dirty) continue
-                if (topics == null || !mutable.value.running) break
+                if (topics == null) {
+                    if (!mutable.value.running) break
+                    delay(ASIDE_RETRY_MS)
+                    continue
+                }
+                if (!mutable.value.running) break
                 delay(ASIDE_POLL_MS)
             }
         }
