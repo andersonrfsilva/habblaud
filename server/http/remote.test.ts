@@ -2,7 +2,7 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AccountsService } from '../accounts/service';
 import { setQuiet } from '../log';
 import { NameStore } from '../model/names';
@@ -107,6 +107,51 @@ describe('RemoteSessions', () => {
     expect(restarted.verify(phone)).toBe(false);
     expect(restarted.verify(other)).toBe(true);
     tmp.cleanup();
+  });
+
+  it('avisa cada interessado só uma vez quando a sessão é encerrada', () => {
+    vi.useFakeTimers();
+    try {
+      const sessions = new RemoteSessions(SECRET, CFG, Date.now);
+      const { token } = sessions.issue();
+      const end = vi.fn();
+      const cancelled = vi.fn();
+      sessions.watch(token, end);
+      sessions.watch(token, end);
+      sessions.watch(token, cancelled)();
+
+      sessions.revoke(token);
+      sessions.revoke(token);
+      expect(vi.getTimerCount()).toBe(0);
+      expect(end).toHaveBeenCalledTimes(2);
+      expect(cancelled).not.toHaveBeenCalled();
+      const invalid = vi.fn();
+      sessions.watch(token, invalid);
+      expect(invalid).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rearma o temporizador de 30 dias e só avisa ao vencer', () => {
+    vi.useFakeTimers();
+    try {
+      const sessions = new RemoteSessions(SECRET, CFG, Date.now);
+      const { token } = sessions.issue();
+      const end = vi.fn();
+      sessions.watch(token, end);
+
+      vi.advanceTimersByTime(2_000_000_000);
+      expect(end).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(1);
+      vi.advanceTimersByTime(SESSION_MS - 2_000_000_000 - 1);
+      expect(end).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      expect(end).toHaveBeenCalledOnce();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('lista de tokens encerrados ilegível: as sessões anteriores deixam de valer; as novas valem', () => {

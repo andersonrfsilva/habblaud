@@ -148,6 +148,7 @@ export class RemoteSessions {
   private readonly key: Buffer;
   /** Assinatura -> validade dos tokens encerrados por "Sair" antes de vencer (o cookie apagado não basta: uma cópia valeria até expirar). */
   private readonly revoked = new Map<string, number>();
+  private readonly watchers = new Map<string, Set<() => void>>();
   /** Tokens emitidos antes disto não valem (a lista de encerrados estava ilegível ao subir). */
   private notBefore = 0;
 
@@ -177,6 +178,37 @@ export class RemoteSessions {
     return !!parsed && parsed.exp - SESSION_MS >= this.notBefore && !this.revoked.has(parsed.sig);
   }
 
+  /** Chama `end` ao encerrar ou vencer o token e devolve como cancelar. Token inválido: chama já. */
+  watch(token: string | undefined, end: () => void): () => void {
+    const parsed = this.parse(token);
+    if (!parsed || parsed.exp - SESSION_MS < this.notBefore || this.revoked.has(parsed.sig)) {
+      end();
+      return () => {};
+    }
+    const { sig, exp } = parsed;
+    let listeners = this.watchers.get(sig);
+    if (!listeners) this.watchers.set(sig, listeners = new Set());
+    let timer: NodeJS.Timeout | undefined;
+    const stop = () => {
+      if (!listeners.delete(finish)) return;
+      clearTimeout(timer);
+      if (!listeners.size) this.watchers.delete(sig);
+    };
+    const finish = () => {
+      stop();
+      end();
+    };
+    const arm = () => {
+      const remaining = exp - this.now();
+      if (remaining <= 0) finish();
+      // A validade de 30 dias excede o maior atraso aceito pelo Node.
+      else timer = setTimeout(arm, Math.min(remaining, 2_000_000_000)).unref();
+    };
+    listeners.add(finish);
+    arm();
+    return stop;
+  }
+
   /** Encerra este token (botão "Sair"); token inválido ou vencido não muda nada. */
   revoke(token: string | undefined): void {
     const parsed = this.parse(token);
@@ -185,6 +217,7 @@ export class RemoteSessions {
     for (const [sig, exp] of this.revoked) if (exp <= now) this.revoked.delete(sig);
     this.revoked.set(parsed.sig, parsed.exp);
     this.saveRevoked();
+    this.watchers.get(parsed.sig)?.forEach((end) => end());
   }
 
   private parse(token: string | undefined): { exp: number; sig: string } | undefined {
