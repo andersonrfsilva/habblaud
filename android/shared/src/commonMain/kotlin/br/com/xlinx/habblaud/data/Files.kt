@@ -16,6 +16,13 @@ data class FileRoot(val path: String, val label: String, val roomId: String? = n
 data class FileEntry(val name: String, val type: String, val size: Long, val mtime: Long, val kind: String? = null)
 data class FileListing(val path: String, val root: String, val entries: List<FileEntry>, val truncated: Boolean = false)
 
+data class DeliveryAttachment(val id: String, val name: String, val kind: String, val caption: String?)
+data class Delivery(
+    val id: String, val provider: String, val account: String, val sessionId: String,
+    val request: String, val headline: String, val summary: String?, val text: String,
+    val finishedAt: Long, val attachments: List<DeliveryAttachment>,
+)
+
 suspend fun HabblaudApi.filesRoots(): List<FileRoot> = wireJson.parseToJsonElement(request("/api/files")).jsonObject.objects("roots").map {
     FileRoot(requireNotNull(it.string("path")), requireNotNull(it.string("label")), it.string("roomId"))
 }
@@ -27,6 +34,27 @@ internal fun parseFileListing(json: String): FileListing {
         FileEntry(requireNotNull(it.string("name")), requireNotNull(it.string("type")), requireNotNull(it["size"]?.jsonPrimitive?.longOrNull), requireNotNull(it["mtime"]?.jsonPrimitive?.doubleOrNull).toLong(), it.string("kind"))
     }, listing.flag("truncated"))
 }
+
+internal fun parseDeliveries(json: String): List<Delivery> =
+    wireJson.parseToJsonElement(json).jsonObject.objects("deliveries").mapNotNull { item ->
+        val id = item.string("id")?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+        val account = item.string("account")?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+        val sessionId = item.string("sessionId")?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+        Delivery(
+            id, item.string("provider") ?: "claude", account, sessionId,
+            item.string("request").orEmpty(), item.string("headline").orEmpty(), item.string("summary"), item.string("text").orEmpty(),
+            (item["finishedAt"] as? JsonPrimitive)?.longOrNull ?: 0L,
+            item.objects("attachments").mapNotNull { attachment ->
+                val attachmentId = attachment.string("id")?.takeIf { it.isNotEmpty() }
+                val name = attachment.string("name")?.takeIf { it.isNotEmpty() }
+                if (attachmentId == null || name == null) null
+                else DeliveryAttachment(attachmentId, name, attachment.string("kind").orEmpty(), attachment.string("caption"))
+            },
+        )
+    }
+
+internal fun deliveriesOf(all: List<Delivery>, key: SessionKey): List<Delivery> =
+    all.filter { it.provider == key.provider && it.account == key.account && it.sessionId == key.sessionId }
 
 /** Mantém só um bloco em memória; o destino publica o arquivo apenas após o retorno. */
 suspend fun HabblaudApi.downloadFile(path: String, write: suspend (ByteArray, Int) -> Unit, progress: (Long, Long?) -> Unit = { _, _ -> }) {
