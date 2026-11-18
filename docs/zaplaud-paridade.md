@@ -20,7 +20,7 @@ vai para a tabela abaixo, com o motivo. Textos ficam em `android/shared/src/comm
 | Recurso | Kotlin | Rust | Observação |
 |---|---|---|---|
 | Login, vários servidores, relogin por servidor | sim | sim | |
-| Lista: abertas/recentes, busca, filtro por servidor, não lidas, subagentes | sim | sim | |
+| Lista: abertas/recentes, busca, filtro por servidor, não lidas, subagentes | sim | sim | Kotlin relê Recentes quando uma sessão some do snapshot; pendente de conferência no Rust. |
 | Fixar e favoritar sessões, com filtro Favoritas | sim | sim | marcas independentes e locais; fixadas primeiro dentro dos filtros, por atividade; remoção do servidor limpa só suas marcas |
 | Conversa com markdown, pensamentos e ferramentas compactos, resumo, ir para o fim | sim | sim | Rust: seleção dentro de um bloco + "Copiar mensagem" (limite do Slint) |
 | Resposta aberta e posição de leitura preservadas ao sair e voltar | sim | sim | estado local por conversa; rolar cancela a restauração; quem saiu acompanhando o fim volta ao fim |
