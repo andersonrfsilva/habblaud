@@ -8,8 +8,7 @@ i18n:check`), e toda mudança visível entra em "Não lançado" no `CHANGELOG.md
 Os clientes Zaplaud (Kotlin em `android/`, para Android e iOS; Rust em `zaplaud-rs/`, desktop nativo) andam juntos:
 mudança de comportamento em um entra no outro na mesma entrega, ou vira pendência registrada em
 [`docs/zaplaud-paridade.md`](docs/zaplaud-paridade.md). Textos do Zaplaud ficam no `strings.xml` do Kotlin; o Rust
-gera os dele a partir desse arquivo. O desktop Compose (`android/desktop`, `android/shared/src/jvmMain`) está
-obsoleto: não recebe mudanças nem paridade.
+gera os dele a partir desse arquivo. O desktop Compose foi removido em 2026-11-18; o desktop é o cliente Rust.
 
 Testes em emulador, simulador, Xvfb ou nos aparelhos do dono só com autorização expressa dele. Pedido de mudança:
 implementar e compilar.

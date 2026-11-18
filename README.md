@@ -255,36 +255,7 @@ The extension applies to omp sessions opened **after** the installation. See [om
 
 ### Desktop (Linux and macOS)
 
-The Zaplaud desktop client is the native Rust client in [`zaplaud-rs/`](zaplaud-rs/README.md). The Compose desktop
-client described below is **obsolete**: it gets no updates and should not be used.
-
-```bash
-cd android
-./gradlew :desktop:run
-./gradlew :shared:jvmTest :desktop:createReleaseDistributable --max-workers=4
-./gradlew :desktop:packageReleaseDeb :desktop:packageReleaseRpm --max-workers=4
-```
-
-Packages appear in `android/desktop/build/compose/binaries/main-release/{deb,rpm}/`. Packaging requires
-`dpkg-deb` for Debian or `rpmbuild` for RPM. On Arch, run from the repository root:
-
-```bash
-bash scripts/desktop-install-linux.sh
-tar -C android/desktop/build/compose/binaries/main-release/app -czf Zaplaud-linux.tar.gz Zaplaud
-```
-
-The script replaces the previous installation in `~/.local/opt/zaplaud` and adds a menu entry without `sudo`.
-The archive includes the app and runtime; extract it and run `Zaplaud/bin/Zaplaud`.
-On macOS, generate `android/desktop/icons/zaplaud.icns` from the PNG, then run
-`./gradlew :desktop:packageReleaseDmg --max-workers=4` in `android/`. The `.dmg` appears in
-`desktop/build/compose/binaries/main-release/dmg/` and can only be built on a Mac.
-Packages are unsigned and not notarized: right-click → Open on first launch.
-The packaged JVM uses `-XX:+UseSerialGC -Xmx256m`. ProGuard optimization is disabled because of unresolved
-optional OkHttp references.
-
-Architecture, platform pieces, measured footprint and known limits: [docs/zaplaud-desktop.md](docs/zaplaud-desktop.md)
-(Portuguese). A possible Rust + Slint client is planned in phases in
-[plans/074-zaplaud-cliente-rust-slint.md](plans/074-zaplaud-cliente-rust-slint.md); it starts only on the owner's call.
+The Zaplaud desktop client for Linux and macOS is [the native Rust client](zaplaud-rs/README.md).
 
 ### Open on your phone (optional)
 
