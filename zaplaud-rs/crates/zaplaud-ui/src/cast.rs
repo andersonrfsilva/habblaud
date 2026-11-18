@@ -1,5 +1,5 @@
 use crate::{
-    AppWindow, CastRow, CastState, Icons, ListState, avatars,
+    AppWindow, CastRow, CastState, ConversationState, Icons, ListState, avatars,
     feature::{AppSnapshot, FeatureContext},
     state::Event,
     strings, update_ui,
@@ -7,20 +7,25 @@ use crate::{
 use slint::{ComponentHandle, ModelRc, VecModel};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{mpsc, watch};
-use zaplaud_core::{Error, controller::cast::State, model::CastChoice};
+use zaplaud_core::{
+    Error,
+    controller::cast::{State, confirmation_target},
+    model::{CastChoice, SessionItem, SessionKey},
+};
 #[derive(Clone)]
 enum Command {
     Start,
-    Resume,
-    Dismiss,
+    Resume(SessionKey),
+    Dismiss(SessionKey),
     Choose(String),
-    Confirm,
+    Confirm(SessionKey),
     Close,
 }
 #[derive(Default)]
 struct Dialog {
     mode: String,
     choice: Option<CastChoice>,
+    target: Option<SessionItem>,
     confirming: bool,
 }
 impl Dialog {
@@ -52,22 +57,25 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
     global.on_start(move || {
         let _ = s.send(Command::Start);
     });
-    let s = send.clone();
-    global.on_resume(move || {
-        let _ = s.send(Command::Resume);
-    });
-    let s = send.clone();
-    global.on_dismiss(move || {
-        let _ = s.send(Command::Dismiss);
-    });
+    let selected_command = |build: fn(SessionKey) -> Command| {
+        let weak = window.as_weak();
+        let sender = send.clone();
+        move || {
+            if let Some(window) = weak.upgrade()
+                && let Ok(key) =
+                    SessionKey::deserialize(window.global::<ConversationState>().get_key().as_str())
+            {
+                let _ = sender.send(build(key));
+            }
+        }
+    };
+    global.on_resume(selected_command(Command::Resume));
+    global.on_dismiss(selected_command(Command::Dismiss));
     let s = send.clone();
     global.on_choose(move |id| {
         let _ = s.send(Command::Choose(id.into()));
     });
-    let s = send.clone();
-    global.on_confirm(move || {
-        let _ = s.send(Command::Confirm);
-    });
+    global.on_confirm(selected_command(Command::Confirm));
     global.on_close(move || {
         let _ = send.send(Command::Close);
     });
@@ -92,14 +100,16 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
         loop {
             let mut refresh = false;
             tokio::select! {
-                changed = visibility.changed() => { if changed.is_err() { break; } refresh = *visibility.borrow(); }
+                biased;
                 value = snapshots.recv() => {
                     let value = match value { Ok(value) => value, Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue, Err(_) => break };
                     let next_origin = value.selected.as_ref().map(|s| s.key.origin.as_str()).or(value.filter.as_deref()).or_else(|| (value.servers.len() == 1).then(|| value.servers[0].api.origin())).unwrap_or_default();
                     if next_origin != origin { origin = next_origin.into(); state = State::default(); dialog = Dialog::default(); refresh = true; loaded = false; avatar_keys.clear(); }
                     if snapshot.as_ref().and_then(|s| s.selected.as_ref()).map(|s| &s.key) != value.selected.as_ref().map(|s| &s.key) { state.result.clear(); dialog = Dialog::default(); }
+                    if dialog.target.is_some() && snapshot.as_ref().is_some_and(|old| old.filter != value.filter) { dialog = Dialog::default(); }
                     snapshot = Some(value);
                 }
+                changed = visibility.changed() => { if changed.is_err() { break; } refresh = *visibility.borrow(); }
                 _ = tokio::time::sleep_until(next_poll), if !origin.is_empty() && *visibility.borrow() => { refresh = true; }
                 command = receive.recv() => {
                     let Some(command) = command else { break }; let Some(snap) = &snapshot else { continue };
@@ -109,12 +119,21 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                     match command {
                         // No desktop a lista fica ao lado da conversa: chamar um personagem não depende de seleção.
                         Command::Start => { dialog = Dialog { mode: "start".into(), ..Dialog::default() }; if let Err(error) = state.load(&server.api).await { unauthorized(&commands, &origin, &error); } }
-                        Command::Resume if selected.is_some_and(|s| state.can_resume(s)) => { dialog = Dialog { mode: "resume".into(), ..Dialog::default() }; if let Err(error) = state.load(&server.api).await { unauthorized(&commands, &origin, &error); } }
-                        Command::Dismiss if selected.is_some_and(|s| state.can_dismiss(s)) => { dialog = Dialog { mode: "dismiss".into(), confirming: true, ..Dialog::default() }; }
+                        Command::Resume(key) => {
+                            if let Some(target) = selected.filter(|s| s.key == key && state.can_resume(s)) {
+                                dialog = Dialog { mode: "resume".into(), target: Some(target.clone()), ..Dialog::default() };
+                                if let Err(error) = state.load(&server.api).await { unauthorized(&commands, &origin, &error); }
+                            }
+                        }
+                        Command::Dismiss(key) => {
+                            if let Some(target) = selected.filter(|s| s.key == key && state.can_dismiss(s)) {
+                                dialog = Dialog { mode: "dismiss".into(), target: Some(target.clone()), confirming: true, ..Dialog::default() };
+                            }
+                        }
                         Command::Close => { dialog.close(&state); }
                         Command::Choose(id) if !dialog.mode.is_empty() => {
                             if dialog.choice.is_none() {
-                                dialog.choice = if id.is_empty() { Some(CastChoice { id, name: strings::CAST_NEW.into(), avatar: None, model: None }) } else { state.free(&server.reading.sessions, if dialog.mode == "resume" { selected } else { None }).into_iter().find(|c| c.id == id) };
+                                dialog.choice = if id.is_empty() { Some(CastChoice { id, name: strings::CAST_NEW.into(), avatar: None, model: None }) } else { state.free(&server.reading.sessions, dialog.target.as_ref()).into_iter().find(|c| c.id == id) };
                                 dialog.confirming = dialog.mode == "resume" && dialog.choice.is_some();
                                 if dialog.mode == "start" && !state.picks_model() && let Some(choice) = &dialog.choice {
                                     if let Err(error) = state.submit(&server.api, &choice.id, None, None, None).await { unauthorized(&commands, &origin, &error); }
@@ -127,10 +146,14 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                                 dialog = Dialog::default(); refresh = true; loaded = false;
                             }
                         }
-                        Command::Confirm if dialog.confirming => {
-                            if dialog.mode == "dismiss" {
-                                if let Some(s) = selected && state.can_dismiss(s) && !s.cast.as_ref().is_some_and(|id| state.active_job(id)) && let Some(id) = s.agent_id.as_deref() && let Err(error) = state.submit(&server.api, "", None, Some(id), None).await { unauthorized(&commands, &origin, &error); }
-                            } else if let (Some(choice), Some(s)) = (&dialog.choice, selected) && state.can_resume(s) && let Err(error) = state.submit(&server.api, &choice.id, Some(s), None, None).await { unauthorized(&commands, &origin, &error); }
+                        Command::Confirm(key) if dialog.confirming => {
+                            if let Some(current) = selected.filter(|s| s.key == key)
+                                && let Some(target) = dialog.target.as_ref().and_then(|s| confirmation_target(s, current, server.api.origin()))
+                            {
+                                if dialog.mode == "dismiss" {
+                                    if state.can_dismiss(current) && !current.cast.as_ref().is_some_and(|id| state.active_job(id)) && let Some(id) = target.agent_id.as_deref() && let Err(error) = state.submit(&server.api, "", None, Some(id), None).await { unauthorized(&commands, &origin, &error); }
+                                } else if let Some(choice) = &dialog.choice && state.can_resume(current) && let Err(error) = state.submit(&server.api, &choice.id, Some(target), None, None).await { unauthorized(&commands, &origin, &error); }
+                            }
                             dialog = Dialog::default(); refresh = true; loaded = false;
                         }
                         _ => {}
@@ -214,11 +237,7 @@ fn publish(
                         server
                             .map(|s| s.reading.sessions.as_slice())
                             .unwrap_or_default(),
-                        if dialog.mode == "resume" {
-                            selected
-                        } else {
-                            None
-                        },
+                        dialog.target.as_ref(),
                     )
                     .into_iter()
                     .map(|c| (c.id, c.name, c.avatar, false)),
@@ -246,7 +265,9 @@ fn publish(
                 .as_ref()
                 .map(|c| c.name.as_str())
                 .unwrap_or_default(),
-            selected
+            dialog
+                .target
+                .as_ref()
                 .and_then(|s| s.project.as_deref())
                 .unwrap_or_default()
         )

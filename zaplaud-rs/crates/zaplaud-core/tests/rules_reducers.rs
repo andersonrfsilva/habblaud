@@ -29,6 +29,31 @@ fn disappearing_session_refreshes_recent_only_when_missing() {
     assert!(!reading.repository.recent_stale);
 }
 
+#[test]
+fn cast_confirmation_retains_original_target_or_cancels() {
+    use zaplaud_core::controller::cast::confirmation_target;
+
+    let target = SessionItem {
+        key: key("one"),
+        agent_id: Some("agent".into()),
+        project: Some("original".into()),
+        ..SessionItem::default()
+    };
+    let mut current = target.clone();
+    current.project = Some("changed".into());
+    assert_eq!(
+        confirmation_target(&target, &current, &target.key.origin)
+            .and_then(|session| session.project.as_deref()),
+        Some("original")
+    );
+    assert!(confirmation_target(&target, &current, "https://other.test").is_none());
+    current.agent_id = Some("replacement".into());
+    assert!(confirmation_target(&target, &current, &target.key.origin).is_none());
+    current.agent_id = target.agent_id.clone();
+    current.key = key("two");
+    assert!(confirmation_target(&target, &current, &target.key.origin).is_none());
+}
+
 fn key(session: &str) -> SessionKey {
     SessionKey {
         origin: "https://example.test".into(),

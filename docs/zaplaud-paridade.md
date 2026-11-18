@@ -31,7 +31,7 @@ vai para a tabela abaixo, com o motivo. Textos ficam em `android/shared/src/comm
 | Aprovação e perguntas, com resumo `text` e entrada não textual em JSON | sim | sim | Kotlin rola na horizontal; Rust quebra a linha e mostra "mais N linhas" |
 | Folha de permissão fica aberta durante o envio da decisão | sim | pendente de conferência no Rust | conferir o fechamento pelo botão Cancelar e pelo teclado durante o envio |
 | Chamar personagem (também com conversa aberta em tela larga), dispensar, retomar | sim | sim | pasta da conversa aberta vem primeiro |
-| Confirmações de retomar e dispensar fecham ao trocar de conversa ou servidor | sim | pendente de conferência no Rust | o Rust limpa o diálogo ao observar a troca, mas usa a seleção atual ao confirmar, sem guardar o alvo da abertura |
+| Confirmações de retomar e dispensar fecham ao trocar de conversa ou servidor | sim | sim | A confirmação só vale para o alvo de quando o diálogo abriu. |
 | Linha da lista compacta: horário curto ao lado do título, não lidas na linha de baixo, ações sem botão ⋮ | sim | sim | Kotlin: toque longo; desktop: clique direito. Dispensar pela lista segue **pendente** no Rust (fica no menu da conversa) |
 | Bate-papo paralelo, sem pular para o fim quando se lê acima | sim | sim | Abre só pelo menu da conversa. Só apaga o rascunho quando o servidor aceita a pergunta. Enquanto houver resposta em curso, uma consulta que falha é repetida após 3 segundos; o próximo sucesso limpa o erro. |
 | Arquivos da pasta de trabalho: navegar e baixar | sim | sim | Android 10+: Downloads (MediaStore); Android 8/9: pasta Downloads com permissão de armazenamento; iPad: pasta do app; desktop: Downloads |
