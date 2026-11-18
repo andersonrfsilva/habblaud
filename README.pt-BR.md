@@ -408,38 +408,13 @@ conversas permanecem no servidor.
 
 ### Desktop (Linux e macOS)
 
-O desktop do Zaplaud é o cliente nativo em Rust, em [`zaplaud-rs/`](zaplaud-rs/README.md). O cliente desktop
-Compose descrito abaixo está **obsoleto**: não recebe atualizações e não deve ser usado.
-
-```bash
-cd android
-./gradlew :desktop:run
-./gradlew :shared:jvmTest :desktop:createReleaseDistributable --max-workers=4
-./gradlew :desktop:packageReleaseDeb :desktop:packageReleaseRpm --max-workers=4
-```
-
-Os pacotes ficam em `android/desktop/build/compose/binaries/main-release/{deb,rpm}/`; a geração exige
-`dpkg-deb` no Debian ou `rpmbuild` no RPM. No Arch, execute na raiz do repositório:
-
-```bash
-bash scripts/desktop-install-linux.sh
-tar -C android/desktop/build/compose/binaries/main-release/app -czf Zaplaud-linux.tar.gz Zaplaud
-```
-
-O script instala em `~/.local/opt/zaplaud` e adiciona o ícone ao menu, sem `sudo`, substituindo a instalação anterior.
-O `.tar.gz` contém o aplicativo e o runtime; extraia-o e execute `Zaplaud/bin/Zaplaud`.
-No macOS, gere `android/desktop/icons/zaplaud.icns` a partir do PNG e execute
-`./gradlew :desktop:packageReleaseDmg --max-workers=4` em `android/`; o `.dmg` fica em
-`desktop/build/compose/binaries/main-release/dmg/`. O pacote só pode ser gerado num Mac. Não há assinatura
-nem notarização: na primeira abertura, use botão direito → Abrir.
-Os pacotes usam `-XX:+UseSerialGC -Xmx256m`; a otimização ProGuard está desligada por incompatibilidade com
-referências opcionais do OkHttp.
-
-Arquitetura, peças de cada sistema, consumo medido e limitações: [docs/zaplaud-desktop.md](docs/zaplaud-desktop.md).
-Um cliente Rust + Slint está planejado por fases em
-[plans/074-zaplaud-cliente-rust-slint.md](plans/074-zaplaud-cliente-rust-slint.md); só começa por decisão do dono.
+O desktop do Zaplaud é o cliente nativo em Rust. Veja o [guia do Zaplaud desktop](zaplaud-rs/README.md).
+O cliente desktop Compose está **obsoleto** e permanece no repositório sem suporte.
 
 ### Aplicativo iPadOS (Zaplaud; validação pendente)
+
+O Zaplaud para iPadOS tem alvo apenas para iPad, não para iPhone, e não oferece avisos. A instalação em um iPad
+físico ainda não foi validada (veja o [resultado do plano 041](plans/041-resultado.md)).
 
 O código nativo do Zaplaud usa Kotlin Multiplatform e Compose Multiplatform. `android/app` mantém o host Android;
 `android/shared` reúne telas, regras e transporte, com adaptadores Android e Apple. O host UIKit em
