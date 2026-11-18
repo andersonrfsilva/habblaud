@@ -374,7 +374,7 @@ sleep 2
 shot conversa-fonte-1-3
 adb shell settings put system font_scale 1.0
 tap 'Voltar às sessões'
-tap 'caderno · trabalhando'
+tap 'Conversa OMP fictícia'
 wait_text 'Parar agente'
 wait_text 'Resposta OMP fictícia'
 printf 'permission fixture:omp question-omp\n' >&3
