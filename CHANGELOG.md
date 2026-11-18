@@ -172,6 +172,7 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Zaplaud (Android e iOS):** as confirmações de elenco fecham ao trocar de conversa ou servidor, e a folha de permissão fica aberta enquanto envia a decisão.
 - **Zaplaud (Android e iOS):** o bate-papo paralelo volta a acompanhar o fim: abre na última resposta, mostra a
   pergunta enviada e segue a resposta enquanto ela cresce. Lendo mais acima, a lista fica parada. Antes ela não
   saía do lugar, porque a rolagem automática pedia um deslocamento que estourava a conta.

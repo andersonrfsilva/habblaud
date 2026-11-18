@@ -114,14 +114,17 @@ internal fun PermissionSheet(api: HabblaudApi, session: SessionItem, allowed: Bo
             } finally { busy = false }
         }
     }
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = true,
+        confirmValueChange = { it != SheetValue.Hidden || !busy },
+    )
     LaunchedEffect(id, item) {
         if (item != null) {
             withFrameNanos { }
             sheetState.expand()
         }
     }
-    ModalBottomSheet(onDismissRequest = onClose, sheetState = sheetState) {
+    ModalBottomSheet(onDismissRequest = { if (!busy) onClose() }, sheetState = sheetState) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 CharacterAvatar(api, session, 48.dp)
@@ -193,7 +196,7 @@ internal fun PermissionSheet(api: HabblaudApi, session: SessionItem, allowed: Bo
             }
             TextButton(onClick = { decide("terminal") }, enabled = enabled) { Text(stringResource(Res.string.permission_terminal)) }
         }
-        TextButton(onClick = onClose) { Text(stringResource(Res.string.cancel)) }
+        TextButton(onClick = onClose, enabled = !busy) { Text(stringResource(Res.string.cancel)) }
         }
     }
 }
