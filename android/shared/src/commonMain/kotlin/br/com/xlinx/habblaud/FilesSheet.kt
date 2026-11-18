@@ -21,7 +21,7 @@ import br.com.xlinx.habblaud.resources.*
 import kotlinx.coroutines.*
 import org.jetbrains.compose.resources.stringResource
 
-private class FileDownload(val path: String, val name: String) {
+internal class FileDownload(val key: String, val name: String) {
     var received by mutableStateOf(0L)
     var total by mutableStateOf<Long?>(null)
     var saved by mutableStateOf<SavedDownload?>(null)
@@ -29,6 +29,34 @@ private class FileDownload(val path: String, val name: String) {
     var cancelled by mutableStateOf(false)
     var job: Job? = null
     val running get() = saved == null && error == null && !cancelled
+}
+
+internal fun CoroutineScope.startFileDownload(
+    item: FileDownload,
+    onUnauthorized: () -> Unit,
+    download: suspend (write: suspend (ByteArray, Int) -> Unit, progress: (Long, Long?) -> Unit) -> Unit,
+) {
+    item.job = launch {
+        var destination: DownloadTarget? = null
+        try {
+            val target = createDownload(item.name)
+            destination = target
+            download(target::write) { received, total -> item.received = received; item.total = total }
+            currentCoroutineContext().ensureActive()
+            item.saved = target.complete()
+            destination = null
+        } catch (e: CancellationException) { item.cancelled = true; throw e }
+        catch (e: Exception) {
+            if (e is ApiException && e.status == 401) onUnauthorized()
+            item.error = (e as? ApiException)?.detail ?: e.message.orEmpty()
+        } finally {
+            destination?.let { target ->
+                try { withContext(NonCancellable + Dispatchers.Default) { target.abort() } }
+                catch (e: CancellationException) { throw e }
+                catch (_: Exception) { /* Preserve the download error or cancellation. */ }
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -67,21 +95,7 @@ internal fun FilesSheet(api: HabblaudApi, selected: SessionItem?, onUnauthorized
     fun download(entry: FileEntry, parent: String) {
         val item = FileDownload(parent.trimEnd('/') + "/" + entry.name, entry.name)
         downloads.add(0, item)
-        item.job = scope.launch {
-            var destination: DownloadTarget? = null
-            try {
-                val target = createDownload(entry.name)
-                destination = target
-                api.downloadFile(item.path, target::write) { received, total -> item.received = received; item.total = total }
-                currentCoroutineContext().ensureActive()
-                item.saved = target.complete()
-                destination = null
-            } catch (e: CancellationException) { item.cancelled = true; throw e }
-            catch (e: Exception) {
-                if (e is ApiException && e.status == 401) onUnauthorized()
-                item.error = (e as? ApiException)?.detail ?: e.message.orEmpty()
-            } finally { destination?.let { withContext(NonCancellable + Dispatchers.Default) { it.abort() } } }
-        }
+        scope.startFileDownload(item, onUnauthorized) { write, progress -> api.downloadFile(item.key, write, progress) }
     }
     ModalBottomSheet(onDismissRequest = onClose, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         DownloadPermissionGate { allowed, request ->
@@ -130,42 +144,47 @@ internal fun FilesSheet(api: HabblaudApi, selected: SessionItem?, onUnauthorized
                                         Text(entry.name, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                         Text(listOfNotNull(if (directory) null else fileSize(entry.size), entryTime(entry.mtime)).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
-                                    if (!directory) TextButton(onClick = { download(entry, listing!!.path) }, enabled = allowed && downloads.none { it.path == listing!!.path.trimEnd('/') + "/" + entry.name && it.running }, modifier = Modifier.testTag("files-download:${entry.name}")) { Text(stringResource(Res.string.files_download)) }
+                                    if (!directory) TextButton(onClick = { download(entry, listing!!.path) }, enabled = allowed && downloads.none { it.key == listing!!.path.trimEnd('/') + "/" + entry.name && it.running }, modifier = Modifier.testTag("files-download:${entry.name}")) { Text(stringResource(Res.string.files_download)) }
                                 }
                             }
                             if (listing?.truncated == true) item { Text(stringResource(Res.string.files_truncated, listing!!.entries.size)) }
                         }
                     }
                 }
-                if (downloads.isNotEmpty()) {
-                    HorizontalDivider()
-                    Text(stringResource(Res.string.files_downloads), style = MaterialTheme.typography.titleSmall)
-                    LazyColumn(Modifier.heightIn(max = 200.dp)) {
-                        items(downloads) { item ->
-                            Column(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                when {
-                                    item.saved != null -> {
-                                        Text(stringResource(Res.string.files_completed), Modifier.testTag("files-completed:${item.name}"), style = MaterialTheme.typography.bodySmall)
-                                        Row {
-                                            TextButton(onClick = { try { openDownload(item.saved!!) } catch (e: Exception) { item.error = e.message.orEmpty() } }) { Text(stringResource(Res.string.files_open)) }
-                                            if (canShowDownloadFolder) TextButton(onClick = { try { showDownloadFolder(item.saved!!) } catch (e: Exception) { item.error = e.message.orEmpty() } }) { Text(stringResource(Res.string.files_show_folder)) }
-                                        }
-                                    }
-                                    item.cancelled -> Text(stringResource(Res.string.files_cancelled))
-                                    item.error == null -> {
-                                        val total = item.total
-                                        if (total != null && total > 0) LinearProgressIndicator(progress = { (item.received.toFloat() / total).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth()) else LinearProgressIndicator(Modifier.fillMaxWidth())
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text("${stringResource(Res.string.files_downloading)} ${fileSize(item.received)}${total?.let { " / ${fileSize(it)}" }.orEmpty()}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                                            TextButton(onClick = { item.job?.cancel() }) { Text(stringResource(Res.string.cancel)) }
-                                        }
-                                    }
-                                }
-                                item.error?.let { Text(stringResource(Res.string.files_error, it), color = MaterialTheme.colorScheme.error) }
+                FileDownloads(downloads)
+            }
+        }
+    }
+}
+
+@Composable
+internal fun FileDownloads(downloads: List<FileDownload>) {
+    if (downloads.isNotEmpty()) {
+        HorizontalDivider()
+        Text(stringResource(Res.string.files_downloads), style = MaterialTheme.typography.titleSmall)
+        LazyColumn(Modifier.heightIn(max = 200.dp)) {
+            items(downloads) { item ->
+                Column(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    when {
+                        item.saved != null -> {
+                            Text(stringResource(Res.string.files_completed), Modifier.testTag("files-completed:${item.name}"), style = MaterialTheme.typography.bodySmall)
+                            Row {
+                                TextButton(onClick = { try { openDownload(item.saved!!) } catch (e: Exception) { item.error = e.message.orEmpty() } }) { Text(stringResource(Res.string.files_open)) }
+                                if (canShowDownloadFolder) TextButton(onClick = { try { showDownloadFolder(item.saved!!) } catch (e: Exception) { item.error = e.message.orEmpty() } }) { Text(stringResource(Res.string.files_show_folder)) }
+                            }
+                        }
+                        item.cancelled -> Text(stringResource(Res.string.files_cancelled))
+                        item.error == null -> {
+                            val total = item.total
+                            if (total != null && total > 0) LinearProgressIndicator(progress = { (item.received.toFloat() / total).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth()) else LinearProgressIndicator(Modifier.fillMaxWidth())
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("${stringResource(Res.string.files_downloading)} ${fileSize(item.received)}${total?.let { " / ${fileSize(it)}" }.orEmpty()}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                                TextButton(onClick = { item.job?.cancel() }) { Text(stringResource(Res.string.cancel)) }
                             }
                         }
                     }
+                    item.error?.let { Text(stringResource(Res.string.files_error, it), color = MaterialTheme.colorScheme.error) }
                 }
             }
         }

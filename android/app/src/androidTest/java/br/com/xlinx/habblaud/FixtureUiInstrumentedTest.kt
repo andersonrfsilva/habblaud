@@ -11,6 +11,8 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.isEnabled
@@ -303,6 +305,18 @@ class FixtureUiInstrumentedTest {
             .assertTextContains("Terceira linha do pensamento.", substring = true)
         compose.onNode(hasText(text(R.string.thinking), substring = true)).performClick()
         compose.onNodeWithText("Terceira linha do pensamento.", substring = true).assertDoesNotExist()
+    }
+
+    @Test fun deliveriesMenuOpensSheet() {
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        await(R.string.message_text)
+        compose.onNode(hasContentDescription(text(R.string.menu)) and !hasTestTag("list-menu")).performClick()
+        compose.onNodeWithTag("deliveries-menu").performClick()
+
+        // The fixture does not provide a delivery index, so the production route returns 403.
+        await(R.string.deliveries_blocked)
+        compose.onNodeWithTag("deliveries-sheet").assertIsDisplayed()
+        compose.onNode(hasText(text(R.string.deliveries_blocked)) and hasAnyAncestor(hasTestTag("deliveries-sheet"))).assertIsDisplayed()
     }
 
     @Test fun ompShowsStopWithoutDeliveryModeSelector() {

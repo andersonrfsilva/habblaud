@@ -288,6 +288,19 @@
     <string name="files_completed">Download concluído.</string>
     <string name="files_cancelled">Download cancelado.</string>
     <string name="files_fallback_name">arquivo</string>
+    <string name="deliveries_title">Entregas da sessão</string>
+    <string name="deliveries_menu">Entregas</string>
+    <string name="deliveries_loading">Carregando entregas…</string>
+    <string name="deliveries_empty">Nenhuma entrega recente nesta sessão.</string>
+    <string name="deliveries_error">Não foi possível carregar as entregas.</string>
+    <string name="deliveries_blocked">Entregas bloqueadas pelo servidor.</string>
+    <string name="deliveries_refresh">Atualizar</string>
+    <string name="deliveries_request">Pedido</string>
+    <string name="deliveries_download">Baixar</string>
+    <plurals name="deliveries_files">
+        <item quantity="one">%1$d arquivo</item>
+        <item quantity="other">%1$d arquivos</item>
+    </plurals>
     <plurals name="unread_replies">
         <item quantity="one">%1$d resposta não lida</item>
         <item quantity="other">%1$d respostas não lidas</item>
