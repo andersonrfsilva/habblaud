@@ -933,6 +933,7 @@ mod tests {
             reading: ReadingController::new("https://a".into(), HashMap::new(), None),
             generation: 1,
             task: tokio::spawn(async {}),
+            recent_task: None,
             marks: HashMap::new(),
         });
         std::fs::write(data.join("local_state.json"), b"malformed").unwrap();
@@ -959,6 +960,7 @@ mod tests {
             reading,
             generation: 1,
             task: tokio::spawn(async {}),
+            recent_task: None,
             marks: HashMap::new(),
         });
         let mut writes = HashMap::new();
