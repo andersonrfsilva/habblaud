@@ -3,6 +3,7 @@ package br.com.xlinx.habblaud
 import br.com.xlinx.habblaud.data.ApiException
 import br.com.xlinx.habblaud.data.AsideController
 import br.com.xlinx.habblaud.data.wireJson
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -92,6 +93,36 @@ class AsideControllerTest {
             c.ask("x") { accepted++ }
             waitFor { !c.state.value.sending }
             assertEquals(1, accepted)
+        } finally { scope.cancel() }
+    }
+
+    @Test fun pauseKeepsAgentAndResumePollsAgain() = runBlocking {
+        var gets = 0
+        val cancelStarted = CompletableDeferred<Unit>()
+        val cancelReply = CompletableDeferred<String>()
+        val scope = CoroutineScope(coroutineContext + SupervisorJob())
+        val c = AsideController({ _, body ->
+            if (body == null) {
+                gets++
+                """{"topics":[${topic("t1", "running")}]}"""
+            } else {
+                cancelStarted.complete(Unit)
+                cancelReply.await()
+            }
+        }, scope, {})
+        try {
+            c.open("a")
+            waitFor { c.state.value.running }
+            c.cancel()
+            withTimeout(5000) { cancelStarted.await() }
+            c.pause()
+            assertEquals("a", c.state.value.agentId)
+            assertEquals("t1", c.state.value.topic?.id)
+            cancelReply.complete("{}")
+            delay(1000)
+            assertEquals(1, gets)
+            c.resume()
+            waitFor { gets >= 2 }
         } finally { scope.cancel() }
     }
 

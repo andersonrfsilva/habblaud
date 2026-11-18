@@ -65,16 +65,31 @@ class AsideController(
     private val mutable = MutableStateFlow(AsideState())
     val state: StateFlow<AsideState> = mutable
     private var poller: Job? = null
+    private var paused = false
 
     fun open(agentId: String) {
+        paused = false
         poller?.cancel(); poller = null
         mutable.value = AsideState(agentId = agentId, loading = true)
         poll()
     }
 
     fun close() {
+        paused = false
         poller?.cancel(); poller = null
         mutable.value = AsideState()
+    }
+
+    /** App em segundo plano: para de consultar, mas mantém o agente e a conversa para a volta. */
+    fun pause() {
+        paused = true
+        poller?.cancel(); poller = null
+        mutable.value = mutable.value.copy(sending = false)
+    }
+
+    fun resume() {
+        paused = false
+        if (mutable.value.agentId != null) poll()
     }
 
     fun choose(topicId: String) { mutable.value = mutable.value.copy(topicId = topicId, fresh = false, error = null) }
@@ -114,6 +129,7 @@ class AsideController(
 
     /** Consulta agora e repete enquanto houver pergunta em andamento. */
     private fun poll() {
+        if (paused) return
         // Uma consulta já no ar pode ter saído antes da pergunta/parada: `dirty` faz o laço consultar de novo.
         dirty = true
         if (poller?.isActive == true) return
