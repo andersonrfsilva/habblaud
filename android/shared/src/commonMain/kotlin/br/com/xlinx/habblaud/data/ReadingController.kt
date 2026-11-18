@@ -147,7 +147,14 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                     }
                 }
                 mutable.value = mutable.value.copy(terminalAllowed = repository.terminalAllowed, messagesAllowed = repository.messagesAllowed, messageGuard = repository.messageGuard, permissionsAllowed = repository.permissionsAllowed)
-                if (!restoreLoaded) { restore = store.lastSession()?.takeIf { it.origin == api.origin }; restoreLoaded = true }
+                if (!restoreLoaded) {
+                    val saved = store.lastSession()?.takeIf { it.origin == api.origin }
+                    // A leitura pode suspender enquanto uma notificação decide qual sessão abrir.
+                    if (!restoreLoaded) {
+                        restore = saved
+                        restoreLoaded = true
+                    }
+                }
                 if (seen == null) seen = store.seenReplies(api.origin)
                 streams.stream("/api/stream").collect { event ->
                     when (event) {
@@ -262,6 +269,9 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         if (event.status == 401) { unauthorized(); return }
         mutable.value = mutable.value.streamFailure(event.status, conversation)
     }
+    /** Outra conversa foi pedida em outro servidor: este não restaura a última dele. */
+    fun cancelRestore() { restore = null; restoreLoaded = true }
+
     /** Abre a sessão tocada numa notificação; se a lista ainda não chegou, abre quando ela chegar. */
     fun openKey(key: SessionKey) {
         if (key.origin != api.origin) return

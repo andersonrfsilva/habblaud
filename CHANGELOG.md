@@ -172,6 +172,7 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Zaplaud Android:** tocar numa notificação abre a conversa do aviso, mesmo que a última conversa aberta seja de outro servidor.
 - **Zaplaud (Android e iOS):** o bate-papo paralelo volta a acompanhar o fim: abre na última resposta, mostra a
   pergunta enviada e segue a resposta enquanto ela cresce. Lendo mais acima, a lista fica parada. Antes ela não
   saía do lugar, porque a rolagem automática pedia um deslocamento que estourava a conta.
