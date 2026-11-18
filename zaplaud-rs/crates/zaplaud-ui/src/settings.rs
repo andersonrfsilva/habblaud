@@ -7,7 +7,9 @@ use std::{
 use tokio::sync::mpsc;
 use zaplaud_core::{
     api::HabblaudApi,
-    model::{AccountQuota, EDITABLE_ROLES, ModelRoles, THINKING_LEVELS},
+    model::{
+        AccountQuota, EDITABLE_ROLES, MessagingAccess, ModelRoles, ServerAccess, THINKING_LEVELS,
+    },
     rules::{
         composer::{
             join_role, model_label, model_option_label, provider_label, role_model_groups,
@@ -75,6 +77,7 @@ enum Command {
     Model(String),
     Thinking(String),
     Loaded(u64, Result<Loaded, zaplaud_core::Error>),
+    Access(u64, Result<ServerAccess, zaplaud_core::Error>),
     Saved(String, Result<(), zaplaud_core::Error>),
 }
 struct Loaded {
@@ -95,6 +98,7 @@ struct State {
     summary_http: bool,
     models: Vec<String>,
     quotas: Option<Vec<AccountQuota>>,
+    access: Option<Result<ServerAccess, ()>>,
     status: String,
     error: Option<&'static str>,
     editing: String,
@@ -152,6 +156,60 @@ impl State {
     fn finish_save(&mut self, origin: &str) -> bool {
         self.saving.remove(origin);
         origin == self.origin
+    }
+    fn access_rows(&self, rows: &mut Vec<SettingsRow>) {
+        rows.push(row("section", "", strings::ACCESS_TITLE));
+        let needs_login = self.status == "unauthorized"
+            || self
+                .servers
+                .iter()
+                .any(|(api, login)| api.origin() == self.origin && *login);
+        let access = match (needs_login, self.access) {
+            (false, Some(Ok(access))) => access,
+            (true, _) => {
+                rows.push(row("hint", "", strings::ACCESS_LOGIN_REQUIRED));
+                return;
+            }
+            (false, Some(Err(()))) => {
+                rows.push(row("hint", "", strings::ACCESS_UNAVAILABLE));
+                return;
+            }
+            (false, None) => {
+                rows.push(row("hint", "", strings::ACCESS_LOADING));
+                return;
+            }
+        };
+        let messaging = access.messaging_state();
+        let messaging_allowed = match messaging {
+            MessagingAccess::NotReported => None,
+            MessagingAccess::Allowed => Some(true),
+            MessagingAccess::Blocked | MessagingAccess::GuardRequired => Some(false),
+        };
+        let flags = [
+            (strings::ACCESS_READING, access.reading),
+            (strings::ACCESS_MESSAGING, messaging_allowed),
+            (strings::ACCESS_PERMISSIONS, access.permissions),
+            (strings::FILES_TITLE, access.files),
+        ];
+        for (label, flag) in flags {
+            let mut entry = row("access", "", label);
+            entry.detail = match flag {
+                Some(true) => strings::ACCESS_ALLOWED,
+                Some(false) => strings::ACCESS_BLOCKED,
+                None => strings::ACCESS_NOT_REPORTED,
+            }
+            .into();
+            rows.push(entry);
+            if label == strings::ACCESS_MESSAGING && messaging == MessagingAccess::GuardRequired {
+                rows.push(row("hint", "", strings::MESSAGE_GUARD_REQUIRED));
+            }
+        }
+        if flags.iter().any(|(_, flag)| *flag == Some(false)) {
+            rows.push(row("hint", "", strings::ACCESS_ALLOW_HINT));
+        }
+        if access.files == Some(false) && access.reading == Some(true) {
+            rows.push(row("hint", "", strings::ACCESS_FILES_HINT));
+        }
     }
     fn rows(&self) -> Vec<SettingsRow> {
         let mut rows = Vec::new();
@@ -417,6 +475,7 @@ impl State {
             r.severity = 2;
             rows.push(r);
         }
+        self.access_rows(&mut rows);
         rows.push(row("section", "", strings::SETTINGS_SERVER));
         for (api, login) in &self.servers {
             let mut r = row("server", api.origin(), &server_label(api.origin()));
@@ -510,12 +569,12 @@ fn refresh(
     runtime: &tokio::runtime::Handle,
     send: &mpsc::UnboundedSender<Command>,
 ) -> Option<tokio::task::JoinHandle<()>> {
-    let api = state
+    let (api, needs_login) = state
         .servers
         .iter()
-        .find(|(a, _)| a.origin() == state.origin)?
-        .0
-        .clone();
+        .find(|(api, _)| api.origin() == state.origin)?;
+    let access_due = !needs_login && state.access.is_none();
+    let api = api.clone();
     let generation = state.generation;
     let send = send.clone();
     let snapshot_due = state.quotas.is_none()
@@ -552,9 +611,16 @@ fn refresh(
                 runtime,
                 summary_http,
             })
-        }
-        .await;
-        let _ = send.send(Command::Loaded(generation, result));
+        };
+        let access = async {
+            if access_due {
+                let _ = send.send(Command::Access(generation, api.server_access().await));
+            }
+        };
+        let load = async {
+            let _ = send.send(Command::Loaded(generation, result.await));
+        };
+        tokio::join!(access, load);
     }))
 }
 pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
@@ -663,8 +729,10 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
                     match snapshot {
                         Ok(snapshot) => {
                             if state.servers.len() == snapshot.servers.len() && state.servers.iter().zip(&snapshot.servers).all(|((api, login), server)| api.origin() == server.api.origin() && *login == server.needs_login) { continue; }
+                            let was_logged_out = state.servers.iter().any(|(api, login)| api.origin() == state.origin && *login);
                             state.servers = snapshot.servers.iter().map(|s| (s.api.clone(), s.needs_login)).collect();
                             if state.servers.iter().any(|(api, login)| api.origin() == state.origin && *login) {
+                                state.access = None;
                                 state.runtime = None; state.summary_http = false; state.roles = ModelRoles::default(); state.editing.clear();
                                 state.generation += 1;
                             }
@@ -674,7 +742,12 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
                                 state.roles = ModelRoles::default();
                                 state.runtime = None;
                                 state.summary_http = false;
+                                state.access = None;
                                 state.quotas = None;
+                                state.status = "loading".into();
+                                reload = state.visible;
+                            }
+                            if was_logged_out && state.servers.iter().any(|(api, login)| api.origin() == state.origin && !*login) {
                                 state.status = "loading".into();
                                 reload = state.visible;
                             }
@@ -694,6 +767,7 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
                             state.roles = ModelRoles::default();
                             state.runtime = None;
                             state.summary_http = false;
+                            state.access = None;
                             state.quotas = None;
                             state.models.clear();
                             state.error = None;
@@ -708,13 +782,17 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
                             state.editing.clear();
                             state.generation += 1;
                         }
-                        Some(Command::Active(active)) => { state.active = active; reload = active && state.visible; }
+                        Some(Command::Active(active)) => {
+                            if active && !state.active { state.access = None; }
+                            state.active = active; reload = active && state.visible;
+                        }
                         Some(Command::Origin(origin)) => {
                             state.origin = origin;
                             state.generation += 1;
                             state.roles = ModelRoles::default();
                             state.runtime = None;
                             state.summary_http = false;
+                            state.access = None;
                             state.quotas = None;
                             state.status = "loading".into();
                             state.editing.clear();
@@ -786,6 +864,13 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
                                     }
                                 }
                             }
+                        }
+                        Some(Command::Access(generation, result)) if generation == state.generation => {
+                            if result.as_ref().is_err_and(unauthorized) {
+                                let _ = commands.send(crate::state::Event::Unauthorized(state.origin.clone()));
+                                state.status = "unauthorized".into();
+                            }
+                            state.access = Some(result.map_err(|_| ()));
                         }
                         Some(Command::Loaded(generation, result)) if generation == state.generation => {
                             match result {

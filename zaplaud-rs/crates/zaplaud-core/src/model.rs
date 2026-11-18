@@ -699,6 +699,47 @@ impl Access {
     }
 }
 
+/// Flags informadas em `/api/access`, sem converter ausência em negação.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServerAccess {
+    pub reading: Option<bool>,
+    messages: Option<bool>,
+    message_guard: Option<bool>,
+    pub permissions: Option<bool>,
+    pub files: Option<bool>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MessagingAccess {
+    NotReported,
+    Blocked,
+    GuardRequired,
+    Allowed,
+}
+
+impl ServerAccess {
+    pub fn parse(value: &Value) -> Option<Self> {
+        let fields = value.as_object()?;
+        let flag = |name| fields.get(name).and_then(Value::as_bool);
+        Some(Self {
+            reading: flag("terminal"),
+            messages: flag("messages"),
+            message_guard: flag("messageSessionGuard"),
+            permissions: flag("permissions"),
+            files: flag("files"),
+        })
+    }
+
+    pub fn messaging_state(self) -> MessagingAccess {
+        match (self.messages, self.message_guard) {
+            (None, _) => MessagingAccess::NotReported,
+            (Some(false), _) => MessagingAccess::Blocked,
+            (Some(true), Some(true)) => MessagingAccess::Allowed,
+            (Some(true), _) => MessagingAccess::GuardRequired,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AttachmentIdentity {

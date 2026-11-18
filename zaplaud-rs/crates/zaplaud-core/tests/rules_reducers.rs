@@ -6,6 +6,38 @@ use zaplaud_core::{
 };
 
 #[test]
+fn server_access_preserves_missing_flags_and_requires_message_guard() {
+    let access = ServerAccess::parse(&json!({"terminal": false, "permissions": true})).unwrap();
+    assert_eq!(access.reading, Some(false));
+    assert_eq!(access.permissions, Some(true));
+    assert_eq!(access.files, None);
+    assert_eq!(access.messaging_state(), MessagingAccess::NotReported);
+
+    for (data, expected) in [
+        (json!({"messages": true}), MessagingAccess::GuardRequired),
+        (
+            json!({"messages": true, "messageSessionGuard": false}),
+            MessagingAccess::GuardRequired,
+        ),
+        (
+            json!({"messages": false, "messageSessionGuard": true}),
+            MessagingAccess::Blocked,
+        ),
+        (
+            json!({"messages": true, "messageSessionGuard": true}),
+            MessagingAccess::Allowed,
+        ),
+        (json!({"messages": "true"}), MessagingAccess::NotReported),
+    ] {
+        assert_eq!(
+            ServerAccess::parse(&data).unwrap().messaging_state(),
+            expected
+        );
+    }
+    assert!(ServerAccess::parse(&json!([])).is_none());
+}
+
+#[test]
 fn disappearing_session_refreshes_recent_only_when_missing() {
     use zaplaud_core::controller::reading::ReadingController;
 
