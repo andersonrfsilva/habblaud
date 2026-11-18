@@ -1,46 +1,61 @@
 //! Carrega as imagens citadas no Markdown e as entrega ao Slint por `MarkdownImages`.
 
-use crate::{AppWindow, MarkdownImages, feature::FeatureContext, update_ui};
+use crate::{AppWindow, MarkdownImages, feature::FeatureContext, strings, update_ui};
 use slint::ComponentHandle;
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::Arc;
 use zaplaud_core::api::HabblaudApi;
 use zaplaud_ui::markdown::images::{self, Decoded};
 
-// A chave é só o destino: a troca de sessão esvazia tudo e avança GENERATION, e a carga que
-// termina depois da troca é descartada; assim servidores não se misturam.
-thread_local! { static IMAGES: RefCell<HashMap<String, slint::Image>> = RefCell::default(); }
-/// Destinos em andamento, mais as falhas automáticas, que não devem repetir a cada redesenho.
-static BUSY: Mutex<Option<HashSet<String>>> = Mutex::new(None);
-static GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+const CACHE_BYTES: usize = 64 * 1024 * 1024;
 
-fn generation() -> u64 {
-    GENERATION.load(std::sync::atomic::Ordering::SeqCst)
+// A troca de sessão descarta o cache e invalida cargas ainda em andamento.
+thread_local! { static IMAGES: RefCell<Images> = RefCell::default(); }
+
+#[derive(Default)]
+struct Images {
+    api: Option<HabblaudApi>,
+    generation: u64,
+    entries: HashMap<Arc<str>, (slint::Image, usize)>,
+    order: VecDeque<Arc<str>>,
+    bytes: usize,
+    loading: HashSet<Arc<str>>,
+    failed: HashSet<Arc<str>>,
 }
 
-fn busy<T>(apply: impl FnOnce(&mut HashSet<String>) -> T) -> T {
-    apply(
-        BUSY.lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .get_or_insert_default(),
-    )
+impl Images {
+    fn insert(&mut self, dest: Arc<str>, image: slint::Image, bytes: usize) {
+        while self.bytes + bytes > CACHE_BYTES {
+            let Some(oldest) = self.order.pop_front() else {
+                return;
+            };
+            if let Some((_, released)) = self.entries.remove(&oldest) {
+                self.bytes -= released;
+            }
+        }
+        self.bytes += bytes;
+        self.order.push_back(dest.clone());
+        self.entries.insert(dest, (image, bytes));
+    }
 }
 
 pub fn setup(window: &AppWindow, context: &FeatureContext) {
     let global = window.global::<MarkdownImages>();
+    global.set_failed_label(strings::IMAGE_FAILED.into());
     global.on_get(|dest, _| {
         IMAGES.with(|images| {
             images
                 .borrow()
+                .entries
                 .get(dest.as_str())
-                .cloned()
+                .map(|(image, _)| image.clone())
                 .unwrap_or_default()
         })
     });
-    let api: Arc<Mutex<Option<HabblaudApi>>> = Arc::default();
-    let (current, weak, mut snapshots) =
-        (api.clone(), window.as_weak(), context.snapshots.subscribe());
+    global
+        .on_failed(|dest, _| IMAGES.with(|images| images.borrow().failed.contains(dest.as_str())));
+    let (weak, mut snapshots) = (window.as_weak(), context.snapshots.subscribe());
     context.runtime.spawn(async move {
         let mut selected = None;
         loop {
@@ -49,21 +64,26 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                 Err(_) => break,
             };
-            let key = snapshot.selected.as_ref().map(|item| item.key.clone());
-            *current.lock().unwrap_or_else(|e| e.into_inner()) = key.as_ref().and_then(|key| {
-                snapshot
-                    .servers
-                    .iter()
-                    .find(|server| server.api.origin() == key.origin)
-                    .map(|server| server.api.clone())
-            });
-            if selected != key {
-                selected = key;
+            let key = snapshot.selected.as_ref().map(|item| &item.key);
+            if selected.as_ref() != key {
+                selected = key.cloned();
+                let api = key.and_then(|key| {
+                    snapshot
+                        .servers
+                        .iter()
+                        .find(|server| server.api.origin() == key.origin)
+                        .map(|server| server.api.clone())
+                });
                 // A conversa nova recria as linhas e pede as imagens de novo; a memória não cresce sem fim.
-                GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                busy(HashSet::clear);
-                update_ui(&weak, |window| {
-                    IMAGES.with(|images| images.borrow_mut().clear());
+                update_ui(&weak, move |window| {
+                    IMAGES.with(|images| {
+                        let mut images = images.borrow_mut();
+                        *images = Images {
+                            api,
+                            generation: images.generation.wrapping_add(1),
+                            ..Images::default()
+                        };
+                    });
                     let global = window.global::<MarkdownImages>();
                     global.set_revision(global.get_revision().wrapping_add(1));
                 });
@@ -72,17 +92,27 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
     });
     let (weak, runtime) = (window.as_weak(), context.runtime.clone());
     global.on_load(move |dest| {
-        let dest = dest.to_string();
-        let kind = images::kind(&dest);
-        if kind.is_empty()
-            || IMAGES.with(|images| images.borrow().contains_key(&dest))
-            || !busy(|set| set.insert(dest.clone()))
-        {
+        let kind = images::kind(dest.as_str());
+        if kind.is_empty() {
             return;
         }
-        let api = api.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let Some((dest, api, started)) = IMAGES.with(|images| {
+            let mut images = images.borrow_mut();
+            let text = dest.as_str();
+            if images.entries.contains_key(text)
+                || images.loading.contains(text)
+                || kind != "remote" && images.failed.contains(text)
+            {
+                return None;
+            }
+            let dest: Arc<str> = Arc::from(text);
+            images.failed.remove(text);
+            images.loading.insert(dest.clone());
+            Some((dest, images.api.clone(), images.generation))
+        }) else {
+            return;
+        };
         let weak = weak.clone();
-        let started = generation();
         runtime.spawn(async move {
             let bytes = match (kind, images::host_path(&dest), api) {
                 ("data", ..) => images::data_bytes(&dest),
@@ -97,27 +127,35 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                     .flatten(),
                 None => None,
             };
-            // A sessão mudou durante a carga: o destino pode ser de outro servidor.
-            if started != generation() {
-                return;
-            }
-            // A remota volta ao botão para nova tentativa.
-            if decoded.is_some() || kind == "remote" {
-                busy(|set| set.remove(&dest));
-            }
-            let Some(decoded) = decoded else { return };
+            // A sessão pode mudar antes da conclusão chegar à thread da interface.
             update_ui(&weak, move |window| {
-                if started != generation() {
+                let current = IMAGES.with(|images| images.borrow().generation == started);
+                if !current {
                     return;
                 }
-                let image = match decoded {
-                    Decoded::Pixels(pixels) => slint::Image::from_rgba8(pixels),
-                    Decoded::Svg(svg) => match slint::Image::load_from_svg_data(&svg) {
-                        Ok(image) => image,
-                        Err(_) => return,
-                    },
-                };
-                IMAGES.with(|images| images.borrow_mut().insert(dest, image));
+                let image = decoded.and_then(|decoded| match decoded {
+                    Decoded::Pixels(pixels) => {
+                        let bytes = images::raster_bytes(pixels.width(), pixels.height())?;
+                        Some((slint::Image::from_rgba8(pixels), bytes))
+                    }
+                    Decoded::Svg(svg) => {
+                        let image = slint::Image::load_from_svg_data(&svg).ok()?;
+                        let size = image.size();
+                        let bytes = svg
+                            .len()
+                            .max(images::raster_bytes(size.width, size.height)?);
+                        Some((image, bytes))
+                    }
+                });
+                IMAGES.with(|images| {
+                    let mut images = images.borrow_mut();
+                    images.loading.remove(dest.as_ref());
+                    if let Some((image, bytes)) = image {
+                        images.insert(dest, image, bytes);
+                    } else {
+                        images.failed.insert(dest);
+                    }
+                });
                 let global = window.global::<MarkdownImages>();
                 global.set_revision(global.get_revision().wrapping_add(1));
             });

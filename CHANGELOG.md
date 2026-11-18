@@ -186,6 +186,7 @@ do meio (0.**3**.0).
 - **Zaplaud desktop:** Recentes é atualizada sem reconectar quando uma sessão sai da lista ao vivo e ainda não está no histórico.
 - **Zaplaud desktop:** trocar de conversa ou servidor cancela a confirmação de retomar ou dispensar, sem enviar a ação.
 - **Zaplaud desktop:** botão Cancelar, Esc e clique fora não fecham a folha de permissão durante o envio da decisão.
+- **Zaplaud desktop:** imagens que falham mostram um aviso. O cliente recusa imagens grandes demais, URLs com credenciais e redirecionamentos.
 - **Zaplaud (Android e iOS):** imagens grandes demais ou que falham exibem um aviso; imagens remotas não seguem redirecionamentos.
 - **Zaplaud:** o Android não renderiza SVGs com declarações de documento ou entidade; no Android e no iOS, diagramas Mermaid acima de 2 MiB aparecem como código.
 - **Acesso remoto:** “Sair” e o vencimento da sessão fecham na hora os streams já abertos.

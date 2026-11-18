@@ -1,7 +1,11 @@
 //! Política e decodificação das imagens `![alt](destino)` da conversa; não acessa a rede.
 
 use base64::Engine;
+use image::ImageDecoder;
 use slint::{Rgba8Pixel, SharedPixelBuffer};
+use zaplaud_core::api::{MAX_IMAGE_BYTES, UrlPolicy};
+
+const MAX_IMAGE_PIXELS: u64 = 4096 * 4096;
 
 /// `data` e `file` carregam sozinhas; `remote` só depois do toque, porque o pedido automático
 /// deixaria texto injetado na resposta vazar dados pela URL. Vazio: o destino fica só como link.
@@ -10,9 +14,7 @@ pub fn kind(dest: &str) -> &'static str {
         "data"
     } else if host_path(dest).is_some() {
         "file"
-    } else if url::Url::parse(dest)
-        .is_ok_and(|url| matches!(url.scheme(), "http" | "https") && url.host_str().is_some())
-    {
+    } else if UrlPolicy::remote_image(dest).is_some() {
         "remote"
     } else {
         ""
@@ -37,9 +39,14 @@ pub fn is_image_link(dest: &str) -> bool {
 
 pub fn data_bytes(dest: &str) -> Option<Vec<u8>> {
     let (_, encoded) = dest.split_once(";base64,")?;
+    let encoded = encoded.trim();
+    if encoded.len() > MAX_IMAGE_BYTES.div_ceil(3) * 4 {
+        return None;
+    }
     base64::engine::general_purpose::STANDARD
-        .decode(encoded.trim())
+        .decode(encoded)
         .ok()
+        .filter(|bytes| !bytes.is_empty() && bytes.len() <= MAX_IMAGE_BYTES)
 }
 
 pub enum Decoded {
@@ -58,13 +65,28 @@ pub fn decode(bytes: Vec<u8>) -> Option<Decoded> {
     // Limita a descompressão: uma imagem pequena no fio não pode pedir gigabytes de pixels.
     let mut limits = image::Limits::default();
     limits.max_alloc = Some(256 * 1024 * 1024);
-    reader.limits(limits);
-    let rgba = reader.decode().ok()?.into_rgba8();
+    reader.limits(limits.clone());
+    let mut decoder = reader.into_decoder().ok()?;
+    let (width, height) = decoder.dimensions();
+    raster_bytes(width, height)?;
+    limits.reserve(decoder.total_bytes()).ok()?;
+    decoder.set_limits(limits).ok()?;
+    let rgba = image::DynamicImage::from_decoder(decoder)
+        .ok()?
+        .into_rgba8();
     Some(Decoded::Pixels(SharedPixelBuffer::clone_from_slice(
         rgba.as_raw(),
         rgba.width(),
         rgba.height(),
     )))
+}
+
+pub fn raster_bytes(width: u32, height: u32) -> Option<usize> {
+    let pixels = u64::from(width) * u64::from(height);
+    if pixels == 0 || pixels > MAX_IMAGE_PIXELS {
+        return None;
+    }
+    Some(pixels as usize * 4)
 }
 
 #[cfg(test)]
@@ -79,6 +101,8 @@ mod tests {
         assert_eq!(kind("https://example.com/a.png"), "remote");
         for dest in [
             "//example.com/a.png",
+            "https://user@example.com/a.png",
+            "https://@example.com/a.png",
             "javascript:alert(1)",
             "a.png",
             "data:text/html;base64,AAAA",

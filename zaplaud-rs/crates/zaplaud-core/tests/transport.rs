@@ -56,6 +56,24 @@ fn response(status: u16, headers: &str, body: &str) -> String {
 }
 
 #[tokio::test]
+async fn remote_image_refuses_redirects_and_embedded_credentials() -> TestResult {
+    let (origin, task) = server(vec![response(302, "Location: /other.png\r\n", "")]).await?;
+    let with_user = origin.replacen("://", "://image-user@", 1);
+    assert!(matches!(
+        HabblaudApi::remote_image(&format!("{with_user}/image.png")).await,
+        Err(Error::InvalidResponse(_))
+    ));
+    assert!(matches!(
+        HabblaudApi::remote_image(&format!("{origin}/image.png")).await,
+        Err(Error::Redirect(302))
+    ));
+    let requests = task.await?;
+    assert_eq!(requests.len(), 1);
+    assert!(requests[0].starts_with("GET /image.png "));
+    Ok(())
+}
+
+#[tokio::test]
 async fn cast_new_uses_host_workspace_and_resume_keeps_history_folder() -> TestResult {
     use serde_json::{Value, json};
     use zaplaud_core::api::ResumeSession;

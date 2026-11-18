@@ -1,4 +1,4 @@
-use super::HabblaudApi;
+use super::{HabblaudApi, UrlPolicy};
 use crate::Error;
 use crate::model::{FileListing, FileRoot};
 use serde::Deserialize;
@@ -11,7 +11,7 @@ struct FileRoots {
 }
 
 /// Limite por imagem mostrada na conversa.
-const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024;
+pub const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024;
 
 impl HabblaudApi {
     pub async fn files_roots(&self) -> Result<Vec<FileRoot>, Error> {
@@ -29,10 +29,16 @@ impl HabblaudApi {
 
     /// Imagem de outro site, pedida pelo usuário: cliente próprio, sem cookies nem credenciais do Habblaud.
     pub async fn remote_image(url: &str) -> Result<Vec<u8>, Error> {
+        let url = UrlPolicy::remote_image(url).ok_or(Error::InvalidResponse("URL da imagem"))?;
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
+            .redirect(reqwest::redirect::Policy::none())
             .build()?;
-        let mut response = client.get(url).send().await?.error_for_status()?;
+        let response = client.get(url).send().await?;
+        if response.status().is_redirection() {
+            return Err(Error::Redirect(response.status().as_u16()));
+        }
+        let mut response = response.error_for_status()?;
         let mut bytes = Vec::new();
         while let Some(chunk) = response.chunk().await? {
             if chunk.len() > MAX_IMAGE_BYTES.saturating_sub(bytes.len()) {
