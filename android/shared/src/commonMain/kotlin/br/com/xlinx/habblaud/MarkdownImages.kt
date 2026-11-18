@@ -24,8 +24,23 @@ import org.jetbrains.compose.resources.decodeToImageBitmap
 import org.jetbrains.compose.resources.stringResource
 import kotlin.io.encoding.Base64
 
+private const val IMAGE_CACHE_MAX_BYTES = 24 * 1024 * 1024
+
 // A composição e seus efeitos acessam o cache na thread da interface, como nos diagramas.
 private val imageCache = mutableMapOf<Pair<HabblaudApi, String>, ByteArray>()
+private var imageCacheBytes = 0
+
+private fun removeCachedImage(key: Pair<HabblaudApi, String>) {
+    imageCache.remove(key)?.let { imageCacheBytes -= it.size }
+}
+
+private fun cacheImage(key: Pair<HabblaudApi, String>, bytes: ByteArray) {
+    if (bytes.size > IMAGE_CACHE_MAX_BYTES) return
+    removeCachedImage(key)
+    while (imageCacheBytes + bytes.size > IMAGE_CACHE_MAX_BYTES) removeCachedImage(imageCache.keys.first())
+    imageCache[key] = bytes
+    imageCacheBytes += bytes.size
+}
 
 @Composable
 internal fun MarkdownImages(text: String, api: HabblaudApi) {
@@ -41,7 +56,7 @@ internal fun MarkdownImages(text: String, api: HabblaudApi) {
 @Composable
 private fun MarkdownImage(alt: String, dest: String, kind: ImageKind, api: HabblaudApi) {
     val key = api to dest
-    var bytes by remember(key) { mutableStateOf(imageCache[key]) }
+    var bytes by remember(key) { mutableStateOf(if (kind == ImageKind.DATA) null else imageCache[key]) }
     var loading by remember(key) { mutableStateOf(false) }
     suspend fun load() {
         loading = true
@@ -56,9 +71,7 @@ private fun MarkdownImage(alt: String, dest: String, kind: ImageKind, api: Habbl
                 ImageKind.REMOTE -> remoteImageBytes(dest)
             }
             if (loaded != null) {
-                imageCache.remove(key)
-                if (imageCache.size >= 32) imageCache.remove(imageCache.keys.first())
-                imageCache[key] = loaded
+                if (kind != ImageKind.DATA) cacheImage(key, loaded)
                 bytes = loaded
             }
         } catch (e: Exception) {
@@ -79,7 +92,7 @@ private fun MarkdownImage(alt: String, dest: String, kind: ImageKind, api: Habbl
             }
         } catch (e: Exception) {
             if (e is CancellationException) throw e
-            imageCache.remove(key)
+            if (kind != ImageKind.DATA) removeCachedImage(key)
             null
         }
     }
