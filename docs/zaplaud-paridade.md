@@ -35,7 +35,7 @@ vai para a tabela abaixo, com o motivo. Textos ficam em `android/shared/src/comm
 | Linha da lista compacta: horário curto ao lado do título, não lidas na linha de baixo, ações sem botão ⋮ | sim | sim | Kotlin: toque longo; desktop: clique direito. Dispensar pela lista segue **pendente** no Rust (fica no menu da conversa) |
 | Bate-papo paralelo, sem pular para o fim quando se lê acima | sim | sim | Abre só pelo menu da conversa. Só apaga o rascunho quando o servidor aceita a pergunta. Enquanto houver resposta em curso, uma consulta que falha é repetida após 3 segundos; o próximo sucesso limpa o erro. |
 | Arquivos da pasta de trabalho: navegar e baixar | sim | sim | Android 10+: Downloads (MediaStore); Android 8/9: pasta Downloads com permissão de armazenamento; iPad: pasta do app; desktop: Downloads |
-| Entregas da sessão: lista e download | sim | pendente no Rust (plano 119) | |
+| Entregas da sessão: lista e download | sim | sim | |
 | Configurações, papéis, resumos por HTTP | sim | sim | |
 | Acesso por servidor em Configurações | sim | sim | Mostra conversas, mensagens, aprovações e arquivos. Campo ausente não vira bloqueio; mensagens sem proteção de sessão aparecem bloqueadas com um aviso. |
 | Seletores de modelo: nomes normalizados, busca, OpenRouter por fabricante e preservação do modelo atual | sim | sim | sessão e papéis; datas e variantes distinguem rótulos sem alterar o ID escolhido |

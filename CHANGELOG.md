@@ -19,6 +19,7 @@ do meio (0.**3**.0).
 
 - **Zaplaud:** o menu da conversa abre as Entregas da sessão, com o pedido, a resposta e os arquivos de cada
   trabalho concluído, e baixa os arquivos.
+- **Zaplaud (desktop Rust):** Entregas da sessão também no menu da conversa, com texto selecionável e download dos anexos.
 - **Zaplaud (Android, iPad e desktop):** Configurações mostra, por servidor, o que a conexão pode fazer (conversas, mensagens, aprovações, arquivos) e o que pedir ao operador quando algo está bloqueado.
 - **Zaplaud:** a tela de Configurações mostra a versão e o número da compilação no Android e no iPad; o ícone do Android agora é adaptativo e aceita temas do lançador.
 - **Zaplaud:** blocos ```` ```svg ```` aparecem desenhados na conversa, como os diagramas Mermaid, com tela cheia e zoom.
