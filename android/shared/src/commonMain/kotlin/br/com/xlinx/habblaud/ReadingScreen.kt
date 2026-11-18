@@ -297,7 +297,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                     singleLine = true,
                 )
                 // Como no seletor dos papéis: por provedor/fabricante, a versão mais nova primeiro, sem variantes ocultas nem cópias datadas.
-                val groups = roleModelGroups(selected!!.models, keep = currentModel, query = modelQuery)
+                val groups = remember(selected!!.models, currentModel, modelQuery) { roleModelGroups(selected.models, keep = currentModel, query = modelQuery) }
                 if (groups.isEmpty()) Text(stringResource(Res.string.models_no_results), Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
                 groups.forEach { (provider, list) ->
                     Text(providerLabel(provider), Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
