@@ -40,6 +40,8 @@ npm test
 npm run build
 ```
 
+Se a mudança tocar `android/`, rode `android/gradlew -p android :shared:testAndroidHostTest :app:testDebugUnitTest :app:lintDebug :app:assembleDebug` com JDK 17 e o Android SDK com `platforms;android-37.0`. Rode os testes instrumentados em um emulador isolado com `python3 scripts/android-instrumented-ci.py`. A compilação do iPadOS requer um Mac (`scripts/ios-build.sh simulator`).
+
 Se a mudança alterar um plugin do Claude Code, valide também o plugin afetado:
 
 ```sh
