@@ -77,7 +77,7 @@ internal fun fileBreadcrumbs(root: String, path: String): List<Pair<String, Stri
 internal const val IMAGE_MAX_BYTES = 10 * 1024 * 1024
 
 // Cliente separado: URLs da conversa nunca recebem os cookies ou a autorização da API.
-private val imageClient by lazy { HttpClient() }
+private val imageClient by lazy { HttpClient { followRedirects = false } }
 
 suspend fun HabblaudApi.imageBytes(path: String): ByteArray? = try {
     if (!path.startsWith("/") || path.startsWith("//")) null

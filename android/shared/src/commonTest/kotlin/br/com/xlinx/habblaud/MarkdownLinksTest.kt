@@ -11,7 +11,9 @@ class MarkdownLinksTest {
             assertTrue(isHttpMarkdownLink(it), it)
         }
         listOf("javascript:alert(1)", "file:///etc/passwd", "intent://host", "mailto:a@example.test",
-            "/relative.png", "//example.test/image.png", "https://", "https:///path", "").forEach {
+            "/relative.png", "//example.test/image.png", "https://", "https:///path", "",
+            "https://user:pw@example.com/a.png", "https://example.com\\@evil/a.png",
+            "https://example.com/a\\b.png").forEach {
             assertFalse(isHttpMarkdownLink(it), it)
         }
     }
