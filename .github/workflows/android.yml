@@ -3,11 +3,12 @@ name: Android
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, producao]
     paths:
       - '.github/workflows/android.yml'
       - 'android/**'
       - 'scripts/android-instrumented-ci.py'
+      - 'scripts/android-files-instrumented.py'
       - 'scripts/android-smoke.ts'
       - 'server/**'
       - 'shared/**'
@@ -21,6 +22,7 @@ on:
       - '.github/workflows/android.yml'
       - 'android/**'
       - 'scripts/android-instrumented-ci.py'
+      - 'scripts/android-files-instrumented.py'
       - 'scripts/android-smoke.ts'
       - 'server/**'
       - 'shared/**'

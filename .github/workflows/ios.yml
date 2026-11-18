@@ -4,7 +4,14 @@ on:
   workflow_dispatch:
   workflow_call:
   push:
-    branches: [advisor/041-zaplaud-ipados-kotlin]
+    branches: [main, producao]
+    paths:
+      - 'android/**'
+      - 'ios/**'
+      - 'scripts/ios-*'
+      - 'scripts/android-smoke.ts'
+      - 'server/test/android-fixture.ts'
+      - '.github/workflows/ios.yml'
   pull_request:
     paths:
       - 'android/**'
