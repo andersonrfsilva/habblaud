@@ -758,12 +758,12 @@ class FixtureUiInstrumentedTest {
             compose.onNodeWithContentDescription(text(R.string.cast_start)).performClick()
             compose.waitUntil(15_000) { compose.onAllNodes(hasText("Bia Fictícia")).fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithText("Bia Fictícia").performClick()
-            compose.onNodeWithText("/fixture/projeto").performClick()
             compose.waitUntil(15_000) { fixture("/api/fixture/stats").getJSONArray("castRequests").length() > before }
             val requests = fixture("/api/fixture/stats").getJSONArray("castRequests")
             val request = requests.getJSONObject(requests.length() - 1)
             assertEquals("new", request.getString("mode"))
-            assertEquals("/fixture/projeto", request.getString("room"))
+            assertEquals("/api/cast/bia/start", request.getString("path"))
+            assertTrue("A chamada não deve enviar pasta: $request", !request.has("folder") && !request.has("room"))
         }
     }
 }
