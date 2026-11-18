@@ -104,15 +104,22 @@ internal suspend fun remoteImageBytes(url: String): ByteArray? = try {
 }
 
 private suspend fun boundedImageBytes(response: HttpResponse): ByteArray? {
-    if (!response.status.isSuccess() || (response.contentLength() ?: 0) > IMAGE_MAX_BYTES) return null
+    val length = response.contentLength()
+    if (!response.status.isSuccess() || (length ?: 0) > IMAGE_MAX_BYTES) return null
     val channel = response.bodyAsChannel()
-    val bytes = ByteArray(IMAGE_MAX_BYTES + 1)
+    var bytes = ByteArray(length?.takeIf { it > 0 }?.toInt() ?: 64 * 1024)
     var count = 0
-    while (count < bytes.size) {
+    while (true) {
         currentCoroutineContext().ensureActive()
+        if (!channel.awaitContent(1)) {
+            channel.closedCause?.let { throw it }
+            break
+        }
+        if (count == IMAGE_MAX_BYTES) return null
+        if (count == bytes.size) bytes = bytes.copyOf((bytes.size * 2).coerceAtMost(IMAGE_MAX_BYTES))
         val read = channel.readAvailable(bytes, count, bytes.size - count)
         if (read < 0) break
         count += read
     }
-    return if (count == 0 || count > IMAGE_MAX_BYTES) null else bytes.copyOf(count)
+    return if (count == 0) null else if (count == bytes.size) bytes else bytes.copyOf(count)
 }
