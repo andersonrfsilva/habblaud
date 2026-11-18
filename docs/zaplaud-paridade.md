@@ -38,6 +38,7 @@ vai para a tabela abaixo, com o motivo. Textos ficam em `android/shared/src/comm
 | ZeroClaw: controles permitidos, sem anel de contexto, elenco pelo runtime | sim | sim | |
 | Espera de `Retry-After` no login limitada a 24 h | sim | sim | |
 | Avisos de aprovação, pergunta e fim de turno | sim | sim | Android: serviço em segundo plano; desktop: só com o app aberto |
+| Notificação prioriza a conversa do aviso sobre a última conversa de outro servidor | sim (Android) | pendente de conferência no Rust | A ação «Abrir» no desktop usa a seleção comum e fecha os outros controladores; falta conferir a disputa com a restauração usando dois servidores. |
 | Ícone na bandeja | não se aplica | sim | |
 | Chaveiro destrancado quando o padrão está trancado (Linux) | não se aplica | sim | |
 | Diagramas Mermaid desenhados na conversa | sim | sim | Kotlin pede o SVG ao servidor (`POST /api/mermaid`); Rust desenha localmente (`mermaid-rs-renderer`) |

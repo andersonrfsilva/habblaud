@@ -154,7 +154,10 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
     val pending by pendingSession.collectAsStateWithLifecycle()
     LaunchedEffect(pending) { pending?.let { target ->
         controllers[target.origin]?.let { controller ->
-            controllers.filterKeys { it != target.origin }.values.forEach { if (it.state.value.selected != null) it.close() }
+            controllers.filterKeys { it != target.origin }.values.forEach {
+                it.cancelRestore()
+                if (it.state.value.selected != null) it.close()
+            }
             controller.openKey(target)
         }
         pendingSession.value = null
