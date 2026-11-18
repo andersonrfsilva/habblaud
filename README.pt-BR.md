@@ -267,12 +267,14 @@ Para buscar sessões, puxe a lista para baixo com firmeza estando no topo. A bus
 Para gerar capturas dos dois temas com dados fictícios, execute `scripts/android-screens.sh` com o AVD
 `habblaud034` disponível. As imagens ficam em `/tmp/android-screens/`.
 
-Quando o acesso remoto permite `terminal` e o auxiliar do host está disponível, o aplicativo também chama e dispensa
-contatos (os personagens do elenco do escritório) e retoma sessões omp encerradas com o contato escolhido (o último a usá-la aparece primeiro) ou com um contato **Novo**, de nome e visual sorteados, mesmo sem contato livre na pasta. Um pedido sem confirmação não é
+Com a autorização remota `terminal`, o aplicativo chama e dispensa contatos (os personagens do elenco do
+escritório). O omp também precisa do auxiliar do host; o ZeroClaw não usa esse auxiliar. Sessões omp encerradas
+podem ser retomadas com o contato escolhido (o último a usá-la aparece primeiro) ou com um contato **Novo**, de
+nome e visual sorteados, mesmo sem contato livre na pasta. Um pedido sem confirmação não é
 reenviado automaticamente. Os avatares usam a mesma arte do escritório e ficam em cache privado no aparelho. O nome
 do contato aparece junto ao avatar; toque longo nos ícones de ação mostra sua função. Com as mensagens liberadas, o
 menu da conversa de um agente do omp abre o **Bate-papo paralelo**: perguntas respondidas sem interromper o agente e
-fora da conversa dele, como na janela lateral da página. No fim da conversa, uma puxada longa para cima também o abre.
+fora da conversa dele, como na janela lateral da página.
 
 #### Compilar e instalar
 
@@ -368,7 +370,8 @@ Na porta remota, as travas de `HABBLAUD_REMOTE_ALLOW` são independentes. O apli
 | --- | --- |
 | Lista de sessões abertas | Login |
 | Recentes e conversas vivas ou históricas | `terminal` |
-| Chamar, dispensar ou retomar contato | `terminal` e auxiliar do host disponível |
+| Chamar, dispensar ou retomar contato (omp) | `terminal` e auxiliar do host disponível |
+| Chamar, dispensar ou retomar contato (ZeroClaw) | `terminal`, sem auxiliar do host |
 | Mensagens, anexos e interrupção omp | `messages` e `messageSessionGuard` no `/api/access` |
 | Respostas a aprovações e perguntas | `permissions` |
 
@@ -396,7 +399,10 @@ A barra da conversa mostra ícones para responder perguntas e aprovar permissõe
 configuração de animações do sistema. Perguntas do omp aceitam escolha única, múltipla e texto livre; omp e Codex
 não aceitam `interrupt` nem `suggestion` nas decisões.
 
-No Android, as notificações opcionais usam o serviço em primeiro plano existente. Desativá-las interrompe o serviço.
+**Avisos.** Se ativados, os avisos de aprovação, pergunta e fim de turno dependem de um serviço em primeiro plano,
+com uma notificação fixa no Android. Desativar os avisos interrompe o serviço. Depois de reiniciar o celular, abra
+o aplicativo uma vez para voltar a receber avisos. A economia de bateria agressiva pode atrasá-los.
+
 O aplicativo não oferece terminal interativo, fila offline de comandos ou atualização automática. As sessões e
 conversas permanecem no servidor.
 
