@@ -19,6 +19,9 @@ internal fun castOwner(cast: List<JsonObject>, key: SessionKey): JsonObject? = c
 internal fun liveOrClosed(item: SessionItem): SessionItem =
     if (item.status == "offline") item.copy(agentId = null, canMessage = false) else item
 
+internal fun recentIsStale(before: Collection<SessionItem>, now: Collection<SessionItem>, recent: Collection<SessionItem>): Boolean =
+    before.any { previous -> now.none { it.key == previous.key } && recent.none { it.key == previous.key } }
+
 /** Subagentes e advisors trabalhando agora, por agente principal; quem terminou ou parou não entra. */
 internal fun activeSubagents(agents: List<JsonObject>, serverTime: Long = 0): Map<String, List<SubAgent>> = agents
     .filter { it.string("kind") == "sub" && it.string("status") == "working" }
@@ -40,6 +43,8 @@ class SessionRepository(private val api: HabblaudApi) {
     private var recent = emptyList<SessionItem>()
     private var open = emptyList<SessionItem>()
     private var cast = emptyList<JsonObject>()
+    var recentStale = false
+        private set
     var terminalAllowed = false
         private set
     var messagesAllowed = false
@@ -58,14 +63,19 @@ class SessionRepository(private val api: HabblaudApi) {
         messagesAllowed = access.flag("messages")
         messageGuard = access.flag("messageSessionGuard")
         permissionsAllowed = access.flag("permissions")
+        refreshRecent()
+        cast = if (terminalAllowed) try {
+            wireJson.parseToJsonElement(api.request("/api/cast")).jsonObject.objects("members")
+        } catch (e: ApiException) { if (e.status == 403 || e.status == 404) emptyList() else throw e } else emptyList()
+    }
+
+    suspend fun refreshRecent() {
         recent = if (terminalAllowed) {
             try {
                 wireJson.parseToJsonElement(api.request("/api/sessions/recent")).jsonObject.objects("sessions").mapNotNull { item(it, null) }
             } catch (e: ApiException) { if (e.status == 403) { terminalAllowed = false; emptyList() } else throw e }
         } else emptyList()
-        cast = if (terminalAllowed) try {
-            wireJson.parseToJsonElement(api.request("/api/cast")).jsonObject.objects("members")
-        } catch (e: ApiException) { if (e.status == 403 || e.status == 404) emptyList() else throw e } else emptyList()
+        recentStale = false
     }
 
     fun snapshot(data: String): List<SessionItem> {
@@ -74,9 +84,11 @@ class SessionRepository(private val api: HabblaudApi) {
         val rooms = root.objects("rooms").associate { it.string("id") to (it.string("path") ?: it.string("name")) }
         val agents = root.objects("agents")
         val subs = activeSubagents(agents, serverTime)
-        open = agents.filter { it.string("kind") == "main" && it.string("parentId") == null }.mapNotNull { agent ->
+        val next = agents.filter { it.string("kind") == "main" && it.string("parentId") == null }.mapNotNull { agent ->
             item(agent, rooms[agent.string("roomId")])?.let { it.copy(subagents = it.agentId?.let(subs::get).orEmpty()) }?.let(::liveOrClosed)
         }
+        if (recentIsStale(open, next, recent)) recentStale = true
+        open = next
         return sessions()
     }
 
