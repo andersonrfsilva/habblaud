@@ -261,6 +261,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
     // Bate-papo paralelo do agente aberto: some ao trocar de conversa (o controlador também fecha).
     var asideOpen by remember(selected?.key) { mutableStateOf(false) }
     var filesOpen by remember(api.origin, selected?.key) { mutableStateOf(false) }
+    var deliveriesOpen by remember(api.origin, selected?.key) { mutableStateOf(false) }
     PlatformBackHandler(enabled = selected == null && searchOpen) { query = ""; searchOpen = false }
     CastActions(api, selected, actionsAvailable(states.getValue(actionOrigin), actionOrigin in needsLogin, selected?.permission == true) && (selected != null || filter != null || apis.size == 1), state.sessions.filter { it.agentId != null && it.key.origin == api.origin }, { onUnauthorized(api.origin) }, { permissionSession = selected }, menu = { close, dismissItem ->
         // Menu em páginas: a principal lista os grupos; tocar num grupo troca o conteúdo pela lista dele, com "‹ Voltar".
@@ -310,6 +311,9 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
             "thinking" -> { Back(); THINKING_LEVELS.forEach { level -> Choice(thinkingLabel(level), level == selected!!.thinking) { controller.messages.setThinking(agentId!!, level); close() } } }
             else -> {
                 DropdownMenuItem(modifier = Modifier.testTag("files-menu"), text = { Text(stringResource(Res.string.files_title)) }, onClick = { filesOpen = true; close() })
+                if (selected != null && !selected.sub) {
+                    DropdownMenuItem(modifier = Modifier.testTag("deliveries-menu"), text = { Text(stringResource(Res.string.deliveries_menu)) }, onClick = { deliveriesOpen = true; close() })
+                }
                 Group(Res.string.view_menu, viewLabels.firstOrNull { it.first == view }?.let { stringResource(it.second) }, "view", loaded)
                 if (sessionControls) {
                     Group(Res.string.deliver_mode, deliverLabels.firstOrNull { it.first == messageDelivery(selected?.key?.provider, deliverMode) }?.let { stringResource(it.second) }, "deliver", loaded)
@@ -334,6 +338,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
     }) { showInfo = false }
     if (asideOpen && selected?.agentId != null) AsideSheet(controller.asides, api) { asideOpen = false; controller.asides.close() }
     if (filesOpen) FilesSheet(api, selected, { onUnauthorized(api.origin) }) { filesOpen = false }
+    if (deliveriesOpen && selected != null) DeliveriesSheet(api, selected, { onUnauthorized(api.origin) }) { deliveriesOpen = false }
     val listTopBar: @Composable (ReadingState) -> Unit = { state ->
         TopAppBar(
             title = {
