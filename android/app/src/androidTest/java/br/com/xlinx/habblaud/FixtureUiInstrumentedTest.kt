@@ -4,6 +4,7 @@ import android.Manifest
 import android.os.Build
 import android.content.Context
 import android.content.pm.ActivityInfo
+import android.view.KeyEvent
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -213,7 +214,8 @@ class FixtureUiInstrumentedTest {
         compose.onNodeWithTag("session-search").performTextInput("busca-impossivel")
         compose.onNodeWithText(text(R.string.search_no_match)).assertIsDisplayed()
         compose.onNodeWithText(text(R.string.sessions_empty)).assertDoesNotExist()
-        compose.onNodeWithText(text(R.string.search_clear)).performClick()
+        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        compose.onNodeWithText(text(R.string.search_clear)).assertIsDisplayed().performClick()
         compose.waitUntil(15_000) {
             compose.onAllNodes(SemanticsMatcher("row") {
                 it.config.getOrNull(SemanticsProperties.TestTag)?.startsWith("session-row:") == true
@@ -758,12 +760,12 @@ class FixtureUiInstrumentedTest {
             compose.onNodeWithContentDescription(text(R.string.cast_start)).performClick()
             compose.waitUntil(15_000) { compose.onAllNodes(hasText("Bia Fictícia")).fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithText("Bia Fictícia").performClick()
-            compose.onNodeWithText("/fixture/projeto").performClick()
             compose.waitUntil(15_000) { fixture("/api/fixture/stats").getJSONArray("castRequests").length() > before }
             val requests = fixture("/api/fixture/stats").getJSONArray("castRequests")
             val request = requests.getJSONObject(requests.length() - 1)
             assertEquals("new", request.getString("mode"))
-            assertEquals("/fixture/projeto", request.getString("room"))
+            assertEquals("/api/cast/bia/start", request.getString("path"))
+            assertTrue("A chamada não deve enviar pasta: $request", !request.has("folder") && !request.has("room"))
         }
     }
 }
