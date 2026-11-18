@@ -16,7 +16,18 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.io.IOException
+import kotlinx.io.readByteArray
 import kotlinx.serialization.json.*
+
+internal const val MERMAID_SVG_MAX_BYTES = 2 * 1024 * 1024
+
+internal suspend fun mermaidResponseBytes(response: HttpResponse): ByteArray? {
+    if (!response.status.isSuccess()) return null
+    if (response.contentType()?.withoutParameters() != ContentType.Image.SVG) return null
+    if ((response.contentLength() ?: 0) > MERMAID_SVG_MAX_BYTES) return null
+    val body = response.bodyAsChannel().readBuffer(MERMAID_SVG_MAX_BYTES + 1L)
+    return if (body.size > MERMAID_SVG_MAX_BYTES) null else body.readByteArray()
+}
 
 /** `detail` = o texto de `error` que o servidor manda no corpo (para mostrar ao usuário), quando houver. */
 class ApiException(val status: Int, val retryAfter: String? = null, val code: String? = null, val attachmentsExpired: Boolean = false, val detail: String? = null) : IOException("HTTP $status")
@@ -114,7 +125,18 @@ class HabblaudApi(val origin: String) : AutoCloseable {
     /** Resumo da resposta do agente em até 5 frases (POST /api/summaries; o servidor guarda e reaproveita). */
     suspend fun summary(text: String): String = wireJson.parseToJsonElement(request("/api/summaries", buildJsonObject { put("text", text) })).jsonObject["summary"]!!.jsonPrimitive.content
     suspend fun mermaid(source: String): ByteArray? = try {
-        request("/api/mermaid", buildJsonObject { put("source", source) }).encodeToByteArray()
+        val json = buildJsonObject { put("source", source) }.toString().encodeToByteArray()
+        client().preparePost(origin + "/api/mermaid") {
+            authorize(this)
+            setBody(object : OutgoingContent.WriteChannelContent() {
+                override val contentType = ContentType.Application.Json.withParameter("charset", "utf-8")
+                override val contentLength = json.size.toLong()
+                override suspend fun writeTo(channel: ByteWriteChannel) { channel.writeFully(json) }
+            })
+        }.execute { response ->
+            receive(response)
+            mermaidResponseBytes(response)
+        }
     } catch (e: Exception) {
         currentCoroutineContext().ensureActive()
         // O bloco volta a código; o motivo fica no log (logcat System.out no Android).
