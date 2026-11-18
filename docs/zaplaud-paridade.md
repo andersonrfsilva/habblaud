@@ -48,7 +48,7 @@ vai para a tabela abaixo, com o motivo. Textos ficam em `android/shared/src/comm
 | Diagrama Mermaid em tela cheia, com zoom e arrasto | sim | sim | Kotlin: pinça; desktop: botões +/− e teclado +/−, até 8×; arrasto move, duplo clique/toque restaura, Esc ou Fechar sai |
 | Detalhes da sessão e do subagente: seções Estado, Modelo, Contexto e Identificadores; campos vazios ocultos | sim | sim | subagente mostra papel, tarefa, modelo e contexto próprios e leva à sessão principal; identificadores copiáveis |
 | Copiar bloco de código, código do Mermaid e mensagem inteira | sim | sim | |
-| Tentar de novo após erro de envio | sim | sim | Envio ambíguo continua pedindo confirmação. Conflito de envio ou comando só fecha a conversa de origem. A consulta de status Rust já confere o id da operação. |
+| Tentar de novo após erro de envio | sim | sim | Envio ambíguo continua pedindo confirmação. Conflito de envio ou comando só fecha a conversa de origem. Uma consulta de status antiga não altera a operação seguinte. |
 | Blocos `svg` desenhados na conversa, com a mesma tela cheia | sim | sim | desenho local nos dois; `var(--fg)`, `--accent` etc. viram cores fixas sobre fundo branco; Kotlin aceita até 200.000 caracteres |
 | Imagens do markdown abaixo do texto; o link continua no texto; links externos só `http`/`https` | sim | sim | `data:` e caminho absoluto do host (`/api/files/raw`) carregam sozinhos; `http`/`https` só após "Carregar imagem", sem cookies do Habblaud; até 10 MB. Link comum com destino `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp` ou `.svg` também é desenhado; URL solta sem `<>` só no Kotlin. Pendente de conferência no Rust: limites de pixels, cache por bytes, recusa de redirecionamentos e aviso de falha. |
 

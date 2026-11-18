@@ -233,6 +233,68 @@ fn kotlin_missing_status_unknown_and_session_conflict_preserves_draft() {
 }
 
 #[test]
+fn stale_message_poll_keeps_next_ambiguous_operation() {
+    let mut h = Harness::default();
+    let session = key("one");
+    h.open(session.clone());
+    h.edit("primeira");
+    let (token, _) = h.send(false);
+    h.accept(token, "old", "queued");
+    h.edit("segunda");
+    let (token, _) = h.send(false);
+    h.event(c::Event::SendFailed {
+        token,
+        failure: c::Failure::default(),
+    });
+    let expected = h.state.composer.operation.clone().unwrap();
+    assert_eq!(expected.status, "unknown");
+    assert_eq!(expected.id, None);
+
+    for (status, failure) in [
+        (Some("delivered".into()), None),
+        (
+            None,
+            Some(c::Failure {
+                status: Some(404),
+                ..c::Failure::default()
+            }),
+        ),
+    ] {
+        assert!(
+            h.event(c::Event::PollResult {
+                key: session.clone(),
+                id: "old".into(),
+                control: false,
+                status,
+                error: None,
+                failure,
+            })
+            .is_empty()
+        );
+        assert_eq!(h.state.composer.operation.as_ref(), Some(&expected));
+    }
+
+    let local = h.locals.remove(&session).unwrap();
+    assert_eq!(local.operation.as_ref(), Some(&expected));
+    assert_eq!(
+        c::update_message(
+            local,
+            &c::MessageUpdate::Polled {
+                control: false,
+                id: "old".into(),
+                operation: MessageOperation {
+                    id: Some("old".into()),
+                    status: "delivered".into(),
+                    ..MessageOperation::default()
+                },
+            },
+        )
+        .operation,
+        Some(expected)
+    );
+}
+
+#[test]
 fn late_conflicts_do_not_close_another_conversation() {
     for action in ["send", "interrupt", "shake"] {
         let mut h = Harness::default();
