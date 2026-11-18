@@ -1,5 +1,8 @@
 package br.com.xlinx.habblaud.data
 
+import br.com.xlinx.habblaud.isHttpMarkdownLink
+import io.ktor.client.HttpClient
+import kotlinx.coroutines.CancellationException
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
@@ -69,4 +72,47 @@ internal fun fileBreadcrumbs(root: String, path: String): List<Pair<String, Stri
         current += "/$name"
         name to current
     }
+}
+
+internal const val IMAGE_MAX_BYTES = 10 * 1024 * 1024
+
+// Cliente separado: URLs da conversa nunca recebem os cookies ou a autorização da API.
+private val imageClient by lazy { HttpClient() }
+
+suspend fun HabblaudApi.imageBytes(path: String): ByteArray? = try {
+    if (!path.startsWith("/") || path.startsWith("//")) null
+    else client().prepareGet(origin + "/api/files/raw") {
+        parameter("path", path)
+        authorize(this)
+    }.execute { response ->
+        receive(response)
+        boundedImageBytes(response)
+    }
+} catch (e: Exception) {
+    if (e is CancellationException) throw e
+    currentCoroutineContext().ensureActive()
+    null
+}
+
+internal suspend fun remoteImageBytes(url: String): ByteArray? = try {
+    if (!isHttpMarkdownLink(url)) null
+    else imageClient.prepareGet(url).execute { boundedImageBytes(it) }
+} catch (e: Exception) {
+    if (e is CancellationException) throw e
+    currentCoroutineContext().ensureActive()
+    null
+}
+
+private suspend fun boundedImageBytes(response: HttpResponse): ByteArray? {
+    if (!response.status.isSuccess() || (response.contentLength() ?: 0) > IMAGE_MAX_BYTES) return null
+    val channel = response.bodyAsChannel()
+    val bytes = ByteArray(IMAGE_MAX_BYTES + 1)
+    var count = 0
+    while (count < bytes.size) {
+        currentCoroutineContext().ensureActive()
+        val read = channel.readAvailable(bytes, count, bytes.size - count)
+        if (read < 0) break
+        count += read
+    }
+    return if (count == 0 || count > IMAGE_MAX_BYTES) null else bytes.copyOf(count)
 }

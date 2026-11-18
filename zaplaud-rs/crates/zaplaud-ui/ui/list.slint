@@ -89,6 +89,8 @@ export component ListPane inherits Rectangle {
                 Rectangle { y: (parent.height - self.height) / 2; width: 10px; height: 10px; border-radius: 5px; background: ListState.connection == "connected" ? Theme.primary : ListState.connection == "connecting" ? StatusColors.warning : Theme.error; accessible-role: text; accessible-label: ListState.connection == "connected" ? Labels.reading-connected : ListState.connection == "connecting" ? Labels.reading-connecting : Labels.reading-offline; }
             }
             Rectangle { horizontal-stretch: 1; }
+            // Desktop não tem a puxada do Android: a busca abre por este botão ou Ctrl/Cmd+F.
+            VerticalLayout { width: 32px; alignment: center; IconButton { width: 32px; icon: MaterialIcons.search; label: Labels.search-sessions; clicked => { ListState.search-open = !ListState.search-open; if !ListState.search-open { ListState.query = ""; ListState.changed(); } } } }
             VerticalLayout { width: 32px; alignment: center; IconButton { width: 32px; icon: MaterialIcons.more-vert; label: Labels.menu; clicked => { ListState.menu-open = true; menu.show(); } } }
         }
         VerticalLayout { padding-left: 12px; padding-right: 12px; spacing: 8px;

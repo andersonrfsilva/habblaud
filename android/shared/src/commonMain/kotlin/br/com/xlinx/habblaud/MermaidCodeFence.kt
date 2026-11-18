@@ -50,6 +50,15 @@ import org.intellij.markdown.ast.getTextInNode
 // Só acessado pela composição e seus efeitos, na thread da interface; separa as instâncias da API e não guarda falhas.
 private val mermaidCache = mutableMapOf<Pair<HabblaudApi, String>, ByteArray>()
 
+// O desenho fica sobre fundo branco; os leitores SVG nativos não resolvem var(), então as cores do tema viram fixas.
+private val svgPalette = mapOf(
+    "fg" to "#1f2328", "muted" to "#656d76", "border" to "#d0d7de", "surface" to "#f6f8fa",
+    "accent" to "#0969da", "success" to "#1a7f37", "warning" to "#9a6700", "error" to "#cf222e",
+    "c1" to "#0969da", "c2" to "#1a7f37", "c3" to "#9a6700", "c4" to "#cf222e", "c5" to "#8250df", "c6" to "#bf3989",
+)
+private val svgVar = Regex("""var\(\s*--([\w-]+)[^)]*\)""")
+internal fun svgThemeColors(svg: String): String = svgVar.replace(svg) { svgPalette[it.groupValues[1]] ?: "currentColor" }
+
 @Composable
 internal fun CopyableCodeBlock(model: MarkdownComponentModel) {
     val source = remember(model.content, model.node) { model.node.getTextInNode(model.content).toString().replaceIndent() }
@@ -81,12 +90,14 @@ internal fun MermaidCodeFence(model: MarkdownComponentModel, api: HabblaudApi) {
 
 @Composable
 private fun MermaidContent(model: MarkdownComponentModel, api: HabblaudApi, language: String?, closed: Boolean, source: String) {
-    if (!language.equals("mermaid", ignoreCase = true) || !closed || source.isBlank() || source.length > 20_000) {
+    // SVG escrito na resposta é desenhado direto; Mermaid passa antes pelo servidor.
+    val svg = language.equals("svg", ignoreCase = true)
+    if ((!svg && !language.equals("mermaid", ignoreCase = true)) || !closed || source.isBlank() || source.length > if (svg) 200_000 else 20_000) {
         MarkdownCodeFence(model.content, model.node, model.typography.code)
         return
     }
     val key = api to source
-    var bytes by remember(key) { mutableStateOf(mermaidCache[key]) }
+    var bytes by remember(key) { mutableStateOf(if (svg) svgThemeColors(source).encodeToByteArray() else mermaidCache[key]) }
     LaunchedEffect(key) {
         if (bytes == null) api.mermaid(source)?.let {
             if (mermaidCache.size >= 32) mermaidCache.remove(mermaidCache.keys.first())
@@ -118,7 +129,7 @@ private fun MermaidContent(model: MarkdownComponentModel, api: HabblaudApi, lang
 
 /** Diagrama em tela cheia: pinça amplia, arrastar move, toque duplo volta ao tamanho inicial. */
 @Composable
-private fun MermaidFullscreen(painter: Painter, source: String, onClose: () -> Unit) {
+internal fun MermaidFullscreen(painter: Painter, source: String, onClose: () -> Unit) {
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         var scale by remember { mutableFloatStateOf(1f) }
         var offset by remember { mutableStateOf(Offset.Zero) }

@@ -11,7 +11,10 @@ import com.caverock.androidsvg.SVG
 // Compose Resources só oferece o leitor SVG nos alvos Skia, não no Android.
 internal actual fun mermaidPainter(bytes: ByteArray, density: Density): Painter {
     val svg = SVG.getFromString(bytes.decodeToString())
-    val intrinsic = Size(svg.documentWidth, svg.documentHeight)
+    // SVG só com viewBox não tem tamanho de documento (-1); sem isso a proporção sai errada.
+    val box = svg.documentViewBox
+    val intrinsic = if (svg.documentWidth > 0 && svg.documentHeight > 0) Size(svg.documentWidth, svg.documentHeight)
+        else Size(box?.width() ?: 300f, box?.height() ?: 150f)
     // Com width/height fixos o AndroidSVG desenha no tamanho do documento e corta; 100% faz caber no viewBox.
     svg.setDocumentWidth("100%")
     svg.setDocumentHeight("100%")

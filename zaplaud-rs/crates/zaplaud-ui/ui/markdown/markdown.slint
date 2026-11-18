@@ -27,6 +27,13 @@ export global MarkdownGeometry {
     callback measured(string, float, float, float, float);
 }
 
+/// Imagens `![alt](destino)`: `get` devolve a já carregada; `revision` refaz o binding quando uma chega.
+export global MarkdownImages {
+    in-out property <int> revision;
+    pure callback get(string, int) -> image;
+    callback load(string);
+}
+
 component MeasuredText inherits StyledText {
     // A altura explícita preserva a medida na largura renderizada ao agregar os layouts ancestrais.
     height: self.preferred-height;
@@ -210,7 +217,7 @@ export component MarkdownView inherits Rectangle {
                         border-radius: 6px;
                         clip: true;
                         accessible-role: button;
-                        accessible-label: "Diagrama Mermaid";
+                        accessible-label: "Diagrama";
                         accessible-action-default => { DiagramState.open(block.diagram); }
                         forward-focus: diagram-keys;
                         border-width: diagram-keys.has-focus ? 2px : 0px;
@@ -225,7 +232,7 @@ export component MarkdownView inherits Rectangle {
                             source: block.diagram;
                             image-fit: contain;
                             accessible-role: image;
-                            accessible-label: "Diagrama Mermaid";
+                            accessible-label: "Diagrama";
                         }
                         TouchArea { clicked => { DiagramState.open(block.diagram); } }
                     }
@@ -258,6 +265,33 @@ export component MarkdownView inherits Rectangle {
                 x: parent.width - 32px; y: 8px;
                 width: 24px; height: 24px; icon: MaterialIcons.content-copy; label: "Copiar código";
                 clicked => { root.copy(block.copy-text == "" ? block.text : block.copy-text); }
+            }
+        }
+        if block.kind == "image": image-box := VerticalLayout {
+            alignment: start;
+            property <image> picture: MarkdownImages.get(block.text, MarkdownImages.revision);
+            // `language` é a origem: só a remota espera o toque, para não vazar dados pela URL.
+            init => { if block.language != "remote" { MarkdownImages.load(block.text); } }
+            if image-box.picture.width > 0: HorizontalLayout {
+                alignment: start;
+                Rectangle {
+                    property <length> picture-width: min(image-box.width, image-box.picture.width * 1px);
+                    width: self.picture-width;
+                    height: self.picture-width * image-box.picture.height / image-box.picture.width;
+                    border-radius: 6px;
+                    clip: true;
+                    Image {
+                        source: image-box.picture;
+                        image-fit: contain;
+                        accessible-role: image;
+                        accessible-label: "Imagem";
+                    }
+                    TouchArea { clicked => { DiagramState.open(image-box.picture); } }
+                }
+            }
+            if image-box.picture.width == 0 && block.language == "remote": HorizontalLayout {
+                alignment: start;
+                MdButton { text: "Carregar imagem"; clicked => { MarkdownImages.load(block.text); } }
             }
         }
         if block.kind == "table": ScrollView {

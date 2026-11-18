@@ -8,8 +8,8 @@
 //! o Markdown original. A lista externa deve virtualizar mensagens e chamar
 //! `parse` sob demanda; este módulo não retém mensagens nem cria runtimes.
 //!
-//! `MdBlock.kind` é `text`, `quote`, `code`, `table` ou `rule`. Blocos ```` ```mermaid ````
-//! válidos seguem `code`, com o diagrama renderizado localmente em `diagram`. `level` é 1–6
+//! `MdBlock.kind` é `text`, `quote`, `code`, `table` ou `rule`. Blocos ```` ```mermaid ```` e
+//! ```` ```svg ```` válidos seguem `code`, com o desenho renderizado localmente em `diagram`. `level` é 1–6
 //! para títulos e zero para parágrafos. `depth` é a indentação de listas a partir
 //! de zero, e `marker` conserva a numeração ou o estado da tarefa. `spans` expõe
 //! texto, bold, italic, strike, code e link; `rich` mantém o fluxo inline nativo.
@@ -24,6 +24,8 @@
 use pulldown_cmark::{Alignment, CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 use slint::{ModelExt, ModelRc, StyledText, VecModel};
 use std::rc::Rc;
+
+pub mod images;
 
 include!(concat!(env!("OUT_DIR"), "/markdown.rs"));
 
@@ -108,6 +110,33 @@ fn escape(text: &str) -> String {
     escaped
 }
 
+/// O desenho fica sobre fundo branco e o resvg não resolve `var()`: as cores do tema viram fixas.
+fn svg_theme_colors(svg: &str) -> String {
+    let mut out = String::with_capacity(svg.len());
+    let mut rest = svg;
+    while let Some(start) = rest.find("var(--") {
+        let Some(len) = rest[start..].find(')') else { break };
+        let name = rest[start + 6..start + len].split(',').next().unwrap_or_default().trim();
+        out.push_str(&rest[..start]);
+        out.push_str(match name {
+            "fg" => "#1f2328",
+            "muted" => "#656d76",
+            "border" => "#d0d7de",
+            "surface" => "#f6f8fa",
+            "accent" | "c1" => "#0969da",
+            "success" | "c2" => "#1a7f37",
+            "warning" | "c3" => "#9a6700",
+            "error" | "c4" => "#cf222e",
+            "c5" => "#8250df",
+            "c6" => "#bf3989",
+            _ => "currentColor",
+        });
+        rest = &rest[start + len + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
 #[derive(Default)]
 struct Blocks {
     blocks: Vec<MdBlock>,
@@ -121,10 +150,24 @@ struct Blocks {
     alignments: Vec<Alignment>,
     column: usize,
     table_head: bool,
+    images: Vec<String>,
 }
 
 impl Blocks {
     fn flush(&mut self) {
+        self.flush_text();
+        // A imagem vem logo abaixo do parágrafo que a cita; o link continua no texto.
+        for dest in std::mem::take(&mut self.images) {
+            self.blocks.push(MdBlock {
+                kind: "image".into(),
+                language: images::kind(&dest).into(),
+                text: dest.into(),
+                depth: self.lists.len().saturating_sub(1) as i32,
+                ..Default::default()
+            });
+        }
+    }
+    fn flush_text(&mut self) {
         if self.inline.spans.is_empty() {
             return;
         }
@@ -161,7 +204,8 @@ impl Blocks {
 }
 
 /// Converte CommonMark/GFM em blocos leves, mantendo estilos inline e texto literal.
-/// HTML permanece texto; imagens viram links e nunca fazem acesso à rede.
+/// HTML permanece texto. Imagens viram link mais um bloco `image` com o destino em `text` e a
+/// origem (`images::kind`) em `language`; o parser nunca acessa a rede.
 pub fn parse(markdown: &str) -> Vec<MdBlock> {
     let options =
         Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
@@ -202,7 +246,15 @@ pub fn parse(markdown: &str) -> Vec<MdBlock> {
                 state.inline.strike -= 1;
                 state.inline.markup.push_str("~~");
             }
-            Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. }) => {
+            Event::Start(tag @ (Tag::Link { .. } | Tag::Image { .. })) => {
+                let (image, dest_url) = match tag {
+                    Tag::Image { dest_url, .. } => (true, dest_url),
+                    Tag::Link { dest_url, .. } => (images::is_image_link(&dest_url), dest_url),
+                    _ => unreachable!(),
+                };
+                if image && !images::kind(&dest_url).is_empty() && !state.images.iter().any(|dest| **dest == *dest_url) {
+                    state.images.push(dest_url.to_string());
+                }
                 state.inline.links.push(dest_url.to_string());
                 state.inline.markup.push('[');
             }
@@ -259,12 +311,14 @@ pub fn parse(markdown: &str) -> Vec<MdBlock> {
             }
             Event::End(TagEnd::CodeBlock) => {
                 if let Some((language, text)) = state.code.take() {
-                    // Diagrama inválido ou incompleto (streaming) cai no bloco de código comum.
-                    let diagram = (language.trim() == "mermaid")
-                        .then(|| mermaid_rs_renderer::render(&text).ok())
-                        .flatten()
-                        .and_then(|svg| slint::Image::load_from_svg_data(svg.as_bytes()).ok())
-                        .unwrap_or_default();
+                    // Desenho inválido ou incompleto (streaming) cai no bloco de código comum.
+                    let diagram = match language.trim() {
+                        "mermaid" => mermaid_rs_renderer::render(&text).ok(),
+                        "svg" => Some(svg_theme_colors(&text)),
+                        _ => None,
+                    }
+                    .and_then(|svg| slint::Image::load_from_svg_data(svg.as_bytes()).ok())
+                    .unwrap_or_default();
                     state.blocks.push(MdBlock {
                         kind: "code".into(),
                         code_lines: text.lines().count().max(1) as i32,
@@ -447,6 +501,18 @@ mod tests {
     }
 
     #[test]
+    fn svg_fences_render_drawings_and_invalid_ones_stay_code() {
+        let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect width="40" height="20"/></svg>"#;
+        let blocks = parse(&format!("```svg\n{svg}\n```"));
+        assert_eq!(blocks[0].diagram.size().width, 40);
+        assert!(blocks[0].text.contains("<rect"));
+        assert_eq!(parse("```svg\n<svg><rect\n```")[0].diagram.size().width, 0);
+        let themed = parse("```svg\n<svg viewBox=\"0 0 90 47\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"9\" height=\"9\" fill=\"var(--accent)\" stroke=\"var(--nope, red)\"/></svg>\n```");
+        assert_eq!(themed[0].diagram.size().width, 90);
+        assert_eq!(svg_theme_colors("a var(--fg) b var( --x"), "a #1f2328 b var( --x");
+    }
+
+    #[test]
     fn code_height_omits_only_the_terminal_newline_without_changing_clipboard_text() {
         for (source, text, lines) in [
             ("```sh\n  echo teste\n```", "  echo teste\n", 1),
@@ -472,6 +538,14 @@ mod tests {
                 .iter()
                 .any(|s| s.text == "imagem" && s.link == "https://example.com/image.png")
         );
+        assert_eq!(blocks[2].kind, "image");
+        assert_eq!(blocks[2].language, "remote");
+        assert_eq!(blocks[2].text, "https://example.com/image.png");
+        assert_eq!(parse("![](/tmp/a.png)")[0].language, "file");
+        assert!(parse("![x](javascript:alert(1))").iter().all(|block| block.kind != "image"));
+        let linked = parse("[foto](/tmp/a.PNG) [site](https://example.com/page) <https://example.com/b.jpg?x=1>");
+        let drawn: Vec<_> = linked.iter().filter(|block| block.kind == "image").map(|block| block.text.as_str()).collect();
+        assert_eq!(drawn, ["/tmp/a.PNG", "https://example.com/b.jpg?x=1"]);
     }
 
     #[test]

@@ -21,6 +21,7 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
     labels.set_cast_start(strings::CAST_START.into());
     labels.set_pin_session(strings::PIN_SESSION.into());
     labels.set_unpin_session(strings::UNPIN_SESSION.into());
+    labels.set_collapse(strings::COLLAPSE.into());
     labels.set_favorite_session(strings::FAVORITE_SESSION.into());
     labels.set_unfavorite_session(strings::UNFAVORITE_SESSION.into());
     labels.set_favorite_sessions(strings::FAVORITE_SESSIONS.into());

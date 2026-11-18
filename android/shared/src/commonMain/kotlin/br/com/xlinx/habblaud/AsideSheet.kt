@@ -143,6 +143,7 @@ private fun AsideTurnView(turn: AsideTurn, api: HabblaudApi) {
         if (turn.answer.isNotEmpty()) SelectionContainer {
             Markdown(remember(turn.answer) { markdownImageLinks(turn.answer) }, modifier = Modifier.fillMaxWidth(), colors = markdownColor(text = MaterialTheme.colorScheme.onSurface), dimens = chatMarkdownDimens(), components = markdownComponents(codeFence = { MermaidCodeFence(it, api) }, codeBlock = { CopyableCodeBlock(it) }, table = wrappingTable))
         }
+        if (turn.answer.isNotEmpty()) MarkdownImages(turn.answer, api)
         if (turn.answer.isNotEmpty()) TextButton(onClick = { clipboard.setText(AnnotatedString(turn.answer)) }, modifier = Modifier.align(Alignment.End)) {
             Text(stringResource(Res.string.copy))
         }

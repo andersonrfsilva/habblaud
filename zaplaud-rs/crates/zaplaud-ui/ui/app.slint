@@ -10,7 +10,7 @@ import { ListPane, ListState } from "list.slint";
 import { ConversationPane, ConversationState } from "conversation.slint";
 import { ConversationView, ConversationStatus, ConversationViewState, ConversationMenu, SessionInfoSheet } from "conversation_view.slint";
 export { ConversationViewState, ConversationRow, ToolDetail, InfoRow, ModelChoice, MdBlock, MdCell, MdSpan } from "conversation_view.slint";
-export { TranscriptProbe, MarkdownGeometry } from "conversation_view.slint";
+export { TranscriptProbe, MarkdownGeometry, MarkdownImages } from "conversation_view.slint";
 export { ComposerState, ComposerAttachment } from "composer.slint";
 import { Dialog } from "widgets/kit.slint";
 import { CastSheet, CastState } from "cast.slint";
@@ -73,7 +73,7 @@ export component AppWindow inherits Window {
         enabled: !root.overlay-open;
         changed enabled => { if self.enabled { self.focus(); ListState.focus-request += 1; } }
         key-pressed(event) => {
-            if root.wide && (event.modifiers.control || event.modifiers.meta) && (event.text == "f" || event.text == "F") && !LoginState.visible && !SettingsState.visible {
+            if (root.wide || !ConversationState.selected) && (event.modifiers.control || event.modifiers.meta) && (event.text == "f" || event.text == "F") && !LoginState.visible && !SettingsState.visible {
                 ListState.search-open = true; return accept;
             }
             return reject;

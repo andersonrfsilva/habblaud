@@ -17,10 +17,16 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Zaplaud:** blocos ```` ```svg ```` aparecem desenhados na conversa, como os diagramas Mermaid, com tela cheia e zoom.
+- **Zaplaud:** imagens do markdown aparecem abaixo do texto. Imagens embutidas (`data:`) e arquivos do computador do
+  agente (caminho absoluto, onde o navegador de arquivos é permitido) carregam sozinhas; imagens de outros sites só
+  depois de tocar em "Carregar imagem". Link comum que aponta para um arquivo de imagem também é desenhado.
 - **Zaplaud:** linha da lista de sessões mais compacta. O horário vai para o canto do título, sem o "há"; o contador
   de não lidas fica na linha de baixo; as ações da sessão abrem com toque longo no Android e no iPad ou com
   clique direito no desktop. "Dispensar contato" fica nesse menu no Android e no iPad; no desktop Rust, segue
   no menu da conversa.
+- **Zaplaud:** botão "Recolher" no fim de resumos, pensamentos e ferramentas abertos, sem precisar voltar ao começo.
+- **Zaplaud desktop:** botão de busca no topo da lista; Ctrl/Cmd+F também funciona na janela estreita.
 
 - **Detalhes da sessão reorganizados nos clientes Zaplaud.** A tela de detalhes, da sessão principal e dos subagentes,
   agora tem seções (Estado, Modelo, Contexto, Identificadores), esconde campos vazios e permite copiar identificadores.

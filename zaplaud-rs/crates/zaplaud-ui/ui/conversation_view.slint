@@ -1,5 +1,6 @@
 import { Clock } from "clock.slint";
 import { Theme } from "resources.slint";
+import { Labels } from "labels.slint";
 import { ConversationState } from "conversation.slint";
 import { MarkdownView, MdBlock, MeasuredInput } from "markdown/markdown.slint";
 import { ScrollList, ScrollContainer, TextButton, TextField, Banner, Sheet, Avatar, Pill, Divider } from "widgets/kit.slint";
@@ -8,7 +9,7 @@ import { CastState } from "cast.slint";
 import { AsideState } from "aside.slint";
 import { FilesState } from "files.slint";
 import { MaterialIcons } from "widgets/material-icons.slint";
-export { MdBlock, MdCell, MdSpan, MarkdownGeometry } from "markdown/markdown.slint";
+export { MdBlock, MdCell, MdSpan, MarkdownGeometry, MarkdownImages } from "markdown/markdown.slint";
 
 export struct ToolDetail { title: string, text: string }
 export struct ConversationRow {
@@ -205,6 +206,10 @@ component EntryBubble inherits Rectangle {
                     }
                 }
             }
+            // Recolher também no fim do conteúdo aberto, para não precisar voltar ao cabeçalho.
+            if root.group && root.entry.expanded && root.entry.last: HorizontalLayout { alignment: start;
+                TextButton { text: Labels.collapse; clicked => { root.toggle-expanded(); } }
+            }
             if root.group && root.entry.last && !root.entry.first: Text {
                 height: 16px; text: root.entry.time; horizontal-alignment: right;
                 color: Theme.on-surface-variant; font-size: 11px;
@@ -222,6 +227,9 @@ component EntryBubble inherits Rectangle {
                     blocks: root.entry.blocks; source-markdown: root.entry.source;
                     copy(text) => { ConversationViewState.copy(text); }
                     link-clicked(url) => { ConversationViewState.open-link(url); }
+                }
+                if root.entry.summarized && root.entry.expanded && root.entry.last: HorizontalLayout { alignment: start;
+                    TextButton { text: Labels.collapse; clicked => { root.toggle-expanded(); } }
                 }
                 if root.entry.last: Text { height: 16px; text: root.entry.time; horizontal-alignment: right; color: (root.entry.kind == "user" ? Theme.on-primary-container : Theme.on-surface-variant).with-alpha(0.7); font-size: 11px; letter-spacing: 0.5px; }
             }

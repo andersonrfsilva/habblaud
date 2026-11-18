@@ -19,6 +19,7 @@ mod conversation;
 mod conversation_view;
 pub mod feature;
 mod files;
+mod images;
 #[cfg(not(target_os = "android"))]
 mod instance;
 mod list;
@@ -50,6 +51,7 @@ const FEATURES: &[Feature] = &[
     cast::setup,
     aside::setup,
     files::setup,
+    images::setup,
     composer::setup,
     permission::setup,
     alerts::setup,

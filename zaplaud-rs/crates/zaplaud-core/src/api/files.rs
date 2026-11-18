@@ -10,10 +10,37 @@ struct FileRoots {
     roots: Vec<FileRoot>,
 }
 
+/// Limite por imagem mostrada na conversa.
+const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024;
+
 impl HabblaudApi {
     pub async fn files_roots(&self) -> Result<Vec<FileRoot>, Error> {
         let response = self.request("/api/files", None).await?;
         Ok(serde_json::from_str::<FileRoots>(&response)?.roots)
+    }
+
+    /// Imagem do host citada na conversa: mesma rota e mesma trava do navegador de arquivos.
+    pub async fn files_image(&self, path: &str) -> Result<Vec<u8>, Error> {
+        let url = self.url(&format!("/api/files/raw?path={}", super::encode_name(path)))?;
+        let request = self.client.get(url.clone());
+        let response = self.checked(self.send(request, &url, true).await?).await?;
+        self.bytes(response, MAX_IMAGE_BYTES).await
+    }
+
+    /// Imagem de outro site, pedida pelo usuário: cliente próprio, sem cookies nem credenciais do Habblaud.
+    pub async fn remote_image(url: &str) -> Result<Vec<u8>, Error> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()?;
+        let mut response = client.get(url).send().await?.error_for_status()?;
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response.chunk().await? {
+            if chunk.len() > MAX_IMAGE_BYTES.saturating_sub(bytes.len()) {
+                return Err(Error::ResponseTooLarge);
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        Ok(bytes)
     }
 
     pub async fn files_list(&self, path: &str) -> Result<FileListing, Error> {
