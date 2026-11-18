@@ -29,7 +29,7 @@ vai para a tabela abaixo, com o motivo. Textos ficam em `android/shared/src/comm
 | Aprovação e perguntas, com resumo `text` e entrada não textual em JSON | sim | sim | Kotlin rola na horizontal; Rust quebra a linha e mostra "mais N linhas" |
 | Chamar personagem (também com conversa aberta em tela larga), dispensar, retomar | sim | sim | pasta da conversa aberta vem primeiro |
 | Linha da lista compacta: horário curto ao lado do título, não lidas na linha de baixo, ações sem botão ⋮ | sim | sim | Kotlin: toque longo; desktop: clique direito. Dispensar pela lista segue **pendente** no Rust (fica no menu da conversa) |
-| Bate-papo paralelo, sem pular para o fim quando se lê acima | sim | sim | abre só pelo menu da conversa |
+| Bate-papo paralelo, sem pular para o fim quando se lê acima | sim | sim | abre só pelo menu da conversa. Pendente de conferência no Rust: apagar o rascunho só com confirmação explícita do envio (inclusive ao ocultar a janela) e retomar a consulta após falha de rede. |
 | Arquivos da pasta de trabalho: navegar e baixar | sim | sim | Android: Downloads (MediaStore); iOS: pasta do app; desktop: Downloads |
 | Configurações, papéis, resumos por HTTP | sim | sim | |
 | Seletores de modelo: nomes normalizados, busca, OpenRouter por fabricante e preservação do modelo atual | sim | sim | sessão e papéis; datas e variantes distinguem rótulos sem alterar o ID escolhido |

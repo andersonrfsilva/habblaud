@@ -172,6 +172,8 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Zaplaud (Android e iOS):** no bate-papo paralelo, a pergunta não some quando o envio falha, a janela continua
+  funcionando depois de sair e voltar ao app, e a resposta volta a atualizar depois de uma falha de rede.
 - **Zaplaud (Android e iOS):** o bate-papo paralelo volta a acompanhar o fim: abre na última resposta, mostra a
   pergunta enviada e segue a resposta enquanto ela cresce. Lendo mais acima, a lista fica parada. Antes ela não
   saía do lugar, porque a rolagem automática pedia um deslocamento que estourava a conta.
