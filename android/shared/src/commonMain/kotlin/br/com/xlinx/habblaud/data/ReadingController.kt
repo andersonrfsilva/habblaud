@@ -74,6 +74,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
     private val mutable = MutableStateFlow(ReadingState())
     val state: StateFlow<ReadingState> = mutable
     private var stateJob: Job? = null
+    private var recentJob: Job? = null
     private var conversationJob: Job? = null
     private var generation = 0
     private var active = false
@@ -170,6 +171,14 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                             restore?.let { key -> sessions.find { it.key == key }?.let { item -> restore = null; open(item) } }
                             if (firstSnapshot && conversationJob?.isActive != true) mutable.value.selected?.let(::open)
                             refreshUnread()
+                            if (repository.recentStale && recentJob?.isActive != true) {
+                                recentJob = scope.launch {
+                                    try { repository.refreshRecent() } catch (_: IOException) { return@launch }
+                                    mutable.value = mutable.value.copy(sessions = repository.sessions())
+                                    publishMarks()
+                                    refreshUnread()
+                                }
+                            }
                         }
                     }
                 }
@@ -179,7 +188,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
     fun stop() {
         if (!active) return
         persist(); saveSeen(0); active = false; accessReady = false; generation++
-        stateJob?.cancel(); conversationJob?.cancel()
+        stateJob?.cancel(); conversationJob?.cancel(); recentJob?.cancel()
         pendingSummaries.values.toList().forEach { it.cancel() }; pendingSummaries.clear()
         messages.stop(); asides.close(); api.cancelCalls()
         mutable.value = mutable.value.copy(connection = "offline", readingError = if (mutable.value.selected != null && mutable.value.readingError == null) "network" else mutable.value.readingError)
