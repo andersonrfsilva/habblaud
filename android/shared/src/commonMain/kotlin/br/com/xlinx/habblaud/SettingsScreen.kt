@@ -140,6 +140,21 @@ fun SettingsScreen(apis: Map<String, HabblaudApi>, store: LocalStateStore, onClo
     var runtime by remember(api) { mutableStateOf<String?>(null) }
     var summaryHttp by remember(api) { mutableStateOf(false) }
     var authenticated by remember(api) { mutableStateOf(true) }
+    var access by remember(api) { mutableStateOf<ServerAccess?>(null) }
+    var accessError by remember(api) { mutableStateOf(false) }
+    LaunchedEffect(api, authenticated, lifecycleOwner) {
+        if (!authenticated) return@LaunchedEffect
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            try {
+                access = serverAccess(api.access())
+                accessError = false
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                if (e is ApiException && e.status == 401) authenticated = false
+                else accessError = true
+            }
+        }
+    }
     LaunchedEffect(api, lifecycleOwner) {
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
             if (!authenticated) return@repeatOnLifecycle
