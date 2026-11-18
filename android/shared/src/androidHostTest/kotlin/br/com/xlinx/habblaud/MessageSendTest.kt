@@ -10,8 +10,11 @@ import io.ktor.http.content.OutgoingContent
 import io.ktor.utils.io.ByteWriteChannel
 import io.ktor.utils.io.writeFully
 import org.junit.After
+import java.util.concurrent.CountDownLatch
+import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
 import okhttp3.mockwebserver.SocketPolicy
 import org.junit.Assert.*
 import org.junit.Test
@@ -99,6 +102,37 @@ class MessageSendTest {
             assertEquals(2, server.requestCount); restored.stop()
         } finally { server.shutdown() }
     }
+    @Test fun olderPollDoesNotClearUncertainSend() = runBlocking {
+        val server = MockWebServer(); server.start(); val store = MemoryStore()
+        val c = controller(this, store, server)
+        try {
+            server.enqueue(MockResponse().setBody("{\"id\":\"opA\",\"status\":\"queued\"}"))
+            server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST))
+            repeat(2) { server.enqueue(MockResponse().setBody("{\"status\":\"queued\"}")) }
+            open(c, a); c.edit(text = "A"); c.send("agent")
+            waitFor { c.state.value.operation?.id == "opA" && !c.state.value.sending }
+            c.edit(text = "B"); c.send("agent")
+            waitFor { c.state.value.operation?.status == "unknown" && !c.state.value.sending }
+
+            // A second GET proves the first poll response was processed.
+            waitFor { server.requestCount == 4 }
+            repeat(2) {
+                val request = server.takeRequest()
+                assertEquals("POST", request.method)
+                assertEquals("/api/messages", request.path)
+            }
+            repeat(2) {
+                val request = server.takeRequest()
+                assertEquals("GET", request.method)
+                assertEquals("/api/messages/opA", request.path)
+            }
+            assertEquals("unknown", c.state.value.operation?.status)
+            c.send("agent")
+            assertEquals("confirm", c.state.value.error)
+            assertFalse(c.state.value.sending)
+            assertEquals(4, server.requestCount)
+        } finally { c.stop(); server.shutdown() }
+    }
     @Test fun missingStatusIsUnknownNotFailure() = runBlocking {
         val server = MockWebServer(); server.start(); val store = MemoryStore()
         try {
@@ -118,6 +152,29 @@ class MessageSendTest {
             assertEquals("pedido", store.message(a).draft.text)
             assertNull(store.message(a).operation); assertEquals(1, server.requestCount); c.stop()
         } finally { server.shutdown() }
+    }
+    @Test fun staleConflictDoesNotCloseAnotherConversation() = runBlocking {
+        val releaseResponse = CountDownLatch(1)
+        val server = MockWebServer()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                releaseResponse.await()
+                return MockResponse().setResponseCode(409).setBody("{\"code\":\"session_changed\"}")
+            }
+        }
+        server.start()
+        var changed = 0
+        val c = controller(this, MemoryStore(), server) { changed++ }
+        try {
+            open(c, a); c.edit(text = "pedido"); c.send("agent")
+            waitFor { server.requestCount == 1 }
+            open(c, b)
+            val pending = coroutineContext.job.children.toList()
+            releaseResponse.countDown()
+            withTimeout(6000) { pending.joinAll() }
+            assertEquals(0, changed)
+            assertEquals(b, c.state.value.key)
+        } finally { releaseResponse.countDown(); c.stop(); server.shutdown() }
     }
     @Test fun uncertainStopRequiresExplicitConfirmationAfterRestart() = runBlocking {
         val server = MockWebServer(); server.start(); val store = MemoryStore()
