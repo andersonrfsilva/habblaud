@@ -2,7 +2,7 @@
 
 O Zaplaud tem dois códigos de cliente:
 
-- **Kotlin** (`android/shared/src/commonMain`): Android e iPhone/iPad.
+- **Kotlin** (`android/shared/src/commonMain`): Android e iPad (o projeto iOS só tem alvo iPad).
 - **Rust** (`zaplaud-rs/`): o desktop de Linux e macOS.
 
 O desktop Compose (`android/desktop`, `android/shared/src/jvmMain`) está obsoleto desde 2026-11-10: fica no
@@ -33,12 +33,15 @@ vai para a tabela abaixo, com o motivo. Textos ficam em `android/shared/src/comm
 | Linha da lista compacta: horário curto ao lado do título, não lidas na linha de baixo, ações sem botão ⋮ | sim | sim | Kotlin: toque longo; desktop: clique direito. Dispensar pela lista segue **pendente** no Rust (fica no menu da conversa) |
 | Bate-papo paralelo, sem pular para o fim quando se lê acima | sim | sim | abre só pelo menu da conversa. Pendente de conferência no Rust: apagar o rascunho só com confirmação explícita do envio (inclusive ao ocultar a janela) e retomar a consulta após falha de rede. |
 | Arquivos da pasta de trabalho: navegar e baixar | sim | sim | Android: Downloads (MediaStore); iOS: pasta do app; desktop: Downloads |
+| Bate-papo paralelo, sem pular para o fim quando se lê acima | sim | sim | abre só pelo menu da conversa |
+| Arquivos da pasta de trabalho: navegar e baixar | sim | sim | Android 10+: Downloads (MediaStore); Android 8/9: pasta Downloads com permissão de armazenamento; iPad: pasta do app; desktop: Downloads |
 | Configurações, papéis, resumos por HTTP | sim | sim | |
 | Seletores de modelo: nomes normalizados, busca, OpenRouter por fabricante e preservação do modelo atual | sim | sim | sessão e papéis; datas e variantes distinguem rótulos sem alterar o ID escolhido |
 | ZeroClaw: controles permitidos, sem anel de contexto, elenco pelo runtime | sim | sim | |
 | Espera de `Retry-After` no login limitada a 24 h | sim | sim | |
 | Avisos de aprovação, pergunta e fim de turno | sim | sim | Android: serviço em segundo plano; desktop: só com o app aberto |
 | Notificação prioriza a conversa do aviso sobre a última conversa de outro servidor | sim (Android) | pendente de conferência no Rust | A ação «Abrir» no desktop usa a seleção comum e fecha os outros controladores; falta conferir a disputa com a restauração usando dois servidores. |
+| Avisos de aprovação, pergunta e fim de turno | sim | sim | Android: serviço em segundo plano; **iPad: sem avisos**; desktop: só com o app aberto |
 | Ícone na bandeja | não se aplica | sim | |
 | Chaveiro destrancado quando o padrão está trancado (Linux) | não se aplica | sim | |
 | Diagramas Mermaid desenhados na conversa | sim | sim | Kotlin pede o SVG ao servidor (`POST /api/mermaid`); Rust desenha localmente (`mermaid-rs-renderer`) |

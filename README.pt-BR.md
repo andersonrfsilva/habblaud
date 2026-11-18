@@ -267,12 +267,14 @@ Para buscar sessões, puxe a lista para baixo com firmeza estando no topo. A bus
 Para gerar capturas dos dois temas com dados fictícios, execute `scripts/android-screens.sh` com o AVD
 `habblaud034` disponível. As imagens ficam em `/tmp/android-screens/`.
 
-Quando o acesso remoto permite `terminal` e o auxiliar do host está disponível, o aplicativo também chama e dispensa
-contatos (os personagens do elenco do escritório) e retoma sessões omp encerradas com o contato escolhido (o último a usá-la aparece primeiro) ou com um contato **Novo**, de nome e visual sorteados, mesmo sem contato livre na pasta. Um pedido sem confirmação não é
+Com a autorização remota `terminal`, o aplicativo chama e dispensa contatos (os personagens do elenco do
+escritório). O omp também precisa do auxiliar do host; o ZeroClaw não usa esse auxiliar. Sessões omp encerradas
+podem ser retomadas com o contato escolhido (o último a usá-la aparece primeiro) ou com um contato **Novo**, de
+nome e visual sorteados, mesmo sem contato livre na pasta. Um pedido sem confirmação não é
 reenviado automaticamente. Os avatares usam a mesma arte do escritório e ficam em cache privado no aparelho. O nome
 do contato aparece junto ao avatar; toque longo nos ícones de ação mostra sua função. Com as mensagens liberadas, o
 menu da conversa de um agente do omp abre o **Bate-papo paralelo**: perguntas respondidas sem interromper o agente e
-fora da conversa dele, como na janela lateral da página. No fim da conversa, uma puxada longa para cima também o abre.
+fora da conversa dele, como na janela lateral da página.
 
 #### Compilar e instalar
 
@@ -368,7 +370,8 @@ Na porta remota, as travas de `HABBLAUD_REMOTE_ALLOW` são independentes. O apli
 | --- | --- |
 | Lista de sessões abertas | Login |
 | Recentes e conversas vivas ou históricas | `terminal` |
-| Chamar, dispensar ou retomar contato | `terminal` e auxiliar do host disponível |
+| Chamar, dispensar ou retomar contato (omp) | `terminal` e auxiliar do host disponível |
+| Chamar, dispensar ou retomar contato (ZeroClaw) | `terminal`, sem auxiliar do host |
 | Mensagens, anexos e interrupção omp | `messages` e `messageSessionGuard` no `/api/access` |
 | Respostas a aprovações e perguntas | `permissions` |
 
@@ -396,44 +399,22 @@ A barra da conversa mostra ícones para responder perguntas e aprovar permissõe
 configuração de animações do sistema. Perguntas do omp aceitam escolha única, múltipla e texto livre; omp e Codex
 não aceitam `interrupt` nem `suggestion` nas decisões.
 
-No Android, as notificações opcionais usam o serviço em primeiro plano existente. Desativá-las interrompe o serviço.
+**Avisos.** Se ativados, os avisos de aprovação, pergunta e fim de turno dependem de um serviço em primeiro plano,
+com uma notificação fixa no Android. Desativar os avisos interrompe o serviço. Depois de reiniciar o celular, abra
+o aplicativo uma vez para voltar a receber avisos. A economia de bateria agressiva pode atrasá-los.
+
 O aplicativo não oferece terminal interativo, fila offline de comandos ou atualização automática. As sessões e
 conversas permanecem no servidor.
 
 ### Desktop (Linux e macOS)
 
-O desktop do Zaplaud é o cliente nativo em Rust, em [`zaplaud-rs/`](zaplaud-rs/README.md). O cliente desktop
-Compose descrito abaixo está **obsoleto**: não recebe atualizações e não deve ser usado.
-
-```bash
-cd android
-./gradlew :desktop:run
-./gradlew :shared:jvmTest :desktop:createReleaseDistributable --max-workers=4
-./gradlew :desktop:packageReleaseDeb :desktop:packageReleaseRpm --max-workers=4
-```
-
-Os pacotes ficam em `android/desktop/build/compose/binaries/main-release/{deb,rpm}/`; a geração exige
-`dpkg-deb` no Debian ou `rpmbuild` no RPM. No Arch, execute na raiz do repositório:
-
-```bash
-bash scripts/desktop-install-linux.sh
-tar -C android/desktop/build/compose/binaries/main-release/app -czf Zaplaud-linux.tar.gz Zaplaud
-```
-
-O script instala em `~/.local/opt/zaplaud` e adiciona o ícone ao menu, sem `sudo`, substituindo a instalação anterior.
-O `.tar.gz` contém o aplicativo e o runtime; extraia-o e execute `Zaplaud/bin/Zaplaud`.
-No macOS, gere `android/desktop/icons/zaplaud.icns` a partir do PNG e execute
-`./gradlew :desktop:packageReleaseDmg --max-workers=4` em `android/`; o `.dmg` fica em
-`desktop/build/compose/binaries/main-release/dmg/`. O pacote só pode ser gerado num Mac. Não há assinatura
-nem notarização: na primeira abertura, use botão direito → Abrir.
-Os pacotes usam `-XX:+UseSerialGC -Xmx256m`; a otimização ProGuard está desligada por incompatibilidade com
-referências opcionais do OkHttp.
-
-Arquitetura, peças de cada sistema, consumo medido e limitações: [docs/zaplaud-desktop.md](docs/zaplaud-desktop.md).
-Um cliente Rust + Slint está planejado por fases em
-[plans/074-zaplaud-cliente-rust-slint.md](plans/074-zaplaud-cliente-rust-slint.md); só começa por decisão do dono.
+O desktop do Zaplaud é o cliente nativo em Rust. Veja o [guia do Zaplaud desktop](zaplaud-rs/README.md).
+O cliente desktop Compose está **obsoleto** e permanece no repositório sem suporte.
 
 ### Aplicativo iPadOS (Zaplaud; validação pendente)
+
+O Zaplaud para iPadOS tem alvo apenas para iPad, não para iPhone, e não oferece avisos. A instalação em um iPad
+físico ainda não foi validada (veja o [resultado do plano 041](plans/041-resultado.md)).
 
 O código nativo do Zaplaud usa Kotlin Multiplatform e Compose Multiplatform. `android/app` mantém o host Android;
 `android/shared` reúne telas, regras e transporte, com adaptadores Android e Apple. O host UIKit em
