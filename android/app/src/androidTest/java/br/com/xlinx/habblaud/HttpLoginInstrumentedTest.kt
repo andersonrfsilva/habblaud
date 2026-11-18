@@ -2,6 +2,7 @@ package br.com.xlinx.habblaud
 
 import android.content.Context
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isDisplayed
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
@@ -18,9 +19,13 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import br.com.xlinx.habblaud.data.LocalStateStore
+import br.com.xlinx.habblaud.data.SessionCookieStore
+import br.com.xlinx.habblaud.data.initializeStorage
 import kotlinx.coroutines.runBlocking
+import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -172,6 +177,53 @@ class HttpLoginInstrumentedTest {
         await(R.string.http_login_title)
         noRequest()
         assertEquals(origin(), savedOrigin())
+    }
+
+    @Test fun expiredSessionReloginRestoresList() {
+        val origin = origin()
+        val validCookie = "habblaud_remote=renewed"
+        val staleCookie = "habblaud_remote=expired"
+        val sessionTitle = "Conversa após novo login"
+        initializeStorage(context)
+        runBlocking { LocalStateStore(context).addServer(origin) }
+        SessionCookieStore(origin).saveFromResponse("$origin/api/remote/login", listOf("$staleCookie; Path=/; HttpOnly"))
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                if (request.method == "POST" && request.path == "/api/remote/login") {
+                    return MockResponse().setHeader("Set-Cookie", "$validCookie; Path=/; HttpOnly")
+                        .setBody("""{"ok":true}""")
+                }
+                if (request.getHeader("Cookie") != validCookie) return MockResponse().setResponseCode(401)
+                return when (request.path) {
+                    "/api/access" -> MockResponse().setBody("""{"terminal":true}""")
+                    "/api/sessions/recent" -> MockResponse().setBody("""{"sessions":[]}""")
+                    "/api/cast" -> MockResponse().setBody("""{"members":[]}""")
+                    "/api/stream" -> MockResponse().setHeader("Content-Type", "text/event-stream")
+                        .setBody("event: snapshot\ndata: " +
+                            """{"agents":[{"id":"agent","kind":"main","account":"account","sessionId":"session","title":"$sessionTitle"}]}""" +
+                            "\n\n")
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        val tag = "relogin:$origin"
+        compose.waitUntil(15_000) { compose.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+        val rejected = server.takeRequest(5, TimeUnit.SECONDS)
+        assertEquals("/api/access", rejected?.path)
+        assertEquals(staleCookie, rejected?.getHeader("Cookie"))
+        compose.onNodeWithTag(tag, useUnmergedTree = true).performClick()
+        await(R.string.login)
+        credentials()
+        click(R.string.login)
+        await(R.string.http_login_title)
+        click(R.string.confirm)
+
+        await(R.string.open_sessions)
+        compose.waitUntil(15_000) { compose.onAllNodes(hasText(sessionTitle)).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText(text(R.string.open_sessions)).assertIsDisplayed()
+        compose.onNodeWithText(sessionTitle).assertIsDisplayed()
+        compose.onNodeWithTag(tag, useUnmergedTree = true).assertDoesNotExist()
     }
 
     @Test fun invalidUrlShowsExistingError() {
