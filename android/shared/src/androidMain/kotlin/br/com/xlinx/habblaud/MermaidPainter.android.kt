@@ -10,7 +10,11 @@ import com.caverock.androidsvg.SVG
 
 // Compose Resources só oferece o leitor SVG nos alvos Skia, não no Android.
 internal actual fun mermaidPainter(bytes: ByteArray, density: Density): Painter {
-    val svg = SVG.getFromString(bytes.decodeToString())
+    val text = bytes.decodeToString()
+    // Conteúdo da conversa: sem DOCTYPE não há entidade para expandir (e o leitor não as resolve).
+    require(!text.contains("<!DOCTYPE", ignoreCase = true) && !text.contains("<!ENTITY", ignoreCase = true)) { "SVG com DOCTYPE" }
+    SVG.setInternalEntitiesEnabled(false)
+    val svg = SVG.getFromString(text)
     // SVG só com viewBox não tem tamanho de documento (-1); sem isso a proporção sai errada.
     val box = svg.documentViewBox
     val intrinsic = if (svg.documentWidth > 0 && svg.documentHeight > 0) Size(svg.documentWidth, svg.documentHeight)
