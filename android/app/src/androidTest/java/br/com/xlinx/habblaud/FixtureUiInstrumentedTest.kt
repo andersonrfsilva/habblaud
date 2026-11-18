@@ -4,6 +4,7 @@ import android.Manifest
 import android.os.Build
 import android.content.Context
 import android.content.pm.ActivityInfo
+import android.view.KeyEvent
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -213,7 +214,8 @@ class FixtureUiInstrumentedTest {
         compose.onNodeWithTag("session-search").performTextInput("busca-impossivel")
         compose.onNodeWithText(text(R.string.search_no_match)).assertIsDisplayed()
         compose.onNodeWithText(text(R.string.sessions_empty)).assertDoesNotExist()
-        compose.onNodeWithText(text(R.string.search_clear)).performClick()
+        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        compose.onNodeWithText(text(R.string.search_clear)).assertIsDisplayed().performClick()
         compose.waitUntil(15_000) {
             compose.onAllNodes(SemanticsMatcher("row") {
                 it.config.getOrNull(SemanticsProperties.TestTag)?.startsWith("session-row:") == true
