@@ -124,6 +124,7 @@ jobs:
             echo "ok=true" >> "$GITHUB_OUTPUT"
           else
             echo "::warning::Sem /dev/kvm neste runner: os testes instrumentados do Android não rodaram."
+            echo 'Sem /dev/kvm neste runner: os testes instrumentados do Android não rodaram.' >> "$GITHUB_STEP_SUMMARY"
             echo "ok=false" >> "$GITHUB_OUTPUT"
           fi
       - if: steps.kvm.outputs.ok == 'true'
