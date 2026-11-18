@@ -627,6 +627,44 @@ fn kotlin_aside_polls_until_complete_and_keeps_trim_topic_new_semantics() {
         topic_id: None
     }));
 }
+
+#[test]
+fn aside_acknowledges_only_a_server_accepted_draft() {
+    let (state, _) = a::reduce(a::State::default(), a::Event::Open("agent".into()));
+    let (state, _) = a::reduce(state, a::Event::Ask("recusada".into()));
+    let (state, _) = a::reduce(
+        state,
+        a::Event::Failed {
+            agent_id: "agent".into(),
+            status: Some(409),
+            detail: None,
+            call: a::Call::Ask,
+        },
+    );
+    assert!(state.accepted_draft.is_none());
+    let (state, _) = a::reduce(state, a::Event::Ask("sem tópico".into()));
+    let (state, _) = a::reduce(
+        state,
+        a::Event::Asked {
+            agent_id: "agent".into(),
+            topic: None,
+        },
+    );
+    assert!(state.accepted_draft.is_none());
+    let (state, _) = a::reduce(state, a::Event::Ask("  aceita  ".into()));
+    let (state, _) = a::reduce(
+        state,
+        a::Event::Asked {
+            agent_id: "agent".into(),
+            topic: Some(topic("t", "complete")),
+        },
+    );
+    assert_eq!(
+        state.accepted_draft.as_deref().map(String::as_str),
+        Some("  aceita  ")
+    );
+}
+
 #[test]
 fn aside_dirty_poll_does_not_stop_on_pre_send_snapshot() {
     let (state, _) = a::reduce(a::State::default(), a::Event::Open("agent".into()));
