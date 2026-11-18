@@ -172,8 +172,8 @@ export function frame(event: string, data: unknown): string {
  */
 export function openSse(req: IncomingMessage, res: ServerResponse): (chunk: string) => void {
   const gzip = /\bgzip\b/i.test(String(req.headers['accept-encoding'] ?? ''));
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
   res.writeHead(200, {
-    'Content-Type': 'text/event-stream; charset=utf-8',
     'Cache-Control': 'no-cache, no-transform',
     Connection: 'keep-alive',
     'X-Accel-Buffering': 'no',

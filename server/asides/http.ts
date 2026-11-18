@@ -33,11 +33,14 @@ function fail(res: ServerResponse, err: unknown): void {
 const unknownAgent = (res: ServerResponse) => sendJson(res, 404, { error: tr('agente desconhecido: ele já saiu do escritório?') });
 const unknownTopic = (res: ServerResponse) => sendJson(res, 404, { error: tr('conversa desconhecida') });
 
-/** Rotas da página: `(req, res, path, url)`. */
-export function createAsideRoutes(store: AsideStore): (req: IncomingMessage, res: ServerResponse, path: string, url: URL) => void {
-  const ask = async (req: IncomingMessage, res: ServerResponse) => {
+/** Rotas da página: `canRead` libera o histórico na resposta à pergunta. */
+export function createAsideRoutes(store: AsideStore): (req: IncomingMessage, res: ServerResponse, path: string, url: URL, canRead: boolean) => void {
+  const ask = async (req: IncomingMessage, res: ServerResponse, canRead: boolean) => {
     const r = store.ask(await readJson(req));
-    if ('topic' in r) return sendJson(res, 201, { topic: r.topic });
+    if ('topic' in r) {
+      const { topic } = r;
+      return sendJson(res, 201, { topic: canRead ? topic : { ...topic, turns: topic.turns.slice(-1) } });
+    }
     switch (r.error) {
       case 'not-found':
         return unknownAgent(res);
@@ -55,7 +58,7 @@ export function createAsideRoutes(store: AsideStore): (req: IncomingMessage, res
     unknownTopic(res);
   };
 
-  return (req, res, path, url) => {
+  return (req, res, path, url, canRead) => {
     const method = req.method ?? 'GET';
     if (path === '/api/asides') {
       if (method === 'GET' || method === 'HEAD') {
@@ -65,7 +68,7 @@ export function createAsideRoutes(store: AsideStore): (req: IncomingMessage, res
         return list ? sendJson(res, 200, list) : unknownAgent(res);
       }
       if (method !== 'POST') return methodNotAllowed(res, 'GET, POST');
-      ask(req, res).catch((err) => fail(res, err));
+      ask(req, res, canRead).catch((err) => fail(res, err));
       return;
     }
     const m = ITEM.exec(path);
