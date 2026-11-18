@@ -84,7 +84,7 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
-      - run: xvfb-run -a ./gradlew :shared:jvmTest :desktop:createReleaseDistributable --max-workers=4
+      - run: xvfb-run -a ./gradlew :shared:jvmTest --max-workers=4
         working-directory: android
 
   instrumentado:
