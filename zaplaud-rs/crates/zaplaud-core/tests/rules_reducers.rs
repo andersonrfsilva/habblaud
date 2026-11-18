@@ -4,6 +4,31 @@ use zaplaud_core::{
     model::*,
     rules::{aside as a, composer as c, permission as p},
 };
+
+#[test]
+fn disappearing_session_refreshes_recent_only_when_missing() {
+    use zaplaud_core::controller::reading::ReadingController;
+
+    let mut reading = ReadingController::new("https://example.test".into(), HashMap::new(), None);
+    let live = r#"{"agents":[{"id":"agent","kind":"main","provider":"omp","account":"a","sessionId":"one"}]}"#;
+    let recent = r#"{"sessions":[{"provider":"omp","account":"a","sessionId":"one"}]}"#;
+    let empty = r#"{"agents":[]}"#;
+    reading.snapshot_data(live, 0).unwrap();
+    assert!(!reading.repository.recent_stale);
+    reading.snapshot_data(empty, 0).unwrap();
+    assert!(reading.repository.recent_stale);
+    reading.snapshot_data(empty, 0).unwrap();
+    assert!(reading.repository.recent_stale);
+
+    reading.refresh_recent(Some(recent)).unwrap();
+    assert!(!reading.repository.recent_stale);
+    assert_eq!(reading.state.sessions[0].key, key("one"));
+    assert!(reading.state.sessions[0].agent_id.is_none());
+    reading.snapshot_data(live, 0).unwrap();
+    reading.snapshot_data(empty, 0).unwrap();
+    assert!(!reading.repository.recent_stale);
+}
+
 fn key(session: &str) -> SessionKey {
     SessionKey {
         origin: "https://example.test".into(),

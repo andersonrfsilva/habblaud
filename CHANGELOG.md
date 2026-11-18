@@ -183,6 +183,7 @@ do meio (0.**3**.0).
 - **Zaplaud desktop:** o bate-papo paralelo só apaga a pergunta quando o servidor aceita o envio.
 - **Zaplaud desktop:** o bate-papo paralelo volta a atualizar a resposta após uma falha de rede.
 - **Zaplaud desktop:** um conflito de envio ou comando não fecha outra conversa aberta enquanto a operação estava em curso.
+- **Zaplaud desktop:** Recentes é atualizada sem reconectar quando uma sessão sai da lista ao vivo e ainda não está no histórico.
 - **Zaplaud (Android e iOS):** imagens grandes demais ou que falham exibem um aviso; imagens remotas não seguem redirecionamentos.
 - **Zaplaud:** o Android não renderiza SVGs com declarações de documento ou entidade; no Android e no iOS, diagramas Mermaid acima de 2 MiB aparecem como código.
 - **Acesso remoto:** “Sair” e o vencimento da sessão fecham na hora os streams já abertos.

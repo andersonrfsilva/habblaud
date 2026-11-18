@@ -346,7 +346,7 @@ pub async fn run(
                     .iter()
                     .position(|s| s.api.origin() == api.origin())
                 {
-                    state.servers.remove(index).task.abort();
+                    state.servers.remove(index);
                 }
                 let origin = api.origin().to_owned();
                 let seen = state
@@ -374,6 +374,7 @@ pub async fn run(
                     reading,
                     generation,
                     task,
+                    recent_task: None,
                     marks,
                 });
                 update_ui(&weak, |window| {
@@ -411,19 +412,51 @@ pub async fn run(
                     .servers
                     .iter_mut()
                     .find(|s| s.api.origin() == origin && s.generation == generation)
-                    && server
-                        .reading
-                        .apply_stream_event(
-                            StreamEvent::Data {
-                                event_type: "snapshot".into(),
-                                data,
-                                first_connection: false,
-                            },
-                            now_millis(),
-                        )
-                        .is_err()
                 {
-                    server.reading.failure(Some(-1));
+                    let reading = &mut server.reading;
+                    if reading.snapshot_data(&data, now_millis()).is_err() {
+                        reading.failure(Some(-1));
+                    } else if reading.repository.recent_stale
+                        && reading.state.terminal_allowed
+                        && !reading.needs_login
+                        && server.recent_task.is_none()
+                    {
+                        let api = server.api.clone();
+                        let send = sender.clone();
+                        server.recent_task = Some(tokio::spawn(async move {
+                            let result = api.request("/api/sessions/recent", None).await;
+                            let _ = send.send(Event::RecentRefreshed {
+                                origin,
+                                generation,
+                                result,
+                            });
+                        }));
+                    }
+                }
+            }
+            Event::RecentRefreshed {
+                origin,
+                generation,
+                result,
+            } => {
+                let Some(server) = state
+                    .servers
+                    .iter_mut()
+                    .find(|s| s.api.origin() == origin && s.generation == generation)
+                else {
+                    continue;
+                };
+                server.recent_task = None;
+                let reading = &mut server.reading;
+                match result {
+                    Ok(data) => {
+                        let _ = reading.refresh_recent(Some(&data));
+                    }
+                    Err(Error::Api { status: 403, .. }) => {
+                        let _ = reading.refresh_recent(None);
+                    }
+                    Err(Error::Unauthorized) => reading.needs_login = true,
+                    Err(_) => {}
                 }
             }
             Event::Connection {
@@ -660,9 +693,6 @@ pub async fn run(
     if crate::composer::flush().await.is_err() {
         eprintln!("{}", strings::STORAGE_ERROR);
     }
-    for server in state.servers {
-        server.task.abort();
-    }
 }
 async fn update_marks(state: &mut AppState, key: SessionKey, pin: bool) -> Result<(), String> {
     let Some(server) = state
@@ -753,7 +783,7 @@ async fn remove_logged_out(state: &mut AppState, origin: &str) -> bool {
         .iter()
         .position(|server| server.api.origin() == origin)
     {
-        state.servers.remove(index).task.abort();
+        state.servers.remove(index);
     }
     if state.filter.as_deref() == Some(origin) {
         state.filter = None;
@@ -837,6 +867,7 @@ mod tests {
             reading,
             generation: 1,
             task: tokio::spawn(async {}),
+            recent_task: None,
             marks: HashMap::new(),
         });
         let id = zaplaud_store::storage_hash(&key.serialize().unwrap());
@@ -858,7 +889,7 @@ mod tests {
                 favorite: true
             }
         );
-        state.servers.remove(0).task.abort();
+        state.servers.remove(0);
     }
 
     #[tokio::test]

@@ -131,6 +131,11 @@ pub enum Event {
         access: Access,
         repository: SessionCollection,
     },
+    RecentRefreshed {
+        origin: String,
+        generation: u64,
+        result: Result<String, zaplaud_core::Error>,
+    },
     SnapshotData {
         origin: String,
         generation: u64,
@@ -177,7 +182,16 @@ pub struct ServerState {
     pub reading: ReadingController,
     pub generation: u64,
     pub task: tokio::task::JoinHandle<()>,
+    pub recent_task: Option<tokio::task::JoinHandle<()>>,
     pub marks: HashMap<String, SessionMarks>,
+}
+impl Drop for ServerState {
+    fn drop(&mut self) {
+        self.task.abort();
+        if let Some(task) = &self.recent_task {
+            task.abort();
+        }
+    }
 }
 pub struct AppState {
     pub servers: Vec<ServerState>,

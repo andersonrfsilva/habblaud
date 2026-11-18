@@ -420,6 +420,7 @@ pub struct SessionCollection {
     pub open: Vec<SessionItem>,
     pub cast: Vec<Value>,
     pub server_time: i64,
+    pub recent_stale: bool,
 }
 impl SessionCollection {
     pub fn parse_snapshot(
@@ -438,6 +439,7 @@ impl SessionCollection {
         self.recent = objects(&root(data)?, "sessions")
             .filter_map(|v| SessionItem::parse(origin, v, None, self.server_time, now))
             .collect();
+        self.recent_stale = false;
         Ok(())
     }
     pub fn set_cast(&mut self, data: &str) -> Result<(), serde_json::Error> {
@@ -446,12 +448,21 @@ impl SessionCollection {
     }
     pub fn snapshot(&mut self, snapshot: Snapshot) -> Vec<SessionItem> {
         self.server_time = integer(&snapshot.raw, "serverTime").unwrap_or(self.server_time);
-        self.open = snapshot.sessions;
-        self.sessions()
+        let previous = std::mem::replace(&mut self.open, snapshot.sessions);
+        let (sessions, stale) =
+            self.merge_sessions(if self.recent_stale { &[] } else { &previous });
+        self.recent_stale |= stale;
+        sessions
     }
     pub fn sessions(&self) -> Vec<SessionItem> {
+        self.merge_sessions(&[]).0
+    }
+    fn merge_sessions(&self, previous: &[SessionItem]) -> (Vec<SessionItem>, bool) {
         let live: HashSet<_> = self.open.iter().map(|v| &v.key).collect();
         let historical: HashMap<_, _> = self.recent.iter().map(|v| (&v.key, v)).collect();
+        let stale = previous
+            .iter()
+            .any(|item| !live.contains(&item.key) && !historical.contains_key(&item.key));
         let mut result: Vec<_> = self
             .open
             .iter()
@@ -501,7 +512,7 @@ impl SessionCollection {
                     next
                 }),
         );
-        result
+        (result, stale)
     }
 }
 

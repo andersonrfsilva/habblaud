@@ -68,6 +68,18 @@ impl ReadingController {
         self.update_sessions(sessions);
         Ok(())
     }
+    /// Sem dados, o servidor revogou o acesso às sessões recentes.
+    pub fn refresh_recent(&mut self, data: Option<&str>) -> Result<(), serde_json::Error> {
+        if let Some(data) = data {
+            self.repository.set_recent(&self.origin, data)?;
+        } else {
+            self.state.terminal_allowed = false;
+            self.repository.recent.clear();
+            self.repository.recent_stale = false;
+        }
+        self.update_sessions(self.repository.sessions());
+        Ok(())
+    }
     fn update_sessions(&mut self, sessions: Vec<SessionItem>) {
         self.snapshot_revision = self.snapshot_revision.wrapping_add(1).max(1);
         if let Some(selected) = &self.state.selected
