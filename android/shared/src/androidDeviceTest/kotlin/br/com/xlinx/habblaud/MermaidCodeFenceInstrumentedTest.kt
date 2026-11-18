@@ -7,8 +7,10 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.text.AnnotatedString
+import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import br.com.xlinx.habblaud.data.HabblaudApi
+import br.com.xlinx.habblaud.data.initializeStorage
 import br.com.xlinx.habblaud.resources.Res
 import br.com.xlinx.habblaud.resources.copy
 import com.mikepenz.markdown.compose.components.markdownComponents
@@ -33,6 +35,7 @@ class MermaidCodeFenceInstrumentedTest {
     @get:Rule val compose = createComposeRule()
 
     @Test fun closedMermaidLoadsSvgAndOtherFencesStayCode() {
+        initializeStorage(ApplicationProvider.getApplicationContext())
         val source = "graph TD\nA --> B"
         val invalid = "invalid diagram"
         val clipboard = object : ClipboardManager {

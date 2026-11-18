@@ -8,9 +8,11 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeDown
+import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import br.com.xlinx.habblaud.data.AsideController
 import br.com.xlinx.habblaud.data.HabblaudApi
+import br.com.xlinx.habblaud.data.initializeStorage
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -27,6 +29,7 @@ class AsideScrollInstrumentedTest {
     @get:Rule val compose = createComposeRule()
 
     @Test fun growingAnswerDoesNotMoveReaderAwayFromOlderTurns() {
+        initializeStorage(ApplicationProvider.getApplicationContext())
         val generation = AtomicInteger(0)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val api = HabblaudApi("http://127.0.0.1:1")
