@@ -152,6 +152,7 @@ pub enum Event {
         connected: bool,
     },
     Close,
+    ForceClose,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Effect {
@@ -310,7 +311,8 @@ pub fn reduce(mut state: State, event: Event) -> (State, Vec<Effect>) {
             permission_present,
             connected,
         } if connected && !permission_present => effects.push(Effect::Close),
-        Event::Close => effects.push(Effect::Close),
+        Event::Close if !state.busy => effects.push(Effect::Close),
+        Event::ForceClose => effects.push(Effect::Close),
         _ => {}
     }
     (state, effects)

@@ -124,7 +124,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                                 let present = server.reading.sessions.iter().any(|s| s.key == item.key && s.permission_id == item.permission_id);
                                 let _ = tx.send(Event::Snapshot { permission_present: present, connected });
                                 if present { let _ = tx.send(Event::Observe { id: item.permission_id.clone().unwrap_or_default(), allowed: server.reading.permissions_allowed && !server.needs_login, connected }); }
-                            } else { let _ = tx.send(Event::Close); }
+                            } else { let _ = tx.send(Event::ForceClose); }
                         }
                         snapshot = Some(next);
                         if pending_open.as_ref().is_some_and(|key| snapshot.as_ref().is_some_and(|s| s.servers.iter().any(|server| server.reading.sessions.iter().any(|item| item.key.serialize().ok().as_ref() == Some(key)))))
@@ -161,7 +161,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                 result = results.recv() => if let Some(result) = result {
                     match result {
                         Update::State(state) => if let Some((item, _)) = &active { publish(&weak, item.clone(), state); },
-                        Update::Unauthorized => { if let Some((item, tx)) = &active { let _ = context.commands.send(AppEvent::Unauthorized(item.key.origin.clone())); let _ = tx.send(Event::Close); } },
+                        Update::Unauthorized => { if let Some((item, tx)) = &active { let _ = context.commands.send(AppEvent::Unauthorized(item.key.origin.clone())); let _ = tx.send(Event::ForceClose); } },
                         Update::Closed | Update::Cancelled => { active = None; update_ui(&weak, |w| w.global::<PermissionState>().set_visible(false)); },
                     }
                 }

@@ -1221,6 +1221,25 @@ fn deciding_permission() -> (p::State, u64) {
 }
 
 #[test]
+fn permission_dismiss_is_ignored_until_decision_finishes() {
+    let (state, token) = deciding_permission();
+    let (state, effects) = p::reduce(state, p::Event::Close);
+    assert!(state.busy);
+    assert!(effects.is_empty());
+
+    let (state, _) = p::reduce(
+        state,
+        p::Event::DecisionFailed {
+            token,
+            status: Some(400),
+            cancelled: false,
+        },
+    );
+    let (_, effects) = p::reduce(state, p::Event::Close);
+    assert_eq!(effects, [p::Effect::Close]);
+}
+
+#[test]
 fn permission_decided_survives_stream_flap_and_releases_busy() {
     let (mut state, token) = deciding_permission();
     for connected in [false, true] {
