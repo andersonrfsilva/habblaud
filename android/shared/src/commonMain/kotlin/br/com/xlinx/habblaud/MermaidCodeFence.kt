@@ -110,7 +110,7 @@ private fun MermaidContent(model: MarkdownComponentModel, api: HabblaudApi, lang
         try { bytes?.let { mermaidPainter(it, density) } }
         catch (e: Exception) {
             if (e is CancellationException) throw e
-            println("Zaplaud mermaid: SVG inválido: $e")
+            println("Zaplaud mermaid: SVG recusado (${e::class.simpleName})")
             // Sem isso o SVG ruim ficaria no cache até o processo morrer, mesmo com o servidor corrigido.
             mermaidCache.remove(key)
             null
