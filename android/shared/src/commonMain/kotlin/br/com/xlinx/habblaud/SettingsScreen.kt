@@ -308,7 +308,7 @@ private fun RoleDialog(role: String, current: String?, models: List<String>, onD
             if (model == null) {
                 Text(stringResource(Res.string.role_pick_model), style = MaterialTheme.typography.titleSmall)
                 OutlinedTextField(filter, { filter = it }, Modifier.fillMaxWidth().padding(top = 8.dp), label = { Text(stringResource(Res.string.filter_models)) }, singleLine = true)
-                val groups = roleModelGroups(models, keep = currentModel, query = filter)
+                val groups = remember(models, currentModel, filter) { roleModelGroups(models, keep = currentModel, query = filter) }
                 if (groups.isEmpty() && filter.isNotBlank()) Text(stringResource(Res.string.models_no_results), style = MaterialTheme.typography.bodySmall)
                 groups.forEach { (provider, list) ->
                     Text(providerLabel(provider), Modifier.padding(top = 12.dp, bottom = 2.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
