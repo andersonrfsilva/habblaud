@@ -27,7 +27,96 @@ def drain(stream):
         pass
 
 
+REQUIRED_APP = {
+    'FixtureUiInstrumentedTest', 'FixtureFilesInstrumentedTest', 'HttpLoginInstrumentedTest',
+    'NotificationPrivacyInstrumentedTest', 'StatusLineInstrumentedTest',
+}
+REQUIRED_SHARED = {
+    'PersistenceInstrumentedTest', 'ConversationEpochInstrumentedTest',
+    'LastSessionOrderInstrumentedTest', 'AvatarCacheInstrumentedTest',
+    'SessionCookieStoreTest', 'LocalStateStoreTest',
+    'PersistenceFailureInstrumentedTest',
+}
+
+
+def fresh(files, started):
+    return [file for file in files if file.stat().st_mtime >= started]
+
+
+def validate_results(files) -> tuple[int, int, int]:
+    suites = []
+    for file in files:
+        root = ET.parse(file).getroot()
+        if root.tag not in ('testsuite', 'testsuites'):
+            raise RuntimeError('Unexpected Android test XML format')
+        suites.extend([root] if root.tag == 'testsuite' else root.findall('.//testsuite'))
+    tests = sum(int(s.attrib['tests']) for s in suites)
+    failures = sum(int(s.attrib['failures']) for s in suites)
+    errors = sum(int(s.attrib['errors']) for s in suites)
+    executed = {
+        case.get('classname', '').rsplit('.', 1)[-1]
+        for suite in suites for case in suite.iter('testcase')
+        if case.find('skipped') is None
+    }
+    missing = sorted((REQUIRED_APP | REQUIRED_SHARED) - executed)
+    if not suites or tests <= 0 or failures or errors or missing:
+        raise RuntimeError(
+            f'Android test XML does not meet acceptance criteria: '
+            f'{tests} tests, {failures} failures, {errors} errors; missing classes: {missing}'
+        )
+    return tests, failures, errors
+
+
+def self_test():
+    def write_suite(path, classes, *, skipped=None, failures=0):
+        suite = ET.Element('testsuite', tests=str(len(classes)), failures=str(failures), errors='0')
+        for name in sorted(classes):
+            case = ET.SubElement(suite, 'testcase', classname=f'br.com.xlinx.habblaud.{name}')
+            if name == skipped:
+                ET.SubElement(case, 'skipped')
+        ET.ElementTree(suite).write(path)
+
+    def expect_rejection(files, message):
+        try:
+            validate_results(files)
+        except RuntimeError as error:
+            assert message in str(error), str(error)
+        else:
+            raise AssertionError(f'Expected rejection: {message}')
+
+    with tempfile.TemporaryDirectory() as directory:
+        app = Path(directory) / 'app.xml'
+        shared = Path(directory) / 'shared.xml'
+        files = [app, shared]
+        write_suite(app, REQUIRED_APP)
+        write_suite(shared, REQUIRED_SHARED)
+        assert validate_results(files) == (len(REQUIRED_APP) + len(REQUIRED_SHARED), 0, 0)
+
+        write_suite(app, REQUIRED_APP, skipped='FixtureUiInstrumentedTest')
+        expect_rejection(files, 'FixtureUiInstrumentedTest')
+
+        write_suite(app, REQUIRED_APP - {'HttpLoginInstrumentedTest'})
+        expect_rejection(files, 'HttpLoginInstrumentedTest')
+
+        write_suite(app, REQUIRED_APP, failures=1)
+        expect_rejection(files, '1 failures')
+
+        write_suite(app, REQUIRED_APP)
+        started = time.time()
+        for file in files:
+            os.utime(file, (started - 60, started - 60))
+        current = fresh(files, started)
+        assert not current
+        expect_rejection(current, '0 tests')
+
+    print('self-test ok')
+    return 0
+
+
 def main():
+    if sys.argv[1:] == ['--self-test']:
+        return self_test()
+
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, interrupt)
 
@@ -97,6 +186,7 @@ def main():
             files_fixtures.append((child, origin))
             subprocess.run(['adb', 'reverse', f'tcp:{files_port}', f'tcp:{files_port}'], check=True)
             reverses.append(files_port)
+        started = time.time()
         gradle = subprocess.Popen([
             './gradlew', '--max-workers=6', ':shared:connectedAndroidDeviceTest', ':app:connectedDebugAndroidTest',
             '-Pandroid.testInstrumentationRunnerArguments.fixture=true',
@@ -115,36 +205,7 @@ def main():
             raise RuntimeError('Fixture exited during tests')
         files = list(Path('android/app/build/outputs/androidTest-results/connected').rglob('*.xml'))
         files.extend(Path('android/shared/build/outputs').rglob('TEST-*.xml'))
-        suites = []
-        for file in files:
-            root = ET.parse(file).getroot()
-            if root.tag not in ('testsuite', 'testsuites'):
-                raise RuntimeError('Unexpected Android test XML format')
-            suites.extend([root] if root.tag == 'testsuite' else root.findall('.//testsuite'))
-        tests = sum(int(s.attrib['tests']) for s in suites)
-        failures = sum(int(s.attrib['failures']) for s in suites)
-        errors = sum(int(s.attrib['errors']) for s in suites)
-        required_app = {
-            'FixtureUiInstrumentedTest', 'FixtureFilesInstrumentedTest', 'HttpLoginInstrumentedTest',
-            'NotificationPrivacyInstrumentedTest', 'StatusLineInstrumentedTest',
-        }
-        required_shared = {
-            'PersistenceInstrumentedTest', 'ConversationEpochInstrumentedTest',
-            'LastSessionOrderInstrumentedTest', 'AvatarCacheInstrumentedTest',
-            'SessionCookieStoreTest', 'LocalStateStoreTest',
-            'PersistenceFailureInstrumentedTest',
-        }
-        executed = {
-            case.get('classname', '').rsplit('.', 1)[-1]
-            for suite in suites for case in suite.iter('testcase')
-            if case.find('skipped') is None
-        }
-        missing = sorted((required_app | required_shared) - executed)
-        if not suites or tests <= 0 or failures or errors or missing:
-            raise RuntimeError(
-                f'Android test XML does not meet acceptance criteria: '
-                f'{tests} tests, {failures} failures, {errors} errors; missing classes: {missing}'
-            )
+        tests, failures, errors = validate_results(fresh(files, started))
         print(f'Android test results: {tests} tests, {failures} failures, {errors} errors')
         succeeded = True
         return 0
