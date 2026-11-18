@@ -70,6 +70,31 @@ class AsideControllerTest {
         } finally { scope.cancel() }
     }
 
+    @Test fun rejectedQuestionKeepsDraftCallback() = runBlocking {
+        var accepted = 0
+        var reject = true
+        val scope = CoroutineScope(coroutineContext + SupervisorJob())
+        val c = AsideController({ _, body ->
+            when {
+                body == null -> """{"topics":[]}"""
+                reject -> throw ApiException(409, detail = "já há uma pergunta em andamento")
+                else -> """{"topic":${topic("t1", "complete")}}"""
+            }
+        }, scope, {})
+        try {
+            c.open("a")
+            waitFor { !c.state.value.loading }
+            c.ask("x") { accepted++ }
+            waitFor { !c.state.value.sending }
+            assertEquals(0, accepted)
+            assertEquals("já há uma pergunta em andamento", c.state.value.error)
+            reject = false
+            c.ask("x") { accepted++ }
+            waitFor { !c.state.value.sending }
+            assertEquals(1, accepted)
+        } finally { scope.cancel() }
+    }
+
     @Test fun serverErrorTextAndUnauthorized() = runBlocking {
         var unauthorized = 0
         var status = 409

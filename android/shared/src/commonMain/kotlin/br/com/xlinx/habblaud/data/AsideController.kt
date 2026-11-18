@@ -81,7 +81,7 @@ class AsideController(
 
     fun startNew() { mutable.value = mutable.value.copy(fresh = true, error = null) }
 
-    fun ask(question: String) {
+    fun ask(question: String, onAccepted: () -> Unit = {}) {
         val current = mutable.value
         val agentId = current.agentId ?: return
         val text = question.trim()
@@ -95,7 +95,10 @@ class AsideController(
             if (now.agentId != agentId) return@launch
             mutable.value = if (topic == null) now.copy(sending = false)
             else now.copy(sending = false, topics = listOf(topic) + now.topics.filter { it.id != topic.id }, topicId = topic.id, fresh = false)
-            if (topic != null) poll()
+            if (topic != null) {
+                onAccepted()
+                poll()
+            }
         }
     }
 
