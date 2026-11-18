@@ -34,6 +34,7 @@
     <string name="stop_agent">Parar agente</string>
     <string name="sessions_empty">Nenhuma sessão encontrada.</string>
     <string name="menu">Menu</string>
+    <string name="deliveries_blocked">Entregas bloqueadas pelo servidor.</string>
     <string name="cast_start">Chamar contato</string>
     <string name="cast_resume">Retomar conversa</string>
     <string name="cast_dismiss">Dispensar contato</string>
