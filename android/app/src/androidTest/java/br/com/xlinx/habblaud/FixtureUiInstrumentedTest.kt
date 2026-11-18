@@ -13,6 +13,7 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasScrollToNodeAction
+import androidx.compose.ui.test.isEnabled
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTouchInput
@@ -535,6 +536,31 @@ class FixtureUiInstrumentedTest {
         assertEquals("decided", result.getString("status"))
         assertEquals("answer", result.getString("behavior"))
         assertEquals(JSONArray("""[{"question":0,"options":[1]},{"question":1,"options":[0,2]},{"question":2,"other":"texto livre"}]""").toString(), result.getJSONArray("answers").toString())
+    }
+
+    @Test fun uncertainSendAsksBeforeResending() {
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        await(R.string.message_text)
+        compose.onNodeWithTag("message-input").performTextInput("Pedido fictício com resposta perdida")
+        val send = compose.onNodeWithTag("message-send")
+        val enabledSend = hasTestTag("message-send") and isEnabled()
+        compose.waitUntil(15_000) { compose.onAllNodes(enabledSend).fetchSemanticsNodes().isNotEmpty() }
+        fun messagePosts() = fixture("/api/fixture/stats").getJSONObject("posts").getInt("/api/messages")
+        val before = messagePosts()
+        fixtureCommand("drop-next-response")
+        send.performClick()
+
+        val unknown = hasTestTag("message-status-unknown")
+        compose.waitUntil(15_000) {
+            compose.onAllNodes(unknown).fetchSemanticsNodes().isNotEmpty() &&
+                compose.onAllNodes(enabledSend).fetchSemanticsNodes().isNotEmpty()
+        }
+        assertEquals(before + 1, messagePosts())
+        send.performClick()
+        val warning = "O envio anterior pode ter sido aceito. Confira a conversa; reenviar pode duplicar a mensagem."
+        compose.waitUntil(15_000) { compose.onAllNodes(hasText(warning)).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText(warning).assertIsDisplayed()
+        assertEquals(before + 1, messagePosts())
     }
 
     @Test fun zeroClawControlsSendStopAndNewKeepSessionDraftsSeparate() {
