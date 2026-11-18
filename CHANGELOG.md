@@ -160,6 +160,7 @@ do meio (0.**3**.0).
 
 ### Alterado
 
+- **Zaplaud (Android e iPad):** a lista de sessões abre sem esperar a resposta de todos os servidores cadastrados.
 - **Histórico:** sessão encerrada que rodou em pasta temporária (`/tmp`) volta a aparecer quando tem título ou
   primeiro pedido. Só ficam de fora as sessões sem nenhuma instrução sua.
 - **Elenco:** chamar um personagem ou "Novo" não pede mais pasta: a sessão nova abre sempre na pasta pessoal (`~`) do

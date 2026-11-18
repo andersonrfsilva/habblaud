@@ -21,6 +21,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.coroutineScope
 
 internal fun logoutError(cleaned: Boolean, revoked: Boolean): StringResource? = when {
     !cleaned -> Res.string.storage_error
@@ -98,13 +99,6 @@ fun ZaplaudApp(store: LocalStateStore = remember { LocalStateStore() }) {
                             if (api.cookies.requestHeader("$origin/api/access") == null) {
                                 needsLogin = needsLogin + origin
                             }
-                            try {
-                                api.access()
-                                needsLogin = needsLogin - origin
-                            } catch (e: Exception) {
-                                if (e is kotlinx.coroutines.CancellationException) throw e
-                                if (e is ApiException && e.status == 401) needsLogin = needsLogin + origin
-                            }
                         }
                         shouldStartNotifications = servers.isNotEmpty() && store.notificationsEnabled()
                     } catch (e: Exception) {
@@ -112,6 +106,26 @@ fun ZaplaudApp(store: LocalStateStore = remember { LocalStateStore() }) {
                         message = strings(Res.string.storage_error)
                     } finally { loaded = true }
                     if (shouldStartNotifications) notificationsPlatform.setEnabled(true)
+                    coroutineScope {
+                        servers.forEach { origin ->
+                            val api = apis[origin] ?: return@forEach
+                            launch {
+                                try {
+                                    val generation = api.cookies.generation()
+                                    api.access()
+                                    // Uma consulta do leitor pode invalidar o cookie enquanto esta termina.
+                                    if (apis[origin] === api && api.cookies.generation() == generation) {
+                                        needsLogin = needsLogin - origin
+                                    }
+                                } catch (e: Exception) {
+                                    if (e is kotlinx.coroutines.CancellationException) throw e
+                                    if (e is ApiException && e.status == 401 && apis[origin] === api) {
+                                        needsLogin = needsLogin + origin
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 confirmLogout?.let { origin ->
                     AlertDialog(
