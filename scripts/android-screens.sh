@@ -18,6 +18,8 @@ FONT=
 NIGHT=
 TEST_A=habblaud-exemplo.txt
 TEST_B="habblaud-${TMP##*.}-b.txt"
+OMP_CLOSED_ID=00000000-0000-4000-8000-000000000010
+OMP_CLOSED_TITLE='Retomada OMP fictícia'
 
 cleanup() {
     local status=$?
@@ -441,30 +443,24 @@ tap Confirmar
 wait_text 'Pedido enviado. Aguardando o servidor.'
 printf 'cast-consume\n' >&3
 wait_text 'Pedido concluído.'
+printf 'seed-closed-omp %s %s\n' "$OMP_CLOSED_ID" "$OMP_CLOSED_TITLE" >&3
 tap 'Voltar às sessões'
 tap Recentes
 open_search
-enter_text 'Buscar por título, projeto ou agente' encerrada
-tap 'Conversa encerrada fictícia'
+enter_text 'Buscar por título, projeto ou agente' Retomada
+tap "$OMP_CLOSED_TITLE"
 wait_text 'Retomar conversa'
 shot conversa-retomar-icone
 tap 'Retomar conversa'
+wait_text 'Escolha um contato'
+shot elenco-retomar-contato
+tap 'Bia Fictícia'
 wait_text Confirmar
 shot elenco-retomar
 tap Confirmar
 wait_text 'Pedido enviado. Aguardando o servidor.'
 printf 'cast-consume\n' >&3
 wait_text 'Pedido concluído.'
-tap 'Voltar às sessões'
-tap Recentes
-tap 'Fechar busca'
-open_search
-enter_text 'Buscar por título, projeto ou agente' jardim
-tap 'Planejamento de jardim'
-tap 'Retomar conversa'
-wait_text 'Escolha um contato'
-shot elenco-retomar-contato
-adb shell input keyevent 4
 reset_app
 fill_login http://127.0.0.1:14749 android-test
 wait_text Abertas
