@@ -76,10 +76,33 @@ fun SettingsScreen(apis: Map<String, HabblaudApi>, store: LocalStateStore, onClo
     var view by remember { mutableStateOf<String?>(null) }
     var deliver by remember { mutableStateOf<String?>(null) }
     var notifications by remember { mutableStateOf<Boolean?>(null) }
+    var notificationsDeliverable by remember { mutableStateOf(false) }
+    var notificationsPending by remember { mutableStateOf(false) }
+    var notificationStorageError by remember { mutableStateOf(false) }
     var events by remember { mutableStateOf<Pair<Boolean, Boolean>?>(null) }
+    suspend fun saveNotificationPreference(enabled: Boolean): Boolean = try {
+        store.setNotificationsEnabled(enabled)
+        notificationStorageError = false
+        true
+    } catch (e: Exception) {
+        if (e is CancellationException) throw e
+        notificationStorageError = true
+        false
+    }
     LaunchedEffect(Unit) {
         view = store.defaultView(); deliver = store.deliverAs()
-        notifications = store.notificationsEnabled(); events = store.notifyEvents()
+        try {
+            notifications = store.notificationsEnabled()
+            events = store.notifyEvents()
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            notificationStorageError = true
+        }
+    }
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            notificationsDeliverable = notificationsPlatform.deliverable()
+        }
     }
     // Cotas: o servidor manda o uso das contas no snapshot; recarrega a cada minuto enquanto a tela está aberta.
     var quotas by remember(origin) { mutableStateOf<List<AccountQuota>?>(null) }
@@ -224,20 +247,35 @@ fun SettingsScreen(apis: Map<String, HabblaudApi>, store: LocalStateStore, onClo
 
             if (notificationsPlatform.available) {
             Section(Res.string.notifications)
-            notifications?.let { on ->
-                SwitchRow(stringResource(if (notificationsPlatform.whileOpenOnly) Res.string.settings_notifications_open else Res.string.settings_notifications_on), on) {
-                    notifications = !on
-                    scope.launch { store.setNotificationsEnabled(!on) }
-                    notificationsPlatform.setEnabledFromSettings(!on) { granted ->
-                        notifications = granted
-                        if (!granted && !on) scope.launch { store.setNotificationsEnabled(false) }
+            notifications?.let { saved ->
+                val on = saved && notificationsDeliverable
+                SwitchRow(stringResource(if (notificationsPlatform.whileOpenOnly) Res.string.settings_notifications_open else Res.string.settings_notifications_on), on, enabled = !notificationsPending) {
+                    notificationsPending = true
+                    scope.launch {
+                        // A vigilância lê a preferência ao iniciar, então a gravação precisa terminar primeiro.
+                        if (!saveNotificationPreference(!on)) {
+                            notificationsPending = false
+                            return@launch
+                        }
+                        notificationsPlatform.setEnabledFromSettings(!on) { started ->
+                            notifications = started
+                            notificationsDeliverable = notificationsPlatform.deliverable()
+                            if (!on && !started) {
+                                scope.launch {
+                                    saveNotificationPreference(false)
+                                    notificationsPending = false
+                                }
+                            } else notificationsPending = false
+                        }
                     }
                 }
+                if (saved && !notificationsDeliverable) Hint(Res.string.settings_notifications_blocked)
                 events?.let { (permission, done) ->
                     SwitchRow(stringResource(Res.string.settings_notify_permission), permission, enabled = on) { events = !permission to done; scope.launch { store.setNotifyEvents(!permission, done) } }
                     SwitchRow(stringResource(Res.string.settings_notify_done), done, enabled = on) { events = permission to !done; scope.launch { store.setNotifyEvents(permission, !done) } }
                 }
             }
+            if (notificationStorageError) Hint(Res.string.storage_error)
             if (!notificationsPlatform.whileOpenOnly) {
                 TextButton(onClick = notificationsPlatform.openBackgroundSettings, Modifier.padding(horizontal = 8.dp)) {
                     Text(stringResource(Res.string.background_settings))

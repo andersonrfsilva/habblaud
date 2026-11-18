@@ -12,6 +12,7 @@ import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
@@ -44,6 +45,7 @@ class NotificationService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (job?.isActive == true && intent?.getBooleanExtra(EXTRA_RESTART, false) != true) return START_STICKY
         val previous = job
         previous?.cancel()
         job = scope.launch { previous?.join(); watch() }
@@ -51,8 +53,13 @@ class NotificationService : Service() {
     }
 
     private suspend fun watch() {
-        watchAlerts(LocalStateStore(applicationContext), onServers = { multipleServers = it > 1 }, notify = ::notify)
-        if (currentCoroutineContext().isActive) stopSelf()
+        try {
+            watchAlerts(LocalStateStore(applicationContext), onServers = { multipleServers = it > 1 }, notify = ::notify)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            Log.w(TAG, "Could not watch notifications", e)
+        }
+        withContext(Dispatchers.Main.immediate) { stopSelf() }
     }
 
     private fun notify(event: AgentEvent) {
@@ -71,6 +78,8 @@ class NotificationService : Service() {
         internal const val CHANNEL_ALERTS = "alerts"
         private const val CHANNEL_CONNECTION = "connection"
         private const val ONGOING_ID = 1
+        private const val EXTRA_RESTART = "restart"
+        private const val TAG = "NotificationService"
 
         private fun channels(context: Context) {
             val manager = context.getSystemService(NotificationManager::class.java)
@@ -78,9 +87,28 @@ class NotificationService : Service() {
             manager.createNotificationChannel(NotificationChannel(CHANNEL_CONNECTION, context.getString(R.string.channel_connection), NotificationManager.IMPORTANCE_MIN))
         }
 
-        fun start(context: Context) { if (allowed(context)) ContextCompat.startForegroundService(context, Intent(context, NotificationService::class.java)) }
-        fun allowed(context: Context) = Build.VERSION.SDK_INT < 33 ||
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        fun start(context: Context, restart: Boolean = false): Boolean = try {
+            if (!allowed(context)) false
+            else {
+                val intent = Intent(context, NotificationService::class.java).putExtra(EXTRA_RESTART, restart)
+                ContextCompat.startForegroundService(context, intent)
+                true
+            }
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "Could not start notification service", e)
+            false
+        }
+
+        fun allowed(context: Context): Boolean = try {
+            val permissionGranted = Build.VERSION.SDK_INT < 33 ||
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+            val manager = NotificationManagerCompat.from(context)
+            permissionGranted && manager.areNotificationsEnabled() &&
+                manager.getNotificationChannel(CHANNEL_ALERTS)?.importance != NotificationManager.IMPORTANCE_NONE
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "Could not check notification delivery", e)
+            false
+        }
         fun stop(context: Context) = context.stopService(Intent(context, NotificationService::class.java))
     }
 }
