@@ -10,6 +10,7 @@ import io.ktor.utils.io.*
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.io.IOException
+import kotlinx.io.readByteArray
 import kotlinx.serialization.json.*
 
 data class FileRoot(val path: String, val label: String, val roomId: String? = null)
@@ -55,6 +56,43 @@ internal fun parseDeliveries(json: String): List<Delivery> =
 
 internal fun deliveriesOf(all: List<Delivery>, key: SessionKey): List<Delivery> =
     all.filter { it.provider == key.provider && it.account == key.account && it.sessionId == key.sessionId }
+
+private const val DELIVERIES_MAX_BYTES = 8 * 1024 * 1024
+
+suspend fun HabblaudApi.deliveries(): List<Delivery> =
+    client().prepareGet(origin + "/api/deliveries") { authorize(this) }.execute { response ->
+        receive(response)
+        readDeliveries(response)
+    }
+
+internal suspend fun readDeliveries(response: HttpResponse): List<Delivery> {
+    if ((response.contentLength() ?: 0) > DELIVERIES_MAX_BYTES) throw IOException("Resposta grande demais")
+    val body = response.bodyAsChannel().readBuffer(DELIVERIES_MAX_BYTES + 1L)
+    if (body.size > DELIVERIES_MAX_BYTES) throw IOException("Resposta grande demais")
+    val text = body.readByteArray().decodeToString()
+    if (!response.status.isSuccess()) throw apiError(response.status.value, response.headers[HttpHeaders.RetryAfter], text)
+    return parseDeliveries(text)
+}
+
+suspend fun HabblaudApi.downloadDelivery(
+    attachmentId: String,
+    write: suspend (ByteArray, Int) -> Unit,
+    progress: (Long, Long?) -> Unit = { _, _ -> },
+) = client().downloadDelivery(origin, attachmentId, write, progress, ::authorize, ::receive)
+
+internal suspend fun HttpClient.downloadDelivery(
+    origin: String,
+    attachmentId: String,
+    write: suspend (ByteArray, Int) -> Unit,
+    progress: (Long, Long?) -> Unit = { _, _ -> },
+    authorize: (HttpRequestBuilder) -> Unit = {},
+    receive: (HttpResponse) -> Unit = {},
+) {
+    prepareGet(origin + "/api/deliveries/file/" + attachmentId.encodeURLPathPart()) { authorize(this) }.execute { response ->
+        receive(response)
+        streamFileDownload(response, write, progress)
+    }
+}
 
 /** Mantém só um bloco em memória; o destino publica o arquivo apenas após o retorno. */
 suspend fun HabblaudApi.downloadFile(path: String, write: suspend (ByteArray, Int) -> Unit, progress: (Long, Long?) -> Unit = { _, _ -> }) {
