@@ -388,7 +388,7 @@ fi
 tap 'Laranja'
 tap 'Caderno'
 tap 'Livro'
-adb shell input swipe 500 1900 500 950 400
+adb shell input swipe 500 1700 500 750 400
 wait_text 'Qual observação fictícia?'
 dump
 xy=$(python3 - "$TMP/window.xml" <<'PY'
