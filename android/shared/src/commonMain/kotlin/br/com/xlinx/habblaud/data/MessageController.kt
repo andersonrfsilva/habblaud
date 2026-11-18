@@ -378,7 +378,7 @@ class MessageController(
                     val response = wireJson.parseToJsonElement(request("/api/messages/$encoded", null)).jsonObject
                     op = op.copy(status = requireNotNull(response.string("status")))
                     store.updateMessage(key) { if (it.operation?.id == id) it.copy(operation = op) else it }
-                    if (state.value.key == key) mutable.value = state.value.copy(operation = op)
+                    if (state.value.key == key && state.value.operation?.id == id) mutable.value = state.value.copy(operation = op)
                     if (op.status in setOf("delivered", "failed", "unknown")) break
                 } catch (e: Exception) {
                     if (e is CancellationException) throw e
@@ -386,7 +386,7 @@ class MessageController(
                     if (e is ApiException && e.status == 404) {
                         op = op.copy(status = "unknown")
                         store.updateMessage(key) { if (it.operation?.id == op.id) it.copy(operation = op) else it }
-                        if (state.value.key == key) mutable.value = state.value.copy(operation = op)
+                        if (state.value.key == key && state.value.operation?.id == op.id) mutable.value = state.value.copy(operation = op)
                         break
                     }
                 }
