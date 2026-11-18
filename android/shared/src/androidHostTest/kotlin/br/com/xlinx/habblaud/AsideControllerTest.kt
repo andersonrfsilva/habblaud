@@ -12,6 +12,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import java.io.IOException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -123,6 +124,27 @@ class AsideControllerTest {
             assertEquals(1, gets)
             c.resume()
             waitFor { gets >= 2 }
+        } finally { scope.cancel() }
+    }
+
+    @Test fun pollingSurvivesOneFailure() = runBlocking {
+        var gets = 0
+        val scope = CoroutineScope(coroutineContext + SupervisorJob())
+        val c = AsideController({ _, body ->
+            assertNull(body)
+            when (++gets) {
+                1 -> """{"topics":[${topic("t1", "running")}]}"""
+                2 -> throw IOException("offline")
+                else -> """{"topics":[${topic("t1", "complete", "fim")}]}"""
+            }
+        }, scope, {})
+        try {
+            c.open("a")
+            waitFor { c.state.value.error == "network" }
+            assertTrue(c.state.value.running)
+            waitFor { c.state.value.topic?.turns?.single()?.status == "complete" }
+            assertNull(c.state.value.error)
+            assertEquals(3, gets)
         } finally { scope.cancel() }
     }
 
