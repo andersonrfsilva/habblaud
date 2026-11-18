@@ -34,7 +34,8 @@ pub struct RenderRow {
 }
 
 pub fn anchor_index(rows: &[RenderRow], entry: &str, fragment: &str) -> Option<usize> {
-    rows.iter().position(|row| row.entry_id == entry && row.id == fragment)
+    rows.iter()
+        .position(|row| row.entry_id == entry && row.id == fragment)
         .or_else(|| rows.iter().position(|row| row.entry_id == entry))
 }
 #[derive(Clone, Default, PartialEq)]
@@ -97,7 +98,9 @@ impl MarkdownSource {
                     marker: b.marker,
                     language: b.language,
                     // Trecho parcial de um diagrama dividido não representa o diagrama inteiro.
-                    diagram: if original.is_some_and(|(code, _)| code.start < range.start || code.end > range.end) {
+                    diagram: if original
+                        .is_some_and(|(code, _)| code.start < range.start || code.end > range.end)
+                    {
                         slint::Image::default()
                     } else {
                         b.diagram
@@ -352,22 +355,62 @@ mod tests {
     #[test]
     fn reading_anchor_survives_insertions_and_summary_replacement() {
         let reply = TerminalEntry {
-            id: "reply".into(), kind: "assistant".into(),
-            text: "linha longa com detalhes\n".repeat(2000), ..Default::default()
+            id: "reply".into(),
+            kind: "assistant".into(),
+            text: "linha longa com detalhes\n".repeat(2000),
+            ..Default::default()
         };
         let entries = vec![reply.clone()];
         let expanded = HashSet::from(["reply".to_owned()]);
-        let rows = build_rows(&entries, "all", &expanded, &BTreeMap::new(), false, false, 0);
+        let rows = build_rows(
+            &entries,
+            "all",
+            &expanded,
+            &BTreeMap::new(),
+            false,
+            false,
+            0,
+        );
         let fragment = rows[1].id.clone();
-        let mut entries = vec![TerminalEntry {
-            id: "earlier".into(), kind: "user".into(), text: "Antes".into(), ..Default::default()
-        }, reply];
-        let rows = build_rows(&entries, "all", &expanded, &BTreeMap::new(), false, false, 0);
+        let mut entries = vec![
+            TerminalEntry {
+                id: "earlier".into(),
+                kind: "user".into(),
+                text: "Antes".into(),
+                ..Default::default()
+            },
+            reply,
+        ];
+        let rows = build_rows(
+            &entries,
+            "all",
+            &expanded,
+            &BTreeMap::new(),
+            false,
+            false,
+            0,
+        );
         assert_eq!(anchor_index(&rows, "reply", &fragment), Some(2));
-        let rows = build_rows(&entries, "all", &HashSet::new(), &BTreeMap::new(), false, false, 0);
+        let rows = build_rows(
+            &entries,
+            "all",
+            &HashSet::new(),
+            &BTreeMap::new(),
+            false,
+            false,
+            0,
+        );
         assert_eq!(anchor_index(&rows, "reply", &fragment), Some(1));
         entries.remove(1);
-        let rows = build_rows(&entries, "all", &expanded, &BTreeMap::new(), false, false, 0);
+        let rows = build_rows(
+            &entries,
+            "all",
+            &expanded,
+            &BTreeMap::new(),
+            false,
+            false,
+            0,
+        );
         assert_eq!(anchor_index(&rows, "reply", &fragment), None);
     }
 

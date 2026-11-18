@@ -29,7 +29,9 @@ pub fn host_path(dest: &str) -> Option<&str> {
 pub fn is_image_link(dest: &str) -> bool {
     let path = dest.split(['?', '#']).next().unwrap_or_default();
     path.rsplit_once('.').is_some_and(|(_, extension)| {
-        ["png", "jpg", "jpeg", "gif", "webp", "svg"].iter().any(|known| extension.eq_ignore_ascii_case(known))
+        ["png", "jpg", "jpeg", "gif", "webp", "svg"]
+            .iter()
+            .any(|known| extension.eq_ignore_ascii_case(known))
     })
 }
 
@@ -75,7 +77,13 @@ mod tests {
         assert_eq!(kind("/tmp/print.png"), "file");
         assert_eq!(host_path("file:///tmp/print.png"), Some("/tmp/print.png"));
         assert_eq!(kind("https://example.com/a.png"), "remote");
-        for dest in ["//example.com/a.png", "javascript:alert(1)", "a.png", "data:text/html;base64,AAAA", "file://host/a.png"] {
+        for dest in [
+            "//example.com/a.png",
+            "javascript:alert(1)",
+            "a.png",
+            "data:text/html;base64,AAAA",
+            "file://host/a.png",
+        ] {
             assert_eq!(kind(dest), "", "{dest}");
         }
     }
@@ -83,7 +91,9 @@ mod tests {
     #[test]
     fn data_uri_decodes_to_pixels_and_garbage_is_refused() {
         let png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
-        let Some(Decoded::Pixels(pixels)) = decode(data_bytes(png).unwrap()) else { panic!("png") };
+        let Some(Decoded::Pixels(pixels)) = decode(data_bytes(png).unwrap()) else {
+            panic!("png")
+        };
         assert_eq!((pixels.width(), pixels.height()), (1, 1));
         assert!(decode(b"not an image".to_vec()).is_none());
     }

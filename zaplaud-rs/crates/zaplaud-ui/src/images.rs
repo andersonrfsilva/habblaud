@@ -20,14 +20,27 @@ fn generation() -> u64 {
 }
 
 fn busy<T>(apply: impl FnOnce(&mut HashSet<String>) -> T) -> T {
-    apply(BUSY.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_default())
+    apply(
+        BUSY.lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get_or_insert_default(),
+    )
 }
 
 pub fn setup(window: &AppWindow, context: &FeatureContext) {
     let global = window.global::<MarkdownImages>();
-    global.on_get(|dest, _| IMAGES.with(|images| images.borrow().get(dest.as_str()).cloned().unwrap_or_default()));
+    global.on_get(|dest, _| {
+        IMAGES.with(|images| {
+            images
+                .borrow()
+                .get(dest.as_str())
+                .cloned()
+                .unwrap_or_default()
+        })
+    });
     let api: Arc<Mutex<Option<HabblaudApi>>> = Arc::default();
-    let (current, weak, mut snapshots) = (api.clone(), window.as_weak(), context.snapshots.subscribe());
+    let (current, weak, mut snapshots) =
+        (api.clone(), window.as_weak(), context.snapshots.subscribe());
     context.runtime.spawn(async move {
         let mut selected = None;
         loop {
@@ -38,7 +51,11 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
             };
             let key = snapshot.selected.as_ref().map(|item| item.key.clone());
             *current.lock().unwrap_or_else(|e| e.into_inner()) = key.as_ref().and_then(|key| {
-                snapshot.servers.iter().find(|server| server.api.origin() == key.origin).map(|server| server.api.clone())
+                snapshot
+                    .servers
+                    .iter()
+                    .find(|server| server.api.origin() == key.origin)
+                    .map(|server| server.api.clone())
             });
             if selected != key {
                 selected = key;
@@ -57,7 +74,10 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
     global.on_load(move |dest| {
         let dest = dest.to_string();
         let kind = images::kind(&dest);
-        if kind.is_empty() || IMAGES.with(|images| images.borrow().contains_key(&dest)) || !busy(|set| set.insert(dest.clone())) {
+        if kind.is_empty()
+            || IMAGES.with(|images| images.borrow().contains_key(&dest))
+            || !busy(|set| set.insert(dest.clone()))
+        {
             return;
         }
         let api = api.lock().unwrap_or_else(|e| e.into_inner()).clone();
@@ -71,7 +91,10 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                 _ => None,
             };
             let decoded = match bytes {
-                Some(bytes) => tokio::task::spawn_blocking(move || images::decode(bytes)).await.ok().flatten(),
+                Some(bytes) => tokio::task::spawn_blocking(move || images::decode(bytes))
+                    .await
+                    .ok()
+                    .flatten(),
                 None => None,
             };
             // A sessão mudou durante a carga: o destino pode ser de outro servidor.

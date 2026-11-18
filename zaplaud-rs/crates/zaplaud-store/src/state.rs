@@ -40,7 +40,13 @@ pub struct ReadingState {
 }
 impl Default for ReadingState {
     fn default() -> Self {
-        Self { expanded: Vec::new(), following: true, entry: String::new(), row: String::new(), offset: 0.0 }
+        Self {
+            expanded: Vec::new(),
+            following: true,
+            entry: String::new(),
+            row: String::new(),
+            offset: 0.0,
+        }
     }
 }
 impl ReadingState {
@@ -424,16 +430,32 @@ impl LocalStateStore {
         let prefix = format!("marks_{}_", tag(origin));
         self.state(
             |data| {
-                Ok(data.iter().filter_map(|(key, value)| {
-                    let id = key.strip_prefix(&prefix)?;
-                    if id.len() != 64 || !id.bytes().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()) {
-                        return None;
-                    }
-                    Some((id.to_owned(), SessionMarks {
-                        pinned: value.get("pinned").and_then(Value::as_bool).unwrap_or(false),
-                        favorite: value.get("favorite").and_then(Value::as_bool).unwrap_or(false),
-                    }))
-                }).collect())
+                Ok(data
+                    .iter()
+                    .filter_map(|(key, value)| {
+                        let id = key.strip_prefix(&prefix)?;
+                        if id.len() != 64
+                            || !id
+                                .bytes()
+                                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+                        {
+                            return None;
+                        }
+                        Some((
+                            id.to_owned(),
+                            SessionMarks {
+                                pinned: value
+                                    .get("pinned")
+                                    .and_then(Value::as_bool)
+                                    .unwrap_or(false),
+                                favorite: value
+                                    .get("favorite")
+                                    .and_then(Value::as_bool)
+                                    .unwrap_or(false),
+                            },
+                        ))
+                    })
+                    .collect())
             },
             false,
         )
@@ -446,7 +468,10 @@ impl LocalStateStore {
                 if marks == SessionMarks::default() {
                     data.remove(&name);
                 } else {
-                    data.insert(name, json!({"pinned": marks.pinned, "favorite": marks.favorite}));
+                    data.insert(
+                        name,
+                        json!({"pinned": marks.pinned, "favorite": marks.favorite}),
+                    );
                 }
                 Ok(())
             },
@@ -492,33 +517,55 @@ impl LocalStateStore {
         self.set_session_setting(key, "view_", view, &VIEWS)
     }
     pub fn reading_state(&self, key: &SessionKey) -> Result<ReadingState> {
-        self.state(|data| {
-            let value = data.get(&hash("reading_", key)?);
-            let mut state = ReadingState::default();
-            if let Some(value) = value {
-                state.expanded = value.get("expanded").and_then(Value::as_array)
-                    .map(|ids| ids.iter().filter_map(Value::as_str).map(str::to_owned).collect())
-                    .unwrap_or_default();
-                let excess = state.expanded.len().saturating_sub(512);
-                state.expanded.drain(..excess);
-                state.following = value.get("following").and_then(Value::as_bool).unwrap_or(true);
-                state.entry = text(value, "entry").unwrap_or_default();
-                state.row = text(value, "row").unwrap_or_default();
-                state.offset = value.get("offset").and_then(Value::as_f64).unwrap_or_default() as f32;
-            }
-            Ok(state)
-        }, false)
+        self.state(
+            |data| {
+                let value = data.get(&hash("reading_", key)?);
+                let mut state = ReadingState::default();
+                if let Some(value) = value {
+                    state.expanded = value
+                        .get("expanded")
+                        .and_then(Value::as_array)
+                        .map(|ids| {
+                            ids.iter()
+                                .filter_map(Value::as_str)
+                                .map(str::to_owned)
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let excess = state.expanded.len().saturating_sub(512);
+                    state.expanded.drain(..excess);
+                    state.following = value
+                        .get("following")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(true);
+                    state.entry = text(value, "entry").unwrap_or_default();
+                    state.row = text(value, "row").unwrap_or_default();
+                    state.offset = value
+                        .get("offset")
+                        .and_then(Value::as_f64)
+                        .unwrap_or_default() as f32;
+                }
+                Ok(state)
+            },
+            false,
+        )
     }
     pub fn set_reading_state(&self, key: &SessionKey, state: &ReadingState) -> Result<()> {
-        self.state(|data| {
-            require(data, &key.origin)?;
-            let expanded = &state.expanded[state.expanded.len().saturating_sub(512)..];
-            data.insert(hash("reading_", key)?, json!({
-                "expanded": expanded, "following": state.following,
-                "entry": state.entry, "row": state.row, "offset": state.offset,
-            }));
-            Ok(())
-        }, true)
+        self.state(
+            |data| {
+                require(data, &key.origin)?;
+                let expanded = &state.expanded[state.expanded.len().saturating_sub(512)..];
+                data.insert(
+                    hash("reading_", key)?,
+                    json!({
+                        "expanded": expanded, "following": state.following,
+                        "entry": state.entry, "row": state.row, "offset": state.offset,
+                    }),
+                );
+                Ok(())
+            },
+            true,
+        )
     }
     pub fn session_deliver_as(&self, key: &SessionKey) -> Result<String> {
         self.session_setting(key, "deliver_", &DELIVER_MODES, || self.deliver_as())

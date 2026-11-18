@@ -266,7 +266,10 @@ fn push_model_word(label: &mut String, word: &str) {
         ("vl", "VL"),
         ("gpt", "GPT"),
     ];
-    if let Some((_, name)) = known.iter().find(|(name, _)| word.eq_ignore_ascii_case(name)) {
+    if let Some((_, name)) = known
+        .iter()
+        .find(|(name, _)| word.eq_ignore_ascii_case(name))
+    {
         label.push_str(name);
     } else if let Some(size) = word.strip_suffix('b').or_else(|| word.strip_suffix('B'))
         && !size.is_empty()
@@ -292,7 +295,10 @@ pub fn model_option_label(model: &str) -> String {
     let mut variants = name.split(':');
     let dated = variants.next().unwrap_or_default();
     let name = undated(dated);
-    let mut words = name.split(['-', '_']).filter(|word| !word.is_empty()).peekable();
+    let mut words = name
+        .split(['-', '_'])
+        .filter(|word| !word.is_empty())
+        .peekable();
     let mut label = String::with_capacity(model.len());
     let first = words.next().unwrap_or_default();
     push_model_word(&mut label, first);
@@ -331,7 +337,11 @@ pub fn model_option_label(model: &str) -> String {
     }
     for variant in variants {
         label.push_str(" · ");
-        for (index, word) in variant.split(['-', '_']).filter(|word| !word.is_empty()).enumerate() {
+        for (index, word) in variant
+            .split(['-', '_'])
+            .filter(|word| !word.is_empty())
+            .enumerate()
+        {
             if index != 0 {
                 label.push(' ');
             }

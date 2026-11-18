@@ -176,8 +176,12 @@ pub async fn run(
             {
                 let _ = sender.send(Event::Login {
                     origin: origin.into(),
-                    user: option_env!("ZAPLAUD_PROBE_USER").unwrap_or("android-test").into(),
-                    password: option_env!("ZAPLAUD_PROBE_PASSWORD").unwrap_or("android-test").into(),
+                    user: option_env!("ZAPLAUD_PROBE_USER")
+                        .unwrap_or("android-test")
+                        .into(),
+                    password: option_env!("ZAPLAUD_PROBE_PASSWORD")
+                        .unwrap_or("android-test")
+                        .into(),
                 });
             }
             for origin in servers {
@@ -324,7 +328,11 @@ pub async fn run(
                     continue;
                 }
                 let origin = api.origin().to_owned();
-                let marks = match state.persistence.call(move |store| store.session_marks(&origin)).await {
+                let marks = match state
+                    .persistence
+                    .call(move |store| store.session_marks(&origin))
+                    .await
+                {
                     Ok(marks) => marks,
                     Err(_) => {
                         login_error(&weak, strings::STORAGE_ERROR.into());
@@ -461,10 +469,14 @@ pub async fn run(
                 state.favorites = favorites;
             }
             Event::ToggleMark { key, pin } => {
-                let Ok(key) = SessionKey::deserialize(&key) else { continue };
+                let Ok(key) = SessionKey::deserialize(&key) else {
+                    continue;
+                };
                 if update_marks(&mut state, key, pin).await.is_err() {
                     update_ui(&weak, |window| {
-                        window.global::<crate::ShellState>().set_message(strings::STORAGE_ERROR.into());
+                        window
+                            .global::<crate::ShellState>()
+                            .set_message(strings::STORAGE_ERROR.into());
                     });
                 }
             }
@@ -636,7 +648,11 @@ pub async fn run(
     }
 }
 async fn update_marks(state: &mut AppState, key: SessionKey, pin: bool) -> Result<(), String> {
-    let Some(server) = state.servers.iter_mut().find(|server| server.api.origin() == key.origin) else {
+    let Some(server) = state
+        .servers
+        .iter_mut()
+        .find(|server| server.api.origin() == key.origin)
+    else {
         return Ok(());
     };
     if find_session(&server.reading, &key).is_none() {
@@ -649,7 +665,10 @@ async fn update_marks(state: &mut AppState, key: SessionKey, pin: bool) -> Resul
     } else {
         marks.favorite = !marks.favorite;
     }
-    state.persistence.call(move |store| store.set_session_marks(&key, marks)).await?;
+    state
+        .persistence
+        .call(move |store| store.set_session_marks(&key, marks))
+        .await?;
     if marks == zaplaud_store::SessionMarks::default() {
         server.marks.remove(&id);
     } else {
@@ -776,29 +795,52 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let data = root.path().join("data");
         let store = zaplaud_store::LocalStateStore::with_dirs(zaplaud_store::DesktopDirs {
-            data: data.clone(), cache: root.path().join("cache"),
-        }).unwrap();
+            data: data.clone(),
+            cache: root.path().join("cache"),
+        })
+        .unwrap();
         let key = SessionKey {
-            origin: "https://a".into(), provider: "omp".into(),
-            account: "account".into(), session_id: "session".into(),
+            origin: "https://a".into(),
+            provider: "omp".into(),
+            account: "account".into(),
+            session_id: "session".into(),
         };
         store.add_server(&key.origin).unwrap();
         let mut reading = ReadingController::new(key.origin.clone(), HashMap::new(), None);
-        reading.state.sessions.push(zaplaud_core::model::SessionItem {
-            key: key.clone(), ..Default::default()
-        });
+        reading
+            .state
+            .sessions
+            .push(zaplaud_core::model::SessionItem {
+                key: key.clone(),
+                ..Default::default()
+            });
         let mut state = AppState::new(Box::new(store));
         state.servers.push(ServerState {
-            api: HabblaudApi::new(&key.origin).unwrap(), reading, generation: 1,
-            task: tokio::spawn(async {}), marks: HashMap::new(),
+            api: HabblaudApi::new(&key.origin).unwrap(),
+            reading,
+            generation: 1,
+            task: tokio::spawn(async {}),
+            marks: HashMap::new(),
         });
         let id = zaplaud_store::storage_hash(&key.serialize().unwrap());
         update_marks(&mut state, key.clone(), true).await.unwrap();
         update_marks(&mut state, key.clone(), false).await.unwrap();
-        assert_eq!(state.servers[0].marks[&id], zaplaud_store::SessionMarks { pinned: true, favorite: true });
+        assert_eq!(
+            state.servers[0].marks[&id],
+            zaplaud_store::SessionMarks {
+                pinned: true,
+                favorite: true
+            }
+        );
         std::fs::write(data.join("local_state.json"), b"malformed").unwrap();
         assert!(update_marks(&mut state, key, true).await.is_err());
-        assert_eq!(state.servers[0].marks[&id], zaplaud_store::SessionMarks { pinned: true, favorite: true });
+        assert_eq!(
+            state.servers[0].marks[&id],
+            zaplaud_store::SessionMarks {
+                pinned: true,
+                favorite: true
+            }
+        );
         state.servers.remove(0).task.abort();
     }
 

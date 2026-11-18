@@ -100,7 +100,11 @@ impl SecureSessionStorage {
         } else {
             // Sem coleção explícita, deixe o backend escolher: "default" não é um domínio do Keychain do macOS.
             let entry = match TARGET.as_deref() {
-                Some(target) => keyring::Entry::new_with_target(target, "br.com.xlinx.zaplaud", "remote-session"),
+                Some(target) => keyring::Entry::new_with_target(
+                    target,
+                    "br.com.xlinx.zaplaud",
+                    "remote-session",
+                ),
                 None => keyring::Entry::new("br.com.xlinx.zaplaud", "remote-session"),
             };
             match entry {
@@ -177,8 +181,13 @@ mod tests {
     #[test]
     fn macos_uses_the_persistent_user_keychain() {
         let storage = SecureSessionStorage { memory_only: false };
-        let entry = storage.entry().expect("macOS must not fall back to process memory");
-        let credential = entry.get_credential().downcast_ref::<keyring::macos::MacCredential>().unwrap();
+        let entry = storage
+            .entry()
+            .expect("macOS must not fall back to process memory");
+        let credential = entry
+            .get_credential()
+            .downcast_ref::<keyring::macos::MacCredential>()
+            .unwrap();
         assert_eq!(credential.domain, keyring::macos::MacKeychainDomain::User);
     }
 

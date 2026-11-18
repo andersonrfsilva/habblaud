@@ -33,11 +33,17 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
     });
     let send = sender.clone();
     window.global::<ListState>().on_toggle_pin(move |key| {
-        let _ = send.send(Event::ToggleMark { key: key.into(), pin: true });
+        let _ = send.send(Event::ToggleMark {
+            key: key.into(),
+            pin: true,
+        });
     });
     let send = sender.clone();
     window.global::<ListState>().on_toggle_favorite(move |key| {
-        let _ = send.send(Event::ToggleMark { key: key.into(), pin: false });
+        let _ = send.send(Event::ToggleMark {
+            key: key.into(),
+            pin: false,
+        });
     });
     let send = sender.clone();
     let weak = window.as_weak();
@@ -168,15 +174,26 @@ pub fn publish(state: &AppState, weak: &slint::Weak<AppWindow>) {
         state.filter.as_deref(),
     );
     let sessions = visible_sessions(&sessions, state.recent, &state.query);
-    let mut marked: Vec<_> = sessions.into_iter().map(|item| {
-        let marks = item.key.serialize().ok()
-            .map(|serialized| zaplaud_store::storage_hash(&serialized))
-            .and_then(|id| state.servers.iter()
-                .find(|server| server.api.origin() == item.key.origin)
-                .and_then(|server| server.marks.get(&id)).copied())
-            .unwrap_or_default();
-        (item, marks)
-    }).collect();
+    let mut marked: Vec<_> = sessions
+        .into_iter()
+        .map(|item| {
+            let marks = item
+                .key
+                .serialize()
+                .ok()
+                .map(|serialized| zaplaud_store::storage_hash(&serialized))
+                .and_then(|id| {
+                    state
+                        .servers
+                        .iter()
+                        .find(|server| server.api.origin() == item.key.origin)
+                        .and_then(|server| server.marks.get(&id))
+                        .copied()
+                })
+                .unwrap_or_default();
+            (item, marks)
+        })
+        .collect();
     order_marked_sessions(&mut marked, state.favorites);
     let selected = state
         .servers
@@ -291,7 +308,10 @@ pub fn publish(state: &AppState, weak: &slint::Weak<AppWindow>) {
         crate::conversation::publish(&window, selected);
     });
 }
-fn order_marked_sessions(sessions: &mut Vec<(SessionItem, zaplaud_store::SessionMarks)>, favorites: bool) {
+fn order_marked_sessions(
+    sessions: &mut Vec<(SessionItem, zaplaud_store::SessionMarks)>,
+    favorites: bool,
+) {
     sessions.retain(|(_, marks)| !favorites || marks.favorite);
     sessions.sort_by_key(|(_, marks)| !marks.pinned);
 }
@@ -428,27 +448,49 @@ mod tests {
 
     #[test]
     fn marks_partition_activity_order_without_overriding_filters() {
-        let sessions: Vec<_> = (1..=4).map(|last| SessionItem {
-            title: last.to_string(),
-            last_at: Some(last),
-            agent_id: (last != 1).then(|| "agent".into()),
-            ..Default::default()
-        }).collect();
-        let marked = |sessions: Vec<SessionItem>| sessions.into_iter().map(|item| {
-            let marks = SessionMarks {
-                pinned: item.title == "1" || item.title == "3",
-                favorite: item.title != "2",
-            };
-            (item, marks)
-        }).collect::<Vec<_>>();
+        let sessions: Vec<_> = (1..=4)
+            .map(|last| SessionItem {
+                title: last.to_string(),
+                last_at: Some(last),
+                agent_id: (last != 1).then(|| "agent".into()),
+                ..Default::default()
+            })
+            .collect();
+        let marked = |sessions: Vec<SessionItem>| {
+            sessions
+                .into_iter()
+                .map(|item| {
+                    let marks = SessionMarks {
+                        pinned: item.title == "1" || item.title == "3",
+                        favorite: item.title != "2",
+                    };
+                    (item, marks)
+                })
+                .collect::<Vec<_>>()
+        };
         let mut rows = marked(visible_sessions(&sessions, true, ""));
         order_marked_sessions(&mut rows, false);
-        assert_eq!(rows.iter().map(|(item, _)| item.title.as_str()).collect::<Vec<_>>(), ["3", "1", "4", "2"]);
+        assert_eq!(
+            rows.iter()
+                .map(|(item, _)| item.title.as_str())
+                .collect::<Vec<_>>(),
+            ["3", "1", "4", "2"]
+        );
         order_marked_sessions(&mut rows, true);
-        assert_eq!(rows.iter().map(|(item, _)| item.title.as_str()).collect::<Vec<_>>(), ["3", "1", "4"]);
+        assert_eq!(
+            rows.iter()
+                .map(|(item, _)| item.title.as_str())
+                .collect::<Vec<_>>(),
+            ["3", "1", "4"]
+        );
         let mut rows = marked(visible_sessions(&sessions, false, ""));
         order_marked_sessions(&mut rows, false);
-        assert_eq!(rows.iter().map(|(item, _)| item.title.as_str()).collect::<Vec<_>>(), ["3", "4", "2"]);
+        assert_eq!(
+            rows.iter()
+                .map(|(item, _)| item.title.as_str())
+                .collect::<Vec<_>>(),
+            ["3", "4", "2"]
+        );
         let mut rows = marked(visible_sessions(&sessions, true, "4"));
         order_marked_sessions(&mut rows, true);
         assert_eq!(rows.len(), 1);

@@ -87,7 +87,8 @@ impl AppPersistence for zaplaud_store::LocalStateStore {
             .map_err(|error| error.to_string())
     }
     fn session_marks(&self, origin: &str) -> Result<HashMap<String, SessionMarks>, String> {
-        self.session_marks(origin).map_err(|error| error.to_string())
+        self.session_marks(origin)
+            .map_err(|error| error.to_string())
     }
     fn set_session_marks(&mut self, key: &SessionKey, marks: SessionMarks) -> Result<(), String> {
         zaplaud_store::LocalStateStore::set_session_marks(self, key, marks)
@@ -149,7 +150,10 @@ pub enum Event {
         favorites: bool,
     },
     Avatar(String),
-    ToggleMark { key: String, pin: bool },
+    ToggleMark {
+        key: String,
+        pin: bool,
+    },
     AvatarFinished {
         key: String,
         failed: bool,

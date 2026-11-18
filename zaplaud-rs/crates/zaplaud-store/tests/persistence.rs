@@ -22,7 +22,10 @@ fn reading_state_restores_after_restart_and_bounds_oldest_expansions() -> Result
     let root = tempfile::tempdir()?;
     let s = store(root.path());
     let a = key("https://one.invalid");
-    let b = SessionKey { session_id: "other".into(), ..a.clone() };
+    let b = SessionKey {
+        session_id: "other".into(),
+        ..a.clone()
+    };
     s.add_server(&a.origin)?;
     let mut reading = s.reading_state(&a)?;
     assert!(reading.following);
@@ -54,24 +57,57 @@ fn session_marks_keep_full_identity_and_shared_schema() -> Result<(), StoreError
     let s = store(root.path());
     let a = key("https://one.invalid");
     let b = key("https://two.invalid");
-    let account = SessionKey { account: "other".into(), ..a.clone() };
-    let provider = SessionKey { provider: "codex".into(), ..a.clone() };
-    let session = SessionKey { session_id: "other".into(), ..a.clone() };
-    assert!(s.set_session_marks(&a, SessionMarks { pinned: true, favorite: false }).is_err());
+    let account = SessionKey {
+        account: "other".into(),
+        ..a.clone()
+    };
+    let provider = SessionKey {
+        provider: "codex".into(),
+        ..a.clone()
+    };
+    let session = SessionKey {
+        session_id: "other".into(),
+        ..a.clone()
+    };
+    assert!(
+        s.set_session_marks(
+            &a,
+            SessionMarks {
+                pinned: true,
+                favorite: false
+            }
+        )
+        .is_err()
+    );
     s.add_server(&a.origin)?;
     s.add_server(&b.origin)?;
-    let both = SessionMarks { pinned: true, favorite: true };
-    let favorite = SessionMarks { pinned: false, favorite: true };
+    let both = SessionMarks {
+        pinned: true,
+        favorite: true,
+    };
+    let favorite = SessionMarks {
+        pinned: false,
+        favorite: true,
+    };
     s.set_session_marks(&a, both)?;
     s.set_session_marks(&b, favorite)?;
     s.set_session_marks(&account, favorite)?;
-    s.set_session_marks(&provider, SessionMarks { pinned: true, favorite: false })?;
+    s.set_session_marks(
+        &provider,
+        SessionMarks {
+            pinned: true,
+            favorite: false,
+        },
+    )?;
     s.set_session_marks(&session, favorite)?;
     let id = storage_hash(&a.serialize()?);
     let path = root.path().join("data/local_state.json");
     let data: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
     let field = format!("marks_{}_{}", &storage_hash(&a.origin)[..16], id);
-    assert_eq!(data[&field], serde_json::json!({"pinned": true, "favorite": true}));
+    assert_eq!(
+        data[&field],
+        serde_json::json!({"pinned": true, "favorite": true})
+    );
     drop(s);
     let s = store(root.path());
     assert_eq!(s.session_marks(&a.origin)?.len(), 4);
@@ -85,7 +121,10 @@ fn session_marks_keep_full_identity_and_shared_schema() -> Result<(), StoreError
     s.set_session_marks(&a, both)?;
     s.remove_server(&a.origin)?;
     assert!(s.session_marks(&a.origin)?.is_empty());
-    assert_eq!(s.session_marks(&b.origin)?[&storage_hash(&b.serialize()?)], favorite);
+    assert_eq!(
+        s.session_marks(&b.origin)?[&storage_hash(&b.serialize()?)],
+        favorite
+    );
     assert!(s.set_session_marks(&a, both).is_err());
     s.clear()?;
     assert!(s.session_marks(&b.origin)?.is_empty());
@@ -100,7 +139,16 @@ fn failed_marks_write_keeps_existing_state() -> Result<(), StoreError> {
     s.add_server(&a.origin)?;
     let path = root.path().join("data/local_state.json");
     fs::write(&path, b"malformed")?;
-    assert!(s.set_session_marks(&a, SessionMarks { pinned: true, favorite: true }).is_err());
+    assert!(
+        s.set_session_marks(
+            &a,
+            SessionMarks {
+                pinned: true,
+                favorite: true
+            }
+        )
+        .is_err()
+    );
     assert_eq!(fs::read(&path)?, b"malformed");
     Ok(())
 }

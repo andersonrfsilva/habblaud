@@ -365,9 +365,17 @@ impl Snapshot {
                     task: string(o, "title"),
                     model: string(o, "model"),
                     thinking: string(o, "thinking"),
-                    context_tokens: o.get("context").and_then(|v| integer(v, "tokens")).filter(|n| *n >= 0),
-                    context_window: o.get("context").and_then(|v| integer(v, "window")).filter(|n| *n > 0),
-                    status_since: integer(o, "statusSince").filter(|n| *n > 0).map(|n| local_time(n, server_time, now)),
+                    context_tokens: o
+                        .get("context")
+                        .and_then(|v| integer(v, "tokens"))
+                        .filter(|n| *n >= 0),
+                    context_window: o
+                        .get("context")
+                        .and_then(|v| integer(v, "window"))
+                        .filter(|n| *n > 0),
+                    status_since: integer(o, "statusSince")
+                        .filter(|n| *n > 0)
+                        .map(|n| local_time(n, server_time, now)),
                     last_at: integer(o, "lastEventAt").or_else(|| integer(o, "lastAt")),
                     session_id: string(o, "sessionId"),
                 });
@@ -1315,14 +1323,19 @@ mod tests {
         assert_eq!(sub.task.as_deref(), Some("Inspect logs"));
         assert_eq!(sub.model.as_deref(), Some("provider/sub-model"));
         assert_eq!(sub.thinking.as_deref(), Some("high"));
-        assert_eq!((sub.context_tokens, sub.context_window), (Some(20), Some(100)));
+        assert_eq!(
+            (sub.context_tokens, sub.context_window),
+            (Some(20), Some(100))
+        );
         assert_eq!(sub.status_since, Some(11000));
         assert_eq!(sub.last_at, Some(9500));
         assert!(!sub.can_message);
         let missing = Snapshot::parse_at("https://test", r#"{"agents":[{"id":"main","kind":"main","account":"default","sessionId":"parent","model":"parent-model"},{"id":"sub","kind":"sub","parentId":"main","status":"working"}]}"#, 12000).unwrap();
         let parent = &missing.sessions[0];
         let sub = sub_session(parent, &parent.subagents[0]);
-        assert!(sub.model.is_none() && sub.context_tokens.is_none() && sub.server_session_id.is_none());
+        assert!(
+            sub.model.is_none() && sub.context_tokens.is_none() && sub.server_session_id.is_none()
+        );
     }
     #[test]
     fn conversation_deduplicates_evicts_and_rejects_before_mutation() {
