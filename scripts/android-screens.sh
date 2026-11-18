@@ -18,6 +18,8 @@ FONT=
 NIGHT=
 TEST_A=habblaud-exemplo.txt
 TEST_B="habblaud-${TMP##*.}-b.txt"
+OMP_CLOSED_ID=00000000-0000-4000-8000-000000000010
+OMP_CLOSED_TITLE='Retomada OMP fictícia'
 
 cleanup() {
     local status=$?
@@ -108,11 +110,13 @@ dump() {
     return 1
 }
 coords() {
-    python3 - "$TMP/window.xml" "$1" <<'PY'
+    python3 - "$TMP/window.xml" "$1" "${2:-}" <<'PY'
 import re, sys, xml.etree.ElementTree as ET
 root = ET.parse(sys.argv[1]).getroot()
+label, mode = sys.argv[2:]
 for node in root.iter('node'):
-    if sys.argv[2] in (node.get('text'), node.get('content-desc')):
+    text = node.get('text', '')
+    if (label in text if mode == '--contains' else label in (text, node.get('content-desc'))):
         match = re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', node.get('bounds', ''))
         if match:
             x1, y1, x2, y2 = map(int, match.groups())
@@ -127,7 +131,7 @@ wait_text() {
     local label=$1
     for _ in $(seq 1 20); do
         dump
-        if coords "$label" >/dev/null; then return; fi
+        if coords "$@" >/dev/null; then return; fi
         sleep 1
     done
     echo "Elemento não encontrado: $label" >&2
@@ -262,6 +266,8 @@ done
 grep -q '"ready":true' "$TMP/fixture.log"
 grep -q '"ready":true' "$TMP/readonly.log"
 printf 'permission fixture:analise bash\n' >&3
+# A lista de recentes é carregada no login; semeie antes da primeira leitura.
+printf 'seed-closed-omp %s %s\n' "$OMP_CLOSED_ID" "$OMP_CLOSED_TITLE" >&3
 
 reset_app
 shot conexao-vazia
@@ -368,7 +374,7 @@ sleep 2
 shot conversa-fonte-1-3
 adb shell settings put system font_scale 1.0
 tap 'Voltar às sessões'
-tap 'caderno · trabalhando'
+tap 'Conversa OMP fictícia'
 wait_text 'Parar agente'
 wait_text 'Resposta OMP fictícia'
 printf 'permission fixture:omp question-omp\n' >&3
@@ -386,7 +392,7 @@ fi
 tap 'Laranja'
 tap 'Caderno'
 tap 'Livro'
-adb shell input swipe 500 1900 500 950 400
+adb shell input swipe 500 1700 500 750 400
 wait_text 'Qual observação fictícia?'
 dump
 xy=$(python3 - "$TMP/window.xml" <<'PY'
@@ -435,7 +441,7 @@ tap 'Caio Fictício'
 tap Menu
 wait_text 'Dispensar contato'
 tap 'Dispensar contato'
-wait_text 'Dispensar este contato e fechar a sessão dele no servidor?'
+wait_text 'Dispensar este contato e fechar a sessão dele no servidor?' --contains
 shot elenco-dispensar
 tap Confirmar
 wait_text 'Pedido enviado. Aguardando o servidor.'
@@ -444,27 +450,20 @@ wait_text 'Pedido concluído.'
 tap 'Voltar às sessões'
 tap Recentes
 open_search
-enter_text 'Buscar por título, projeto ou agente' encerrada
-tap 'Conversa encerrada fictícia'
+enter_text 'Buscar por título, projeto ou agente' Retomada
+tap "$OMP_CLOSED_TITLE"
 wait_text 'Retomar conversa'
 shot conversa-retomar-icone
 tap 'Retomar conversa'
+wait_text 'Escolha um contato'
+shot elenco-retomar-contato
+tap 'Bia Fictícia'
 wait_text Confirmar
 shot elenco-retomar
 tap Confirmar
 wait_text 'Pedido enviado. Aguardando o servidor.'
 printf 'cast-consume\n' >&3
 wait_text 'Pedido concluído.'
-tap 'Voltar às sessões'
-tap Recentes
-tap 'Fechar busca'
-open_search
-enter_text 'Buscar por título, projeto ou agente' jardim
-tap 'Planejamento de jardim'
-tap 'Retomar conversa'
-wait_text 'Escolha um contato'
-shot elenco-retomar-contato
-adb shell input keyevent 4
 reset_app
 fill_login http://127.0.0.1:14749 android-test
 wait_text Abertas

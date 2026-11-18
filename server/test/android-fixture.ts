@@ -78,13 +78,13 @@ export async function startAndroidFixture(root: string, args: string[]): Promise
   const paths = new Map<string, string>();
   const pendingResults = new Map<string, string>();
   const timers = new Set<NodeJS.Timeout>();
-  const seed = (sessionId: string, provider: 'claude' | 'omp' = 'claude', late = false, cwd = CWD) => {
+  const seed = (sessionId: string, provider: 'claude' | 'omp' = 'claude', late = false, cwd = CWD, ompTitle = 'Conversa OMP fictícia') => {
     const projectDir = provider === 'omp' ? join(ompDir, 'sessions', encodeCwd(cwd)) : join(accountDir, 'projects', encodeCwd(cwd));
     mkdirSync(projectDir, { recursive: true });
     if (provider === 'omp') {
       const path = join(projectDir, `2026-01-01T00-00-00-000Z_${sessionId}.jsonl`);
       const lines = [
-        { type: 'title', title: 'Conversa OMP fictícia' },
+        { type: 'title', title: ompTitle },
         { type: 'session', id: sessionId, cwd, timestamp: new Date().toISOString() },
         { type: 'message', id: randomUUID(), timestamp: new Date().toISOString(), message: { role: 'user', content: [{ type: 'text', text: 'Pedido OMP fictício' }] } },
         ...Array.from({ length: 60 }, (_, index) => ({
@@ -441,9 +441,10 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
         result = { ok: true };
       }
       else if (command === 'seed-closed-omp') {
-        if (!agentId || !OMP_SESSION_ID.test(agentId) || kind) throw new Error('Expected seed-closed-omp <sessionId>');
+        if (!agentId || !OMP_SESSION_ID.test(agentId)) throw new Error('Expected seed-closed-omp <sessionId> [title]');
+        const title = line.trim().match(/^\S+\s+\S+\s+(.+)$/)?.[1];
         ompCastEnabled = true;
-        paths.set(agentId, seed(agentId, 'omp'));
+        paths.set(agentId, seed(agentId, 'omp', false, CWD, title));
         result = { ok: true, sessionId: agentId, account: OMP_ACCOUNT, project: CWD };
       }
       else if (command === 'roles-seed') {
