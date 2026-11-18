@@ -179,6 +179,7 @@ do meio (0.**3**.0).
   funcionando depois de sair e voltar ao app, e a resposta volta a atualizar depois de uma falha de rede.
 - **Zaplaud Android:** tocar numa notificação abre a conversa do aviso, mesmo que a última conversa aberta seja de outro servidor.
 - **Zaplaud:** a conversa que termina com o app aberto aparece em Recentes sem precisar reconectar.
+- **Zaplaud Android:** o interruptor de avisos mostra bloqueios do sistema. A vigilância não reinicia sem necessidade e acompanha as mudanças na lista de servidores.
 - **Zaplaud (Android e iOS):** o bate-papo paralelo volta a acompanhar o fim: abre na última resposta, mostra a
   pergunta enviada e segue a resposta enquanto ela cresce. Lendo mais acima, a lista fica parada. Antes ela não
   saía do lugar, porque a rolagem automática pedia um deslocamento que estourava a conta.

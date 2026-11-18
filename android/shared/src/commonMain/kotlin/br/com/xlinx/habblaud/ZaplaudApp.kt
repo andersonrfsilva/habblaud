@@ -78,10 +78,18 @@ fun ZaplaudApp(store: LocalStateStore = remember { LocalStateStore() }) {
                 var busy by remember { mutableStateOf(false) }
                 var message by remember { mutableStateOf("") }
                 val scope = rememberCoroutineScope()
+                suspend fun notificationsEnabled(): Boolean = try {
+                    store.notificationsEnabled()
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    if (message.isEmpty()) message = strings(Res.string.storage_error)
+                    false
+                }
                 DisposableEffect(Unit) {
                     onDispose { apis.values.forEach { it.close() } }
                 }
                 LaunchedEffect(Unit) {
+                    var shouldStartNotifications = false
                     try {
                         servers = store.servers()
                         for (origin in servers) {
@@ -98,11 +106,12 @@ fun ZaplaudApp(store: LocalStateStore = remember { LocalStateStore() }) {
                                 if (e is ApiException && e.status == 401) needsLogin = needsLogin + origin
                             }
                         }
-                        if (servers.isNotEmpty() && store.notificationsEnabled()) notificationsPlatform.setEnabled(true)
+                        shouldStartNotifications = servers.isNotEmpty() && store.notificationsEnabled()
                     } catch (e: Exception) {
                         if (e is kotlinx.coroutines.CancellationException) throw e
                         message = strings(Res.string.storage_error)
                     } finally { loaded = true }
+                    if (shouldStartNotifications) notificationsPlatform.setEnabled(true)
                 }
                 confirmLogout?.let { origin ->
                     AlertDialog(
@@ -122,9 +131,9 @@ fun ZaplaudApp(store: LocalStateStore = remember { LocalStateStore() }) {
                                         apis.remove(origin)
                                         needsLogin = needsLogin - origin
                                         servers = servers - origin
-                                        notificationsPlatform.setEnabled(false)
-                                        if (servers.isNotEmpty() && store.notificationsEnabled()) notificationsPlatform.setEnabled(true)
                                         message = logoutError(cleaned, revoked)?.let { strings(it) }.orEmpty()
+                                        if (servers.isNotEmpty() && notificationsEnabled()) notificationsPlatform.restart()
+                                        else notificationsPlatform.setEnabled(false)
                                     }
                                 } finally { busy = false }
                             }
@@ -147,7 +156,7 @@ fun ZaplaudApp(store: LocalStateStore = remember { LocalStateStore() }) {
                                 loginOrigin = null
                                 message = ""
                                 scope.launch {
-                                    if (store.notificationsEnabled()) notificationsPlatform.setEnabled(true)
+                                    if (notificationsEnabled()) notificationsPlatform.restart()
                                 }
                             },
                             onCancel = if (servers.isEmpty()) null else ({
