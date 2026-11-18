@@ -105,6 +105,62 @@ class LastSessionOrderInstrumentedTest {
     }
     @Test fun openThenClose() = exercise(true)
     @Test fun openThenOpen() = exercise(false)
+
+    @Test fun notificationTargetBeatsRestoreOnAnotherServer() = runBlocking {
+        withTimeout(15000) {
+            val serverA = MockWebServer()
+            serverA.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                    "/api/access" -> MockResponse().setBody("""{"terminal":true}""")
+                    "/api/sessions/recent" -> MockResponse().setBody("""{"sessions":[]}""")
+                    "/api/cast" -> MockResponse().setBody("""{"members":[]}""")
+                    "/api/stream" -> snapshot()
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+            val serverB = MockWebServer()
+            serverB.dispatcher = serverA.dispatcher
+            serverA.start()
+            serverB.start()
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+            val originA = serverA.url("/").toString().removeSuffix("/")
+            val originB = serverB.url("/").toString().removeSuffix("/")
+            val target = SessionKey(originA, "claude", "account", "a")
+            val last = SessionKey(originB, "claude", "account", "b")
+            val store = LocalStateStore(context)
+            val apiA = HabblaudApi(originA)
+            val apiB = HabblaudApi(originB)
+            try {
+                store.clear()
+                store.addServer(originA)
+                store.addServer(originB)
+                store.setLastSession(last)
+                val a = ReadingController(apiA, store, scope) {}
+                val b = ReadingController(apiB, store, scope) {}
+                withContext(Dispatchers.Main) {
+                    b.cancelRestore()
+                    a.openKey(target)
+                    b.start()
+                }
+                b.state.first { state -> state.sessions.any { it.key == last } }
+                withContext(Dispatchers.Main) {
+                    // O servidor B recebe a lista antes que o servidor A possa gravar a nova sessão.
+                    assertNull(b.state.value.selected)
+                    a.start()
+                }
+                a.state.first { it.selected?.key == target }
+                assertEquals(target, a.state.value.selected?.key)
+                assertNull(b.state.value.selected)
+            } finally {
+                scope.cancel()
+                apiA.close()
+                apiB.close()
+                serverA.shutdown()
+                serverB.shutdown()
+            }
+        }
+    }
+
     @Test fun stopAndRecreationRestoreSelection() = runBlocking {
         withTimeout(15000) {
             val server = MockWebServer()
