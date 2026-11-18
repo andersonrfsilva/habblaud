@@ -30,7 +30,15 @@ internal actual class SecureSessionStorage actual constructor() {
         }
     }
 
-    actual fun read(): String? {
+    actual fun read(): String? = try {
+        readSession()
+    } catch (_: Exception) {
+        // Preserve the file: a transient failure must not erase every server's login.
+        // shortcut: uma gravação feita enquanto a leitura falha ainda substitui o arquivo; propagar o erro derrubaria o serviço de avisos
+        null
+    }
+
+    private fun readSession(): String? {
         val bytes = try {
             readBytes()
         } catch (_: IOException) {
