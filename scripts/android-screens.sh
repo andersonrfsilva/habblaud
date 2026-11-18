@@ -110,11 +110,13 @@ dump() {
     return 1
 }
 coords() {
-    python3 - "$TMP/window.xml" "$1" <<'PY'
+    python3 - "$TMP/window.xml" "$1" "${2:-}" <<'PY'
 import re, sys, xml.etree.ElementTree as ET
 root = ET.parse(sys.argv[1]).getroot()
+label, mode = sys.argv[2:]
 for node in root.iter('node'):
-    if sys.argv[2] in (node.get('text'), node.get('content-desc')):
+    text = node.get('text', '')
+    if (label in text if mode == '--contains' else label in (text, node.get('content-desc'))):
         match = re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', node.get('bounds', ''))
         if match:
             x1, y1, x2, y2 = map(int, match.groups())
@@ -129,7 +131,7 @@ wait_text() {
     local label=$1
     for _ in $(seq 1 20); do
         dump
-        if coords "$label" >/dev/null; then return; fi
+        if coords "$@" >/dev/null; then return; fi
         sleep 1
     done
     echo "Elemento não encontrado: $label" >&2
@@ -437,7 +439,7 @@ tap 'Caio Fictício'
 tap Menu
 wait_text 'Dispensar contato'
 tap 'Dispensar contato'
-wait_text 'Dispensar este contato e fechar a sessão dele no servidor?'
+wait_text 'Dispensar este contato e fechar a sessão dele no servidor?' --contains
 shot elenco-dispensar
 tap Confirmar
 wait_text 'Pedido enviado. Aguardando o servidor.'
