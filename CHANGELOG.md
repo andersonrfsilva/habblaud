@@ -176,6 +176,7 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Zaplaud (Android e iOS):** imagens grandes demais ou que falham exibem um aviso; imagens remotas não seguem redirecionamentos.
 - **Zaplaud (Android e iOS):** envio incerto continua pedindo confirmação mesmo com outra mensagem na fila.
 - **Zaplaud Android:** o login guardado não se perde se o app for encerrado no meio de uma gravação.
 - **Zaplaud (Android e iOS):** as confirmações de elenco fecham ao trocar de conversa ou servidor, e a folha de permissão fica aberta enquanto envia a decisão.
