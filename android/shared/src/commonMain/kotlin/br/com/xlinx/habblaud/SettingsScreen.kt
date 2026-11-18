@@ -60,6 +60,34 @@ internal fun catalogRuntime(body: String): String? =
 internal fun summaryAvailable(summaryHttp: Boolean, roles: Map<String, String>?) = summaryHttp || roles?.get("tiny") != null
 internal fun httpSummaryAvailable(body: String): Boolean =
     wireJson.parseToJsonElement(body).jsonObject["summaryHttp"]?.toString() == "true"
+
+/** O que esta conexão pode fazer; `null` = o servidor não informou o campo (versão antiga). */
+internal data class ServerAccess(
+    val reading: Boolean?,
+    val messaging: Boolean?,
+    val guard: Boolean?,
+    val permissions: Boolean?,
+    val files: Boolean?,
+)
+
+internal fun serverAccess(body: String): ServerAccess {
+    val fields = wireJson.parseToJsonElement(body).jsonObject
+    fun flag(name: String): Boolean? = when (fields[name]?.toString()) {
+        "true" -> true
+        "false" -> false
+        else -> null
+    }
+    return ServerAccess(flag("terminal"), flag("messages"), flag("messageSessionGuard"), flag("permissions"), flag("files"))
+}
+
+/** Envio só conta como liberado com as duas flags; mensagens ligadas sem a proteção é incompatibilidade. */
+internal fun messagingState(access: ServerAccess): String = when {
+    access.messaging == null -> "unknown"
+    access.messaging == false -> "blocked"
+    access.guard == true -> "allowed"
+    else -> "guard"
+}
+
 /** Configurações do aparelho. Visualização e modo de envio aqui são o padrão; cada sessão lembra a própria escolha. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
