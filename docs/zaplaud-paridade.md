@@ -34,6 +34,7 @@ vai para a tabela abaixo, com o motivo. Textos ficam em `android/shared/src/comm
 | Bate-papo paralelo, sem pular para o fim quando se lê acima | sim | sim | abre só pelo menu da conversa. Pendente de conferência no Rust: apagar o rascunho só com confirmação explícita do envio (inclusive ao ocultar a janela) e retomar a consulta após falha de rede. |
 | Arquivos da pasta de trabalho: navegar e baixar | sim | sim | Android 10+: Downloads (MediaStore); Android 8/9: pasta Downloads com permissão de armazenamento; iPad: pasta do app; desktop: Downloads |
 | Configurações, papéis, resumos por HTTP | sim | sim | |
+| Acesso por servidor em Configurações | sim | pendente no Rust | |
 | Seletores de modelo: nomes normalizados, busca, OpenRouter por fabricante e preservação do modelo atual | sim | sim | sessão e papéis; datas e variantes distinguem rótulos sem alterar o ID escolhido |
 | ZeroClaw: controles permitidos, sem anel de contexto, elenco pelo runtime | sim | sim | |
 | Espera de `Retry-After` no login limitada a 24 h | sim | sim | |
