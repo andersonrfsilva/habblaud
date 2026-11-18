@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -60,6 +61,34 @@ internal fun catalogRuntime(body: String): String? =
 internal fun summaryAvailable(summaryHttp: Boolean, roles: Map<String, String>?) = summaryHttp || roles?.get("tiny") != null
 internal fun httpSummaryAvailable(body: String): Boolean =
     wireJson.parseToJsonElement(body).jsonObject["summaryHttp"]?.toString() == "true"
+
+/** O que esta conexão pode fazer; `null` = o servidor não informou o campo (versão antiga). */
+internal data class ServerAccess(
+    val reading: Boolean?,
+    val messaging: Boolean?,
+    val guard: Boolean?,
+    val permissions: Boolean?,
+    val files: Boolean?,
+)
+
+internal fun serverAccess(body: String): ServerAccess {
+    val fields = wireJson.parseToJsonElement(body).jsonObject
+    fun flag(name: String): Boolean? = when (fields[name]?.toString()) {
+        "true" -> true
+        "false" -> false
+        else -> null
+    }
+    return ServerAccess(flag("terminal"), flag("messages"), flag("messageSessionGuard"), flag("permissions"), flag("files"))
+}
+
+/** Envio só conta como liberado com as duas flags; mensagens ligadas sem a proteção é incompatibilidade. */
+internal fun messagingState(access: ServerAccess): String = when {
+    access.messaging == null -> "unknown"
+    access.messaging == false -> "blocked"
+    access.guard == true -> "allowed"
+    else -> "guard"
+}
+
 /** Configurações do aparelho. Visualização e modo de envio aqui são o padrão; cada sessão lembra a própria escolha. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -112,6 +141,21 @@ fun SettingsScreen(apis: Map<String, HabblaudApi>, store: LocalStateStore, onClo
     var runtime by remember(api) { mutableStateOf<String?>(null) }
     var summaryHttp by remember(api) { mutableStateOf(false) }
     var authenticated by remember(api) { mutableStateOf(true) }
+    var access by remember(api) { mutableStateOf<ServerAccess?>(null) }
+    var accessError by remember(api) { mutableStateOf(false) }
+    LaunchedEffect(api, authenticated, lifecycleOwner) {
+        if (!authenticated) return@LaunchedEffect
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            try {
+                access = serverAccess(api.access())
+                accessError = false
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                if (e is ApiException && e.status == 401) authenticated = false
+                else accessError = true
+            }
+        }
+    }
     LaunchedEffect(api, lifecycleOwner) {
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
             if (!authenticated) return@repeatOnLifecycle
@@ -292,6 +336,15 @@ fun SettingsScreen(apis: Map<String, HabblaudApi>, store: LocalStateStore, onClo
             }
             if (quotas != null && quotaError) Hint(Res.string.quota_error)
 
+            Section(Res.string.access_title)
+            val selectedAccess = access
+            when {
+                !authenticated -> Hint(Res.string.access_login_required)
+                accessError -> Hint(Res.string.access_unavailable)
+                selectedAccess == null -> Hint(Res.string.access_loading)
+                else -> ServerAccessDetails(selectedAccess)
+            }
+
             Section(Res.string.settings_server)
             apis.keys.forEach { server ->
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -314,6 +367,48 @@ private fun Hint(label: StringResource) = Hint(stringResource(label))
 
 @Composable
 private fun Hint(label: String) = Text(label, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+@Composable
+private fun ServerAccessDetails(access: ServerAccess) {
+    val state = messagingState(access)
+    val messaging = when (state) {
+        "allowed" -> true
+        "unknown" -> null
+        else -> false
+    }
+    AccessRow(Res.string.access_reading, access.reading)
+    AccessRow(Res.string.access_messaging, messaging)
+    if (state == "guard") Hint(Res.string.message_guard_required)
+    AccessRow(Res.string.access_permissions, access.permissions)
+    AccessRow(Res.string.files_title, access.files)
+    if (access.reading == false || messaging == false || access.permissions == false || access.files == false) {
+        Hint(Res.string.access_allow_hint)
+    }
+    if (access.files == false && access.reading == true) Hint(Res.string.access_files_hint)
+}
+
+@Composable
+private fun AccessRow(label: StringResource, allowed: Boolean?) {
+    val status = when (allowed) {
+        true -> Res.string.access_allowed
+        false -> Res.string.access_blocked
+        null -> Res.string.access_not_reported
+    }
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).semantics(mergeDescendants = true) {},
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(stringResource(label), Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+        Text(
+            stringResource(status),
+            Modifier.weight(1f),
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (allowed == false) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.End,
+        )
+    }
+}
 
 @Composable
 private fun RadioRow(label: String, selected: Boolean, onClick: () -> Unit) {
