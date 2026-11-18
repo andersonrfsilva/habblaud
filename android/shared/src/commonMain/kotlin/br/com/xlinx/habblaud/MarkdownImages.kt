@@ -2,18 +2,26 @@ package br.com.xlinx.habblaud
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
 import br.com.xlinx.habblaud.data.HabblaudApi
 import br.com.xlinx.habblaud.data.IMAGE_MAX_BYTES
 import br.com.xlinx.habblaud.data.imageBytes
@@ -64,6 +72,7 @@ private fun MarkdownImage(alt: String, dest: String, kind: ImageKind, api: Habbl
     val key = api to dest
     var bytes by remember(key) { mutableStateOf(if (kind == ImageKind.DATA) null else imageCache[key]) }
     var loading by remember(key) { mutableStateOf(false) }
+    var failed by remember(key) { mutableStateOf(false) }
     suspend fun load() {
         if (loading || bytes != null) return
         loading = true
@@ -80,9 +89,12 @@ private fun MarkdownImage(alt: String, dest: String, kind: ImageKind, api: Habbl
             if (loaded != null) {
                 if (kind != ImageKind.DATA) cacheImage(key, loaded)
                 bytes = loaded
+            } else {
+                failed = true
             }
         } catch (e: Exception) {
             if (e is CancellationException) throw e
+            failed = true
         } finally { loading = false }
     }
     LaunchedEffect(key) { if (bytes == null && kind != ImageKind.REMOTE) load() }
@@ -109,7 +121,8 @@ private fun MarkdownImage(alt: String, dest: String, kind: ImageKind, api: Habbl
             if (e is CancellationException) throw e
             null
         }
-        if (decodedPainter == null) {
+        failed = decodedPainter == null
+        if (failed) {
             if (kind != ImageKind.DATA && imageCache[key] === encoded) removeCachedImage(key)
             bytes = null
         }
@@ -121,10 +134,22 @@ private fun MarkdownImage(alt: String, dest: String, kind: ImageKind, api: Habbl
             modifier = Modifier.widthIn(max = with(density) { painter.intrinsicSize.width.toDp() }).fillMaxWidth()
                 .aspectRatio(painter.intrinsicSize.width / painter.intrinsicSize.height).clickable { fullscreen = true })
         if (fullscreen) MermaidFullscreen(painter, alt) { fullscreen = false }
-    } else if (kind == ImageKind.REMOTE) {
-        val scope = rememberCoroutineScope()
-        TextButton(onClick = { scope.launch { load() } }, enabled = !loading && bytes == null) {
-            Text(stringResource(Res.string.image_load))
+    } else if (failed || kind == ImageKind.REMOTE) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (failed) {
+                Text(
+                    stringResource(Res.string.image_failed),
+                    modifier = Modifier.weight(1f, fill = false).semantics { liveRegion = LiveRegionMode.Polite },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (kind == ImageKind.REMOTE) {
+                val scope = rememberCoroutineScope()
+                TextButton(onClick = { scope.launch { load() } }, enabled = !loading && bytes == null) {
+                    Text(stringResource(Res.string.image_load))
+                }
+            }
         }
     }
 }
