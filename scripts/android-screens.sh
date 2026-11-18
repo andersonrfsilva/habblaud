@@ -266,6 +266,8 @@ done
 grep -q '"ready":true' "$TMP/fixture.log"
 grep -q '"ready":true' "$TMP/readonly.log"
 printf 'permission fixture:analise bash\n' >&3
+# A lista de recentes é carregada no login; semeie antes da primeira leitura.
+printf 'seed-closed-omp %s %s\n' "$OMP_CLOSED_ID" "$OMP_CLOSED_TITLE" >&3
 
 reset_app
 shot conexao-vazia
@@ -445,7 +447,6 @@ tap Confirmar
 wait_text 'Pedido enviado. Aguardando o servidor.'
 printf 'cast-consume\n' >&3
 wait_text 'Pedido concluído.'
-printf 'seed-closed-omp %s %s\n' "$OMP_CLOSED_ID" "$OMP_CLOSED_TITLE" >&3
 tap 'Voltar às sessões'
 tap Recentes
 open_search
