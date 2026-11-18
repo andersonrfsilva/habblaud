@@ -455,6 +455,10 @@ const ticker = setInterval(() => {
   }
 }, 250);
 
+const remoteSessions = config.remote
+  ? new RemoteSessions(loadSecret(join(config.dataDir, 'remote-secret')), config.remote, Date.now, join(config.dataDir, 'remote-revoked.json'))
+  : undefined;
+
 const api = createApiHandler({
   // Arquivos das pastas de trabalho: as salas reais e ~/projetos. No Docker os caminhos das salas são do host e não
   // existem aqui; desligado.
@@ -514,6 +518,7 @@ const api = createApiHandler({
   stats,
   updates,
   remote: config.remote ? { is: isRemoteRequest, allows: (f) => config.remote!.allow.has(f) } : undefined,
+  remoteSessions,
   world: world ? createWorldRoutes(world, worldViewer, worldSocial) : undefined,
   summaries,
 });
@@ -572,11 +577,11 @@ server.on('error', (err: NodeJS.ErrnoException) => {
  * API. A porta principal segue só local; quem separa as duas é a porta em que a conexão chegou.
  */
 let remoteListener: RemoteListener | undefined;
-if (config.remote) {
+if (config.remote && remoteSessions) {
   const remote = config.remote;
   const gate = createRemoteGate({
     config: remote,
-    sessions: new RemoteSessions(loadSecret(join(config.dataDir, 'remote-secret')), remote, Date.now, join(config.dataDir, 'remote-revoked.json')),
+    sessions: remoteSessions,
     secure: !!remote.tls,
     trustProxy: remote.trustProxy,
     caFile: remote.tls?.caFile,

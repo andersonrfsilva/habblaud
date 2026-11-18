@@ -7,7 +7,9 @@ import { AccountsService } from '../accounts/service';
 import { setQuiet } from '../log';
 import { NameStore } from '../model/names';
 import { Office } from '../model/office';
-import { HAS_POSIX_MODES, tempDir } from '../test/fixtures';
+import { SessionHistory } from '../sources/history';
+import { encodeCwd } from '../sources/watcher';
+import { HAS_POSIX_MODES, L, tempDir, writeLines } from '../test/fixtures';
 import { createApiHandler, sendJson } from './app';
 import { createRequestGuard, isLoopbackHost } from './guard';
 import {
@@ -27,6 +29,7 @@ import {
   type RemoteFeature,
 } from './remote';
 import { Hub } from './sse';
+import { TerminalStreams } from './terminal';
 import { hashPassword, parsePasswordHash } from '../remote/password';
 import { SpawnService } from '../spawn/spawn';
 
@@ -355,7 +358,7 @@ afterEach(async () => {
 });
 
 /** Uma porta local (sem login) e uma remota (com login), sobre a MESMA API, como no server/index.ts. */
-async function start(allow: RemoteFeature[] = ['permissions'], opts: { trustProxy?: string[]; throttle?: LoginThrottle } = {}): Promise<Harness> {
+async function start(allow: RemoteFeature[] = ['permissions'], opts: { trustProxy?: string[]; throttle?: LoginThrottle; history?: boolean } = {}): Promise<Harness> {
   const tmp = tempDir();
   const dir = join(tmp.dir, '.claude');
   mkdirSync(join(dir, 'sessions'), { recursive: true });
@@ -379,6 +382,14 @@ async function start(allow: RemoteFeature[] = ['permissions'], opts: { trustProx
   const ptyCalls: string[] = [];
   const worldCalls: string[] = [];
   const spawn = new SpawnService();
+  const remoteSessions = new RemoteSessions(SECRET, CFG);
+  const cwd = '/projetos/loja';
+  const transcript = join(dir, 'projects', encodeCwd(cwd), `${HISTORY_ID}.jsonl`);
+  const terminals = opts.history ? new TerminalStreams({ office, transcriptPathOf: () => transcript }) : undefined;
+  if (terminals) {
+    writeLines(transcript, [L.prompt('Arruma o carrinho', { at: Date.now() })]);
+    office.addMain({ id: 'agent', account: '.claude', sessionId: HISTORY_ID, cwd, role: 'Agente principal', startedAt: Date.now(), status: 'working' });
+  }
   const api = createApiHandler({
     office,
     hub,
@@ -387,6 +398,8 @@ async function start(allow: RemoteFeature[] = ['permissions'], opts: { trustProx
     version: '9.9.9',
     inDocker: true,
     terminal: true,
+    terminals,
+    sessions: terminals ? new SessionHistory({ accounts: () => accounts.entries(), openAgentOf: () => undefined }) : undefined,
     spawn,
     permissions: (req, res, path) => {
       req.resume();
@@ -404,6 +417,7 @@ async function start(allow: RemoteFeature[] = ['permissions'], opts: { trustProx
     },
     renameRoom: () => 'sala',
     remote: { is: isRemoteRequest, allows: (f) => allowSet.has(f) },
+    remoteSessions,
     world: (req, res, url) => {
       req.resume();
       worldCalls.push(`${req.method} ${url.pathname}`);
@@ -413,7 +427,7 @@ async function start(allow: RemoteFeature[] = ['permissions'], opts: { trustProx
   const guard = createRequestGuard();
   const gate = createRemoteGate({
     config: CFG,
-    sessions: new RemoteSessions(SECRET, CFG),
+    sessions: remoteSessions,
     secure: false,
     trustProxy: new Set(opts.trustProxy ?? []),
     throttle: opts.throttle,
@@ -436,6 +450,7 @@ async function start(allow: RemoteFeature[] = ['permissions'], opts: { trustProx
   await new Promise<void>((ok) => local.listen(0, '127.0.0.1', ok));
   await new Promise<void>((ok) => remote.listen(0, '127.0.0.1', ok));
   const close = async () => {
+    terminals?.stop();
     hub.stop();
     await new Promise<void>((ok) => local.close(() => ok()));
     await new Promise<void>((ok) => remote.close(() => ok()));
@@ -753,17 +768,69 @@ describe('porta local (inalterada)', () => {
   });
 });
 
+const HISTORY_ID = '00000000-0000-4000-8000-0000000000a1';
+
 /** Abre o stream (SSE) e espera o primeiro pedaço; devolve como fechar. */
-function openStream(base: string, headers: Record<string, string>): Promise<{ status: number; close: () => void }> {
+function openStream(base: string, headers: Record<string, string>, path = '/api/stream'): Promise<{
+  status: number;
+  res: http.IncomingMessage;
+  closed: Promise<void>;
+  close: () => void;
+}> {
   return new Promise((ok, fail) => {
-    const req = http.request(new URL('/api/stream', base), { headers }, (res) => {
-      res.once('data', () => ok({ status: res.statusCode ?? 0, close: () => req.destroy() }));
-      if (res.statusCode !== 200) ok({ status: res.statusCode ?? 0, close: () => req.destroy() });
+    const req = http.request(new URL(path, base), { headers }, (res) => {
+      const closed = new Promise<void>((resolve) => res.once('close', resolve));
+      res.on('error', () => {});
+      const stream = { status: res.statusCode ?? 0, res, closed, close: () => req.destroy() };
+      if (res.statusCode === 200) res.once('data', () => ok(stream));
+      else ok(stream);
     });
     req.on('error', fail);
     req.end();
   });
 }
+
+it('sair fecha o stream remoto, mantém o local e recusa o cookie encerrado', async () => {
+  const h = await start();
+  const Cookie = await login(h.remoteBase);
+  const remote = await openStream(h.remoteBase, { Cookie });
+  const local = await openStream(h.localBase, { Cookie });
+  try {
+    expect(remote.status).toBe(200);
+    expect(local.status).toBe(200);
+    expect(h.hub.localSize).toBe(2);
+    const logout = await request(h.remoteBase, '/api/remote/logout', { method: 'POST', headers: { Cookie }, body: {} });
+    expect(logout.status).toBe(200);
+    await remote.closed;
+    expect((await request(h.remoteBase, '/api/stream', { headers: { Cookie } })).status).toBe(401);
+    expect(local.res.destroyed).toBe(false);
+    expect(h.hub.localSize).toBe(1);
+  } finally {
+    remote.close();
+    local.close();
+  }
+});
+
+it('sair fecha os terminais remotos sem afetar a resposta JSON da lista de sessões', async () => {
+  const h = await start(['terminal'], { history: true });
+  const Cookie = await login(h.remoteBase);
+  const headers = { Cookie };
+  const history = await openStream(h.remoteBase, headers, `/api/sessions/.claude/${HISTORY_ID}/terminal`);
+  const live = await openStream(h.remoteBase, headers, '/api/agents/agent/terminal');
+  try {
+    expect(history.status).toBe(200);
+    expect(live.status).toBe(200);
+    const recent = await request(h.remoteBase, '/api/sessions/recent', { headers });
+    expect(recent.status).toBe(200);
+    expect(JSON.parse(recent.body).sessions).toHaveLength(1);
+    const logout = await request(h.remoteBase, '/api/remote/logout', { method: 'POST', headers, body: {} });
+    expect(logout.status).toBe(200);
+    await Promise.all([history.closed, live.closed]);
+  } finally {
+    history.close();
+    live.close();
+  }
+});
 
 describe('quem pode responder (o hook só espera se houver página que responda)', () => {
   it('celular logado com permissions conta como página que responde', async () => {

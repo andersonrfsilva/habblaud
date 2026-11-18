@@ -15,7 +15,7 @@ import type { CodexLive } from '../sources/codex/live';
 import type { OmpLive } from '../sources/omp/live';
 import type { SessionLookup } from '../sources/source';
 import { isJsonContentType, isLoopbackHost } from './guard';
-import type { RemoteFeature } from './remote';
+import { remoteTokenOf, type RemoteFeature, type RemoteSessions } from './remote';
 import { handleSessionsRoute } from './sessions';
 import type { Hub } from './sse';
 import { handleStatsRoute } from './stats';
@@ -120,6 +120,7 @@ export interface ApiDeps {
    * HABBLAUD_REMOTE_ALLOW libera. Requisição remota nunca vale pelo Host: só pelo que `allows` liberar.
    */
   remote?: { is(req: IncomingMessage): boolean; allows(feature: RemoteFeature): boolean };
+  remoteSessions?: RemoteSessions;
   /**
    * Rotas do Habblaud World (/api/world/*, server/world/http.ts). Ausente = HABBLAUD_WORLD=0: 404 em todas. Só pela porta
    * local com Host local: pela porta do celular, nem com login (403 `local_only`).
@@ -312,6 +313,12 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
   const terminals = deps.terminal ? deps.terminals : undefined;
 
   const isRemote = (req: IncomingMessage): boolean => !!deps.remote?.is(req);
+  const watchRemoteStream = (req: IncomingMessage, res: ServerResponse): void => {
+    if (!deps.remoteSessions || !res.headersSent || res.writableEnded || res.destroyed) return;
+    const token = remoteTokenOf(req);
+    if (!token || String(res.getHeader('Content-Type')).split(';', 1)[0] !== 'text/event-stream') return;
+    res.once('close', deps.remoteSessions.watch(token, () => res.destroy()));
+  };
   /**
    * A trava "pelo próprio computador": na porta local, o Host precisa ser loopback (como antes); na porta remota, só o
    * que HABBLAUD_REMOTE_ALLOW liberar (`feature` ausente = nunca pela porta remota).
@@ -438,7 +445,10 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
     }
     if (path === '/api/stream') {
       if (method !== 'GET') methodNotAllowed(res, 'GET');
-      else hub.attach(req, res);
+      else {
+        hub.attach(req, res);
+        watchRemoteStream(req, res);
+      }
       return true;
     }
     if (path === '/api/snapshot') {
@@ -521,6 +531,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
           return true;
         }
         terminals.attach(req, res, id);
+        watchRemoteStream(req, res);
       }
       return true;
     }
@@ -530,6 +541,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
         terminals,
         trusted: isRemote(req) ? trusted(req, 'terminal') : undefined,
       });
+      watchRemoteStream(req, res);
       return true;
     }
     if (path === '/api/permissions' || path.startsWith('/api/permissions/')) {

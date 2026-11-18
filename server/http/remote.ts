@@ -447,12 +447,17 @@ export class LoginThrottle {
 
 /** Requisições que chegaram pela porta remota e passaram pelo login. */
 const remoteRequests = new WeakSet<IncomingMessage>();
+const remoteTokens = new WeakMap<IncomingMessage, string>();
 /** Arquivos que a porta remota serve sem login: manifesto e ícones (o celular os busca antes do login, sem o
  *  cookie). Nada da API nem do escritório. */
 const PUBLIC_STATIC = /^\/(manifest\.webmanifest|assets\/brand\/[\w.@-]+\.png)$/;
 
 export function isRemoteRequest(req: IncomingMessage): boolean {
   return remoteRequests.has(req);
+}
+
+export function remoteTokenOf(req: IncomingMessage): string | undefined {
+  return remoteTokens.get(req);
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown, headers: Record<string, string | string[]> = {}): void {
@@ -600,7 +605,8 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
   return (req, res, url) => {
     const path = url.pathname;
     const method = req.method ?? 'GET';
-    const authed = deps.sessions.verify(readCookie(req.headers.cookie, COOKIE));
+    const token = readCookie(req.headers.cookie, COOKIE);
+    const authed = token !== undefined && deps.sessions.verify(token);
 
     if (path === '/api/remote/login') {
       if (method !== 'POST') {
@@ -655,7 +661,7 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
       req.resume();
       if (method !== 'POST') sendJson(res, 405, { error: tr('método não permitido') }, { Allow: 'POST' });
       else {
-        deps.sessions.revoke(readCookie(req.headers.cookie, COOKIE));
+        deps.sessions.revoke(token);
         sendJson(res, 200, { ok: true }, { 'Set-Cookie': cookieHeader('', 0, deps.secure || viaHttps(req, trusted)) });
       }
       return true;
@@ -690,6 +696,7 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
 
     if (authed) {
       remoteRequests.add(req);
+      remoteTokens.set(req, token);
       return false;
     }
     // Ícone e manifesto do app (Tela de Início): públicos, o celular os busca antes do login (e sem o cookie).
