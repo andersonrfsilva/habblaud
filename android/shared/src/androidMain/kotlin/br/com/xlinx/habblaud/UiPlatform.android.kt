@@ -1,5 +1,6 @@
 package br.com.xlinx.habblaud
 
+import android.content.pm.PackageManager
 import android.database.ContentObserver
 import android.os.Handler
 import android.os.Looper
@@ -9,6 +10,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.pm.PackageInfoCompat
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -35,6 +37,18 @@ actual fun platformSendsOnEnter(): Boolean = false
         onDispose { resolver.unregisterContentObserver(observer) }
     }
     return enabled
+}
+@Composable actual fun appVersion(): String {
+    val context = LocalContext.current
+    return remember(context) {
+        val info = try {
+            context.packageManager.getPackageInfo(context.packageName, 0)
+        } catch (_: PackageManager.NameNotFoundException) {
+            return@remember ""
+        }
+        val name = info.versionName ?: return@remember ""
+        "$name (${PackageInfoCompat.getLongVersionCode(info)})"
+    }
 }
 actual fun uiNowMillis(): Long = System.currentTimeMillis()
 actual fun platformEntryTime(at: Long, now: Long): String {

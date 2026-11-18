@@ -46,6 +46,7 @@ actual fun platformSendsOnEnter(): Boolean = true
     }
 }
 @Composable actual fun animationsEnabled(): Boolean = true
+@Composable actual fun appVersion(): String = ""
 actual fun uiNowMillis(): Long = System.currentTimeMillis()
 actual fun platformEntryTime(at: Long, now: Long): String {
     val zone = ZoneId.systemDefault()
