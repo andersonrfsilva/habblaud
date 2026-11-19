@@ -20,7 +20,7 @@ import { WorldClient } from './client';
 import { createWorldRoutes } from './http';
 import { WorldService } from './service';
 import { WorldSettingsStore } from './settings';
-import { BuildingUplink } from './uplink';
+import { BuildingUplink, type SocketFactory, type SocketLike, type UplinkTimers } from './uplink';
 import { WorldViewer } from './viewer';
 
 setQuiet(true);
@@ -58,8 +58,54 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
+type Timer = { fn: () => void; at: number; every?: number };
+
+/** Só o tempo do uplink é manual; o HTTP e o WebSocket continuam reais. */
+class UplinkClock {
+  private time = Date.now();
+  private readonly pending = new Set<Timer>();
+  readonly attempts: number[] = [];
+  closed = 0;
+  readonly socket: SocketFactory = (url) => {
+    this.attempts.push(this.time);
+    const socket = new WebSocket(url);
+    socket.addEventListener('close', () => { this.closed++; }, { once: true });
+    return socket as unknown as SocketLike;
+  };
+  readonly now = () => this.time;
+  readonly random = () => 0.5;
+  readonly timers: UplinkTimers = {
+    setTimeout: (fn, ms) => this.add(fn, ms),
+    clearTimeout: (h) => void this.pending.delete(h as Timer),
+    setInterval: (fn, ms) => this.add(fn, ms, Math.max(1, ms)),
+    clearInterval: (h) => void this.pending.delete(h as Timer),
+  };
+
+  private add(fn: () => void, ms: number, every?: number): Timer {
+    const timer = { fn, at: this.time + ms, every };
+    this.pending.add(timer);
+    return timer;
+  }
+
+  private next(): Timer | undefined {
+    let first: Timer | undefined;
+    for (const timer of this.pending) if (!first || timer.at < first.at) first = timer;
+    return first;
+  }
+
+  advanceTo(at: number): void {
+    for (let timer = this.next(); timer && timer.at <= at; timer = this.next()) {
+      this.time = timer.at;
+      if (timer.every) timer.at += timer.every;
+      else this.pending.delete(timer);
+      timer.fn();
+    }
+    this.time = at;
+  }
+}
+
 /** A porta local do Habblaud (guard + API), com o mundo como no server/index.ts. */
-async function start(opts: { world?: 'off' | 'no-url' | 'on'; terminal?: boolean; meTtlMs?: number; uplink?: boolean } = {}): Promise<Harness> {
+async function start(opts: { world?: 'off' | 'no-url' | 'on'; terminal?: boolean; meTtlMs?: number; uplink?: boolean; clock?: UplinkClock } = {}): Promise<Harness> {
   const mode = opts.world ?? 'on';
   const tmp = tempDir();
   closers.push(tmp.cleanup);
@@ -113,6 +159,7 @@ async function start(opts: { world?: 'off' | 'no-url' | 'on'; terminal?: boolean
           onLeft: () => service.leftElsewhere(),
           onChange: () => office.markDirty(),
           timing: { debounceMs: 20, minGapMs: 60, pingMs: 5_000, backoffMinMs: 20, backoffMaxMs: 60, closeWaitMs: 500 },
+          ...(opts.clock && { now: opts.clock.now, timers: opts.clock.timers, random: opts.clock.random, socket: opts.clock.socket }),
         })
       : undefined;
   if (uplink && service) {
@@ -1065,8 +1112,8 @@ describe('a cena Mundo pelas rotas (stream e comandos)', () => {
 });
 
 describe('a conta e os dados (Fase 6)', () => {
-  async function approved(opts: { building?: Record<string, unknown> } = {}) {
-    const s = await start({ uplink: true });
+  async function approved(opts: { building?: Record<string, unknown>; clock?: UplinkClock } = {}) {
+    const s = await start({ uplink: true, clock: opts.clock });
     const w = s.world!;
     if (opts.building) w.ws.options.building = opts.building;
     s.office.addMain({ id: '.claude:6', account: '.claude', sessionId: 'sess-6', cwd: '/p/f6', role: 'Agente principal', startedAt: Date.now(), status: 'working' });
@@ -1075,6 +1122,10 @@ describe('a conta e os dados (Fase 6)', () => {
     await call(s.base, 'PUT', '/api/world/character', CHARACTER);
     w.accounts.get(EMAIL)!.access = 'approved';
     await call(s.base, 'GET', '/api/world/status?refresh=1');
+    if (opts.clock) {
+      await waitFor(() => s.uplink!.connected, 'welcome da primeira conexão');
+      opts.clock.advanceTo(opts.clock.now());
+    }
     await waitFor(() => w.ws.uplinks.length === 1 && existsSync(s.lastFile), 'primeira remessa');
     return { s, w };
   }
@@ -1185,19 +1236,38 @@ describe('a conta e os dados (Fase 6)', () => {
   });
 
   it('manutenção: o status diz (503 maintenance), o prédio tenta de novo com espera e volta quando acaba', async () => {
-    const { s, w } = await approved();
+    const clock = new UplinkClock();
+    const { s, w } = await approved({ clock });
     w.options.maintenance = true;
     w.ws.open[0].goodbye('deploy');
     const st = await call(s.base, 'GET', '/api/world/status?refresh=1');
     expect(st.body.lastError).toBe('maintenance');
     expect((await call(s.base, 'POST', '/api/world/delete-account', {})).body.error.code).toBe('maintenance');
     // Recusado a cada hello, com a espera crescendo (20, 40, 60 ms nos testes): poucas tentativas, nunca em rajada.
-    await new Promise((ok) => setTimeout(ok, 400));
-    const tries = w.ws.connections.length;
-    expect(tries).toBeGreaterThan(2);
+    const until = clock.now() + 400;
+    let tries = 1;
+    let delay = 20;
+    await waitFor(() => clock.closed === tries, 'cliente processou o fechamento inicial');
+    expect(w.ws.connections).toHaveLength(tries);
+    while (clock.now() + delay <= until) {
+      const next = clock.now() + delay;
+      clock.advanceTo(next);
+      tries++;
+      expect(clock.attempts).toHaveLength(tries);
+      expect(clock.attempts.at(-1)! - clock.attempts.at(-2)!).toBe(delay);
+      await waitFor(() => w.ws.connections.length === tries && clock.closed === tries, 'mundo recusou a nova tentativa');
+      delay = Math.min(delay * 2, 60);
+    }
+    const recoveryAt = clock.now() + delay;
+    clock.advanceTo(until);
+    expect(clock.attempts).toHaveLength(tries);
+    expect(w.ws.connections).toHaveLength(tries);
+    expect(tries).toBeGreaterThanOrEqual(4);
     expect(tries).toBeLessThan(15);
     w.options.maintenance = false;
+    clock.advanceTo(recoveryAt);
     await waitFor(() => s.uplink!.connected, 'de volta');
+    clock.advanceTo(clock.now());
     await waitFor(() => w.ws.uplinks.length >= 2, 'pacote de novo');
     expect((await call(s.base, 'GET', '/api/world/status?refresh=1')).body.lastError).toBeUndefined();
   });

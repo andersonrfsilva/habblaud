@@ -357,6 +357,7 @@ describe('BuildingUplink: conexão e remessas', () => {
     expect(h.world.ws.open).toHaveLength(1);
     clock.advance(FAST.pingMs!);
     await waitFor(() => h.world.ws.open.length === 0, 'fechou pelo silêncio');
+    await waitFor(() => !h.uplink.connected, 'uplink processou o fechamento');
     expect(h.world.ws.pings).toBe(2);
     clock.advance(FAST.backoffMaxMs!);
     await waitFor(() => h.world.ws.connections.length === 2, 'reconectou');
