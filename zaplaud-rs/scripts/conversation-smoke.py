@@ -168,9 +168,18 @@ def main():
                     desktop.click(550, 383)
                     time.sleep(.4)
                     desktop.click(760, 432)
-                    smoke.wait_for(lambda: desktop.image().getpixel((360, 700)) == smoke.palette(args.theme)['outlineVariant'], 'Login não terminou', 30)
-                    desktop.click(150, 250)
-                    time.sleep(1)
+                    colors = smoke.palette(args.theme)
+                    smoke.wait_for(lambda: desktop.image().getpixel((360, 700)) == colors['outlineVariant'], 'Login não terminou', 30)
+                    claude_row, omp_row = 205, 294
+                    smoke.wait_for(
+                        lambda: desktop.image().crop((12, omp_row - 20, 60, omp_row + 20)).getcolors(30) is None,
+                        'Avatar da conversa OMP não apareceu',
+                    )
+                    desktop.click(150, omp_row)
+                    smoke.wait_for(
+                        lambda: desktop.image().crop((370, 690, 1090, 755)).getcolors(1) is None,
+                        'Compositor da conversa OMP não apareceu',
+                    )
 
                     def command(text):
                         fixture.process.stdin.write(text + '\n')
@@ -216,13 +225,13 @@ def main():
                     assert copied == latest, f'A primeira carga não acompanhou o fim: {copied!r}'
                     # Reabrir cache grande provoca estimativas intermediárias do ListView. Elas não são gestos do leitor.
                     for _ in range(3):
-                        desktop.click(150, 155)
-                        desktop.click(150, 250)
+                        desktop.click(150, claude_row)
+                        desktop.click(150, omp_row)
                         time.sleep(.5)
                         assert copy_last() == latest, 'Reabertura do cache saiu do fim'
                     result['baseline'] = smoke.memory(app.pid)
                     for index in range(args.switches):
-                        desktop.click(150, 155 if index % 2 == 0 else 250)
+                        desktop.click(150, claude_row if index % 2 == 0 else omp_row)
                         time.sleep(.3)
                         if index % 2:
                             assert copy_last() == latest, f'Reabertura {index + 1} saiu do fim'

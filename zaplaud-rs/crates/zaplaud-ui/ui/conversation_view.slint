@@ -241,6 +241,7 @@ component EntryBubble inherits Rectangle {
 export component ConversationView inherits Rectangle {
     vertical-stretch: 1;
     forward-focus: scroll-keys;
+    in property <bool> can-take-focus: true;
     function cancel-restore() {
         ConversationViewState.restore-pending = false;
         ConversationViewState.anchor-ticks = 0;
@@ -261,7 +262,7 @@ export component ConversationView inherits Rectangle {
     }
     public function jump-to-end() {
         root.cancel-restore();
-        scroll-keys.focus();
+        if root.can-take-focus { scroll-keys.focus(); }
         ConversationViewState.following = true;
         messages.content-y = min(0px, messages.height - messages.content-height);
         ConversationViewState.position(true);

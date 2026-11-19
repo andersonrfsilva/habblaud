@@ -88,6 +88,18 @@ class Session:
         smoke.wait_for(lambda: d.image().getpixel((360, 700)) == smoke.palette(self.theme)['outlineVariant'], 'Login/ordem Tab falhou', 30)
         time.sleep(1)
 
+    def open_omp(self, row=294):
+        smoke.wait_for(
+            lambda: self.desktop.image().crop((12, row - 20, 60, row + 20)).getcolors(30) is None,
+            'Avatar da conversa OMP não apareceu',
+        )
+        self.desktop.click(150, row)
+
+    def open_conversation_menu(self):
+        self.desktop.click(1072, 32)
+        color = smoke.palette(self.theme)['surfaceContainer']
+        smoke.wait_for(lambda: self.desktop.image().getpixel((1088, 75)) == color, 'Menu da conversa não abriu')
+
     def close(self):
         self.app.terminate()
         self.app.wait(timeout=10)
@@ -114,19 +126,40 @@ def main():
         def assert_closed(label):
             smoke.wait_for(lambda: comparison.ImageChops.difference(closed, d.image().crop((400, 100, 1050, 650))).getbbox() is None, label)
 
-        def open_conversation():
-            d.click(150, 250)
-            time.sleep(.5)
-            assert comparison.ImageChops.difference(closed, d.image().crop((400, 100, 1050, 650))).getbbox(), 'Conversa não abriu'
+        def open_conversation(row=294):
+            session.open_omp(row)
+            smoke.wait_for(
+                lambda: comparison.ImageChops.difference(closed, d.image().crop((400, 100, 1050, 650))).getbbox(),
+                'Conversa não abriu',
+            )
+
+        open_conversation()
+        transcript_box = (380, 400, 970, 660)
+        colors = smoke.palette(args.theme)
+        smoke.wait_for(lambda: d.image().getpixel((700, 640)) == colors['surface'], 'Transcrição OMP não apareceu')
+        end = d.image().crop(transcript_box)
+        d.key('Home')
+        smoke.wait_for(
+            lambda: comparison.ImageChops.difference(end, d.image().crop(transcript_box)).getbbox(),
+            'Home não rolou a conversa',
+        )
+        d.key('End')
+        smoke.wait_for(
+            lambda: comparison.ImageChops.difference(end, d.image().crop(transcript_box)).getbbox() is None,
+            'End não voltou ao fim da conversa',
+        )
+        d.key('Escape')
+        assert_closed('Esc não fechou a conversa após rolar')
+        passed.append('conversation-scroll-keys')
 
         for name, opener in [
             ('session-info', lambda: d.click(650, 32)),
-            ('conversation-menu', lambda: d.click(1072, 32)),
-            ('aside', lambda: (d.click(1072, 32), d.click(990, 328))),
-            ('cast-dismiss', lambda: (d.click(1072, 32), d.click(1010, 424))),
+            ('conversation-menu', session.open_conversation_menu),
+            ('aside', lambda: (session.open_conversation_menu(), d.click(990, 328))),
+            ('cast-dismiss', lambda: (session.open_conversation_menu(), d.click(1010, 472))),
             ('shake-confirm', lambda: context_confirmation(d)),
             ('settings', lambda: (d.click(328, 36), d.click(375, 88))),
-            ('settings-role-dialog', lambda: (d.click(328, 36), d.click(375, 88), scroll_roles(d), d.click(170, 248))),
+            ('settings-role-dialog', lambda: (d.click(328, 36), d.click(375, 88), scroll_roles(d), d.click(170, 291))),
             ('attachment-picker', lambda: d.click(395, 730)),
             ('permission', lambda: (command(session.fixture, 'permission fixture:omp bash'), time.sleep(.5), d.click(1024, 32))),
         ]:
@@ -162,8 +195,8 @@ def main():
         d.key('Escape')
         passed.append('list-menu')
         d.key('f', ('Control_L',))
-        time.sleep(.2)
-        assert d.image().getpixel((25, 160)) != smoke.palette(args.theme)['background'], 'Ctrl+F não abriu busca'
+        # A busca usa o fundo do campo, não o fundo da lista.
+        smoke.wait_for(lambda: d.image().getpixel((300, 196)) == colors['surfaceContainerHigh'], 'Ctrl+F não abriu busca')
         d.key('Escape')
         d.key('Down')
         d.key('Down')
@@ -172,7 +205,15 @@ def main():
         time.sleep(.5)
         assert comparison.ImageChops.difference(closed, d.image().crop((400, 100, 1050, 650))).getbbox(), 'Up/Down/Enter não abriram conversa'
         passed.append('search-list-navigation')
-        open_conversation()
+        # O pedido de aprovação move a conversa OMP para o topo e abre a folha ao selecioná-la.
+        open_conversation(218)
+        def permission_open():
+            return d.image().getpixel((2, 2)) != colors['surface']
+
+        smoke.wait_for(permission_open, 'Aprovação não reabriu pelo botão da lista')
+        d.key('Escape')
+        smoke.wait_for(lambda: not permission_open(), 'Esc não fechou a aprovação aberta pela lista')
+        passed.append('list-permission-escape')
         before = len(command(session.fixture, 'stats')['messageRequests'])
         d.click(650, 728)
         type_text(d, 'linha')
