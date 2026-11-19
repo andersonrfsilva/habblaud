@@ -48,6 +48,7 @@ import br.com.xlinx.habblaud.data.LocalStateStore
 import br.com.xlinx.habblaud.data.MessageDraft
 import br.com.xlinx.habblaud.data.MessageOperation
 import br.com.xlinx.habblaud.data.SessionKey
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.first
 import org.junit.After
@@ -61,6 +62,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.FutureTask
 import java.util.concurrent.atomic.AtomicBoolean
 
 @RunWith(AndroidJUnit4::class)
@@ -143,6 +145,22 @@ class FixtureUiInstrumentedTest {
         awaitDrawnFrame()
     }
 
+    private fun awaitStore(condition: suspend () -> Boolean) {
+        readStore { while (!condition()) delay(20) }
+    }
+
+    private fun <T> readStore(read: suspend () -> T): T {
+        // O DataStore pode aguardar uma coroutine que só avança enquanto o Compose roda.
+        val pending = FutureTask { runBlocking { read() } }
+        Thread(pending, "fixture-store-read").start()
+        try {
+            compose.waitUntil(15_000) { pending.isDone }
+            return pending.get()
+        } finally {
+            pending.cancel(true)
+        }
+    }
+
     @Before fun prepare() {
         check(InstrumentationRegistry.getArguments().getString("fixture") == "true") {
             "Informe fixture=true e configure adb reverse tcp:14748 tcp:14748 para executar a instrumentação."
@@ -170,7 +188,7 @@ class FixtureUiInstrumentedTest {
         restoreDisplay?.invoke()
         if (zeroClawFixture) fixtureCommand("runtime omp")
         if (prepared) {
-            runBlocking { LocalStateStore(context).clear() }
+            readStore { LocalStateStore(context).clear() }
             context.filesDir.resolve("remote-session").delete()
         }
     }
@@ -281,9 +299,7 @@ class FixtureUiInstrumentedTest {
         compose.onAllNodes(hasText(text(R.string.logout)))[0].performScrollTo().performClick()
         await(R.string.confirm)
         compose.onNodeWithText(text(R.string.confirm)).performClick()
-        compose.waitUntil(15_000) {
-            runBlocking { LocalStateStore(context).servers() == listOf(other) }
-        }
+        awaitStore { LocalStateStore(context).servers() == listOf(other) }
         assertEquals(listOf(other), runBlocking { LocalStateStore(context).servers() })
         await(R.string.open_sessions)
         compose.onNodeWithText(text(R.string.open_sessions)).assertIsDisplayed()
@@ -321,7 +337,7 @@ class FixtureUiInstrumentedTest {
         scenario = ActivityScenario.launch(MainActivity::class.java)
         await(R.string.message_text)
         compose.onNodeWithText(text(R.string.message_text)).performTextInput("rascunho IME")
-        compose.waitUntil(15_000) { runBlocking { LocalStateStore(context).message(key).draft.text == "rascunho IME" } }
+        awaitStore { LocalStateStore(context).message(key).draft.text == "rascunho IME" }
         scenario!!.recreate()
         await(R.string.message_text)
         compose.onNodeWithText(text(R.string.message_text)).assertTextContains("rascunho IME")
@@ -645,7 +661,7 @@ class FixtureUiInstrumentedTest {
             compose.onNodeWithText(text(mode)).performClick()
             compose.onNodeWithTag("message-input").performTextInput("pedido-$mode")
             compose.onNodeWithTag("message-send").performClick()
-            compose.waitUntil(15_000) { runBlocking { LocalStateStore(context).message(zeroClawKey).draft.text.isEmpty() } }
+            awaitStore { LocalStateStore(context).message(zeroClawKey).draft.text.isEmpty() }
         }
         val messages = fixture("/api/fixture/stats").getJSONArray("messageRequests")
         assertEquals(messageCount + 2, messages.length())
@@ -668,13 +684,11 @@ class FixtureUiInstrumentedTest {
         compose.waitUntil(15_000) { compose.onAllNodes(hasTestTag("session-new") and androidx.compose.ui.test.isEnabled()).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("session-new").performClick()
         compose.onNodeWithText(text(R.string.confirm)).performClick()
-        compose.waitUntil(15_000) {
-            runBlocking { LocalStateStore(context).lastSession()?.let { it.provider == "zeroclaw" && it.sessionId != zeroClawKey.sessionId } == true }
-        }
-        val next = runBlocking { requireNotNull(LocalStateStore(context).lastSession()) }
+        awaitStore { LocalStateStore(context).lastSession()?.let { it.provider == "zeroclaw" && it.sessionId != zeroClawKey.sessionId } == true }
+        val next = readStore { requireNotNull(LocalStateStore(context).lastSession()) }
         assertEquals(zeroClawKey.account, next.account)
-        assertEquals("rascunho anterior", runBlocking { LocalStateStore(context).message(zeroClawKey).draft.text })
-        assertEquals("", runBlocking { LocalStateStore(context).message(next).draft.text })
+        assertEquals("rascunho anterior", readStore { LocalStateStore(context).message(zeroClawKey).draft.text })
+        assertEquals("", readStore { LocalStateStore(context).message(next).draft.text })
         val controls = fixture("/api/fixture/stats").getJSONArray("controlRequests")
         assertEquals(controlCount + 2, controls.length())
         val new = controls.getJSONObject(controlCount + 1)
@@ -692,7 +706,7 @@ class FixtureUiInstrumentedTest {
         compose.onNodeWithText(text(R.string.deliver_aside)).assertDoesNotExist()
         compose.onNodeWithText(text(R.string.settings_roles)).assertDoesNotExist()
         compose.onNodeWithText(text(R.string.settings_summarize)).performScrollTo().assertIsEnabled().performClick()
-        compose.waitUntil(15_000) { runBlocking { LocalStateStore(context).summarize.first() } }
+        awaitStore { LocalStateStore(context).summarize.first() }
         val after = fixture("/api/fixture/stats")
         assertEquals(before.getJSONObject("gets").optInt("/api/cast/roles"), after.getJSONObject("gets").optInt("/api/cast/roles"))
         assertEquals(before.getJSONObject("posts").optInt("/api/cast/roles"), after.getJSONObject("posts").optInt("/api/cast/roles"))
@@ -717,7 +731,7 @@ class FixtureUiInstrumentedTest {
             await(R.string.message_text)
             compose.waitUntil(15_000) { compose.onAllNodes(hasText("Resumo HTTP fictício sem Tiny.")).fetchSemanticsNodes().isNotEmpty() }
             // A posição só é salva depois que a restauração da leitura termina.
-            compose.waitUntil(15_000) { runBlocking { store.conversation(sessionKey)?.reading?.position?.entryId != null } }
+            awaitStore { store.conversation(sessionKey)?.reading?.position?.entryId != null }
             if (older) {
                 // A resposta resumida deixa de ser a última; o teste volta a ela pelo histórico.
                 val requests = fixture("/api/fixture/stats").getJSONObject("posts").optInt("/api/summaries")
