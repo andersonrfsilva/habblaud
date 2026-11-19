@@ -4,7 +4,7 @@ package br.com.xlinx.habblaud
 
 import android.os.SystemClock
 import androidx.activity.compose.setContent
-import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
 import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
