@@ -466,7 +466,6 @@ fn unauthorized(error: &zaplaud_core::Error) -> bool {
     )
 }
 
-#[cfg(test)]
 fn cache_save_deadline(
     pending: Option<tokio::time::Instant>,
     now: tokio::time::Instant,
@@ -563,7 +562,7 @@ async fn run_session(
                     Some(Command::Position(_, following)) => {
                         run.following = following;
                         run.reading.following = following;
-                        save_at = Some(tokio::time::Instant::now()+Duration::from_secs(1));
+                        save_at = Some(cache_save_deadline(save_at, tokio::time::Instant::now(), Duration::from_secs(1)));
                         if following && run.new_count != 0 { run.new_count = 0; run.render(&weak,None); }
                     }
                     Some(Command::Anchor(_,entry,row,offset,following)) => {
@@ -572,7 +571,7 @@ async fn run_session(
                         run.reading.offset = offset;
                         run.reading.following = following;
                         run.following = following;
-                        save_at = Some(tokio::time::Instant::now()+Duration::from_secs(1));
+                        save_at = Some(cache_save_deadline(save_at, tokio::time::Instant::now(), Duration::from_secs(1)));
                     }
                     Some(Command::Preferences) => {
                         run.enabled = run.store.summarize().unwrap_or(false);
@@ -618,13 +617,19 @@ async fn run_session(
                 if run.controller.unauthorized { let _ = commands.send(Event::Unauthorized(item.key.origin.clone())); break; }
                 run.render(&weak,None);
                 if result.is_err() { break; }
-                if result == Ok(true) { save_at = Some(tokio::time::Instant::now()+Duration::from_secs(3)); }
+                if result == Ok(true) {
+                    save_at = Some(cache_save_deadline(save_at, tokio::time::Instant::now(), Duration::from_secs(3)));
+                }
             }
             Some(result) = summary_jobs.join_next(), if !summary_jobs.is_empty() => {
                 if let Ok((key,result)) = result
                     && let Some(state) = run.summaries.remove(&key) {
                         let event = match result {
-                            Ok(text) => { run.controller.summaries.insert(key.clone(),text.clone()); save_at = Some(tokio::time::Instant::now()+Duration::from_secs(3)); SummaryEvent::Completed { key:key.clone(),text } },
+                            Ok(text) => {
+                                run.controller.summaries.insert(key.clone(),text.clone());
+                                save_at = Some(cache_save_deadline(save_at, tokio::time::Instant::now(), Duration::from_secs(3)));
+                                SummaryEvent::Completed { key:key.clone(),text }
+                            }
                             Err(error) => { if unauthorized(&error) { let _ = commands.send(Event::Unauthorized(item.key.origin.clone())); } SummaryEvent::Failed { key:key.clone(),cancelled:false } }
                         };
                         run.summaries.insert(key,conversation::reduce_summary(state,event).0);
