@@ -261,6 +261,38 @@ def main():
                                 desktop.xt.XTestFakeButtonEvent(desktop.d, button, pressed, 0)
                         desktop.x.XSync(desktop.d, 0)
 
+                    history_box = (377, 80, 890, 580)
+                    # Salva o histórico OMP e troca de volta antes de terminar a rolagem do Claude.
+                    state_path = cache_dir / 'local_state.json'
+                    desktop.key('Home')
+                    smoke.wait_for(
+                        lambda: any(key.startswith('reading_') and value.get('entry') and not value['following']
+                                    for key, value in json.loads(state_path.read_text()).items()),
+                        'Posição no histórico OMP não foi salva',
+                    )
+                    saved_history = desktop.image().crop(history_box).tobytes()
+                    desktop.click(150, claude_row)
+                    smoke.wait_for(
+                        lambda: desktop.image().getpixel((1040, 638)) != colors['secondaryContainer']
+                        and desktop.image().crop(history_box).getcolors(3) is None,
+                        'Conversa Claude não abriu no fim',
+                    )
+                    started = time.monotonic()
+                    # No limite inferior a roda para baixo não desloca a lista nem inicia o timer.
+                    wheel(4, 1)
+                    desktop.x.XWarpPointer(desktop.d, 0, desktop.mapped()[0], 0, 0, 0, 0, 150, omp_row)
+                    for pressed in (1, 0):
+                        desktop.xt.XTestFakeButtonEvent(desktop.d, 1, pressed, 0)
+                    desktop.x.XSync(desktop.d, 0)
+                    assert time.monotonic() - started < .22, 'A troca excedeu os 220 ms da roda'
+                    time.sleep(1)
+                    restored = desktop.image()
+                    restored.save(f'/tmp/zaplaud-rs-fin-conversation-regression-restored-{args.theme}.png')
+                    assert restored.getpixel((1040, 638)) == colors['secondaryContainer'], 'A troca fez o OMP seguir o fim'
+                    assert restored.crop(history_box).tobytes() == saved_history, 'A roda da conversa anterior moveu o histórico OMP'
+                    desktop.click(1060, 638)
+                    smoke.wait_for(lambda: copy_last() == latest, 'Ir para o fim não voltou à última mensagem do OMP', 20)
+
                     # A roda no fim e o retorno pela roda devem continuar seguindo as entradas novas.
                     for number, return_to_end in ((221, False), (222, True)):
                         if return_to_end:
@@ -280,7 +312,6 @@ def main():
                         smoke.wait_for(lambda: copy_last() == latest, 'Roda no fim impediu acompanhar a entrada nova', 20)
 
                     # A nova entrada deve atualizar o contador sem mover as mensagens em leitura.
-                    history_box = (377, 80, 890, 580)
                     badge_box = (1040, 620, 1080, 655)
                     for number, gesture in enumerate((lambda: wheel(4, 6), lambda: desktop.key('Home')), start=223):
                         end = desktop.image().crop(history_box).tobytes()
