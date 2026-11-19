@@ -65,12 +65,6 @@ final class ZaplaudUITests: XCTestCase {
         element(app, "http-confirm").tap()
         element(app, "session-row:claude:00000000-0000-4000-8000-000000000001").tap()
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Resposta fictícia")).firstMatch.waitForExistence(timeout: 30))
-        let attach = app.buttons.matching(NSPredicate(format: "label == %@", "Anexar arquivos (até 5)")).firstMatch
-        XCTAssertTrue(attach.waitForExistence(timeout: 10))
-        attach.tap()
-        let cancelPicker = app.buttons.matching(NSPredicate(format: "label IN %@", ["Cancel", "Cancelar"])).firstMatch
-        XCTAssertTrue(cancelPicker.waitForExistence(timeout: 10))
-        cancelPicker.tap()
         capture("conversation-portrait")
         XCUIDevice.shared.orientation = .landscapeLeft
         capture("conversation-landscape")
@@ -86,6 +80,15 @@ final class ZaplaudUITests: XCTestCase {
         input.typeText("ios-smoke-unsent-draft")
         let draftSaved = NSPredicate(format: "value == %@", "ios-smoke-unsent-draft")
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: draftSaved, object: input)], timeout: 10), .completed)
+        let attach = app.buttons.matching(NSPredicate(format: "label == %@", "Anexar arquivos (até 5)")).firstMatch
+        XCTAssertTrue(attach.waitForExistence(timeout: 10))
+        attach.tap()
+        let pickerDismissRegion = app.descendants(matching: .any).matching(identifier: "PopoverDismissRegion").firstMatch
+        XCTAssertTrue(pickerDismissRegion.waitForExistence(timeout: 10), "Missing iPad document picker")
+        // Tap outside the centered document picker, within UIKit's dismiss region.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.1)).tap()
+        XCTAssertTrue(pickerDismissRegion.waitForNonExistence(timeout: 10), "Document picker did not dismiss")
+        XCTAssertEqual(element(app, "message-input").value as? String, "ios-smoke-unsent-draft")
         try expectStreamCount(1, statsURL: statsURL)
         XCUIDevice.shared.press(.home)
         try expectStreamCount(0, statsURL: statsURL)
