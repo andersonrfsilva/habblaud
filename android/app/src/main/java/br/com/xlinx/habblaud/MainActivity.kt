@@ -80,9 +80,7 @@ class MainActivity : ComponentActivity() {
         visible = true
         lifecycleScope.launch {
             try {
-                if (store.notificationsEnabled() && store.servers().isNotEmpty() && visible) {
-                    NotificationService.start(applicationContext)
-                }
+                NotificationService.startIfConfigured(applicationContext, store) { visible }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 Log.w(TAG, "Could not read notification settings on start", e)

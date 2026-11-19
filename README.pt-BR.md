@@ -432,8 +432,9 @@ Se **Configurações** indicar que o Android bloqueou os avisos, permita as noti
 nas configurações do sistema.
 
 **Avisos.** Se ativados, os avisos de aprovação, pergunta e fim de turno dependem de um serviço em primeiro plano,
-com uma notificação fixa no Android. Desativar os avisos interrompe o serviço. Depois de reiniciar o celular, abra
-o aplicativo uma vez para voltar a receber avisos. A economia de bateria agressiva pode atrasá-los.
+com uma notificação fixa no Android. Desativar os avisos interrompe o serviço. Se estavam ligados, voltam após
+atualizar o app ou após o primeiro desbloqueio depois de reiniciar o celular; restrições de bateria do fabricante
+podem impedir a retomada.
 
 O aplicativo não oferece terminal interativo, fila offline de comandos ou atualização automática. As sessões e
 conversas permanecem no servidor.

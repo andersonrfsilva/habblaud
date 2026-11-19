@@ -87,6 +87,16 @@ class NotificationService : Service() {
             manager.createNotificationChannel(NotificationChannel(CHANNEL_CONNECTION, context.getString(R.string.channel_connection), NotificationManager.IMPORTANCE_MIN))
         }
 
+        internal suspend fun startIfConfigured(
+            context: Context,
+            store: LocalStateStore,
+            canStart: () -> Boolean = { true },
+        ) {
+            if (store.notificationsEnabled() && store.servers().isNotEmpty() && canStart()) {
+                start(context)
+            }
+        }
+
         fun start(context: Context, restart: Boolean = false): Boolean = try {
             if (!allowed(context)) false
             else {
