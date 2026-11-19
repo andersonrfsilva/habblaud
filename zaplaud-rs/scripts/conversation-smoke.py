@@ -182,10 +182,21 @@ def main():
                     with transcript.open('a') as stream:
                         for index in range(220):
                             stream.write(json.dumps({'type': 'message', 'id': str(uuid.uuid4()), 'timestamp': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'message': {'role': 'assistant' if index % 2 else 'user', 'content': [{'type': 'text', 'text': f'Carga fictícia {index + 1}.'}]}}) + '\n')
-                    time.sleep(4)
-                    caches = [json.loads(path.read_text()) for path in (data / 'state/data').glob('conversation-*.json')]
-                    result['retained_entries'] = max(len(cache['entries']) for cache in caches)
-                    assert result['retained_entries'] >= 220, result
+                    cache_dir = data / 'state/data'
+                    deadline = time.monotonic() + 20
+                    while True:
+                        counts = {path.name: len(json.loads(path.read_text())['entries'])
+                                  for path in cache_dir.glob('conversation-*.json')}
+                        retained_entries = max(counts.values(), default=0)
+                        if retained_entries >= 220:
+                            result['retained_entries'] = retained_entries
+                            break
+                        if time.monotonic() >= deadline:
+                            files = sorted(path.name for path in cache_dir.iterdir()) if cache_dir.is_dir() else 'diretório ausente'
+                            raise AssertionError(
+                                f'Cache de conversa em {cache_dir} não chegou a 220 entradas em 20 s; '
+                                f'arquivos: {files!r}; entradas por cache: {counts!r}')
+                        time.sleep(.5)
 
                     def copy_last():
                         desktop.x.XWarpPointer(desktop.d, 0, desktop.mapped()[0], 0, 0, 0, 0, 700, 644)
