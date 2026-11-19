@@ -32,6 +32,16 @@ node --import tsx scripts/android-smoke.ts --port 14780 --allow terminal,message
 Use usuário e senha fictícios `android-test`. HTTP exige confirmação na tela; HTTPS não. O cliente não segue redirecionamentos. HTTPS confia nas CAs do sistema e nas raízes webpki, inclusive CAs privadas instaladas localmente. A API aceita persistência de cookies pelo contrato `SessionPersistence`; `SecureSessionStorage` usa o chaveiro do sistema, com fallback em memória quando indisponível. `ZAPLAUD_KEYRING=memory` força o modo sem persistência entre processos. Entradas existentes malformadas ou de versão desconhecida no chaveiro impedem gravações, sem apagar cookies de outras origens.
 Respostas `429` bloqueiam novas tentativas por no máximo 24 h, tanto para segundos quanto para datas HTTP, nos dois clientes.
 
+## O que o CI verifica
+
+No workflow [Zaplaud Rust](../.github/workflows/zaplaud-rs.yml), o job `verificar` checa formatação, clippy
+e testes do workspace e do contrato com o servidor de teste. Também compila o renderer Skia opcional.
+A etapa **Exercitar conversa, teclado e acessibilidade nos dois temas** roda três roteiros com o renderer padrão,
+nos temas claro e escuro, em X11 via Xvfb e com chaveiro em memória. O roteiro de acessibilidade usa AT-SPI.
+
+Fora de pull requests, o job `empacotar-linux` testa uma instalação isolada e gera DEB, RPM e o pacote de usuário.
+Esse workflow não valida uma sessão Wayland real, a persistência em chaveiro real, a bandeja do sistema ou o macOS.
+
 ## Distribuição Linux
 
 O pacote de usuário `zaplaud-linux-x86_64.tar.gz` contém o executável release, o instalador, os ícones hicolor gerados do SVG canônico e as licenças de Noto Sans Mono, Noto Emoji e DejaVu. Extraia e execute `bash install-linux.sh`, sem `sudo`. Consulte [distribuição desktop](packaging/README.md) para instalação, remoção e bibliotecas de execução.
@@ -215,7 +225,7 @@ Os campos de `Theme` incluem os 48 papéis Material 3 em claro e escuro. O [base
 
 ### Elenco e bate-papo paralelo
 
-`controller::cast::State` executa as rotas tipadas de elenco sem repetir POSTs. A origem das ações segue a seleção, depois o filtro, depois o servidor único. `CastState` publica retomar/dispensar e o texto de estado para o host da conversa; `ListState.cast` abre a escolha de contato. Escolher Novo ou personagem livre envia imediatamente `{}` ou `{"mode":"new"}`. Novas conversas usam `~` resolvido pelo host, nunca a pasta da seleção. Retomar preserva a pasta histórica e permite qualquer personagem livre, com dono primeiro.
+`controller::cast::State` executa as rotas tipadas de elenco sem repetir POSTs. A origem das ações segue a seleção, depois o filtro, depois o servidor único. `CastState` publica retomar/dispensar e o texto de estado para o host da conversa; `ListState.cast` abre a escolha de contato. Novas conversas usam `HABBLAUD_CAST_FOLDER` ou, se não estiver definida, a pasta pessoal do host, nunca a pasta da seleção. Retomar preserva a pasta da conversa escolhida.
 
 `controller::aside::run` recebe eventos por `mpsc`, publica o redutor por `watch` e sinaliza 401 por um canal separado. Descartar o runner cancela chamadas e esperas. Fechar ou trocar de sessão limpa a folha e encerra o polling. O runner limita a espera periódica de 700 ms do Kotlin a 1 s, conforme a meta desktop; não cria SSE adicional. Perguntas, cancelamentos e a consulta inicial continuam imediatos. `AsideState.open()` é a entrada do menu da conversa.
 
@@ -225,6 +235,25 @@ Os campos de `Theme` incluem os 48 papéis Material 3 em claro e escuro. O [base
 O menu da conversa abre **Arquivos** na pasta da sessão; o menu da lista começa pela primeira raiz. O painel direito permite escolher raízes, seguir breadcrumbs e navegar por teclado (↑/↓, Enter, Backspace e Esc). Acesso depende da permissão remota `terminal`. Clique em arquivo baixa para Downloads, respeitando `XDG_DOWNLOAD_DIR` no Linux e `~/Downloads` no macOS. Nomes são saneados e colisões recebem ` (1)`, ` (2)` antes da extensão. Downloads simultâneos mostram progresso e cancelamento; o resultado oferece **Abrir** e **Mostrar na pasta**. A transferência usa streaming sem limite total, com timeout de leitura; falhas e cancelamento removem o temporário sem deixar arquivo parcial.
 
 Para exercitar o recurso na fixture, acrescente `--files /caminho/da/arvore` ao comando `scripts/android-smoke.ts`. Sem essa opção, arquivos permanecem desligados.
+
+### Entregas da sessão
+
+No menu da conversa, abra **Entregas da sessão**. A lista mostra os trabalhos concluídos daquela conversa.
+Abra uma entrega para ler o pedido e a resposta. O texto da resposta é selecionável. Use **Baixar** junto ao arquivo desejado.
+O servidor precisa ter Entregas habilitadas e autorizar `terminal` para listar e baixar os arquivos.
+
+### Acesso neste servidor
+
+Em **Configurações**, selecione o servidor e consulte **Acesso neste servidor**. O painel não altera permissões:
+
+- **Conversas e recentes:** leitura do histórico e das conversas (`terminal`).
+- **Mensagens e anexos:** envio (`messages`), só com a proteção `messageSessionGuard` anunciada pelo servidor.
+- **Responder aprovações e perguntas:** envio de decisões (`permissions`).
+- **Arquivos:** navegador da pasta de trabalho, que precisa estar habilitado no servidor, além de `terminal`.
+
+Cada linha indica se o recurso está liberado, bloqueado ou não informado pelo servidor. Se estiver bloqueado,
+peça ao operador que confira `HABBLAUD_REMOTE_ALLOW` e se o recurso está ativo. Se faltar a proteção de sessão,
+peça que verifique a versão do servidor.
 
 ### Exercício visual e medição
 
