@@ -1339,10 +1339,21 @@ export function create(pi: OmpApi, deps: Deps): void {
   async function ask(params: unknown, signal: AbortSignal | undefined, ctx: ToolContext): Promise<unknown> {
     const native = ctx.invokeTool;
     if (!native) throw new Error('Habblaud: o ask do omp não está disponível');
-    const input = isSub(ctx) ? undefined : askToHabblaud(params);
+    let input: AskCard | undefined;
+    let formMap: FormField[] | undefined;
     let sid: string | undefined;
     let cwd = '';
     try {
+      if (!isSub(ctx)) {
+        const html = params && typeof params === 'object' ? (params as Rec).html : undefined;
+        if (typeof html === 'string') {
+          const form = formToQuestions(html);
+          input = form?.input;
+          formMap = form?.map;
+        } else {
+          input = askToHabblaud(params);
+        }
+      }
       sid = input ? track(ctx) : undefined;
       cwd = ctx.cwd ?? ctx.sessionManager.getCwd?.() ?? '';
     } catch {
@@ -1360,7 +1371,21 @@ export function create(pi: OmpApi, deps: Deps): void {
         (error: unknown) => ({ kind: 'local-error' as const, error }),
       );
       // Do escritório só valem a resposta e o "Não responder"; o resto (pedido largado, prazo) deixa o terminal.
-      const remote = poll(id, stop.signal).then((o) => (o?.kind === 'answer' || (o?.kind === 'habblaud' && !o.allowed) ? o : never<never>()));
+      const remote = poll(id, stop.signal).then((outcome) => {
+        if (outcome?.kind === 'habblaud' && !outcome.allowed) return outcome;
+        if (outcome?.kind === 'answer') {
+          if (!formMap) return outcome;
+          try {
+            if (formMap.length === outcome.answers.length) {
+              const result = answersToFormResult(formMap, outcome.answers);
+              if (result) return { kind: 'form-result' as const, result };
+            }
+          } catch {
+            // Uma resposta que não dá para converter não fecha o diálogo nativo.
+          }
+        }
+        return never<never>();
+      });
       const first = await Promise.race([local, remote]);
       stop.abort();
       if (first.kind === 'local' || first.kind === 'local-error') {
@@ -1369,6 +1394,7 @@ export function create(pi: OmpApi, deps: Deps): void {
         return first.value;
       }
       await local;
+      if (first.kind === 'form-result') return first.result;
       if (first.kind === 'habblaud') throw new Error(first.message ? `User declined to answer: ${first.message}` : 'User declined to answer');
       const result = askResult(params, first.answers);
       if (!result) throw new Error('Habblaud: resposta fora do formato do ask');

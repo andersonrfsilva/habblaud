@@ -878,7 +878,7 @@ describe('omp extension: ask pelo escritório', () => {
     };
     handlers.get('session_start')?.({}, ctx);
     handlers.get('session_start')?.({}, ctx);
-    const run = () => tools[0].execute('call-1', PARAMS, undefined, undefined, ctx);
+    const run = (params: unknown = PARAMS) => tools[0].execute('call-1', params, undefined, undefined, ctx);
     return { tools, habblaud, run, local, nativeAborted: () => nativeSignal?.aborted === true, schema: NATIVE_SCHEMA };
   }
 
@@ -898,6 +898,40 @@ describe('omp extension: ask pelo escritório', () => {
     expect(t.nativeAborted()).toBe(true);
     expect(t.habblaud.of('/api/permissions')[0].body).toMatchObject({ provider: 'omp', tool_name: ASK_TOOL, timeout_ms: ASK_WAIT_MS, tool_input: askToHabblaud(PARAMS) });
     expect(t.habblaud.of('/api/permissions/p1/decision')).toHaveLength(0);
+  });
+
+  it('formulário HTML misto: publica o cartão, volta como JSON nativo e fecha o diálogo', async () => {
+    const t = askSetup((c) => registerOk(c, { status: 200, json: { status: 'decided', behavior: 'answer', answers: [{ question: 0, options: [1] }, { question: 1, other: 'A label' }] } }));
+    expect(await t.run({ html: form(`${radio()}<label>Label <input name=label required></label>`), i: 'Ask for choices' })).toEqual({
+      content: [{ type: 'text', text: 'User answers:\n{\n  "store": "ram",\n  "label": "A label"\n}' }],
+      details: { answers: [{ name: 'store', question: 'Storage?', answer: 'Memory' }, { name: 'label', question: 'Label', answer: 'A label' }] },
+    });
+    expect(t.nativeAborted()).toBe(true);
+    expect(t.habblaud.of('/api/permissions')[0].body).toMatchObject({
+      provider: 'omp', tool_name: ASK_TOOL, timeout_ms: ASK_WAIT_MS,
+      tool_input: { questions: [
+        { question: 'Storage?', options: [{ label: 'Disk 💾' }, { label: 'Memory' }], multiSelect: false },
+        { question: 'Label', options: [], multiSelect: false },
+      ] },
+    });
+  });
+
+  it('formulário HTML não conversível vai direto ao diálogo, sem registrar cartão', async () => {
+    const t = askSetup(() => undefined);
+    const pending = t.run({ html: form('<label>Count <input type=number name=n></label>') });
+    t.local.resolve('nativo');
+    expect(await pending).toBe('nativo');
+    expect(t.habblaud.of('/api/permissions')).toHaveLength(0);
+    expect(t.nativeAborted()).toBe(false);
+  });
+
+  it('texto com quebra de linha em campo de uma linha não troca o diálogo nativo por resultado inválido', async () => {
+    const t = askSetup((c) => registerOk(c, { status: 200, json: { status: 'decided', behavior: 'answer', answers: [{ question: 0, other: 'a\nb' }] } }));
+    const pending = t.run({ html: form('<label>Name <input name=name></label>') });
+    await vi.waitFor(() => expect(t.habblaud.of('/api/permissions/p1/wait')).toHaveLength(1));
+    expect(t.nativeAborted()).toBe(false);
+    t.local.resolve('nativo');
+    expect(await pending).toBe('nativo');
   });
 
   it('respondido no terminal primeiro: devolve o nativo e retira o cartão ({behavior: terminal})', async () => {
