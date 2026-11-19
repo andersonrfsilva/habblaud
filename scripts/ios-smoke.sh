@@ -57,7 +57,8 @@ try:
                                     '--allow', 'terminal,permissions,messages'],
                                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=errors,
                                    text=True, start_new_session=True)
-        ready = receive()
+        # A cold hosted runner can take over a minute to start the fixture.
+        ready = receive(timeout=180)
         if ready.get('ready') is not True:
             raise RuntimeError('Fixture did not report readiness')
         from urllib.parse import urlparse
