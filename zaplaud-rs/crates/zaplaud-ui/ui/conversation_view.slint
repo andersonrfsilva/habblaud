@@ -59,6 +59,7 @@ export global ConversationViewState {
     in-out property <bool> following: true;
     in property <int> new-count;
     in property <int> end-request;
+    in property <int> reset-request;
     in property <int> geometry-request;
     in-out property <string> anchor-entry;
     in-out property <string> anchor-row;
@@ -245,6 +246,9 @@ export component ConversationView inherits Rectangle {
     function cancel-restore() {
         ConversationViewState.restore-pending = false;
         ConversationViewState.anchor-ticks = 0;
+        root.cancel-scroll-settle();
+    }
+    function cancel-scroll-settle() {
         messages.scroll-from-end = false;
         scroll-settle.stop();
     }
@@ -271,6 +275,8 @@ export component ConversationView inherits Rectangle {
     }
     property <int> end-request: ConversationViewState.end-request;
     changed end-request => { root.jump-to-end(); }
+    property <int> reset-request: ConversationViewState.reset-request;
+    changed reset-request => { root.cancel-scroll-settle(); }
     property <int> scroll-request: ConversationViewState.scroll-request;
     changed scroll-request => { messages.content-y = min(0px, max(messages.height - messages.content-height, ConversationViewState.scroll-target)); }
     Timer {
@@ -288,7 +294,8 @@ export component ConversationView inherits Rectangle {
         triggered => {
             self.stop();
             messages.scroll-from-end = false;
-            if ConversationViewState.following || messages.content-y <= messages.end-y + 2px {
+            if ConversationViewState.rows.length > 0 && !ConversationViewState.restore-pending && ConversationViewState.anchor-ticks == 0
+                && (ConversationViewState.following || messages.content-y <= messages.end-y + 2px) {
                 ConversationViewState.following = true;
                 messages.content-y = messages.end-y;
                 ConversationViewState.position(true);

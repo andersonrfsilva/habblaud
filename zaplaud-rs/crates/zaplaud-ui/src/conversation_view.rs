@@ -166,6 +166,7 @@ impl SessionRun {
             state.set_view(view.into());
             state.set_new_count(count);
             if reset {
+                state.set_reset_request(state.get_reset_request().wrapping_add(1));
                 state.set_restore_pending(!reading.following && !reading.entry.is_empty());
                 state.set_anchor_ticks(46);
                 state.set_stable_ticks(0);
@@ -777,7 +778,14 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                     stop_session(&mut task).await;
                     selected = key;
                     current = None;
-                    update_ui(&weak,|w| { let state = w.global::<ConversationViewState>(); state.set_info_open(false);state.set_menu_open(false);state.set_model_query("".into()); set_rows(&w,Vec::new(),true); });
+                    update_ui(&weak, |w| {
+                        let state = w.global::<ConversationViewState>();
+                        state.set_reset_request(state.get_reset_request().wrapping_add(1));
+                        state.set_info_open(false);
+                        state.set_menu_open(false);
+                        state.set_model_query("".into());
+                        set_rows(&w, Vec::new(), true);
+                    });
                     if let Some(item) = &snapshot.selected && let Some(server) = snapshot.servers.iter().find(|s| s.api.origin() == item.key.origin) {
                         let metadata = item.clone();
                         update_ui(&weak, move |w| publish_info(&w, &metadata, &[], true));
