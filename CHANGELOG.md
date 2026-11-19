@@ -164,6 +164,7 @@ do meio (0.**3**.0).
 - **Zaplaud (Android e iPad):** a lista de sessões abre sem esperar a resposta de todos os servidores cadastrados.
 - **Zaplaud Android:** o cache de conversas tem teto de 64 MiB. Conversas removidas do cache são baixadas novamente ao abrir.
 - **Zaplaud (Android e iPad):** a conversa aberta reúne mudanças do cache em gravações a cada 3 segundos e grava sem esperar ao sair da conversa ou do app.
+- **Zaplaud desktop:** a conversa aberta é gravada no cache a cada poucos segundos mesmo durante uma resposta longa.
 - **Histórico:** sessão encerrada que rodou em pasta temporária (`/tmp`) volta a aparecer quando tem título ou
   primeiro pedido. Só ficam de fora as sessões sem nenhuma instrução sua.
 - **Elenco:** chamar um personagem ou "Novo" não pede pasta. A sessão nova usa `HABBLAUD_CAST_FOLDER` ou,
