@@ -24,6 +24,7 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -130,6 +131,36 @@ class ConversationStreamTest {
             assertEquals(401, (events.last() as StreamEvent.Failure).status)
             assertEquals(1, server.requestCount)
         } finally { server.shutdown() }
+    }
+
+    @Test fun truncatedUnauthorizedStopsWithoutRetry() = truncatedResponse(401, terminal = true)
+
+    @Test fun truncatedForbiddenStopsWithoutRetry() = truncatedResponse(403, terminal = true)
+
+    @Test fun truncatedNotFoundStopsWithoutRetry() = truncatedResponse(404, terminal = true)
+
+    @Test fun truncatedServerErrorBecomesNoticeOnThirdFailure() = truncatedResponse(500, terminal = false)
+
+    @Suppress("DEPRECATION")
+    private fun truncatedResponse(status: Int, terminal: Boolean) = runBlocking {
+        MockWebServer().use { server ->
+            repeat(FAILURES_BEFORE_NOTICE) {
+                server.enqueue(MockResponse().setResponseCode(status).setBody("x".repeat(8192))
+                    .setSocketPolicy(SocketPolicy.DISCONNECT_DURING_RESPONSE_BODY))
+            }
+            val client = client()
+            var unauthorized = false
+            val repo = ConversationRepository(server.url("/").toString().removeSuffix("/"), { client }, { unauthorized = true })
+            val stream = repo.stream("/api/stream").onEach { event ->
+                assertEquals(StreamEvent.Failure(status), event)
+                assertEquals(status == 401, unauthorized)
+                assertEquals(if (terminal) 1 else FAILURES_BEFORE_NOTICE, server.requestCount)
+            }
+            withTimeout(15000) {
+                if (terminal) assertEquals(listOf(StreamEvent.Failure(status)), stream.toList())
+                else assertEquals(StreamEvent.Failure(status), stream.first())
+            }
+        }
     }
 
     @Test fun cancellationStopsCall() = runBlocking {
