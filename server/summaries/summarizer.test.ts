@@ -1,6 +1,7 @@
 import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setImmediate } from 'node:timers/promises';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as fsPromises from 'node:fs/promises';
 import { tempDir } from '../test/fixtures';
@@ -219,6 +220,7 @@ describe('HTTP summaries', () => {
   });
   it('runs two HTTP jobs by default and admits waiting jobs FIFO', async () => {
     const { s } = setup();
+    vi.spyOn(fsPromises, 'readFile').mockResolvedValue('token');
     const calls: { text: string; resolve(value: Response): void }[] = [];
     vi.stubGlobal('fetch', vi.fn((_url, request) => {
       const { promise, resolve } = Promise.withResolvers<Response>();
@@ -226,14 +228,17 @@ describe('HTTP summaries', () => {
       return promise;
     }));
     const a = s.summarize('a'), b = s.summarize('b'), c = s.summarize('c'), d = s.summarize('d');
-    await vi.waitFor(() => expect(calls).toHaveLength(2));
-    calls[0].resolve(response('A'));
+    await setImmediate();
+    expect(calls).toHaveLength(2);
+    calls.find((call) => call.text === 'Resposta do agente:\n\na')!.resolve(response('A'));
     expect(await a).toBe('A');
-    await vi.waitFor(() => expect(calls).toHaveLength(3));
+    await setImmediate();
+    expect(calls).toHaveLength(3);
     expect(calls[2].text).toBe('Resposta do agente:\n\nc');
-    calls[1].resolve(response('B'));
+    calls.find((call) => call.text === 'Resposta do agente:\n\nb')!.resolve(response('B'));
     await b;
-    await vi.waitFor(() => expect(calls).toHaveLength(4));
+    await setImmediate();
+    expect(calls).toHaveLength(4);
     expect(calls[3].text).toBe('Resposta do agente:\n\nd');
     calls[2].resolve(response()); calls[3].resolve(response());
     await Promise.all([c, d]);
