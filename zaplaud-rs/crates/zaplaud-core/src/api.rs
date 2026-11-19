@@ -360,8 +360,11 @@ impl HabblaudApi {
             .get(RETRY_AFTER)
             .and_then(|v| v.to_str().ok())
             .map(str::to_owned);
-        let body = self.bytes(response, MAX_EVENT_BYTES).await?;
-        let value: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+        let value: Value = match self.bytes(response, MAX_EVENT_BYTES).await {
+            Ok(body) => serde_json::from_slice(&body).unwrap_or(Value::Null),
+            Err(Error::Network(_) | Error::ResponseTooLarge) => Value::Null,
+            Err(error) => return Err(error),
+        };
         Err(Error::Api {
             status,
             retry_after,
