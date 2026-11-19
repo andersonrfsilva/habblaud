@@ -466,6 +466,16 @@ fn unauthorized(error: &zaplaud_core::Error) -> bool {
     )
 }
 
+#[cfg(test)]
+fn cache_save_deadline(
+    pending: Option<tokio::time::Instant>,
+    now: tokio::time::Instant,
+    delay: Duration,
+) -> tokio::time::Instant {
+    let candidate = now + delay;
+    pending.map_or(candidate, |deadline| deadline.min(candidate))
+}
+
 async fn run_session(
     item: SessionItem,
     api: HabblaudApi,
@@ -853,6 +863,43 @@ pub(crate) fn open_system(target: &std::ffi::OsStr) -> std::io::Result<()> {
 mod tests {
     use super::*;
     use zaplaud_core::model::SessionKey;
+
+    #[test]
+    fn cache_save_deadline_survives_continuous_updates() {
+        let start = tokio::time::Instant::now();
+        let delay = Duration::from_secs(3);
+        let mut pending = None;
+        let mut saved_at = Vec::new();
+        for millis in (0..=10_000).step_by(200) {
+            let now = start + Duration::from_millis(millis);
+            if pending.is_some_and(|deadline| deadline <= now) {
+                saved_at.push(millis);
+                pending = None;
+            }
+            pending = Some(cache_save_deadline(pending, now, delay));
+        }
+        assert_eq!(saved_at, [3_000, 6_000, 9_000]);
+    }
+
+    #[test]
+    fn cache_save_deadline_for_an_isolated_update_uses_its_delay() {
+        let now = tokio::time::Instant::now();
+        for delay in [Duration::from_secs(1), Duration::from_secs(3)] {
+            assert_eq!(cache_save_deadline(None, now, delay), now + delay);
+        }
+    }
+
+    #[test]
+    fn cache_save_deadline_only_moves_earlier() {
+        let now = tokio::time::Instant::now();
+        let short = Duration::from_secs(1);
+        let long = Duration::from_secs(3);
+        let later = now + Duration::from_millis(200);
+        let pending = cache_save_deadline(None, now, long);
+        let advanced = cache_save_deadline(Some(pending), later, short);
+        assert_eq!(advanced, later + short);
+        assert_eq!(cache_save_deadline(Some(advanced), later, long), advanced);
+    }
 
     #[test]
     fn reading_commands_do_not_survive_reopening_the_same_conversation() {
