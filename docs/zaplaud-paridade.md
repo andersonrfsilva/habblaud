@@ -40,6 +40,7 @@ vai para a tabela abaixo, com o motivo. Textos ficam em `android/shared/src/comm
 | Seletores de modelo: nomes normalizados, busca, OpenRouter por fabricante e preservação do modelo atual | sim | sim | sessão e papéis; datas e variantes distinguem rótulos sem alterar o ID escolhido |
 | ZeroClaw: controles permitidos, sem anel de contexto, elenco pelo runtime | sim | sim | |
 | Espera de `Retry-After` no login limitada a 24 h | sim | sim | |
+| Status HTTP preservado quando o corpo de erro é truncado | **pendente** | sim | No Rust, vale para chamadas HTTP e para a abertura de streams SSE. |
 | Notificação prioriza a conversa do aviso sobre a última conversa de outro servidor | sim (Android) | sim | «Abrir» cancela a restauração dos outros servidores e abre a sessão do aviso assim que estiver na lista. |
 | Avisos de aprovação, pergunta e fim de turno | sim | sim | Android: se ativos, retomam após atualização do app ou primeiro desbloqueio depois do reinício; restrições do fabricante podem impedir a retomada. **iPad: sem avisos**; desktop: só com o app aberto. |
 | Ícone na bandeja | não se aplica | sim | |
