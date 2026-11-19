@@ -289,6 +289,12 @@ def main():
                     # Salva o histórico OMP e troca de volta antes de terminar a rolagem do Claude.
                     desktop.key('Home')
                     smoke.wait_for(saved_history, 'Posição no histórico OMP não foi salva')
+                    # Home ancora no aviso de janela truncada. Compare só o aviso, após o restauro,
+                    # sem incluir as bolhas do ListView, que mudam de geometria enquanto assentam.
+                    anchor_box = (510, 72, 950, 97)
+                    anchor = desktop.image().crop(anchor_box)
+                    assert load_state()[omp_reading_key]['entry'] == 'local:window-truncated', 'Home não gravou a âncora da janela truncada'
+                    assert anchor.getcolors(1) is None, 'Aviso de janela truncada não apareceu ao ir ao início'
                     for attempt in range(1, 6):
                         desktop.click(150, claude_row)
                         smoke.wait_for(showing_claude, f'Troca {attempt}: conversa Claude não abriu')
@@ -311,6 +317,8 @@ def main():
                         after = state.get(omp_reading_key)
                         assert after == before, f'Troca {attempt}: a roda da conversa anterior alterou a posição gravada do OMP: {before!r} -> {after!r}'
                         assert at_history(), f'Troca {attempt}: o botão de voltar ao fim não apareceu no OMP'
+                        assert desktop.image().crop(anchor_box).tobytes() == anchor.tobytes(), (
+                            f'Troca {attempt}: o OMP não voltou à âncora visível')
                     result['wheel_switches'] = 5
                     desktop.image().save(f'/tmp/zaplaud-rs-fin-conversation-regression-restored-{args.theme}.png')
                     desktop.click(1060, 638)
