@@ -261,10 +261,28 @@ def main():
                                 desktop.xt.XTestFakeButtonEvent(desktop.d, button, pressed, 0)
                         desktop.x.XSync(desktop.d, 0)
 
+                    # A roda no fim e o retorno pela roda devem continuar seguindo as entradas novas.
+                    for number, return_to_end in ((221, False), (222, True)):
+                        if return_to_end:
+                            wheel(4, 6)
+                            smoke.wait_for(
+                                lambda: desktop.image().getpixel((1040, 638)) == colors['secondaryContainer'],
+                                'Roda para cima não saiu do fim',
+                            )
+                        wheel(5, 6)
+                        smoke.wait_for(
+                            lambda: desktop.image().getpixel((1040, 638)) != colors['secondaryContainer'],
+                            'Roda para baixo não voltou a seguir o fim',
+                        )
+                        latest = f'Carga fictícia {number}.'
+                        with transcript.open('a') as stream:
+                            write_entry(stream, latest, 'assistant')
+                        smoke.wait_for(lambda: copy_last() == latest, 'Roda no fim impediu acompanhar a entrada nova', 20)
+
                     # A nova entrada deve atualizar o contador sem mover as mensagens em leitura.
                     history_box = (377, 80, 890, 580)
                     badge_box = (1040, 620, 1080, 655)
-                    for number, gesture in enumerate((lambda: wheel(4, 6), lambda: desktop.key('Home')), start=221):
+                    for number, gesture in enumerate((lambda: wheel(4, 6), lambda: desktop.key('Home')), start=223):
                         end = desktop.image().crop(history_box).tobytes()
                         gesture()
                         smoke.wait_for(

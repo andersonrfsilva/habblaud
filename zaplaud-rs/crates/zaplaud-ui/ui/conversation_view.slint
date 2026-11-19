@@ -246,6 +246,7 @@ export component ConversationView inherits Rectangle {
         ConversationViewState.restore-pending = false;
         ConversationViewState.anchor-ticks = 0;
         messages.scroll-from-end = false;
+        scroll-settle.stop();
     }
     public function scroll-to(fraction: float) {
         root.cancel-restore();
@@ -278,6 +279,20 @@ export component ConversationView inherits Rectangle {
         triggered => {
             ConversationViewState.capture-pending = false;
             ConversationViewState.capture-request += 1;
+        }
+    }
+    scroll-settle := Timer {
+        // A roda do Slint anima por 180 ms e não sinaliza a chegada ao destino.
+        interval: 220ms;
+        running: false;
+        triggered => {
+            self.stop();
+            messages.scroll-from-end = false;
+            if ConversationViewState.following || messages.content-y <= messages.end-y + 2px {
+                ConversationViewState.following = true;
+                messages.content-y = messages.end-y;
+                ConversationViewState.position(true);
+            }
         }
     }
     // A lista virtual estima alturas até materializar a linha ancorada.
@@ -360,6 +375,8 @@ export component ConversationView inherits Rectangle {
                     ConversationViewState.following = at-end;
                     ConversationViewState.position(ConversationViewState.following);
                     ConversationViewState.capture-pending = true;
+                    if scroll-settle.running { scroll-settle.restart(); }
+                    else { scroll-settle.start(); }
                 }
                 for row[index] in ConversationViewState.rows: EntryBubble { width: messages.width; entry: row; row-index: index; }
             }
