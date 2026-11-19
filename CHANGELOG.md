@@ -179,6 +179,7 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Zaplaud desktop:** trocar de conversa logo depois de rolar não altera mais o ponto de leitura da outra conversa.
 - **Zaplaud desktop:** conversas longas abrem na última mensagem mesmo quando a fonte do sistema muda.
 - **Zaplaud desktop:** o bate-papo paralelo só apaga a pergunta quando o servidor aceita o envio.
 - **Zaplaud desktop:** o bate-papo paralelo volta a atualizar a resposta após uma falha de rede.
