@@ -3,8 +3,11 @@ package br.com.xlinx.habblaud.data
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.sse.*
 import io.ktor.client.request.*
+import io.ktor.client.statement.*
+import io.ktor.client.utils.HttpResponseReceived
 import io.ktor.http.*
 import io.ktor.util.date.*
+import io.ktor.util.AttributeKey
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -12,6 +15,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.io.IOException
 
 internal const val FAILURES_BEFORE_NOTICE = 3
+private val handshakeResponse = AttributeKey<MutableStateFlow<HttpResponse?>>("habblaud-sse-handshake-response")
 internal fun retryAfterMillis(value: String?): Long = value?.let {
     it.toLongOrNull()?.coerceIn(0, 86400)?.times(1000) ?: runCatching {
         (it.fromHttpToGmtDate().timestamp - getTimeMillis()).coerceIn(0, 86400000)
@@ -33,24 +37,35 @@ class ConversationRepository(private val origin: String, private val client: () 
     private fun once(path: String): Flow<StreamEvent> = flow {
         require(path.startsWith("/api/") && !path.startsWith("//"))
         var requestJob: Job? = null
+        val transport = client()
+        val responseAtHeaders = MutableStateFlow<HttpResponse?>(null)
+        // Ktor can lose the response while saving the error body. Capture it before that read.
+        val headersSubscription = transport.monitor.subscribe(HttpResponseReceived) { response ->
+            if (response.request.attributes.getOrNull(handshakeResponse) === responseAtHeaders) {
+                responseAtHeaders.value = response
+            }
+        }
         try {
-            client().sse(request = {
+            transport.sse(request = {
                 // Ktor launches the handshake in client scope, so cancellation must own this request before headers.
                 requestJob = executionContext
+                attributes.put(handshakeResponse, responseAtHeaders)
                 url(origin + path)
                 api?.authorize(this)
             }) {
+                headersSubscription.dispose()
+                responseAtHeaders.value = null
                 emit(StreamEvent.Connected)
                 incoming.collect { event -> event.data?.let { emit(StreamEvent.Data(event.event ?: "message", sseData(it), false)) } }
             }
             emit(StreamEvent.Failure(null))
         } catch (cause: CancellationException) { throw cause }
         catch (cause: SSEClientException) {
-            val response = cause.response
+            val response = cause.response ?: responseAtHeaders.value
             val status = response?.status?.value
             if (status == 401) {
                 val owner = api
-                if (owner != null && response != null) owner.unauthorized(response) else unauthorized()
+                if (owner != null) owner.unauthorized(response) else unauthorized()
             }
             var root: Throwable? = cause
             var oversized = false
@@ -58,7 +73,10 @@ class ConversationRepository(private val origin: String, private val client: () 
             emit(StreamEvent.Failure(if (oversized) -1 else status, response?.headers?.get(HttpHeaders.RetryAfter)))
         } catch (_: SseLimitException) { emit(StreamEvent.Failure(-1)) }
         catch (_: IOException) { emit(StreamEvent.Failure(null)) }
-        finally { requestJob?.cancel() }
+        finally {
+            headersSubscription.dispose()
+            requestJob?.cancel()
+        }
     }
 
     fun stream(path: String): Flow<StreamEvent> = flow {

@@ -55,6 +55,12 @@ fn response(status: u16, headers: &str, body: &str) -> String {
     )
 }
 
+fn truncated_response(status: u16) -> String {
+    format!(
+        "HTTP/1.1 {status} Test\r\nConnection: close\r\nContent-Length: 64\r\nRetry-After: 7\r\n\r\n{{\"error\":"
+    )
+}
+
 #[tokio::test]
 async fn deliveries_bounds_chunked_body_and_classifies_status() -> TestResult {
     let oversized = " ".repeat(8 * 1024 * 1024 + 1);
@@ -218,6 +224,79 @@ async fn status_mapping_and_redirect_refusal() -> TestResult {
     }
     Ok(())
 }
+
+async fn assert_truncated_error_status(status: u16) -> TestResult {
+    let (origin, task) = server(vec![truncated_response(status); 2]).await?;
+    let api = HabblaudApi::new(&origin)?;
+    let request = api.request("/api/snapshot", None).await.err();
+    let stream = api.stream("/api/stream").await.err();
+    let preserves_status = |error: &Option<Error>| {
+        matches!(
+            error,
+            Some(Error::Api {
+                status: actual,
+                retry_after,
+                code: None,
+                attachments_expired: false,
+                detail,
+            }) if *actual == status && retry_after.as_deref() == Some("7") && detail.is_empty()
+        )
+    };
+    assert!(
+        preserves_status(&request) && preserves_status(&stream),
+        "HTTP {status}: GET e SSE devem preservar o status; GET={request:?}; SSE={stream:?}"
+    );
+    assert_eq!(task.await?.len(), 2);
+    Ok(())
+}
+
+#[tokio::test]
+async fn truncated_forbidden_keeps_status() -> TestResult {
+    assert_truncated_error_status(403).await
+}
+
+#[tokio::test]
+async fn truncated_not_found_keeps_status() -> TestResult {
+    assert_truncated_error_status(404).await
+}
+
+#[tokio::test]
+async fn truncated_internal_error_keeps_status() -> TestResult {
+    assert_truncated_error_status(500).await
+}
+
+#[tokio::test]
+async fn truncated_unauthorized_stays_unauthorized() -> TestResult {
+    let (origin, task) = server(vec![truncated_response(401); 2]).await?;
+    let api = HabblaudApi::new(&origin)?;
+    assert!(matches!(
+        api.request("/api/snapshot", None).await,
+        Err(Error::Unauthorized)
+    ));
+    assert!(matches!(
+        api.stream("/api/stream").await,
+        Err(Error::Unauthorized)
+    ));
+    assert_eq!(task.await?.len(), 2);
+    Ok(())
+}
+
+#[tokio::test]
+async fn disconnect_before_headers_and_truncated_success_stay_network_errors() -> TestResult {
+    let (origin, task) = server(vec![String::new(), truncated_response(200)]).await?;
+    let api = HabblaudApi::new(&origin)?;
+    assert!(matches!(
+        api.stream("/api/stream").await,
+        Err(Error::Network(_))
+    ));
+    assert!(matches!(
+        api.request("/api/snapshot", None).await,
+        Err(Error::Network(_))
+    ));
+    assert_eq!(task.await?.len(), 2);
+    Ok(())
+}
+
 #[tokio::test]
 async fn sse_crlf_multiline_and_terminal_eof() -> TestResult {
     let body = ": ping\r\nevent: append\r\ndata: one\r\ndata: two\r\n\r\n";

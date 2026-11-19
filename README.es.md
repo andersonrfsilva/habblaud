@@ -30,8 +30,8 @@ Este es el fork [andersonrfsilva/habblaud](https://github.com/andersonrfsilva/ha
 ZeroClaw y clientes nativos Zaplaud. Guías técnicas, actualmente en portugués:
 
 - [Servidor, configuración y contratos de las integraciones](server/README.md).
-- Zaplaud: [Android y iPadOS](README.pt-BR.md#aplicativo-android-zaplaud), [escritorio Rust](zaplaud-rs/README.md)
-  e [instalación de escritorio](zaplaud-rs/packaging/README.md).
+- Zaplaud: [Android](README.pt-BR.md#aplicativo-android-zaplaud), [iPadOS](README.pt-BR.md#aplicativo-ipados-zaplaud),
+  [escritorio Rust](zaplaud-rs/README.md) e [instalación de escritorio](zaplaud-rs/packaging/README.md).
 - [Funciones de los clientes y límites de la validación](docs/zaplaud-paridade.md).
 - [Planes de revisión documental y estado de implementación](plans/README.md).
 
@@ -635,19 +635,22 @@ ventana correcta.
 Abre **Elenco** en la barra superior para crear, editar o eliminar personajes fijos. Elige nombre, apariencia y tipo:
 principal, asesor o subagente. Para subagentes, indica tipos observados como `reviewer` o `Explore`.
 
-- **Llamar:** **Llamar** abre una sesión nueva en la carpeta personal (`~`) del equipo donde corre la sesión, o
-  **Continuar** retoma la conversación más reciente del personaje. Retomar desde el historial mantiene su carpeta.
+- **Llamar:** **Llamar** y **Nuevo** abren una sesión nueva en `HABBLAUD_CAST_FOLDER` o, si no está definida,
+  en la carpeta personal (`~`) del equipo anfitrión. **Continuar** retoma la última conversación del personaje.
+  Retomar desde el historial conserva la carpeta de la conversación elegida.
 - **Asignar personaje:** usa el lápiz en los detalles de un agente principal para elegir un miembro libre o crear uno
   a partir del agente. **Volver al sorteo** elimina el vínculo. Si el miembro está ocupado, la sesión recibe un
   personaje sorteado.
 - En omp, `HABBLAUD_CAST=<id>` solicita un miembro para la sesión. El asesor y los subagentes usan miembros
   compatibles con sus tipos.
 - `HABBLAUD_CAST_MAX` (1 a 50; sin definir = sin límite) limita cuántos personajes mantiene abiertos Habblaud a la
-  vez. Cuentan las sesiones `hb-*` abiertas y las llamadas en curso; los personajes que se están despidiendo, no.
+  vez. Las sesiones abiertas y las llamadas en curso cuentan. En OMP, un personaje en proceso de cierre no cuenta;
+  en ZeroClaw, ocupa su plaza hasta que se cierra la sesión.
 
 El elenco se guarda en `~/.habblaud/cast.json`; los vínculos de sesión caducan tras 60 días sin uso. Los personajes
 antiguos de las salas migran automáticamente, con copia en `~/.habblaud/names.json.pre-031`. El elenco sigue el
-bloqueo de la terminal: acceso local y terminal activada, sin `HABBLAUD_TERMINAL=0`.
+bloqueo del terminal: acceso local o, tras iniciar sesión en el puerto remoto, con `terminal` en
+`HABBLAUD_REMOTE_ALLOW`. El terminal debe estar habilitado.
 
 ### Codex
 

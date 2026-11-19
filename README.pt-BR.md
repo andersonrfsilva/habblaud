@@ -54,6 +54,7 @@ Veja [Privacidade e segurança](#privacidade-e-segurança) antes de habilitá-la
 - [Instalação](#instalação)
 - [Como usar](#como-usar)
 - [Aplicativo Android (Zaplaud)](#aplicativo-android-zaplaud)
+- [Aplicativo iPadOS (Zaplaud)](#aplicativo-ipados-zaplaud)
 - [Contas e uso (5 horas e semanal)](#contas-e-uso-5-horas-e-semanal)
 - [Configuração](#configuração)
 - [Habblaud World](#habblaud-world)
@@ -278,6 +279,27 @@ do contato aparece junto ao avatar; toque longo nos ícones de ação mostra sua
 menu da conversa de um agente do omp abre o **Bate-papo paralelo**: perguntas respondidas sem interromper o agente e
 fora da conversa dele, como na janela lateral da página.
 
+#### Entregas da sessão
+
+No menu da conversa, abra **Entregas da sessão**. A lista mostra os trabalhos concluídos na conversa aberta.
+Toque numa entrega para ler o pedido e a resposta e use **Baixar** junto ao arquivo desejado.
+Para consultar a lista e baixar anexos, o servidor precisa ter Entregas habilitadas e autorizar `terminal`
+na conexão. Na porta remota, peça ao operador que confira `HABBLAUD_REMOTE_ALLOW`.
+
+#### Acesso neste servidor
+
+Em **Configurações**, selecione o servidor e consulte **Acesso neste servidor**. O painel mostra o acesso da conexão
+atual; não altera permissões:
+
+- **Conversas e recentes:** leitura do histórico e das conversas (`terminal`).
+- **Mensagens e anexos:** envio (`messages`), só com a proteção `messageSessionGuard` anunciada pelo servidor.
+- **Responder aprovações e perguntas:** envio de decisões (`permissions`).
+- **Arquivos:** navegador da pasta de trabalho, que precisa estar habilitado no servidor, além de `terminal`.
+
+Cada linha mostra **Liberado**, **Bloqueado** ou **Não informado pelo servidor**. Se algo estiver bloqueado, peça ao
+operador que confira `HABBLAUD_REMOTE_ALLOW` e se o recurso está ativo. Se faltar a proteção de sessão, peça que
+verifique a versão do servidor.
+
 #### Compilar e instalar
 
 Instale JDK 17 ou superior e o Android SDK com `platforms;android-37.0` e ferramentas de build. Na raiz do repositório:
@@ -315,12 +337,12 @@ A CI Android executa a suíte instrumentada completa em emulador x86_64 isolado 
 Android. A fixture escolhe uma porta local dinâmica, encaminhada junto à porta 14748. A CI usa somente a fixture de
 laboratório, nunca um servidor de produção. O processo exige KVM e encerra a fixture e os encaminhamentos ao terminar.
 
-O workflow `.github/workflows/android.yml` roda em pushes para `main` e pull requests que alterem Android, o próprio
-workflow, os dois scripts da fixture, `server/**`, `shared/**`, `client/src/art/**` ou a configuração Node
-(`package.json`, `package-lock.json`, `.npmrc` e `tsconfig.json`). A fixture importa o backend e seus contratos
-compartilhados; a rota de avatar também importa a arte do cliente. Mudanças apenas em documentação ou nas demais
-telas web não acionam esse gate. Ambos os jobs reutilizam o cache Gradle do `setup-java`, com chave baseada nos
-scripts Gradle, propriedades, catálogo de versões e configuração do wrapper Android.
+O workflow [Android](.github/workflows/android.yml) aceita disparo manual e roda em pushes para `main` ou `producao`
+e em pull requests, com filtros de caminhos. Eles incluem Android, o próprio workflow, os scripts da suíte
+instrumentada e da fixture, `server/**`, `shared/**`, `client/src/art/**` e a configuração Node
+(`package.json`, `package-lock.json`, `.npmrc` e `tsconfig.json`). Mudanças apenas em documentação ou nas demais
+telas web não acionam esse gate. Os jobs Android reutilizam o cache Gradle do `setup-java`. O job `verificar` roda
+testes de host, lint, build de debug e build de release com R8 e chave descartável.
 
 Para reproduzir o gate instrumentado, instale as dependências com `npm ci` e, com um emulador ou aparelho isolado
 conectado ao `adb`, execute `python3 scripts/android-instrumented-ci.py` na raiz. O script inicia a fixture,
@@ -328,6 +350,7 @@ configura os encaminhamentos, executa `:app:connectedDebugAndroidTest` e valida 
 presença de `FixtureUiInstrumentedTest`. São necessários Python 3, Java 17, Node 22.12 ou superior e Android SDK
 com `platforms;android-37.0` e `build-tools;36.0.0`; a CI usa um emulador API 35 com KVM. Sem KVM, o workflow avisa e não
 executa a etapa instrumentada.
+Quando executa a instrumentação, o workflow coleta diagnósticos, relatórios, resultados de testes e logs como artefato.
 
 Use um emulador ou aparelho conectado e execute os comandos na raiz do repositório. Em um terminal, mantenha a
 fixture isolada aberta:
@@ -405,9 +428,13 @@ A barra da conversa mostra ícones para responder perguntas e aprovar permissõe
 configuração de animações do sistema. Perguntas do omp aceitam escolha única, múltipla e texto livre; omp e Codex
 não aceitam `interrupt` nem `suggestion` nas decisões.
 
+Se **Configurações** indicar que o Android bloqueou os avisos, permita as notificações do Zaplaud e do canal de alertas
+nas configurações do sistema.
+
 **Avisos.** Se ativados, os avisos de aprovação, pergunta e fim de turno dependem de um serviço em primeiro plano,
-com uma notificação fixa no Android. Desativar os avisos interrompe o serviço. Depois de reiniciar o celular, abra
-o aplicativo uma vez para voltar a receber avisos. A economia de bateria agressiva pode atrasá-los.
+com uma notificação fixa no Android. Desativar os avisos interrompe o serviço. Se estavam ligados, voltam após
+atualizar o app ou após o primeiro desbloqueio depois de reiniciar o celular; restrições de bateria do fabricante
+podem impedir a retomada.
 
 O aplicativo não oferece terminal interativo, fila offline de comandos ou atualização automática. As sessões e
 conversas permanecem no servidor.
@@ -416,7 +443,7 @@ conversas permanecem no servidor.
 
 O desktop do Zaplaud é o cliente nativo em Rust. Veja o [guia do Zaplaud desktop](zaplaud-rs/README.md).
 
-### Aplicativo iPadOS (Zaplaud; validação pendente)
+### Aplicativo iPadOS (Zaplaud)
 
 O Zaplaud para iPadOS tem alvo apenas para iPad, não para iPhone, e não oferece avisos. A instalação em um iPad
 físico ainda não foi validada (veja o [resultado do plano 041](plans/041-resultado.md)).
@@ -442,6 +469,9 @@ aplicativo fechado. Os agentes continuam executando no servidor. Rascunhos são 
 Uma mensagem cujo resultado foi perdido não é reenviada automaticamente; com ID conhecido, o aplicativo consulta
 o estado da operação. Cancelar uma conexão não prova que o servidor cancelou o comando.
 
+O menu da conversa oferece [Entregas da sessão](#entregas-da-sessão), com os mesmos requisitos de acesso do Android.
+Use [Acesso neste servidor](#acesso-neste-servidor) em **Configurações** para diagnosticar bloqueios da conexão.
+
 O cookie fica no Keychain, acessível com o aparelho desbloqueado e sem sincronização pelo iCloud. Rascunhos,
 anexos copiados e cache usam arquivos privados protegidos; preferências simples usam armazenamento nativo.
 Trocar a identidade de assinatura ou remover o aplicativo pode perder o acesso a esses dados. O Android mantém os
@@ -452,6 +482,10 @@ recusados e cookies ficam restritos à origem selecionada. Um limitador incremen
 do Ktor, pois o parser da versão escolhida acumula eventos sem limite próprio. Esse adaptador limita quadros,
 incluindo comentários e dados multilinha; o Ktor continua sendo o único decodificador de eventos.
 Uploads são binários e em fluxo, com os mesmos limites de cinco anexos e 15 MiB por arquivo.
+
+O workflow [iPadOS](.github/workflows/ios.yml) compila o app, roda testes nativos e um smoke com fixture no simulador
+Apple Silicon e gera um IPA sem assinatura. Isso não prova instalação, persistência após reassinatura ou atualização
+pelo SideStore. Esses cenários, o VoiceOver e o uso com Tailscale precisam de um iPad físico.
 
 #### Compilar no Mac e gerar IPA para reassinatura
 
@@ -884,7 +918,8 @@ principal, advisor ou subagente. Para subagentes, informe os tipos observados, c
 - No omp, `HABBLAUD_CAST=<id>` pede um membro para a sessão. O advisor e os subagentes vestem membros compatíveis
   com seus tipos.
 - `HABBLAUD_CAST_MAX` (1 a 50; ausente = sem limite) limita quantos personagens o Habblaud mantém abertos ao mesmo
-  tempo. Sessões `hb-*` abertas e chamadas em andamento contam; personagens sendo dispensados não.
+  tempo. Chamadas em andamento e sessões `hb-*` abertas contam. No OMP, personagens em dispensa não contam.
+  No ZeroClaw, a dispensa ocupa a vaga até o fechamento da sessão.
 
 O elenco fica em `~/.habblaud/cast.json`; vínculos de sessão expiram após 60 dias sem uso. Os personagens antigos
 das salas migram automaticamente, com cópia de segurança em `~/.habblaud/names.json.pre-031`. O elenco segue a trava
@@ -1110,10 +1145,27 @@ Tudo funciona sem configurar nada. Se precisar ajustar, use variáveis de ambien
 | `HABBLAUD_OMP_BIN` | `omp` no PATH, senão `~/.bun/bin/omp` | Executável do omp usado para o uso do plano (caminho ou nome no PATH). |
 | `HABBLAUD_OMP_PERMISSOES` | desligado | No ambiente **do omp**, não do Habblaud: `1` faz a extensão decidir as ferramentas pelo escritório (use com `omp --approval-mode yolo`). Ver [omp (oh-my-pi)](#omp-oh-my-pi). |
 | `HABBLAUD_OMP_MODELS` | todos os que o omp lista | No ambiente **do omp**, não do Habblaud: `provedor/id` ou `provedor/*`, separados por vírgula; a gaveta do agente só lista e só troca para esses modelos. |
+| `HABBLAUD_ZEROCLAW_URL` | não definida (elenco usa OMP) | Para ativar o [ZeroClaw](server/README.md#zeroclaw-opt-in), informe uma origem HTTP em loopback, sem credenciais, caminho, query ou fragmento. |
+| `HABBLAUD_ZEROCLAW_AGENTS` | não definida | O [ZeroClaw](server/README.md#zeroclaw-opt-in) exige um catálogo JSON não vazio, com modelos únicos e seus aliases derivados. |
+| `HABBLAUD_ZEROCLAW_DEFAULT_AGENT` | não definida | O [ZeroClaw](server/README.md#zeroclaw-opt-in) exige um alias padrão presente no catálogo de modelos. |
+| `HABBLAUD_ZEROCLAW_NAMED` | não definida (sem agentes fixos) | Lista JSON opcional de agentes fixos do [ZeroClaw](server/README.md#zeroclaw-opt-in), com aliases únicos no formato documentado. |
+| `HABBLAUD_SUMMARY_URL` | não definida (RPC/Tiny) | [Resumos por HTTP](server/README.md#resumos-por-http-ou-rpc) exigem uma URL-base HTTP(S) sem `/v1/messages`, credenciais, query ou fragmento. |
+| `HABBLAUD_SUMMARY_MODEL` | não definida | [Resumos por HTTP](server/README.md#resumos-por-http-ou-rpc) exigem um ID literal de modelo não vazio. |
+| `HABBLAUD_SUMMARY_TOKEN_FILE` | não definida | [Resumos por HTTP](server/README.md#resumos-por-http-ou-rpc) exigem o caminho de um arquivo de token legível e não vazio. |
+| `HABBLAUD_SUMMARY_AUTH` | `x-api-key` (HTTP) | [Resumos por HTTP](server/README.md#resumos-por-http-ou-rpc) aceitam apenas `x-api-key` ou `bearer`. |
+| `HABBLAUD_QUOTA_URL` | não definida (uso legado) | A [cota por HTTP](server/README.md#cota-da-instalação-por-http) exige o endpoint HTTP(S) completo, sem credenciais nem fragmento, junto com a variável do arquivo de token. |
+| `HABBLAUD_QUOTA_TOKEN_FILE` | não definida | A [cota por HTTP](server/README.md#cota-da-instalação-por-http) exige o caminho absoluto do arquivo do token bearer, junto com o endpoint. |
+| `HABBLAUD_CAST_MAX` | sem limite | O [limite do elenco](server/README.md#elenco-de-personagens) só se aplica a inteiros de `1` a `50`; outros valores não definem limite. |
+| `HABBLAUD_CAST_FOLDER` | pasta pessoal | A [pasta do elenco](server/README.md#elenco-de-personagens) para conversas novas, se definida, precisa ser um caminho absoluto. |
 | `HABBLAUD_UPDATE_CHECK` | ligado | `0` desliga a verificação de versão nova (uma consulta às releases do repositório no GitHub a cada 6 h). |
 | `HABBLAUD_LANG` | idioma do sistema (menos inglês), senão `pt-BR` | Idioma dos textos montados pelo servidor (atividades, avisos, logs): `pt-BR`, `en`, `es` ou `fr`. A interface segue o navegador ou a escolha em Configurações › Idioma. Ver [Idiomas](#idiomas). |
 | `HABBLAUD_ACCOUNTS` | — | JSON para personalizar nome, letra ou cor, casado pelo nome da pasta da conta. Ex.: `[{"id":".claude-conta2","name":"Trabalho","short":"T","color":"#5cc97b"}]`. |
 | `HABBLAUD_SEM_MARCA` | desligado | `1` tira da interface os nomes omp, Claude Code e Codex (viram "agente"), os selos de ferramenta e as dicas de instalação. Para instalações multiusuário. Os nomes dos modelos continuam. |
+
+O `docker-compose.yml` e o Quadlet do Podman do repositório não repassam por padrão as variáveis de ZeroClaw,
+resumo por HTTP, cota por HTTP e elenco acima. Acrescente-as ao ambiente do serviço no Compose ou ao arquivo de
+ambiente do Quadlet. Para resumo e cota, monte os arquivos de token somente para leitura e use os caminhos vistos
+pelo processo do servidor.
 
 **No Docker**, valem `HABBLAUD_PORT`, `HABBLAUD_BIND`, `HABBLAUD_ALLOWED_HOSTS`, `HABBLAUD_DEMO`, `HABBLAUD_TERMINAL`,
 `HABBLAUD_MENSAGENS`, `HABBLAUD_CODEX`, `HABBLAUD_OMP`, `HABBLAUD_UPDATE_CHECK`, `HABBLAUD_LANG`, `HABBLAUD_PTY`, os
@@ -1273,7 +1325,10 @@ O auxiliar do host (`npm run codex:bridge`) abre o omp em sessões `hb-<id>`. Pa
 | `GET /api/cast`, `POST /api/cast` | Lista ou cria membros em `cast.json`; acesso local ou pela porta remota após login, com `terminal` em `HABBLAUD_REMOTE_ALLOW`. |
 | `PUT /api/cast/:id`, `DELETE /api/cast/:id` | Edita ou apaga membro do elenco; acesso local ou pela porta remota após login, com `terminal` em `HABBLAUD_REMOTE_ALLOW`. |
 | `PUT /api/agents/:id/cast`, `DELETE /api/agents/:id/cast` | Veste o principal com `{cast}` ou volta ao sorteio. Sessões omp podem pedir um membro com `HABBLAUD_CAST=<id>`. |
-| `POST /api/cast/:id/start`, `POST /api/agents/:id/dismiss`, `GET /api/cast/jobs` | Chama, dispensa ou acompanha sessões do elenco; acesso local ou pela porta remota após login, com `terminal` em `HABBLAUD_REMOTE_ALLOW`. |
+| `GET /api/cast/models` | Obtém o catálogo ZeroClaw, com agentes fixos (`named`) quando configurados, ou o catálogo vazio do OMP. Segue a trava do terminal. |
+| `POST /api/cast/:id/start` | Inicia ou retoma uma conversa do elenco (`{mode, prompt?, model?}`); `model` só seleciona um modelo em conversa nova no ZeroClaw sem agente fixo. Segue a trava do terminal. |
+| `POST /api/cast/new` | Inicia uma conversa fora do elenco (`{prompt?, model?}`) ou retoma pelo histórico. `model` vale só para conversa nova no ZeroClaw. Segue a trava do terminal. |
+| `POST /api/agents/:id/dismiss`, `GET /api/cast/jobs` | Dispensa ou acompanha sessões do elenco; acesso local ou pela porta remota após login, com `terminal` em `HABBLAUD_REMOTE_ALLOW`. |
 | `POST /api/host/cast/poll`, `POST /api/host/cast/ack` | O auxiliar do host busca e confirma chamadas e dispensas. |
 | `GET /api/sessions/recent` | Histórico: sessões dos últimos 7 dias de todas as contas (até 150); só com acesso local. |
 | `GET /api/sessions/:conta/:sessionId/terminal` | SSE da conversa de uma sessão do histórico (mesmo protocolo do terminal); só com acesso local. |
@@ -1289,7 +1344,7 @@ O auxiliar do host (`npm run codex:bridge`) abre o omp em sessões `hb-<id>`. Pa
 | `/api/messages…` e `/api/mod/inbox…` | Mandar mensagens: a página deixa a mensagem na fila e acompanha a entrega; o plugin `habblaud-mensagens` a busca, entrega à sessão e confirma. Só com acesso local. |
 | `POST /api/codex/events` | Eventos dos hooks do Codex (sessão aberta, ferramenta, aprovação, fim do turno). Só com acesso local. |
 | `/api/codex/bridge/poll` e `/ack` | O `npm run codex:bridge` busca as mensagens para o Codex e confirma a entrega. Só com acesso local. |
-| `GET /api/access` | O que esta conexão pode usar (`remote`, `local`, `permissions`, `messages`, `terminal`, `spawn`, `world`); a página usa para mostrar ou esconder recursos. |
+| `GET /api/access` | O que esta conexão pode usar (`remote`, `local`, `permissions`, `messages`, `terminal`, `spawn`, `world`, `files`). `files` exige navegador de arquivos disponível e autorização `terminal` para a conexão. |
 | `GET /api/updates` e `POST /api/updates/check` | Verificação de versão nova: a versão em uso e o resultado; `check` ("Verificar agora") consulta o GitHub (no máximo uma vez a cada 30 s). Desligada com `HABBLAUD_UPDATE_CHECK=0`. |
 | `/api/world/*` | Habblaud World (conta, personagem e prédio); ligado por padrão, `HABBLAUD_WORLD=0` desliga. Só com acesso local, nunca pela porta do celular. |
 | `POST /api/omp/events` | Eventos da extensão do Habblaud no omp (sessão, ferramenta, aprovação, batimento). Só com acesso local. |

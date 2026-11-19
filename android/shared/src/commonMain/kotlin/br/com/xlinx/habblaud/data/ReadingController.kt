@@ -9,6 +9,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.jsonArray
@@ -30,6 +31,30 @@ internal fun launchPersist(scope: CoroutineScope, block: suspend () -> Unit): Jo
     }
 }
 
+/** A primeira alteração abre a janela de gravação; as demais não adiam o prazo. */
+internal class ConversationCacheSchedule(private val scope: CoroutineScope, private val save: () -> Job?) {
+    private var pending: Job? = null
+    private var write: Job? = null
+
+    fun schedule() {
+        if (pending != null) return
+        pending = launchPersist(scope) {
+            delay(3_000)
+            pending = null
+            save()?.let { write = it }
+        }
+    }
+
+    fun flush(force: Boolean = true) {
+        if (pending == null && !force) return
+        pending?.cancel()
+        pending = null
+        save()?.let { write = it }
+    }
+
+    suspend fun awaitWrite() { write?.join() }
+}
+
  data class ReadingState(
     val sessions: List<SessionItem> = emptyList(), val selected: SessionItem? = null,
     val entries: List<TerminalEntry> = emptyList(), val truncated: Boolean = false,
@@ -43,6 +68,16 @@ internal fun launchPersist(scope: CoroutineScope, block: suspend () -> Unit): Jo
     val reading: ConversationReading = ConversationReading(),
     val readingLoaded: Boolean = false,
 )
+
+internal inline fun MutableStateFlow<ReadingState>.publishUnread(
+    marks: Map<String, Long>, seenId: (SessionKey) -> String,
+) {
+    update { state ->
+        val open = state.selected?.takeUnless { it.sub }?.key
+        state.copy(unread = state.sessions.filter { it.key != open }
+            .associate { it.key to unreadCount(it.replies, marks[seenId(it.key)]) }.filterValues { it > 0 })
+    }
+}
 
 internal fun ReadingState.streamFailure(status: Int?, conversation: Boolean): ReadingState {
     val reason = when (status) { -1 -> "oversize"; 403 -> "forbidden"; 404 -> "missing"; else -> "network" }
@@ -97,15 +132,17 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         publishMarks()
     }
     private fun publishMarks() {
-        val current = mutable.value
-        mutable.value = current.copy(marks = current.sessions.associate { it.key to (savedMarks?.get(store.seenId(it.key)) ?: SessionMarks()) })
+        val marks = savedMarks
+        mutable.update { state ->
+            state.copy(marks = state.sessions.associate { it.key to (marks?.get(store.seenId(it.key)) ?: SessionMarks()) })
+        }
     }
     init {
         scope.launch {
             try { marksLock.withLock { loadMarks() } }
             catch (e: Exception) {
                 if (e is CancellationException) throw e
-                mutable.value = mutable.value.copy(error = "storage")
+                mutable.update { it.copy(error = "storage") }
             }
         }
     }
@@ -121,11 +158,11 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                     store.setSessionMarks(key, next)
                     savedMarks = savedMarks.orEmpty().toMutableMap().apply { if (next == SessionMarks()) remove(id) else put(id, next) }
                     publishMarks()
-                    if (mutable.value.error == "storage") mutable.value = mutable.value.copy(error = null)
+                    mutable.update { if (it.error == "storage") it.copy(error = null) else it }
                 }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                mutable.value = mutable.value.copy(error = "storage")
+                mutable.update { it.copy(error = "storage") }
             }
         }
     }
@@ -144,11 +181,17 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                     try { repository.refresh(); break } catch (e: Exception) {
                         if (e is kotlinx.coroutines.CancellationException) throw e
                         if (e is ApiException && e.status in listOf(401, 403, 404)) throw e
-                        mutable.value = mutable.value.copy(connection = "offline", error = "network")
+                        mutable.update { it.copy(connection = "offline", error = "network") }
                         delay(maxOf(retry, retryAfterMillis((e as? ApiException)?.retryAfter))); retry = (retry * 2).coerceAtMost(30000)
                     }
                 }
-                mutable.value = mutable.value.copy(terminalAllowed = repository.terminalAllowed, messagesAllowed = repository.messagesAllowed, messageGuard = repository.messageGuard, permissionsAllowed = repository.permissionsAllowed)
+                val terminalAllowed = repository.terminalAllowed
+                val messagesAllowed = repository.messagesAllowed
+                val messageGuard = repository.messageGuard
+                val permissionsAllowed = repository.permissionsAllowed
+                mutable.update {
+                    it.copy(terminalAllowed = terminalAllowed, messagesAllowed = messagesAllowed, messageGuard = messageGuard, permissionsAllowed = permissionsAllowed)
+                }
                 if (!restoreLoaded) {
                     val saved = store.lastSession()?.takeIf { it.origin == api.origin }
                     // A leitura pode suspender enquanto uma notificação decide qual sessão abrir.
@@ -160,7 +203,9 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                 if (seen == null) seen = store.seenReplies(api.origin)
                 streams.stream("/api/stream").collect { event ->
                     when (event) {
-                        is StreamEvent.Connected -> mutable.value = mutable.value.copy(connection = "connected", error = if (mutable.value.error == "network") null else mutable.value.error)
+                        is StreamEvent.Connected -> mutable.update {
+                            it.copy(connection = "connected", error = it.error.takeUnless { error -> error == "network" })
+                        }
                         is StreamEvent.Failure -> failure(event, conversation = false)
                         is StreamEvent.Data -> if (event.type == "snapshot") {
                             val sessions = repository.snapshot(event.data)
@@ -168,12 +213,14 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                             val selected = mutable.value.selected
                             if (selected?.agentId != null && sessions.any { it.agentId == selected.agentId && it.key != selected.key }) changed()
                             // A conversa de um subagente não está na lista: segue aberta como está até o leitor fechar.
-                            mutable.value = mutable.value.copy(sessions = sessions, selected = mutable.value.selected?.let { selectedItem ->
-                                if (selectedItem.sub) sessions.firstNotNullOfOrNull { parent ->
-                                    parent.subagents.find { it.id == selectedItem.agentId }?.let { subSession(parent, it) }
-                                } ?: selectedItem.copy(status = "done")
-                                else sessions.find { it.key == selectedItem.key } ?: selectedItem.copy(agentId = null, canMessage = false)
-                            })
+                            mutable.update { state ->
+                                state.copy(sessions = sessions, selected = state.selected?.let { selectedItem ->
+                                    if (selectedItem.sub) sessions.firstNotNullOfOrNull { parent ->
+                                        parent.subagents.find { it.id == selectedItem.agentId }?.let { subSession(parent, it) }
+                                    } ?: selectedItem.copy(status = "done")
+                                    else sessions.find { it.key == selectedItem.key } ?: selectedItem.copy(agentId = null, canMessage = false)
+                                })
+                            }
                             publishMarks()
                             accessReady = true
                             restore?.let { key -> sessions.find { it.key == key }?.let { item -> restore = null; open(item) } }
@@ -182,7 +229,8 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                             if (repository.recentStale && recentJob?.isActive != true) {
                                 recentJob = scope.launch {
                                     try { repository.refreshRecent() } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; return@launch }
-                                    mutable.value = mutable.value.copy(sessions = repository.sessions())
+                                    val recentSessions = repository.sessions()
+                                    mutable.update { it.copy(sessions = recentSessions) }
                                     publishMarks()
                                     refreshUnread()
                                 }
@@ -190,18 +238,21 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                         }
                     }
                 }
-            } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; if (e is ApiException && e.status == 401) unauthorized() else mutable.value = mutable.value.copy(connection = "offline", error = "network") }
+            } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; if (e is ApiException && e.status == 401) unauthorized() else mutable.update { it.copy(connection = "offline", error = "network") } }
         }
     }
     fun stop() {
+        cacheSave.flush(force = active)
         if (!active) return
-        persist(); saveSeen(0); active = false; accessReady = false; generation++
+        saveSeen(0); active = false; accessReady = false; generation++
         stateJob?.cancel(); conversationJob?.cancel(); recentJob?.cancel()
         pendingSummaries.values.toList().forEach { it.cancel() }; pendingSummaries.clear()
         messages.stop(); asides.pause(); api.cancelCalls()
-        mutable.value = mutable.value.copy(connection = "offline", readingError = if (mutable.value.selected != null && mutable.value.readingError == null) "network" else mutable.value.readingError)
+        mutable.update {
+            it.copy(connection = "offline", readingError = if (it.selected != null && it.readingError == null) "network" else it.readingError)
+        }
     }
-    fun close() { persist(); cachedKey = null; dropSummaries(); generation++; conversationJob?.cancel(); messages.close(); asides.close(); restore = null; val write = store.conversationWrite(api.origin, conversationEpoch); launchPersist(scope) { store.setLastSession(null, write) }; mutable.value = mutable.value.copy(selected = null, entries = emptyList(), error = null, readingError = null); refreshUnread() }
+    fun close() { cacheSave.flush(); cachedKey = null; dropSummaries(); generation++; conversationJob?.cancel(); messages.close(); asides.close(); restore = null; val write = store.conversationWrite(api.origin, conversationEpoch); launchPersist(scope) { store.setLastSession(null, write) }; mutable.update { it.copy(selected = null, entries = emptyList(), error = null, readingError = null) }; refreshUnread() }
     /** Até quando cada conversa foi lida (`LocalStateStore.seenId` → hora do servidor); null até ler do aparelho. */
     private var seen: Map<String, Long>? = null
     private var seenJob: Job? = null
@@ -213,8 +264,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         val open = state.selected?.takeUnless { it.sub }?.key
         val next = if (now > 0) updatedSeen(current, state.sessions.filter { it.agentId != null }.map { store.seenId(it.key) }, open?.let(store::seenId), now) else null
         if (next != null) { seen = next; saveSeen(2_000) }
-        val marks = next ?: current
-        mutable.value = state.copy(unread = state.sessions.filter { it.key != open }.associate { it.key to unreadCount(it.replies, marks[store.seenId(it.key)]) }.filterValues { it > 0 })
+        mutable.publishUnread(next ?: current, store::seenId)
     }
     private fun saveSeen(delayMs: Long) {
         val marks = seen ?: return
@@ -224,22 +274,22 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
     }
     /** Sessão cuja conversa está em `conversation` (veio do aparelho ou do servidor) e pode ser guardada. */
     private var cachedKey: SessionKey? = null
-    private var saveJob: Job? = null
-    private var writeJob: Job? = null
+    private val cacheSave = ConversationCacheSchedule(scope, ::save)
     /** Resumos da conversa aberta (`summaryKey` → resumo): gravados no mesmo arquivo dela, para não pedir de novo. */
     private val summaries = HashMap<String, String>()
     fun summary(entry: TerminalEntry): String? = summaries[summaryKey(entry)]
     private var reading = ConversationReading()
     fun expand(key: SessionKey, id: String, open: Boolean) {
         if (mutable.value.selected?.key != key || !mutable.value.readingLoaded) return
-        reading = reading.expand(id, open)
-        mutable.value = mutable.value.copy(reading = reading)
-        persist()
+        val expanded = reading.expand(id, open)
+        reading = expanded
+        mutable.update { it.copy(reading = expanded) }
+        scheduleCacheSave()
     }
     fun position(key: SessionKey, position: ReadingPosition) {
         if (mutable.value.selected?.key != key || !mutable.value.readingLoaded || reading.position == position) return
         reading = reading.copy(position = position)
-        persist(500)
+        scheduleCacheSave()
     }
     /** Resumos pedidos e ainda sem resposta: o mesmo item não pede duas vezes. */
     private val pendingSummaries = HashMap<String, Deferred<Result<String>>>()
@@ -254,30 +304,34 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         val token = generation
         // runCatching: a falha volta para quem espera sem derrubar o escopo do controlador.
         val job = pendingSummaries[key] ?: scope.async {
-            runCatching { api.summary(text) }.onSuccess { if (token == generation) { summaries[key] = it; persist(3_000) } }
+            runCatching { api.summary(text) }.onSuccess { if (token == generation) { summaries[key] = it; scheduleCacheSave() } }
         }.also { job -> pendingSummaries[key] = job; job.invokeOnCompletion { if (pendingSummaries[key] === job) pendingSummaries.remove(key) } }
         return job.await().getOrThrow()
     }
     private fun dropSummaries() { summaries.clear(); pendingSummaries.values.forEach { it.cancel() }; pendingSummaries.clear() }
-    /** Guarda a conversa aberta no aparelho: na hora, ou alguns segundos depois da última novidade. */
-    private fun persist(delayMs: Long = 0) {
-        val key = cachedKey ?: return
-        saveJob?.cancel()
-        if (delayMs == 0L) save(key) else saveJob = scope.launch { delay(delayMs); if (cachedKey == key) save(key) }
+    private fun scheduleCacheSave() {
+        if (cachedKey != null) cacheSave.schedule()
     }
-    private fun save(key: SessionKey) {
+    private fun save(): Job? {
+        val key = cachedKey ?: return null
         val entries = conversation.snapshot().toList()
         val truncated = conversation.truncated
         val kept = HashMap(summaries)
         val savedReading = reading
         val write = store.conversationWrite(api.origin, conversationEpoch)
         // Escopo próprio: stop()/close() rodam no descarte da tela, quando `scope` já foi cancelado.
-        writeJob = launchPersist(persistScope) { store.setConversation(key, entries, truncated, write, kept, savedReading) }
+        return launchPersist(persistScope) { store.setConversation(key, entries, truncated, write, kept, savedReading) }
     }
-    private fun changed() { close(); mutable.value = mutable.value.copy(error = "changed") }
+    private fun publishConversation() {
+        val entries = conversation.snapshot()
+        val truncated = conversation.truncated
+        val reduced = conversation.reduced
+        mutable.update { it.copy(entries = entries, truncated = truncated, reduced = reduced) }
+    }
+    private fun changed() { close(); mutable.update { it.copy(error = "changed") } }
     private fun failure(event: StreamEvent.Failure, conversation: Boolean) {
         if (event.status == 401) { unauthorized(); return }
-        mutable.value = mutable.value.streamFailure(event.status, conversation)
+        mutable.update { it.streamFailure(event.status, conversation) }
     }
     /** Outra conversa foi pedida em outro servidor: este não restaura a última dele. */
     fun cancelRestore() { restore = null; restoreLoaded = true }
@@ -290,11 +344,12 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
     }
     fun open(item: SessionItem) {
         val sameSession = mutable.value.selected?.key == item.key
-        persist(); cachedKey = null; dropSummaries()
-        reading = ConversationReading()
+        cacheSave.flush(); cachedKey = null; dropSummaries()
+        val emptyReading = ConversationReading()
+        reading = emptyReading
         generation++; val token = generation
         conversationJob?.cancel()
-        mutable.value = mutable.value.copy(selected = item, entries = emptyList(), truncated = false, reduced = false, error = null, readingError = null, reading = reading, readingLoaded = false)
+        mutable.update { it.copy(selected = item, entries = emptyList(), truncated = false, reduced = false, error = null, readingError = null, reading = emptyReading, readingLoaded = false) }
         // Abrir lê tudo o que já chegou: sem isso, uma conversa parada (sem snapshot novo) voltaria com o balão.
         refreshUnread()
         messages.open(item.key); if (!sameSession) asides.close()
@@ -305,25 +360,26 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
             // O que já foi lido aparece na hora; o servidor manda só o que veio depois da última entrada guardada.
             // Subagentes não ficam guardados: são conversas curtas, e cada uma viraria um arquivo a mais no aparelho.
             // Voltar imediatamente não pode ler o arquivo anterior à gravação feita no fechamento.
-            writeJob?.join()
+            cacheSave.awaitWrite()
             if (token != generation) return@launch
             val cached = if (item.sub) null else store.conversation(item.key)
             if (token != generation) return@launch
-            reading = cached?.reading ?: ConversationReading()
-            mutable.value = mutable.value.copy(reading = reading, readingLoaded = true)
+            val loadedReading = cached?.reading ?: ConversationReading()
+            reading = loadedReading
+            mutable.update { it.copy(reading = loadedReading, readingLoaded = true) }
             val last = cached?.entries?.lastOrNull { it.at != null }
             if (cached != null && cached.entries.isNotEmpty()) {
                 conversation.init(cached.entries, cached.truncated)
                 summaries.putAll(cached.summaries)
                 cachedKey = item.key
-                mutable.value = mutable.value.copy(entries = conversation.snapshot(), truncated = conversation.truncated, reduced = conversation.reduced)
+                publishConversation()
             }
             val path = if (last == null) base else "$base?after=${encode(last.id)}&at=${last.at}"
             var initialized = false
             streams.stream(path).collect { event ->
                 if (token != generation) return@collect
                 when (event) {
-                    is StreamEvent.Connected -> mutable.value = mutable.value.conversationConnected()
+                    is StreamEvent.Connected -> mutable.update { it.conversationConnected() }
                     is StreamEvent.Failure -> failure(event, conversation = true)
                     is StreamEvent.Data -> try {
                         if (event.type == "init") {
@@ -339,7 +395,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                                         if (e is ApiException && e.status == 401) { unauthorized(); return@collect }
                                         val transient = if (e is ApiException) e.status >= 500 || e.status == 408 || e.status == 429 else e is IOException
                                         if (!transient || ++attempt >= FAILURES_BEFORE_NOTICE) {
-                                            close(); mutable.value = mutable.value.copy(error = "network")
+                                            close(); mutable.update { it.copy(error = "network") }
                                             return@collect
                                         }
                                         delay(maxOf(1000L * attempt, retryAfterMillis((e as? ApiException)?.retryAfter)))
@@ -361,9 +417,9 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                         } else if (event.type == "append" && initialized) {
                             conversation.append(wireJson.parseToJsonElement(event.data).jsonArray.mapNotNull { (it as? kotlinx.serialization.json.JsonObject)?.let(TerminalEntry::parse) })
                         }
-                        persist(3_000)
-                        mutable.value = mutable.value.copy(entries = conversation.snapshot(), truncated = conversation.truncated, reduced = conversation.reduced)
-                    } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; mutable.value = mutable.value.copy(readingError = "oversize"); conversationJob?.cancel() }
+                        scheduleCacheSave()
+                        publishConversation()
+                    } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; mutable.update { it.copy(readingError = "oversize") }; conversationJob?.cancel() }
                 }
             }
         }
