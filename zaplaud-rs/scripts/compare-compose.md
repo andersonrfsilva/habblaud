@@ -1,20 +1,12 @@
 # Comparação Compose × Rust por pixels
 
+A referência Compose não existe nesta árvore desde 2026-11-18, quando o desktop Compose foi removido; o módulo `compare-compose.py` permanece apenas porque os scripts de smoke importam seus auxiliares de captura.
+
 ## Preparação
 
 Execute na raiz da worktree. Reserve um display X11 exclusivo e duas portas consecutivas; os exemplos usam `localhost:93`, `14794` e `14795`. Não execute junto de `shell-smoke.py` no mesmo display. O helper não compila Rust nem Compose, não altera preferências pessoais e não desenha imagens de referência.
 
-Pré-requisitos: Python com Pillow, `libX11.so.6`, `libXtst.so.6`, Node com dependências da raiz instaladas e um JDK 21 para gerar o aplicativo Compose. `npm ci --ignore-scripts --no-audit --no-fund` prepara a fixture.
-
-Build Compose necessário para executar a referência:
-
-```sh
-(cd android && JAVA_HOME=/usr/lib/jvm/java-21-openjdk \
-  ANDROID_HOME=/home/anderson/Android/Sdk \
-  ./gradlew :desktop:createDistributable --max-workers=3 --console=plain)
-```
-
-`ANDROID_HOME` evita criar `android/local.properties`. Se o ambiente exigir esse arquivo, use temporariamente `sdk.dir=/home/anderson/Android/Sdk`, preserve eventual conteúdo anterior e não o versione.
+Pré-requisitos para as capturas Rust: Python com Pillow, `libX11.so.6`, `libXtst.so.6` e Node com dependências da raiz instaladas. `npm ci --ignore-scripts --no-audit --no-fund` prepara a fixture.
 
 No ambiente headless dos executores, mantenha este processo aberto em outro terminal, após reservar `:93`:
 
@@ -31,25 +23,16 @@ Esse Xvfb serve TCP sem autenticação; use somente em máquina isolada. Não ab
 
 ## Capturas e comparação
 
-Somente referência Compose, sete telas em ambos os temas:
+As capturas Compose abaixo são evidências históricas. Não é possível gerar novas referências Compose nesta árvore.
 
-```sh
-python zaplaud-rs/scripts/compare-compose.py --capture compose
-```
-
-Depois que o responsável pelo Rust disponibilizar um binário atualizado, capture o candidato sem executar Cargo:
+Para capturar o Rust sem executar Cargo:
 
 ```sh
 python zaplaud-rs/scripts/compare-compose.py --capture rust \
-  --rust-binary /caminho/absoluto/para/zaplaud --compare
+  --rust-binary /caminho/absoluto/para/zaplaud
 ```
 
-Ou capture ambos sequencialmente no mesmo display e compare:
-
-```sh
-python zaplaud-rs/scripts/compare-compose.py --capture both \
-  --rust-binary /caminho/absoluto/para/zaplaud --compare
-```
+Se as referências históricas estiverem disponíveis, acrescente `--compare` para comparar a captura Rust com elas.
 
 Para recalcular diferenças sem executar aplicativos:
 
@@ -57,7 +40,7 @@ Para recalcular diferenças sem executar aplicativos:
 python zaplaud-rs/scripts/compare-compose.py --capture none --compare
 ```
 
-Opções úteis: `--display localhost:93 --port 14794 --theme light` (ou `dark`/`both`), `--settle 1`, `--timeout 40` e `--compose-binary /caminho/para/Zaplaud`. Mantenha as mesmas opções nas duas capturas. O helper recusa uma janela `Zaplaud` já aberta no display.
+Opções úteis: `--display localhost:93 --port 14794 --theme light` (ou `dark`/`both`), `--settle 1` e `--timeout 40`. Mantenha as mesmas opções da referência histórica ao capturar o Rust. O helper recusa uma janela `Zaplaud` já aberta no display.
 
 ## Saídas
 
@@ -105,7 +88,7 @@ Estado: **incompleto**. Esta rodada não certifica paridade por pixels.
 
 ### Referências reais novas
 
-O aplicativo Compose da worktree foi executado com `./gradlew :desktop:run --max-workers=3`,
+O aplicativo do desktop Compose, removido depois desta rodada, foi executado com
 SDK local temporário, Xvfb `:89` e fixture real na porta `14789`, permitindo
 `terminal,messages,permissions,spawn`. As capturas ficam em
 `/tmp/zaplaud-ref-compose-<tela>-<tema>.png`, com temas `light` e `dark`:

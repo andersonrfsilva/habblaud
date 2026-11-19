@@ -4,7 +4,7 @@
 
 Repositório consultado, somente leitura: `/home/anderson/Desenvolvimento/habblaud`.
 
-Neste documento, referências `ReadingScreen.kt:123` e os demais arquivos de UI resolvem para `android/shared/src/commonMain/kotlin/br/com/xlinx/habblaud/`. Referências `data/X.kt:123` resolvem para o subdiretório `data/` desse mesmo diretório. `strings.xml` resolve para `android/shared/src/commonMain/composeResources/values/strings.xml`; `drawable/` resolve para `android/shared/src/commonMain/composeResources/drawable/`. Referências `server/`, `scripts/`, `android/desktop/` e `android/app/` são relativas à raiz do repositório.
+Neste documento, referências `ReadingScreen.kt:123` e os demais arquivos de UI resolvem para `android/shared/src/commonMain/kotlin/br/com/xlinx/habblaud/`. Referências `data/X.kt:123` resolvem para o subdiretório `data/` desse mesmo diretório. `strings.xml` resolve para `android/shared/src/commonMain/composeResources/values/strings.xml`; `drawable/` resolve para `android/shared/src/commonMain/composeResources/drawable/`. Referências `server/`, `scripts/` e `android/app/` são relativas à raiz do repositório. Comportamentos exclusivos do desktop Compose são históricos: ele foi removido em 2026-11-18 (ver histórico do git).
 
 - Em tabelas, `—` em Tag significa que **o Kotlin não atribui testTag**; não inventar tags como se fossem contrato existente.
 - Chaves de texto são nomes de `Res.string`, salvo indicação `Res.plurals`. Texto de servidor, título, nome, caminho e modelo não têm chave de recurso.
@@ -51,11 +51,11 @@ Configurações chama `onLogout(server)`; raiz ignora enquanto busy. AlertDialog
 - Duas colunas: lista preserva lista e highlight da seleção `secondaryContainer`, raio 12; conversa não mostra botão voltar. (`ReadingScreen.kt:388`, `ReadingScreen.kt:621-639`.)
 - Abaixo de 840: um Scaffold, alterna lista/conversa; conversa mostra voltar. (`ReadingScreen.kt:645-654`.)
 - Lista: fundo `background`. Conversa: `surfaceContainerLowest` se luminância de background < 0,5; caso contrário `surfaceContainerLow`. Conteúdo horizontal 12, espaçamento vertical 8, padding do Scaffold e IME. (`ReadingScreen.kt:623`, `ReadingScreen.kt:638`, `ReadingScreen.kt:649`.)
-- Janela JVM inicial 1100 × 760. Esc em **KeyUp** chama último BackHandler habilitado; Ctrl+F/Cmd+F em **KeyDown** chama último SearchHandler habilitado. (`android/desktop/src/main/kotlin/br/com/xlinx/habblaud/desktop/Main.kt:40-60`; `android/shared/src/jvmMain/kotlin/br/com/xlinx/habblaud/UiPlatform.jvm.kt:17-36`.)
+- No desktop Compose, a janela inicial media 1100 × 760. Esc em **KeyUp** chamava o último BackHandler habilitado; Ctrl+F/Cmd+F em **KeyDown** chamava o último SearchHandler habilitado (ver histórico do git).
 - BackHandler fecha conversa se selecionada e sem permission sheet nem `menuExpanded`; na lista com busca aberta limpa query e fecha busca. Settings tem BackHandler próprio. (`ReadingScreen.kt:200-203`; `SettingsScreen.kt:64`.)
 - **Ctrl/Cmd+F só é registrado no ramo largo**, não no layout estreito. (`ReadingScreen.kt:618-619`.)
-- Composer principal JVM: Enter KeyDown sem Shift tenta enviar, consome tecla mesmo quando não pode enviar; Shift+Enter passa ao campo para nova linha. Nenhum tratamento equivalente foi declarado no campo de aside. (`ReadingScreen.kt:580-588`; `AsideSheet.kt:67-72`; `UiPlatform.jvm.kt:35`.)
-- JVM desliga gesto de puxar para aside, pois roda do mouse não termina gesto; busca mantém detector de nested scroll no código comum. (`ReadingScreen.kt:480-481`; `UiPlatform.jvm.kt:36`.)
+- No desktop Compose, Enter em KeyDown sem Shift tentava enviar no compositor principal e consumia a tecla mesmo quando não podia enviar. Shift+Enter passava ao campo para nova linha. Não havia tratamento equivalente no campo de aside. (`ReadingScreen.kt:580-588`; `AsideSheet.kt:67-72`.)
+- O desktop Compose desativava o gesto de puxar para aside porque a roda do mouse não encerrava o gesto. A busca mantém o detector de nested scroll no código comum. (`ReadingScreen.kt:480-481`.)
 
 ## 3. Lista de sessões
 
@@ -328,7 +328,7 @@ Settings substitui ReadingScreen inteira. TopAppBar `settings`, voltar `back`; B
 | Servidores | `settings_server`; `logout` | Uma linha por servidor, nome bodyLarge, logout texto error → onLogout(server) |
 | Adicionar | `add_server` | onLogin(null) |
 
-Fonte: `SettingsScreen.kt:138-231`. Desktop integra notificações available=true, whileOpenOnly=true, logo usa `settings_notifications_open` e não mostra liberar segundo plano. (`android/desktop/src/main/kotlin/br/com/xlinx/habblaud/desktop/Main.kt:71-75`.)
+Fonte: `SettingsScreen.kt:138-231`. O desktop Compose fornecia notificações com `available=true` e `whileOpenOnly=true`, por isso usava `settings_notifications_open` e não mostrava a opção de liberar segundo plano (ver histórico do git).
 
 Estilos compartilhados:
 - Section: titleSmall primary, padding start/end16 top20 bottom4.
@@ -395,7 +395,7 @@ Cores fora do esquema: warningColor dark=`#FFB870`, light=`#8A5100`, decisão po
 | `drawable/ic_verified_user.xml` | 24dp, viewport24; Material Icons Apache2; linhas1-6 | Botão de atenção de aprovação (`CastActions.kt:240-243`) |
 | `drawable/ic_help.xml` | 24dp, viewport24; Material Icons Apache2; linhas1-6 | Botão de atenção de pergunta (`CastActions.kt:240-243`) |
 | `drawable/ic_person_add.xml` | 24dp, viewport24; Material Icons Apache2; linhas1-6 | FAB chamar e linhas Novo nos dois seletores (`CastActions.kt:159-161`, `CastActions.kt:175-177`, `CastActions.kt:199-201`) |
-| `drawable/ic_zaplaud.xml` | 108dp/viewport108; fundo #087D66, balão #F5FFF9 e Z/brilho #087D66; linhas1-10 | Ícone janela e bandeja desktop (`android/desktop/src/main/kotlin/br/com/xlinx/habblaud/desktop/Main.kt:49-55`) |
+| `drawable/ic_zaplaud.xml` | 108dp/viewport108; fundo #087D66, balão #F5FFF9 e Z/brilho #087D66; linhas1-10 | Ícone da janela e da bandeja no desktop Compose (ver histórico do git) |
 
 Não substituir vetores de marcas por letras: badge possui dimensões, fundo e tint próprios. Demais ícones de tela vêm de Material Icons importados no Kotlin, não desses sete XML. (`ReadingScreen.kt:28-42`; `AsideSheet.kt:13-17`; `CastActions.kt:16-19`.)
 

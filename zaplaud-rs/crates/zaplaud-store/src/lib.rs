@@ -1,4 +1,4 @@
-//! Diretórios privados do desktop, compatíveis com DesktopDirs.kt.
+//! Diretórios privados de dados e cache: caminhos do macOS ou XDG no desktop, subdiretórios `data` e `cache` no Android.
 
 #[cfg(not(target_os = "android"))]
 use std::env;

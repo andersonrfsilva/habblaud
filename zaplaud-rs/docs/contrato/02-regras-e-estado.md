@@ -2,14 +2,14 @@
 
 ## Convenção de referências e escopo
 
-Raiz das referências: `/home/anderson/Desenvolvimento/habblaud`. Para evitar repetir caminhos longos, cada referência `C/...:linha`, `J/...:linha`, `A/...:linha`, `T/...:linha`, `H/...:linha` ou `JT/...:linha` expande literalmente para:
+Raiz das referências: `/home/anderson/Desenvolvimento/habblaud`. Para evitar repetir caminhos longos, as referências ao código e aos testes atuais usam estes prefixos:
 
 - `C/` = `android/shared/src/commonMain/kotlin/br/com/xlinx/habblaud/`.
-- `J/` = `android/shared/src/jvmMain/kotlin/br/com/xlinx/habblaud/`.
 - `A/` = `android/shared/src/androidMain/kotlin/br/com/xlinx/habblaud/`.
 - `T/` = `android/shared/src/commonTest/kotlin/br/com/xlinx/habblaud/`.
 - `H/` = `android/shared/src/androidHostTest/kotlin/br/com/xlinx/habblaud/`.
-- `JT/` = `android/shared/src/jvmTest/kotlin/br/com/xlinx/habblaud/`.
+
+`J/` e `JT/` identificam, respectivamente, fontes e testes históricos do desktop Compose (removido em 2026-11-18). Consulte os arquivos no pai do commit `c5911f44`, não na árvore atual.
 
 Código Kotlin foi lido diretamente, incluindo `ReadingScreen.kt` inteiro. Este documento descreve comportamento existente, não um desenho idealizado. Testes citados foram lidos, não executados. “Sem teste dedicado localizado” distingue regra implementada de caso já fixado por teste. Valores de cookies mostrados abaixo são tipos/placeholders, nunca credenciais reais.
 
@@ -85,9 +85,9 @@ Código Kotlin foi lido diretamente, incluindo `ReadingScreen.kt` inteiro. Este 
 ### Datas, prazos e backoff
 
 - `internal fun entryTime(at: Long, now: Long = uiNowMillis()): String`: `C/ReadingScreen.kt:959-961`, delega plataforma.
-- `actual fun platformEntryTime(at: Long, now: Long): String`: `J/UiPlatform.jvm.kt:51-55`; Android idêntico `A/UiPlatform.android.kt:42-46`. Epoch ms, fuso **local do aparelho**, compara datas civis locais. Hoje `HH:mm`, outro dia `dd/MM HH:mm`, relógio 24h, sem ano. Teste `H/EntryTimeTest.kt:9-17` usa America/Sao_Paulo e ontem.
-- `actual fun platformDeadline(at: Long): String`: `J/UiPlatform.jvm.kt:56`, Android `A/UiPlatform.android.kt:47`. DateFormat SHORT data+hora, locale pt-BR, fuso padrão. Não usar locale do processo para escolher convenção. Sem teste dedicado localizado.
-- `actual fun retryAfterDeadline(value: String?, now: Long): Long`: `J/UiPlatform.jvm.kt:57-61`, Android `A/UiPlatform.android.kt:48-52`. Primeiro tenta inteiro signed Long, limita segundos a 0..Long.MAX_VALUE/1000; soma ms limitada ao espaço até Long.MAX_VALUE. Negativo válido dá now. Senão parse RFC1123 date e max(date,now). Ausente/inválido dá now+60000, sem saturação nesse fallback. Sem teste dedicado localizado; preservar limites do código em vez de unificar com helper SSE.
+- `actual fun platformEntryTime(at: Long, now: Long): String`: `A/UiPlatform.android.kt:54-58`. Epoch ms, fuso **local do aparelho**, compara datas civis locais. Hoje `HH:mm`, outro dia `dd/MM HH:mm`, relógio 24h, sem ano. Teste `H/EntryTimeTest.kt:9-17` usa America/Sao_Paulo e ontem.
+- `actual fun platformDeadline(at: Long): String`: `A/UiPlatform.android.kt:59`. DateFormat SHORT data+hora, locale pt-BR, fuso padrão. Não usar locale do processo para escolher convenção. Sem teste dedicado localizado.
+- `actual fun retryAfterDeadline(value: String?, now: Long): Long`: `A/UiPlatform.android.kt:60-65`. Primeiro tenta inteiro signed Long, limita segundos a 0..Long.MAX_VALUE/1000; soma ms limitada ao espaço até Long.MAX_VALUE. Negativo válido dá now. Senão parse RFC1123 date e max(date,now). Ausente/inválido dá now+60000, sem saturação nesse fallback. Sem teste dedicado localizado; preservar limites do código em vez de unificar com helper SSE.
 - `internal fun retryAfterMillis(value: String?): Long`: `C/data/ConversationRepository.kt:15-19`. Inteiro Long limita segundos 0..86400 e multiplica 1000; senão HTTP date menos tempo atual, limitado 0..86400000; inválido/ausente=0. Este helper retorna **duração**, não deadline, e tem limite de um dia.
 - SSE `fun ConversationRepository.stream(path: String): Flow<StreamEvent>`: `C/data/ConversationRepository.kt:66-94`. Backoff 2,4,8,16,30,30... segundos, espera max(backoff, Retry-After). Connected reseta falhas e backoff. Falha transitória só é emitida na terceira consecutiva; terminal em -1 oversize,401,403,404,3xx emite imediatamente e encerra. Dados marcam firstConnection quando contador de conexões==1. EOF normal vira falha de rede. CRLF do campo SSE vira LF (`sseData`, linha 28). Testes `H/ConversationStreamTest.kt:46,94,107,120,135` e `T/data/SseFrameLimitTest.kt:49,54`.
 - `internal fun localTime(server: Long, serverNow: Long, now: Long = io.ktor.util.date.getTimeMillis()): Long`: `C/data/SessionRepository.kt:106-107`. Se serverNow<=0 retorna server; senão soma skew arredondado por floor((now-serverNow)/1000.0+0.5)*1000. Teste `T/StatusLineTest.kt:24`.
@@ -180,10 +180,12 @@ UI contém a máquina, não existe CastController separado. Assinatura `internal
 
 ## 3. Persistência local JVM: formato exato compartilhável
 
+Esta seção descreve o formato histórico do desktop Compose, removido em 2026-11-18. Veja o histórico do git para as fontes `J/` e os testes `JT/`.
+
 ### Diretórios, preferências e escrita
 
-- `private fun desktopDirectory(cache: Boolean): Path`: `J/data/DesktopDirs.kt:8-23`. Override Java system property `zaplaud.dataDir`: data em `<override>/data`, cache em `<override>/cache`. macOS: `~/Library/Application Support/Zaplaud` e `~/Library/Caches/Zaplaud`. Outros: `$XDG_DATA_HOME/zaplaud` ou `~/.local/share/zaplaud`; `$XDG_CACHE_HOME/zaplaud` ou `~/.cache/zaplaud`. XDG vazio usa fallback; não há normalização adicional. Diretórios criados com 0700 em POSIX e permissão reaplicada a cada acesso. `dataDir`, `cacheDir` linhas 24-25.
-- `settingsNode`: `J/data/DesktopDirs.kt:26`, `Preferences.userRoot().node(System.getProperty("zaplaud.prefsNode") ?: "br/com/xlinx/zaplaud")`. Preferências **não ficam no local_state.json**. Caminho físico do backend Java Preferences não é definido nesses arquivos; [INFERENCE] o Rust precisa compatibilizar o backend do sistema/JVM ou importar/exportar esse nó, não inventar settings.json e esperar interoperabilidade automática.
+- `private fun desktopDirectory(cache: Boolean): Path`: a propriedade de sistema Java `zaplaud.dataDir` redirecionava dados para `<override>/data` e cache para `<override>/cache`. macOS: `~/Library/Application Support/Zaplaud` e `~/Library/Caches/Zaplaud`. Outros: `$XDG_DATA_HOME/zaplaud` ou `~/.local/share/zaplaud`; `$XDG_CACHE_HOME/zaplaud` ou `~/.cache/zaplaud`. XDG vazio usava fallback; não havia normalização adicional. Os diretórios eram criados com modo 0700 em POSIX e a permissão era reaplicada a cada acesso.
+- `settingsNode`: `Preferences.userRoot().node(System.getProperty("zaplaud.prefsNode") ?: "br/com/xlinx/zaplaud")`. Preferências **não ficavam no local_state.json**. O código não definia o caminho físico do backend Java Preferences; [INFERENCE] para interoperar, o Rust precisa usar esse backend ou importar/exportar esse nó. Um settings.json separado não é interoperável por si só.
 - `storageHash(value: String): String`: `J/data/LocalStateStore.jvm.kt:18`, SHA-256 dos bytes UTF-8, 64 hex lowercase. `protectedWrite(path: String, text: String)` linhas 20-25: UTF-8 para **`<path>.tmp` fixo**, depois Files.move ATOMIC_MOVE+REPLACE_EXISTING. Não faz fsync, chmod de arquivo ou fallback de move não-atômico; exceptions propagam. Pasta privada 0700 protege arquivos por ancestral. Persistências locais serializadas por mutex compartilhado entre instâncias, não por lock de arquivo entre processos. [INFERENCE] não há proteção contra escritores Kotlin/Rust simultâneos em processos diferentes; interoperabilidade segura exige um escritor por vez.
 - `privateRead(path: String): String?` linha 26: ausente=null, erro de leitura propaga. local_state JSON inválido também propaga; cache de conversa JSON inválido é tratado como null. Não substituir automaticamente armazenamento corrompido por vazio.
 

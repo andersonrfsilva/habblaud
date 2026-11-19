@@ -4,7 +4,7 @@ Base auditada: `/home/anderson/Desenvolvimento/habblaud`. Repositório somente l
 
 ## Convenção de referências e tipos
 
-Para manter tabelas legíveis, `K` significa `android/shared/src/commonMain/kotlin/br/com/xlinx/habblaud`, `D` significa `K/data`, `J` significa `android/shared/src/jvmMain/kotlin/br/com/xlinx/habblaud`, `A` significa `android/shared/src/androidMain/kotlin/br/com/xlinx/habblaud`. Assim, `D/HabblaudApi.kt:72` é uma referência exata ao arquivo sob esse prefixo, não um arquivo diferente.
+Para manter tabelas legíveis, `K` significa `android/shared/src/commonMain/kotlin/br/com/xlinx/habblaud`, `D` significa `K/data` e `A` significa `android/shared/src/androidMain/kotlin/br/com/xlinx/habblaud`. Assim, `D/HabblaudApi.kt:72` é uma referência exata ao arquivo sob esse prefixo, não um arquivo diferente.
 
 `S` abaixo significa a extração Kotlin `JsonObject.string`: aceita conteúdo textual de qualquer primitivo JSON não nulo, incluindo números e booleanos; objeto, array, ausência ou null resultam em null. Não equivale a um desserializador Rust estrito de `String`. `flag` usa `booleanOrNull == true`; ausente, inválido e false resultam em false. `objects` retorna apenas objetos de um array; ausência, tipo inválido ou null resultam em lista vazia. Campos desconhecidos não são lidos. A raiz esperada como objeto ainda pode causar exceção se inválida. Fonte: `D/ApiModels.kt:16,28-30`.
 
@@ -76,14 +76,14 @@ Sem cookie válido, API da porta remota responde 401, não redirect. Páginas n�
 - Salvar resposta exige geração igual, origem exata e último Set-Cookie com nome `habblaud_remote`. Rejeita Domain não correspondente ao host. Converte Max-Age em expiração absoluta; cookie já vencido limpa origem. Preenche Domain pelo host, Path pelo diretório da URL se ausentes. Persiste primeiro; falha remove sessão e lança erro de armazenamento seguro. `D/SessionCookieStore.kt:64-91`.
 - Envio exige origem exata incluindo esquema/porta, cookie não vencido, HTTPS quando Secure e path igual/prefixo de diretório. Não envia a outras origens nem subdomínios apenas por Domain. Retorna somente `nome=valor`. `D/SessionCookieStore.kt:92-104,124-127`.
 - clear incrementa geração, limpa memória e remove só essa origem do storage. 401 de geração antiga não pode invalidar login novo; Set-Cookie de chamada antiga também não pode ressuscitar sessão encerrada. `D/SessionCookieStore.kt:105-122`; `D/HabblaudApi.kt:36-63`.
-- JVM: keyring serviço `br.com.xlinx.zaplaud`, conta `remote-session`; opção `zaplaud.keyring=memory` força memória. Falha de criação ou gravação do keyring deixa login só no processo; não salvar senha. `J/data/SessionCookieStore.jvm.kt:11-30`.
+- No desktop Compose (removido em 2026-11-18; ver histórico do git), o chaveiro usava o serviço `br.com.xlinx.zaplaud` e a conta `remote-session`; a opção `zaplaud.keyring=memory` forçava memória. Falha de criação ou gravação do chaveiro deixava o login só no processo; a senha não era salva.
 - Android: arquivo privado `filesDir/remote-session`, AES/GCM/NoPadding, IV de 12 bytes prefixado, tag 128 bits, chave AndroidKeyStore `habblaud-remote-session`; erro de leitura apaga arquivo. `A/data/SessionCookieStore.kt:14-38`.
 
 ### Relogin e múltiplos servidores
 
 Startup instancia API por servidor salvo e consulta access. Falta de cookie inicialmente marca needsLogin, mas access bem-sucedido remove marca (porta local pode funcionar sem cookie). 401 marca somente origem correspondente, não todas. Login executa login seguido de access antes de adicionar servidor. Senha é apagada do estado antes da chamada. Logout tenta revogar, remove servidor e dados locais, fecha API e reinicia notificações dos demais; falha de revogação gera aviso explícito. `K/ZaplaudApp.kt:73-94,101-118,128-154,184-229`.
 
-429 de login usa deadline persistido por origem. Antes de novo envio, respeita retryUntil. JVM aceita segundos inteiros não negativos com proteção de overflow ou data RFC1123, data passada vira now, inválido/ausente vira now+60 s. `K/ZaplaudApp.kt:192-219`; `J/UiPlatform.jvm.kt:57-61`.
+429 de login usa deadline persistido por origem. Antes de novo envio, respeita retryUntil. O Android aceita segundos inteiros com proteção de overflow ou data RFC1123; segundos negativos e data passada viram now; valor inválido ou ausente vira now+60 s. `K/ZaplaudApp.kt:192-219`; `A/UiPlatform.android.kt:60-65`.
 
 ### UrlPolicy e aviso HTTP
 
@@ -109,7 +109,7 @@ Wrapper descarta `id`, `retry` e demais metadados do ServerSentEvent. Não guard
 
 ### Limites
 
-`installBoundedSse` envolve o canal da resposta adaptada, lê buffer de 8192 bytes e conta bytes crus antes de entregar ao decoder Ktor. Limite por frame: 8*1024*1024 bytes. Conta todos bytes não CR/LF, inclusive comentários/campos desconhecidos; não é só JSON. Linha vazia zera contador. LF e CR são separadores; CRLF conta como uma quebra. Superar limite lança SseLimitException, fecha canal e cancela entrada. Não há timeout próprio na função. Timeout de leitura OkHttp é 45 s; pings do servidor são 15 s. `D/BoundedSse.kt:11-56`; `D/ApiModels.kt:84`; `J/data/HttpTransport.jvm.kt:17`.
+`installBoundedSse` envolve o canal da resposta adaptada, lê buffer de 8192 bytes e conta bytes crus antes de entregar ao decoder Ktor. Limite por frame: 8*1024*1024 bytes. Conta todos bytes não CR/LF, inclusive comentários/campos desconhecidos; não é só JSON. Linha vazia zera contador. LF e CR são separadores; CRLF conta como uma quebra. Superar limite lança SseLimitException, fecha canal e cancela entrada. Não há timeout próprio na função. Timeout de leitura OkHttp é 45 s; pings do servidor são 15 s. `D/BoundedSse.kt:11-56`; `D/ApiModels.kt:84`; `A/data/HttpTransport.android.kt:16`.
 
 Após decoder, ConversationState também exige soma de bytes das entradas de cada init/append ≤8 MiB e cada entrada ≤8 MiB. Mantém no máximo 1000 entradas e 8 MiB; remove mais antigas e marca reduced=true. Tamanho é UTF-8 da concatenação id+kind+text+title+toolUseId, sem overhead JSON. IDs duplicados são ignorados, não atualizados. `D/ApiModels.kt:51-84`.
 
@@ -263,9 +263,9 @@ Turn: id:S obrigatório e status:S obrigatório; ausência descarta turno; quest
 
 Pergunta trim, máximo 20000 caracteres, não envia se vazio/sending ou tópico atual running. Poll mantém loading false e preserva dados em erro; termina quando nenhum running, a menos que dirty indique nova consulta necessária. Erro mostra ApiException.detail ou network, 401 chama unauthorized. `D/AsideController.kt:84-99,113-141`.
 
-## 8. Configuração do cliente HTTP JVM/Android
+## 8. Configuração do cliente HTTP Android
 
-JVM e Android usam Ktor HttpClient(OkHttp). Configurações explícitas:
+O Android usa Ktor HttpClient(OkHttp), com as mesmas configurações explícitas do desktop Compose (removido em 2026-11-18; ver histórico do git):
 
 | Propriedade | Valor/effect |
 |---|---|
@@ -280,11 +280,11 @@ JVM e Android usam Ktor HttpClient(OkHttp). Configurações explícitas:
 | cookieJar | CookieJar.NO_COOKIES; somente SessionCookieStore manual |
 | SSE maxReconnectionAttempts | 0; loop próprio controla reconnect |
 | SSE bounded channel | instalado em todo cliente pela função installBoundedSse |
-| Upload plataforma | streamedUpload, tanto JVM quanto Android |
+| Upload plataforma | streamedUpload |
 
-Fontes completas: `J/data/HttpTransport.jvm.kt:9-40`; `A/data/HttpTransport.android.kt:8-39`.
+Fonte: `A/data/HttpTransport.android.kt:8-39`.
 
-Não há User-Agent customizado, HttpTimeout plugin, connectTimeout/writeTimeout/callTimeout explícitos nesses arquivos. [INFERENCE] valores herdados da versão OkHttp/Ktor não devem ser tratados como constantes do protocolo sem inspecionar dependência; em particular não inventar User-Agent Zaplaud. `J/data/HttpTransport.jvm.kt:9-38`; `A/data/HttpTransport.android.kt:8-37`.
+Não há User-Agent customizado, HttpTimeout plugin, connectTimeout/writeTimeout/callTimeout explícitos nessa implementação. [INFERENCE] valores herdados da versão OkHttp/Ktor não devem ser tratados como constantes do protocolo sem inspecionar dependência; em particular não inventar User-Agent Zaplaud. `A/data/HttpTransport.android.kt:8-37`.
 
 ### Upload streaming detalhado
 
