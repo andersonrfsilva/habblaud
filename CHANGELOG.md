@@ -18,6 +18,7 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Zaplaud (Android):** os avisos voltam sozinhos depois de reiniciar o aparelho ou atualizar o app, se estavam ligados.
 - **Zaplaud:** o menu da conversa abre as Entregas da sessão, com o pedido, a resposta e os arquivos de cada
   trabalho concluído, e baixa os arquivos.
 - **Zaplaud (desktop Rust):** Entregas da sessão também no menu da conversa, com texto selecionável e download dos anexos.
