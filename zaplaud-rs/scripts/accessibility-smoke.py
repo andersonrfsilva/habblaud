@@ -118,13 +118,18 @@ def main():
         d = session.desktop
         keyboard.command(session.fixture, 'reply fixture:claude')
         result['unread'] = tree.require(lambda nodes: any(node['role'] == 'list item' and 'parado' in node['name'] and 'não lida' in node['name'] for node in nodes), 'Linha sem título/estado/não lidas')
-        d.click(150, 250)
+        session.open_omp()
         result['conversation'] = tree.require(lambda nodes: any('Resposta OMP fictícia' in node['name'] for node in nodes) and any(node['role'] == 'entry' and node['name'] == 'Mensagem' for node in nodes) and labels('Enviar', 'Anexar arquivos (até 5)')(nodes), 'Bolhas/compositor sem texto')
         d.click(650, 32)
-        result['info'] = tree.require(lambda nodes: any(node['role'] == 'panel' and node['name'] for node in nodes) and any('detalhes' in node['name'].lower() for node in nodes), 'Informações sem título/controles')
+        result['info'] = tree.require(
+            lambda nodes: any(node['role'] == 'panel' and node['name'] == 'Davi Fictício' for node in nodes)
+            and labels('Identificadores / Técnico')(nodes)
+            and any(node['role'] == 'button' and node['name'] == 'Copiar' for node in nodes),
+            'Informações sem título/controles',
+        )
         d.key('Escape')
-        d.click(1072, 32)
-        d.click(990, 280)
+        session.open_conversation_menu()
+        d.click(990, 328)
         result['aside'] = tree.require(lambda nodes: any(node['role'] == 'panel' and node['name'] == 'Bate-papo paralelo' for node in nodes) and any(node['role'] == 'entry' and 'Pergunta' in node['name'] for node in nodes), 'Aside sem título/campo')
         d.key('Escape')
         keyboard.command(session.fixture, 'permission fixture:omp bash')
@@ -136,7 +141,7 @@ def main():
         d.click(375, 88)
         result['settings'] = tree.require(lambda nodes: any(node['role'] == 'radio button' and node['name'] for node in nodes) and any('Configurações' in node['name'] for node in nodes), 'Configurações sem controles')
         keyboard.scroll_roles(d)
-        d.click(170, 248)
+        d.click(170, 291)
         result['role-dialog'] = tree.require(lambda nodes: any(node['role'] == 'panel' and 'Task' in node['name'] for node in nodes) and any(node['role'] == 'entry' and 'provedor/modelo' in node['name'] for node in nodes), 'Papel sem título/campo de modelo')
         d.key('Escape')
         tree.require(lambda nodes: not any(node['role'] == 'entry' and 'provedor/modelo' in node['name'] for node in nodes), 'Diálogo de papel não fechou')
