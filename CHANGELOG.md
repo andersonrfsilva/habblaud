@@ -14,7 +14,10 @@ do meio (0.**3**.0).
 
 - A integração com o Antigravity CLI foi removida e não é mais suportada.
 - **Zaplaud:** o bate-papo paralelo não abre mais pela puxada no fim da conversa; abre só pelo menu.
-- **Zaplaud:** Desktop Compose (`android/desktop` e o alvo JVM do código compartilhado) removido; o desktop do Zaplaud é o cliente Rust.
+- **Zaplaud:** o desktop Compose foi removido. O cliente desktop é o Zaplaud em Rust.
+  Veja o [guia de instalação e empacotamento](zaplaud-rs/packaging/README.md).
+- **Elenco:** foram removidos a escolha de pasta ao chamar, as salas dos personagens, `HABBLAUD_CAST_ROOTS`
+  e as rotas `GET /api/cast/dirs` e `GET /api/cast/folders`.
 
 ### Adicionado
 
@@ -38,15 +41,13 @@ do meio (0.**3**.0).
   agora tem seções (Estado, Modelo, Contexto, Identificadores), esconde campos vazios e permite copiar identificadores.
   Subagentes mostram papel, tarefa, modelo e contexto próprios e levam à sessão principal.
 - **Zaplaud Android:** copiar blocos de código, código do Mermaid e mensagens inteiras; botão para tentar de novo após
-  erro de envio; imagens do markdown aparecem como link; links externos só abrem se forem `http` ou `https`.
+  erro de envio; links externos só abrem se forem `http` ou `https`.
 - **Diagramas Mermaid nos clientes Zaplaud.** Blocos ` ```mermaid ` (flowcharts, sequência e demais tipos) aparecem
   desenhados num cartão claro. O desktop Rust desenha localmente; o app Kotlin usa a nova rota `POST /api/mermaid`
   do servidor. Diagrama inválido ou ainda chegando continua como bloco de código. Tocar ou clicar no diagrama
   abre tela cheia com fundo branco e arrasto: Android/iOS ampliam por pinça; desktop Rust usa botões e teclado
   +/−, até 8×. Duplo toque/clique restaura o enquadramento; Fechar ou Esc sai no desktop.
   Os clientes preservam respostas abertas e posição de leitura ao sair e voltar; rolar cancela a restauração.
-- **Pasta padrão do elenco.** `HABBLAUD_CAST_FOLDER` define onde abrem as conversas novas do omp e ZeroClaw
-  (personagens e "Novo"); sem ela, continuam na pasta pessoal. Retomar segue na pasta da conversa.
 - **Entrada do fork nos quatro READMEs.** Identifica `andersonrfsilva/habblaud`, preserva os créditos do projeto
   original e aponta para os guias do servidor, clientes Zaplaud e planos da revisão documental. Clone e migração
   de `origin` usam o fork; os avisos de privacidade distinguem execução local de envio de conversas e uso de tokens.
@@ -69,8 +70,8 @@ do meio (0.**3**.0).
 - **Zaplaud desktop:** no cliente Rust, navegador de arquivos com download, chamada de personagens com conversa aberta,
   conversa em largura total, login salvo em coleção desbloqueada do chaveiro, quebra de linha no campo de mensagem
   e rolagem do bate-papo paralelo que preserva a leitura. O envio paralelo ignora texto vazio e indica turnos em execução.
-- **Zaplaud:** navegador de arquivos nas pastas de trabalho no Android, iOS e desktop Compose, com navegação por
-  pastas, download em fluxo com progresso e cancelamento e abertura do arquivo salvo, como no desktop Rust.
+- **Zaplaud:** navegador de arquivos nas pastas de trabalho no Android e no iPad, com navegação por
+  pastas, download em fluxo com progresso e cancelamento e abertura do arquivo salvo.
 - **Zaplaud:** novo cliente desktop nativo em Rust, com lista e conversa, Markdown, mensagens e anexos,
   aprovações, configurações, elenco e bate-papo paralelo, seguindo o comportamento do celular. O padrão Linux/macOS
   usa o renderizador leve do Slint e emoji de contorno embutido; Skia colorido é opt-in de compilação e execução.
@@ -86,14 +87,8 @@ do meio (0.**3**.0).
 - **Zaplaud:** lista e conversa lado a lado em telas largas (desktop, iPad e tablet), com a sessão aberta destacada.
   Esc fecha a conversa e Ctrl+F (Cmd+F no macOS) abre a busca. No desktop, Enter envia e Shift+Enter quebra linha.
   No celular, a navegação continua em uma coluna e Enter continua quebrando linha.
-- **Zaplaud:** versão para Linux e macOS numa janela, com as mesmas telas do celular, anexos locais e navegação
-  pela tecla Esc. O login usa o chaveiro do sistema; sem chaveiro, vale só até fechar o aplicativo. Execute
-  `./gradlew :desktop:run` em `android/`.
-- **Zaplaud:** no desktop, avisos de aprovação, pergunta e fim de turno com a janela em segundo plano.
-  No Linux, a ação "Abrir" leva à sessão do agente. Os avisos funcionam enquanto o aplicativo estiver aberto.
-- **Zaplaud desktop:** configuração de pacotes `.deb`, `.rpm` e `.dmg` com ícone e runtime Java incluído; instalação
-  no Arch pelo script `scripts/desktop-install-linux.sh`, sem `sudo`, e distribuição portátil `.tar.gz`.
-  A JVM usa Serial GC e limite de heap de 256 MiB. O CI verifica os testes JVM e a distribuição Linux.
+- **Zaplaud desktop:** avisos de aprovação, pergunta e fim de turno quando a janela está sem foco.
+  No Linux, a ação "Abrir" leva à sessão do agente. Os avisos dependem de o aplicativo estar aberto.
 - **Resumos:** suporte opcional a Anthropic Messages por HTTP, sem processos OMP nem Tiny, com token em arquivo
   rotacionável e capacidade `summaryHttp` por conexão. Sem configuração, o RPC existente continua disponível;
   ativação em produção depende do operador.
@@ -101,7 +96,7 @@ do meio (0.**3**.0).
   A mesma cota aparece nas contas reais; sem a nova configuração, o comportamento legado permanece intacto.
 - **ZeroClaw (opt-in):** fonte do gateway HTTP em loopback, intenções persistidas e espelho JSONL de mensagens,
   deltas e ferramentas. Reconexão sem replay de prompts, lacunas explícitas e histórico local preservado offline.
-  `HABBLAUD_ZEROCLAW_URL` habilita a fonte sem token neste desenho isolado; operação pela UI depende das etapas seguintes.
+  `HABBLAUD_ZEROCLAW_URL` habilita a integração sem token nesse ambiente isolado.
 - **ZeroClaw:** entrega pelo mesmo socket da fonte, com followUp em fila e steering durante o turno; STOP por
   abort HTTP e conversa nova com UUID novo, preservando o personagem. Aside e controles OMP incompatíveis são
   recusados. `delivered` indica somente aceitação no buffer local, sem ack de aplicação nem replay automático.
@@ -143,10 +138,9 @@ do meio (0.**3**.0).
 - **Android:** linha de estado enquanto o agente trabalha, na lista de conversas e dentro da sessão, como no
   rodapé do terminal da web: spinner, a atividade atual e o cronômetro desde que começou. Some quando o agente
   para. As cores seguem o tema claro/escuro do app; com as animações do sistema desligadas, o símbolo fica parado.
-- **Android:** Configurações › Resumos liga o resumo das respostas do agente. O papel `tiny` do omp resume cada
-  resposta longa em até 5 frases; tocar no resumo mostra a resposta completa. Desligado por padrão. Os resumos ficam
-  guardados no aparelho junto da conversa: reabrir a sessão não pede de novo. Só funciona com um modelo escolhido
-  para o papel Tiny; sem ele, o interruptor fica desligado.
+- **Android:** Configurações › Resumos liga o resumo das respostas longas do agente, desligado por padrão.
+  Toque no resumo para ver a resposta completa. O resumo fica guardado no aparelho junto da conversa.
+  Sem resumo HTTP, é necessário escolher um modelo para o papel Tiny.
 - **Android:** o papel `tiny` do omp entra nos modelos configuráveis. O seletor agrupa os modelos por provedor, com
   a versão mais nova primeiro, e esconde as variantes `:batch` e as cópias datadas de um modelo que também aparece
   sem data. A linha de cada papel mostra o provedor.
@@ -170,10 +164,9 @@ do meio (0.**3**.0).
 - **Zaplaud Android:** o cache de conversas tem teto de 64 MiB. Conversas removidas do cache são baixadas novamente ao abrir.
 - **Histórico:** sessão encerrada que rodou em pasta temporária (`/tmp`) volta a aparecer quando tem título ou
   primeiro pedido. Só ficam de fora as sessões sem nenhuma instrução sua.
-- **Elenco:** chamar um personagem ou "Novo" não pede mais pasta: a sessão nova abre sempre na pasta pessoal (`~`) do
-  host. "Continuar" retoma a conversa mais recente do personagem; retomar pelo histórico mantém a pasta da conversa.
-  Saíram as "Salas permitidas" e a "Sala principal" dos personagens, o navegador de pastas (`GET /api/cast/dirs`,
-  `HABBLAUD_CAST_ROOTS`) e `GET /api/cast/folders`, na web, no Android e no desktop Rust.
+- **Elenco:** chamar um personagem ou "Novo" não pede pasta. A sessão nova usa `HABBLAUD_CAST_FOLDER` ou,
+  se não estiver definida, a pasta pessoal do host. "Continuar" retoma a conversa mais recente do personagem;
+  retomar pelo histórico mantém a pasta da conversa escolhida.
 - **Zaplaud:** botões e indicadores usam ícones Material no lugar de caracteres de texto.
 - **Zaplaud:** "Abertas" e "Recentes" usam um botão segmentado no lugar das abas.
 - **Zaplaud:** pontos de conexão e alertas de contexto e cota usam as cores do tema claro ou escuro.
@@ -281,11 +274,9 @@ do meio (0.**3**.0).
 
 - **Android:** cada autenticação HTTP pede confirmação sobre o risco de enviar senha e sessão sem criptografia.
 - **Android:** conversas ficam guardadas no aparelho e aparecem na hora ao abrir; o servidor manda só o que veio
-  depois da última mensagem guardada (`?after=` no stream do terminal). Elenco e pastas deixam de ser baixados a cada
-  5 s.
+  depois da última mensagem guardada (`?after=` no stream do terminal).
 - **Servidor:** streams (`/api/stream`, terminal) e respostas JSON grandes vão com gzip para quem aceita: o snapshot
   do escritório cai de ~41 KB para ~6,5 KB.
-- **Android:** avatar do contato pulando, com pontos "digitando", no pé da conversa enquanto o agente trabalha.
 - **Android:** subagentes e advisors aparecem num galho abaixo do agente principal na lista de conversas, só enquanto
   trabalham.
 - **Elenco:** "Novo" em chamar contato abre um agente fora do elenco, com nome e visual sorteados
@@ -307,8 +298,7 @@ do meio (0.**3**.0).
 - **Terminal:** o título mostra o modelo e o raciocínio em uso no omp, por exemplo `Opus 5.5 M`.
 - **Elenco:** a ficha escolhe o modelo numa lista agrupada por provedor (a mesma da gaveta), em vez de digitar.
 
-- **Elenco:** escolha pastas pelo navegador de diretórios e edite personagens em uma janela integrada ao escritório.
-  O navegador usa a pasta pessoal ou as raízes absolutas em `HABBLAUD_CAST_ROOTS` (separadas por vírgulas).
+- **Elenco:** edite personagens em uma janela integrada ao escritório.
 
 - **Elenco:** personagens principais podem guardar modelo, instruções, conta e limite de ociosidade. Chame ou dispense
   sessões omp pelo auxiliar do host; personagens livres descansam no lounge do escritório. Sem limite na ficha, o
@@ -316,9 +306,8 @@ do meio (0.**3**.0).
 - **Elenco pelo celular:** com `terminal` em `HABBLAUD_REMOTE_ALLOW`, o elenco pode ser editado, chamado e dispensado
   pela porta remota (com login).
 
-- **Elenco:** crie personagens fixos para principais, advisors e subagentes, escolha salas e vista cada sessão pela
-  gaveta. No omp, `HABBLAUD_CAST=<id>` pede um membro. Personagem ocupado ou fora da sala gera sorteio; as salas
-  organizam a escolha, mas não restringem ferramentas. Personagens antigos das salas migram para `cast.json`, com
+- **Elenco:** crie personagens fixos para principais, advisors e subagentes e vista cada sessão pela gaveta.
+  No omp, `HABBLAUD_CAST=<id>` pede um membro. Personagens antigos das salas migram para `cast.json`, com
   cópia de segurança em `names.json.pre-031`.
 
 - **Anexos no prompt:** o clipe no terminal e na gaveta aceita seleção, colagem e arraste de até cinco arquivos
@@ -376,8 +365,9 @@ do meio (0.**3**.0).
   `/resume` abre o histórico para escolher a conversa a retomar nele. A extensão digita `/resume <id>` na tela do omp
   (só com o agente livre e o editor vazio) e a conversa atual continua no histórico. Reinstale a extensão
   (`npm run omp:install`) e reabra as sessões do omp.
-- **Economia de energia** (Configurações › Escritório, desligada por padrão): desenha o escritório sempre a 10
-  quadros por segundo (5 com a janela sem foco), mesmo com gente andando, e o cenário em resolução menor e ampliado;
+- **Economia de energia** (Configurações › Escritório, ligada por padrão no Android e desligada nos demais sistemas):
+  desenha o escritório a 10 quadros por segundo (5 com a janela sem foco), mesmo com gente andando, e o cenário
+  em resolução menor e ampliado;
   nomes e balões continuam na resolução da tela, nítidos, e com o zoom bem afastado (visão geral no celular) o cenário
   ganha resolução para a pixel art não virar borrão. Mexer o mouse, a câmera ou o teclado volta ao ritmo do monitor
   na hora. Medido com GPU, 1440×900 em densidade 2: 81% → 35% de CPU (15% sem foco).
@@ -434,10 +424,6 @@ do meio (0.**3**.0).
 - **Entregas:** cada entrega mostra o avatar e o nome do agente da sessão, mesmo depois que ele saiu do escritório.
 
 ### Alterado
-
-- **Histórico: sessões de teste ficam de fora.** Sessão já encerrada que rodou numa pasta temporária (`/tmp`, ou a do
-  sistema) ou que não tem nenhuma instrução sua (nem título, nem primeiro pedido) não aparece mais na lista. Vale para
-  todas as ferramentas; sessão aberta no escritório aparece sempre.
 
 - **Página abre mais leve:** o player do timelapse e a janela do Habblaud World saem do JS carregado na abertura. O
   timelapse só é baixado na primeira abertura. A janela do World é baixada logo depois que a página abre quando o

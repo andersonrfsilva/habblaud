@@ -79,7 +79,30 @@ do parágrafo que a cita.
 
 ## Verificação
 
-- Kotlin: `./gradlew :shared:testAndroidHostTest :app:testDebugUnitTest :app:lintDebug :app:assembleDebug`
-  e os instrumentados no emulador. iOS só compila num Mac.
-- Rust: `cargo test --workspace --locked` em `zaplaud-rs/` e os roteiros `zaplaud-rs/scripts/*-smoke.py`.
-- Os dois usam o mesmo servidor de teste, `scripts/android-smoke.ts`.
+### Testes automatizados locais
+
+- Kotlin: testes de host com `android/gradlew -p android :shared:testAndroidHostTest`. A instrumentação usa
+  `python3 scripts/android-instrumented-ci.py` com emulador isolado. No Mac, `scripts/ios-native-tests.sh` e
+  `scripts/ios-smoke.sh` exercitam o simulador.
+- Rust: `cargo test --workspace --locked` em `zaplaud-rs/` cobre o workspace e o contrato com o servidor.
+  Os roteiros gráficos também podem rodar em X11 via Xvfb.
+- Os testes de integração usam o servidor isolado de `scripts/android-smoke.ts`, não a instalação de produção.
+  Consulte os resultados registrados no [índice dos planos](../plans/README.md).
+
+### Workflows do GitHub
+
+- [Android](../.github/workflows/android.yml): testes de host, lint e builds debug e release; instrumentação em
+  emulador API 35 quando há KVM, com artefatos de diagnóstico.
+- [iPadOS](../.github/workflows/ios.yml): build, testes nativos e smoke no simulador Apple Silicon; IPA sem assinatura.
+- [Zaplaud Rust](../.github/workflows/zaplaud-rs.yml): testes do workspace e do contrato, roteiros de conversa,
+  teclado e acessibilidade nos dois temas em Xvfb e, fora de pull requests, empacotamento Linux.
+- [CI](../.github/workflows/ci.yml): tipos, traduções TypeScript, testes e build do projeto Node no Ubuntu e no Windows.
+  O gate de traduções não verifica Markdown.
+
+### Conferência manual pendente
+
+- Aparelho físico: atualização Android sobre uma instalação anterior; no iPad, instalação, VoiceOver,
+  persistência após reassinatura, atualização e renovação pelo SideStore, e convivência com Tailscale.
+- Desktop real: sessão Wayland, persistência no chaveiro Linux e funcionamento da bandeja no ambiente de uso.
+  O CI Rust não testa macOS.
+- Entregas: falta conferir a lista e os downloads com entregas reais no cliente móvel e no desktop.

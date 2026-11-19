@@ -30,8 +30,8 @@ Ce dépôt est le fork [andersonrfsilva/habblaud](https://github.com/andersonrfs
 facultatif ZeroClaw et les clients natifs Zaplaud. Guides techniques, actuellement en portugais :
 
 - [Serveur, configuration et contrats des intégrations](server/README.md).
-- Zaplaud : [Android et iPadOS](README.pt-BR.md#aplicativo-android-zaplaud), [bureau Rust](zaplaud-rs/README.md)
-  et [installation sur ordinateur](zaplaud-rs/packaging/README.md).
+- Zaplaud : [Android](README.pt-BR.md#aplicativo-android-zaplaud), [iPadOS](README.pt-BR.md#aplicativo-ipados-zaplaud),
+  [bureau Rust](zaplaud-rs/README.md) et [installation sur ordinateur](zaplaud-rs/packaging/README.md).
 - [Fonctionnalités des clients et limites de validation](docs/zaplaud-paridade.md).
 - [Plans de révision documentaire et état de leur mise en œuvre](plans/README.md).
 
@@ -636,16 +636,17 @@ Ouvrez **Distribution** dans la barre supérieure pour créer, modifier ou suppr
 un nom, une apparence et un type : principal, conseiller ou sous-agent. Pour les sous-agents, indiquez les types
 observés, comme `reviewer` ou `Explore`.
 
-- **Appeler :** **Appeler** ouvre une nouvelle session dans le dossier personnel (`~`) de l'ordinateur où tourne la
-  session, ou **Continuer** reprend la conversation la plus récente du personnage. Reprendre depuis l'historique
-  garde le dossier de cette conversation.
+- **Appeler :** **Appeler** et **Nouveau** ouvrent une session dans `HABBLAUD_CAST_FOLDER` ou, si cette variable
+  n'est pas définie, dans le dossier personnel (`~`) de l'hôte. **Continuer** reprend la dernière conversation du
+  personnage. Une reprise depuis l'historique conserve le dossier de la conversation choisie.
 - **Attribuer un personnage :** utilisez le crayon dans les détails d'un agent principal pour choisir un membre libre
   ou en créer un à partir de l'agent. **Revenir au tirage au sort** supprime le lien. Si le membre est occupé, la
   session reçoit un personnage tiré au sort.
 - Dans omp, `HABBLAUD_CAST=<id>` demande un membre pour la session. Le conseiller et les sous-agents utilisent des
   membres correspondant à leurs types.
 - `HABBLAUD_CAST_MAX` (1 à 50 ; absent = sans limite) limite le nombre de personnages que Habblaud garde ouverts en
-  même temps. Les sessions `hb-*` ouvertes et les appels en cours comptent ; les personnages en cours de renvoi, non.
+  même temps. Les sessions ouvertes et les appels en cours comptent. Dans OMP, un personnage en cours de renvoi
+  ne compte pas ; dans ZeroClaw, il occupe sa place jusqu'à la fermeture de la session.
 
 La distribution est conservée dans `~/.habblaud/cast.json` ; les liens de session expirent après 60 jours sans
 utilisation. Les anciens personnages des salles migrent automatiquement, avec une sauvegarde dans
@@ -1209,9 +1210,9 @@ avec `no-new-privileges`. Les métadonnées des comptes (lettre, e-mail, organis
   c'est l'auxiliaire de l'hôte (`npm run codex:bridge`) qui lance les sessions ; il ne lit les fichiers des livraisons
   que dans les dossiers de projet connus (ceux que Claude Code a dans `<conta>/projects`), le dossier temporaire et les
   pièces jointes.
-- **Distribution, en local uniquement :** créer, modifier ou attribuer un personnage écrit dans `cast.json` et suit
-  le verrou du terminal (bind et `Host` locaux, sans proxys ni tunnels). Sans lui, le serveur répond `403`. Les
-  modifications exigent du JSON et une origine locale. `HABBLAUD_TERMINAL=0` la désactive aussi.
+- **Distribution :** créer, modifier ou attribuer un personnage écrit dans `cast.json` et suit le verrou du terminal :
+  accès local ou, après connexion par le port distant, avec `terminal` dans `HABBLAUD_REMOTE_ALLOW`.
+  Sans cet accès, le serveur répond `403`. `HABBLAUD_TERMINAL=0` désactive aussi cette fonction.
 - **Statistiques de Ma journée :** uniquement des chiffres agrégés (temps par statut, comptages, tokens, coût) avec les
   noms de projet, de compte et d'agent, conservés dans `HABBLAUD_DATA_DIR/stats/` pendant 30 jours — rien de la conversation.
 - **Codex :** Habblaud ne lit que les conversations (`sessions/`, `archived_sessions/`) et les verrous des sessions

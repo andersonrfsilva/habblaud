@@ -54,6 +54,7 @@ Veja [Privacidade e segurança](#privacidade-e-segurança) antes de habilitá-la
 - [Instalação](#instalação)
 - [Como usar](#como-usar)
 - [Aplicativo Android (Zaplaud)](#aplicativo-android-zaplaud)
+- [Aplicativo iPadOS (Zaplaud)](#aplicativo-ipados-zaplaud)
 - [Contas e uso (5 horas e semanal)](#contas-e-uso-5-horas-e-semanal)
 - [Configuração](#configuração)
 - [Habblaud World](#habblaud-world)
@@ -278,6 +279,27 @@ do contato aparece junto ao avatar; toque longo nos ícones de ação mostra sua
 menu da conversa de um agente do omp abre o **Bate-papo paralelo**: perguntas respondidas sem interromper o agente e
 fora da conversa dele, como na janela lateral da página.
 
+#### Entregas da sessão
+
+No menu da conversa, abra **Entregas da sessão**. A lista mostra os trabalhos concluídos na conversa aberta.
+Toque numa entrega para ler o pedido e a resposta e use **Baixar** junto ao arquivo desejado.
+Para consultar a lista e baixar anexos, o servidor precisa ter Entregas habilitadas e autorizar `terminal`
+na conexão. Na porta remota, peça ao operador que confira `HABBLAUD_REMOTE_ALLOW`.
+
+#### Acesso neste servidor
+
+Em **Configurações**, selecione o servidor e consulte **Acesso neste servidor**. O painel mostra o acesso da conexão
+atual; não altera permissões:
+
+- **Conversas e recentes:** leitura do histórico e das conversas (`terminal`).
+- **Mensagens e anexos:** envio (`messages`), só com a proteção `messageSessionGuard` anunciada pelo servidor.
+- **Responder aprovações e perguntas:** envio de decisões (`permissions`).
+- **Arquivos:** navegador da pasta de trabalho, que precisa estar habilitado no servidor, além de `terminal`.
+
+Cada linha mostra **Liberado**, **Bloqueado** ou **Não informado pelo servidor**. Se algo estiver bloqueado, peça ao
+operador que confira `HABBLAUD_REMOTE_ALLOW` e se o recurso está ativo. Se faltar a proteção de sessão, peça que
+verifique a versão do servidor.
+
 #### Compilar e instalar
 
 Instale JDK 17 ou superior e o Android SDK com `platforms;android-37.0` e ferramentas de build. Na raiz do repositório:
@@ -315,12 +337,12 @@ A CI Android executa a suíte instrumentada completa em emulador x86_64 isolado 
 Android. A fixture escolhe uma porta local dinâmica, encaminhada junto à porta 14748. A CI usa somente a fixture de
 laboratório, nunca um servidor de produção. O processo exige KVM e encerra a fixture e os encaminhamentos ao terminar.
 
-O workflow `.github/workflows/android.yml` roda em pushes para `main` e pull requests que alterem Android, o próprio
-workflow, os dois scripts da fixture, `server/**`, `shared/**`, `client/src/art/**` ou a configuração Node
-(`package.json`, `package-lock.json`, `.npmrc` e `tsconfig.json`). A fixture importa o backend e seus contratos
-compartilhados; a rota de avatar também importa a arte do cliente. Mudanças apenas em documentação ou nas demais
-telas web não acionam esse gate. Ambos os jobs reutilizam o cache Gradle do `setup-java`, com chave baseada nos
-scripts Gradle, propriedades, catálogo de versões e configuração do wrapper Android.
+O workflow [Android](.github/workflows/android.yml) aceita disparo manual e roda em pushes para `main` ou `producao`
+e em pull requests, com filtros de caminhos. Eles incluem Android, o próprio workflow, os scripts da suíte
+instrumentada e da fixture, `server/**`, `shared/**`, `client/src/art/**` e a configuração Node
+(`package.json`, `package-lock.json`, `.npmrc` e `tsconfig.json`). Mudanças apenas em documentação ou nas demais
+telas web não acionam esse gate. Os jobs Android reutilizam o cache Gradle do `setup-java`. O job `verificar` roda
+testes de host, lint, build de debug e build de release com R8 e chave descartável.
 
 Para reproduzir o gate instrumentado, instale as dependências com `npm ci` e, com um emulador ou aparelho isolado
 conectado ao `adb`, execute `python3 scripts/android-instrumented-ci.py` na raiz. O script inicia a fixture,
@@ -328,6 +350,7 @@ configura os encaminhamentos, executa `:app:connectedDebugAndroidTest` e valida 
 presença de `FixtureUiInstrumentedTest`. São necessários Python 3, Java 17, Node 22.12 ou superior e Android SDK
 com `platforms;android-37.0` e `build-tools;36.0.0`; a CI usa um emulador API 35 com KVM. Sem KVM, o workflow avisa e não
 executa a etapa instrumentada.
+Quando executa a instrumentação, o workflow coleta diagnósticos, relatórios, resultados de testes e logs como artefato.
 
 Use um emulador ou aparelho conectado e execute os comandos na raiz do repositório. Em um terminal, mantenha a
 fixture isolada aberta:
@@ -405,6 +428,9 @@ A barra da conversa mostra ícones para responder perguntas e aprovar permissõe
 configuração de animações do sistema. Perguntas do omp aceitam escolha única, múltipla e texto livre; omp e Codex
 não aceitam `interrupt` nem `suggestion` nas decisões.
 
+Se **Configurações** indicar que o Android bloqueou os avisos, permita as notificações do Zaplaud e do canal de alertas
+nas configurações do sistema.
+
 **Avisos.** Se ativados, os avisos de aprovação, pergunta e fim de turno dependem de um serviço em primeiro plano,
 com uma notificação fixa no Android. Desativar os avisos interrompe o serviço. Depois de reiniciar o celular, abra
 o aplicativo uma vez para voltar a receber avisos. A economia de bateria agressiva pode atrasá-los.
@@ -416,7 +442,7 @@ conversas permanecem no servidor.
 
 O desktop do Zaplaud é o cliente nativo em Rust. Veja o [guia do Zaplaud desktop](zaplaud-rs/README.md).
 
-### Aplicativo iPadOS (Zaplaud; validação pendente)
+### Aplicativo iPadOS (Zaplaud)
 
 O Zaplaud para iPadOS tem alvo apenas para iPad, não para iPhone, e não oferece avisos. A instalação em um iPad
 físico ainda não foi validada (veja o [resultado do plano 041](plans/041-resultado.md)).
@@ -442,6 +468,9 @@ aplicativo fechado. Os agentes continuam executando no servidor. Rascunhos são 
 Uma mensagem cujo resultado foi perdido não é reenviada automaticamente; com ID conhecido, o aplicativo consulta
 o estado da operação. Cancelar uma conexão não prova que o servidor cancelou o comando.
 
+O menu da conversa oferece [Entregas da sessão](#entregas-da-sessão), com os mesmos requisitos de acesso do Android.
+Use [Acesso neste servidor](#acesso-neste-servidor) em **Configurações** para diagnosticar bloqueios da conexão.
+
 O cookie fica no Keychain, acessível com o aparelho desbloqueado e sem sincronização pelo iCloud. Rascunhos,
 anexos copiados e cache usam arquivos privados protegidos; preferências simples usam armazenamento nativo.
 Trocar a identidade de assinatura ou remover o aplicativo pode perder o acesso a esses dados. O Android mantém os
@@ -452,6 +481,10 @@ recusados e cookies ficam restritos à origem selecionada. Um limitador incremen
 do Ktor, pois o parser da versão escolhida acumula eventos sem limite próprio. Esse adaptador limita quadros,
 incluindo comentários e dados multilinha; o Ktor continua sendo o único decodificador de eventos.
 Uploads são binários e em fluxo, com os mesmos limites de cinco anexos e 15 MiB por arquivo.
+
+O workflow [iPadOS](.github/workflows/ios.yml) compila o app, roda testes nativos e um smoke com fixture no simulador
+Apple Silicon e gera um IPA sem assinatura. Isso não prova instalação, persistência após reassinatura ou atualização
+pelo SideStore. Esses cenários, o VoiceOver e o uso com Tailscale precisam de um iPad físico.
 
 #### Compilar no Mac e gerar IPA para reassinatura
 
