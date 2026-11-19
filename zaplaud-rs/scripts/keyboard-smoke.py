@@ -133,6 +133,25 @@ def main():
                 'Conversa não abriu',
             )
 
+        open_conversation()
+        transcript_box = (380, 400, 970, 660)
+        colors = smoke.palette(args.theme)
+        smoke.wait_for(lambda: d.image().getpixel((700, 640)) == colors['surface'], 'Transcrição OMP não apareceu')
+        end = d.image().crop(transcript_box)
+        d.key('Home')
+        smoke.wait_for(
+            lambda: comparison.ImageChops.difference(end, d.image().crop(transcript_box)).getbbox(),
+            'Home não rolou a conversa',
+        )
+        d.key('End')
+        smoke.wait_for(
+            lambda: comparison.ImageChops.difference(end, d.image().crop(transcript_box)).getbbox() is None,
+            'End não voltou ao fim da conversa',
+        )
+        d.key('Escape')
+        assert_closed('Esc não fechou a conversa após rolar')
+        passed.append('conversation-scroll-keys')
+
         for name, opener in [
             ('session-info', lambda: d.click(650, 32)),
             ('conversation-menu', session.open_conversation_menu),
@@ -176,7 +195,7 @@ def main():
         d.key('Escape')
         passed.append('list-menu')
         d.key('f', ('Control_L',))
-        colors = smoke.palette(args.theme)
+        # A busca usa o fundo do campo, não o fundo da lista.
         smoke.wait_for(lambda: d.image().getpixel((300, 196)) == colors['surfaceContainerHigh'], 'Ctrl+F não abriu busca')
         d.key('Escape')
         d.key('Down')
@@ -188,6 +207,13 @@ def main():
         passed.append('search-list-navigation')
         # O pedido de aprovação move a conversa OMP para o topo e abre a folha ao selecioná-la.
         open_conversation(218)
+        def permission_open():
+            return d.image().getpixel((2, 2)) != colors['surface']
+
+        smoke.wait_for(permission_open, 'Aprovação não reabriu pelo botão da lista')
+        d.key('Escape')
+        smoke.wait_for(lambda: not permission_open(), 'Esc não fechou a aprovação aberta pela lista')
+        passed.append('list-permission-escape')
         before = len(command(session.fixture, 'stats')['messageRequests'])
         d.click(650, 728)
         type_text(d, 'linha')
