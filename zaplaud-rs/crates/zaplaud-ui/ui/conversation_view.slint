@@ -245,6 +245,8 @@ export component ConversationView inherits Rectangle {
     function cancel-restore() {
         ConversationViewState.restore-pending = false;
         ConversationViewState.anchor-ticks = 0;
+        messages.scroll-from-end = false;
+        scroll-settle.stop();
     }
     public function scroll-to(fraction: float) {
         root.cancel-restore();
@@ -264,7 +266,7 @@ export component ConversationView inherits Rectangle {
         root.cancel-restore();
         if root.can-take-focus { scroll-keys.focus(); }
         ConversationViewState.following = true;
-        messages.content-y = min(0px, messages.height - messages.content-height);
+        messages.content-y = messages.end-y;
         ConversationViewState.position(true);
     }
     property <int> end-request: ConversationViewState.end-request;
@@ -277,6 +279,20 @@ export component ConversationView inherits Rectangle {
         triggered => {
             ConversationViewState.capture-pending = false;
             ConversationViewState.capture-request += 1;
+        }
+    }
+    scroll-settle := Timer {
+        // A roda do Slint anima por 180 ms e não sinaliza a chegada ao destino.
+        interval: 220ms;
+        running: false;
+        triggered => {
+            self.stop();
+            messages.scroll-from-end = false;
+            if ConversationViewState.following || messages.content-y <= messages.end-y + 2px {
+                ConversationViewState.following = true;
+                messages.content-y = messages.end-y;
+                ConversationViewState.position(true);
+            }
         }
     }
     // A lista virtual estima alturas até materializar a linha ancorada.
@@ -333,17 +349,34 @@ export component ConversationView inherits Rectangle {
             }
             messages := ScrollList {
                 width: parent.width; height: parent.height;
-                changed content-height => { if ConversationViewState.following { self.content-y = min(0px, self.height - self.content-height); } }
-                changed height => {
-                    if ConversationViewState.following { self.content-y = min(0px, self.height - self.content-height); }
+                property <length> end-y: min(0px, self.visible-height - self.content-height);
+                property <bool> scroll-from-end;
+                changed end-y => { if ConversationViewState.following && !self.scroll-from-end { self.content-y = self.end-y; } }
+                changed content-y => {
+                    ConversationViewState.scroll-y = self.content-y;
+                    if self.scroll-from-end {
+                        if self.content-y > self.end-y + 2px {
+                            self.scroll-from-end = false;
+                            ConversationViewState.following = false;
+                            ConversationViewState.position(false);
+                            ConversationViewState.capture-pending = true;
+                        }
+                    } else if ConversationViewState.following && self.content-y > self.end-y + 1px {
+                        // A lista virtual pode deslocar a janela medida sem alterar a altura total estimada.
+                        self.content-y = self.end-y;
+                    }
                 }
-                changed content-y => { ConversationViewState.scroll-y = self.content-y; }
                 scrolled => {
                     ConversationViewState.restore-pending = false;
                     ConversationViewState.anchor-ticks = 0;
-                    ConversationViewState.following = self.content-height <= self.height || self.content-y <= self.height - self.content-height + 2px;
+                    // A roda sinaliza o gesto antes de a animação alterar content-y.
+                    let at-end = self.content-y <= self.end-y + 2px;
+                    self.scroll-from-end = self.end-y < 0px && ConversationViewState.following && at-end;
+                    ConversationViewState.following = at-end;
                     ConversationViewState.position(ConversationViewState.following);
                     ConversationViewState.capture-pending = true;
+                    if scroll-settle.running { scroll-settle.restart(); }
+                    else { scroll-settle.start(); }
                 }
                 for row[index] in ConversationViewState.rows: EntryBubble { width: messages.width; entry: row; row-index: index; }
             }

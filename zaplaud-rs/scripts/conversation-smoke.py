@@ -188,9 +188,13 @@ def main():
 
                     latest = 'Carga fictícia 220.'
                     transcript = next(Path(fixture.ready['home']).glob('.omp/sessions/**/*.jsonl'))
+
+                    def write_entry(stream, text, role):
+                        stream.write(json.dumps({'type': 'message', 'id': str(uuid.uuid4()), 'timestamp': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'message': {'role': role, 'content': [{'type': 'text', 'text': text}]}}) + '\n')
+
                     with transcript.open('a') as stream:
                         for index in range(220):
-                            stream.write(json.dumps({'type': 'message', 'id': str(uuid.uuid4()), 'timestamp': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'message': {'role': 'assistant' if index % 2 else 'user', 'content': [{'type': 'text', 'text': f'Carga fictícia {index + 1}.'}]}}) + '\n')
+                            write_entry(stream, f'Carga fictícia {index + 1}.', 'assistant' if index % 2 else 'user')
                     cache_dir = data / 'state/data'
                     deadline = time.monotonic() + 20
                     while True:
@@ -208,10 +212,18 @@ def main():
                         time.sleep(.5)
 
                     def copy_last():
-                        desktop.x.XWarpPointer(desktop.d, 0, desktop.mapped()[0], 0, 0, 0, 0, 700, 644)
+                        # A ação está 18 px abaixo do topo do balão, não a um y fixo da janela.
+                        image = desktop.image()
+                        top = 644
+                        if image.getpixel((700, top)) != colors['surface']:
+                            return ''
+                        while top > 64 and image.getpixel((700, top - 1)) == colors['surface']:
+                            top -= 1
+                        y = top + 18
+                        desktop.x.XWarpPointer(desktop.d, 0, desktop.mapped()[0], 0, 0, 0, 0, 700, y)
                         desktop.x.XSync(desktop.d, 0)
                         time.sleep(.15)
-                        desktop.click(950, 639)
+                        desktop.click(950, y)
                         return clipboard.text()
 
                     desktop.image().save(f'/tmp/zaplaud-rs-fin-conversation-regression-initial-{args.theme}.png')
@@ -249,6 +261,49 @@ def main():
                                 desktop.xt.XTestFakeButtonEvent(desktop.d, button, pressed, 0)
                         desktop.x.XSync(desktop.d, 0)
 
+                    # A roda no fim e o retorno pela roda devem continuar seguindo as entradas novas.
+                    for number, return_to_end in ((221, False), (222, True)):
+                        if return_to_end:
+                            wheel(4, 6)
+                            smoke.wait_for(
+                                lambda: desktop.image().getpixel((1040, 638)) == colors['secondaryContainer'],
+                                'Roda para cima não saiu do fim',
+                            )
+                        wheel(5, 6)
+                        smoke.wait_for(
+                            lambda: desktop.image().getpixel((1040, 638)) != colors['secondaryContainer'],
+                            'Roda para baixo não voltou a seguir o fim',
+                        )
+                        latest = f'Carga fictícia {number}.'
+                        with transcript.open('a') as stream:
+                            write_entry(stream, latest, 'assistant')
+                        smoke.wait_for(lambda: copy_last() == latest, 'Roda no fim impediu acompanhar a entrada nova', 20)
+
+                    # A nova entrada deve atualizar o contador sem mover as mensagens em leitura.
+                    history_box = (377, 80, 890, 580)
+                    badge_box = (1040, 620, 1080, 655)
+                    for number, gesture in enumerate((lambda: wheel(4, 6), lambda: desktop.key('Home')), start=223):
+                        end = desktop.image().crop(history_box).tobytes()
+                        gesture()
+                        smoke.wait_for(
+                            lambda: desktop.image().getpixel((1040, 638)) == colors['secondaryContainer'],
+                            f'Histórico não saiu do fim antes da mensagem {number}',
+                        )
+                        time.sleep(.5)
+                        history = desktop.image()
+                        assert history.crop(history_box).tobytes() != end, 'A rolagem não mudou o histórico'
+                        time.sleep(2)
+                        assert desktop.image().crop(history_box).tobytes() == history.crop(history_box).tobytes(), 'Histórico voltou ao fim depois do gesto'
+                        latest = f'Carga fictícia {number}.'
+                        with transcript.open('a') as stream:
+                            write_entry(stream, latest, 'assistant')
+                        smoke.wait_for(
+                            lambda: desktop.image().crop(badge_box).tobytes() != history.crop(badge_box).tobytes(),
+                            'Contador de mensagens novas não atualizou', 20,
+                        )
+                        assert desktop.image().crop(history_box).tobytes() == history.crop(history_box).tobytes(), 'Mensagem nova moveu o histórico'
+                        desktop.click(1060, 638)
+                        smoke.wait_for(lambda: copy_last() == latest, 'Ir para o fim não chegou à mensagem nova', 20)
                     wheel(4, 400)
                     time.sleep(.5)
                     desktop.image().save(f'/tmp/zaplaud-rs-fin-conversation-regression-start-{args.theme}.png')

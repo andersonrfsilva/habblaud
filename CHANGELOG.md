@@ -184,6 +184,7 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Zaplaud desktop:** conversas longas abrem na última mensagem mesmo quando a fonte do sistema muda.
 - **Zaplaud desktop:** o bate-papo paralelo só apaga a pergunta quando o servidor aceita o envio.
 - **Zaplaud desktop:** o bate-papo paralelo volta a atualizar a resposta após uma falha de rede.
 - **Zaplaud desktop:** um conflito de envio ou comando não fecha outra conversa aberta enquanto a operação estava em curso.
