@@ -219,16 +219,16 @@ O auxiliar no host (`npm run codex:bridge`) abre sessões omp em `tmux` como `hb
 | `GET /api/agents/:id` | `AgentDetail` (histórico de até 200 atividades) |
 | `GET /api/agents/:id/terminal` | SSE do terminal: eventos `init` e `append` (`TerminalMessage`); só com bind local (ver abaixo) |
 | `GET /api/cast` | `{members}` sem vínculos; acesso local ou pela porta remota após login, com `terminal` em `HABBLAUD_REMOTE_ALLOW` |
-| `GET /api/cast/models` | Catálogo configurado ZeroClaw com aliases e modelo padrão, ou `{provider:'omp',models:[]}`; disponível sem sessão; mesma trava do terminal |
+| `GET /api/cast/models` | Catálogo configurado ZeroClaw com aliases, modelo padrão e `named` quando há [agentes fixos](#zeroclaw-opt-in), ou `{provider:'omp',models:[]}`; disponível sem sessão; mesma trava do terminal |
 | `POST /api/cast` | Cria membro sem `id`; 201, 400 ou 409; mesma trava do terminal |
 | `PUT /api/cast/:id` | Edita membro e atualiza os agentes que o vestem; mesma trava do terminal |
 | `DELETE /api/cast/:id` | Apaga membro e vínculos; agentes voltam ao sorteio; mesma trava do terminal |
 | `PUT /api/agents/:id/cast` | `{cast}` veste um principal; 409 ocupado; mesma trava do terminal |
 | `DELETE /api/agents/:id/cast` | Remove o vínculo e volta ao sorteio; mesma trava do terminal |
-| `POST /api/cast/:id/start` | `{mode: 'new' \| 'resume', prompt?, model?}`: enfileira uma chamada. Nova sessão do omp e ZeroClaw abre em `HABBLAUD_CAST_FOLDER` (caminho absoluto), ou na pasta pessoal do host quando ausente; `resume` sem `session` retoma a conversa mais recente do personagem; com `{session, room, account}` retoma a conversa do histórico na pasta dela. `model` (só ZeroClaw, só conversa nova): alias ou modelo do catálogo, vale para esta conversa no lugar do modelo do personagem; retomar usa o modelo em que a conversa começou. 202, 409 (ocupado ou limite de `HABBLAUD_CAST_MAX` personagens abertos), 422 ou 503; mesma trava do terminal |
+| `POST /api/cast/:id/start` | `{mode: 'new' \| 'resume', prompt?, model?}`: enfileira uma chamada. Nova sessão do OMP ou ZeroClaw abre em `HABBLAUD_CAST_FOLDER` (caminho absoluto), ou na pasta pessoal quando ausente. `resume` sem `session` retoma a conversa mais recente do personagem; com `{session, room, account}`, retoma a conversa do histórico na pasta dela. OMP usa o modelo salvo do personagem e recusa `model` no corpo. ZeroClaw, em conversa nova sem agente fixo, aceita um alias ou identificador exato do catálogo em `model` para substituir o modelo salvo só nesta conversa. Retomar mantém o modelo original. Personagem com agente fixo usa o campo `agent` do perfil, não `model` nem `instructions`. 202, 409 (ocupado ou limite de `HABBLAUD_CAST_MAX`), 422 ou 503; mesma trava do terminal |
 | `POST /api/agents/:id/dismiss` | Enfileira a dispensa de uma sessão aberta pelo Habblaud; mesma trava do terminal |
 | `GET /api/cast/jobs` | `{jobs, available}`: estado das chamadas e disponibilidade do runtime (auxiliar no OMP, conector no ZeroClaw); mesma trava do terminal |
-| `POST /api/cast/new` | `{prompt?, model?}`: agente fora do elenco na mesma pasta padrão configurável do start (`model` como no start); `{room, session, account}` retoma a conversa do histórico; mesmas respostas do start |
+| `POST /api/cast/new` | `{prompt?, model?}`: enfileira uma chamada fora do elenco na mesma pasta padrão de `start`; `{room, session, account}` retoma a conversa do histórico na pasta dela. `model` só é aceito em conversa nova ZeroClaw e deve ser um alias ou identificador exato do catálogo. Mesmas respostas e trava do terminal de `start` |
 | `POST /api/host/cast/poll`, `/api/host/cast/ack` | Auxiliar busca e confirma chamadas e dispensas; somente acesso local |
 | `GET /api/sessions/recent` | `RecentSessionsResponse`: sessões dos últimos 7 dias de todas as contas (até 150); mesma trava do terminal |
 | `GET /api/sessions/:conta/:sessionId/terminal` | SSE da conversa de uma sessão do histórico (mesmo protocolo do terminal); mesma trava |
@@ -239,7 +239,7 @@ O auxiliar no host (`npm run codex:bridge`) abre sessões omp em `tmux` como `hb
 | `GET /api/health` | `{ok, version, demo, docker, remote, terminal, permissions, pty, messages, summaryHttp, codexEvents, ompEvents, semMarca, updates:{state, latest, available}, sources, accounts:[{id, provider?, usageStatus}]}` (`terminal`, `permissions`, `messages` e `summaryHttp` valem para a conexão que perguntou; `pty` nunca vale pela porta remota) |
 | `POST /api/demo` | `{enabled: boolean}` liga/desliga agentes simulados (misturados aos reais) |
 | `POST /api/rooms/rename` | `{id, name}`: renomeia a sala (nome vazio volta ao padrão, o nome da pasta); `200 {name}`, `400`, `404` (sala desconhecida), `403` (terminal desligado ou fora do acesso local); o nome fica em `rooms.json` na pasta de dados |
-| `GET /api/access` | `AccessInfo`: `{remote, local, permissions, messages, messageSessionGuard?, terminal, spawn, world}`: o que esta conexão pode usar (a porta remota só vê o que `HABBLAUD_REMOTE_ALLOW` liberar) |
+| `GET /api/access` | `AccessInfo`: `{remote, local, permissions, messages, messageSessionGuard?, terminal, spawn, world, files}`: o que esta conexão pode usar. `files` só é `true` quando o navegador de arquivos está disponível e a conexão tem autorização `terminal`. Na porta remota, vale `HABBLAUD_REMOTE_ALLOW` |
 | `GET /api/mod/summary?account=&session=` | `ModSummary` para o mod do Claude Code: `{version, agents, working, waiting:[{id, name, room, account, waitingFor, since, answerable}]}`, sem o demo e sem a sessão de quem pergunta (ver abaixo) |
 | `GET /api/updates` | `{version, ...UpdateStatus}`: versão em uso e o resultado da verificação de versão nova (ver abaixo) |
 | `POST /api/updates/check` | "Verificar agora": consulta o GitHub (no máximo uma vez a cada 30 s) e devolve `{version, ...UpdateStatus}` |
@@ -578,7 +578,8 @@ O primeiro principal sem vínculo recebe o membro principal da sala; vínculos e
 omp têm prioridade. Membro ocupado ou fora da sala resulta em sorteio. Advisor do omp e subagentes pelos tipos
 observados usam membros compatíveis. As salas organizam a escolha do personagem: não restringem ferramentas.
 `HABBLAUD_CAST_MAX` (1 a 50; ausente = sem limite) limita quantos personagens o Habblaud mantém abertos ao mesmo
-tempo: sessões `hb-*` e chamadas em andamento contam, quem está sendo dispensado não. No `omp-tenant` vale o número
+tempo: chamadas em andamento contam. No OMP, contam as sessões `hb-*` abertas, exceto se estiverem em dispensa.
+No ZeroClaw, a dispensa ocupa a vaga até o fechamento da sessão. No `omp-tenant` vale o número
 de salas do usuário.
 `HABBLAUD_CAST_FOLDER` (caminho absoluto; ausente = a pasta pessoal) define a pasta das conversas novas do omp e
 ZeroClaw, para personagens e "Novo". Retomar mantém a pasta da conversa.
