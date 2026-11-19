@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ASK_TOOL,
+  answersToFormResult,
   ASK_WAIT_MS,
   askResult,
   askToHabblaud,
@@ -16,6 +17,7 @@ import {
   dialogDetail,
   needsDecision,
   parseInbox,
+  formToQuestions,
   portOf,
   reasonText,
   sideQuestion,
@@ -25,6 +27,8 @@ import {
   type ToolContext,
   type ToolDefinition,
 } from '../../mod/habblaud-omp/habblaud';
+import { ANSWER_OTHER_MAX, checkAnswers } from '../../shared/answers';
+import { describeTool } from '../../shared/activity';
 import { tempDir } from './fixtures';
 
 type Handler = (event: Record<string, unknown>, ctx: OmpContext) => unknown;
@@ -735,6 +739,78 @@ describe('omp extension: modo de decisão', () => {
     const c2 = makeCtx({ hasUI: true });
     off.fire('tool_approval_requested', c2, { toolName: 'bash', approvalMode: 'always-ask' });
     expect(c2.notices).toHaveLength(0);
+  });
+});
+
+const radio = (name = 'store') => `<fieldset><legend>Storage?</legend>
+  <label><input type="radio" name="${name}" value="disk&amp;&quot;"> Disk &#x1F4BE;</label><br>
+  <label><input type=radio name=${name} value=ram checked> Memory</label>
+</fieldset>`;
+const boxes = `<p>Checks?</p>
+  <label><input type="checkbox" name="checks" value="fmt"> Format</label>
+  <label><input type="checkbox" name="checks" value="lint"> Lint</label>`;
+const form = (body: string) => `<form>${body}</form>`;
+
+describe('omp extension: formulários HTML', () => {
+  it('mantém contexto, entidades, valores e "Other" nos grupos de rádio e checkbox', () => {
+    const parsed = formToQuestions(form(`<p>Use local storage.</p><ul><li>No service</li></ul>${radio()}${boxes}`))!;
+    expect(parsed.input.questions).toEqual([
+      { question: 'Use local storage. • No service — Storage?', options: [{ label: 'Disk 💾' }, { label: 'Memory' }], multiSelect: false },
+      { question: 'Checks?', options: [{ label: 'Format' }, { label: 'Lint' }], multiSelect: true },
+    ]);
+    expect(answersToFormResult(parsed.map, [{ question: 0, options: [0] }, { question: 1, options: [1, 0], other: ' smoke ' }])).toEqual({
+      content: [{ type: 'text', text: 'User answers:\n{\n  "store": "disk&\\"",\n  "checks": [\n    "fmt",\n    "lint",\n    "smoke"\n  ]\n}' }],
+      details: { answers: [{ name: 'store', question: 'Storage?', answer: 'Disk 💾' }, { name: 'checks', question: 'Checks?', answer: 'Format, Lint, Other: smoke' }] },
+    });
+    expect(answersToFormResult(parsed.map, [{ question: 0, other: ' cloud ' }])?.details).toEqual({
+      answers: [{ name: 'store', question: 'Storage?', answer: 'Other: cloud' }, { name: 'checks', question: 'Checks?', answer: '' }],
+    });
+    expect(answersToFormResult(parsed.map, [{ question: 1, options: [1] }])?.content[0].text)
+      .toBe('User answers:\n{\n  "checks": [\n    "lint"\n  ]\n}');
+  });
+
+  it('mistura escolhas, texto obrigatório/opcional e textarea; "Outro" de texto é o valor, sem prefixo', () => {
+    const parsed = formToQuestions(form(`${radio()}<label>Name <input type=text name=name required></label>
+      <p>Reference?</p><input type=text name=reference><label>Notes <textarea name=notes></textarea></label>`))!;
+    expect(parsed.input.questions.slice(1)).toEqual(['Name', 'Reference?', 'Notes'].map((question) => ({ question, options: [], multiSelect: false })));
+    const answers = [{ question: 0, options: [1] }, { question: 1, other: 'Ada' }, { question: 2, other: '  ref  ' }, { question: 3, other: 'one\ntwo' }];
+    expect(answersToFormResult(parsed.map, answers)).toEqual({
+      content: [{ type: 'text', text: 'User answers:\n{\n  "store": "ram",\n  "name": "Ada",\n  "reference": "ref",\n  "notes": "one\\ntwo"\n}' }],
+      details: { answers: [
+        { name: 'store', question: 'Storage?', answer: 'Memory' }, { name: 'name', question: 'Name', answer: 'Ada' },
+        { name: 'reference', question: 'reference', answer: 'ref' }, { name: 'notes', question: 'Notes', answer: 'one\ntwo' },
+      ] },
+    });
+    const questions = describeTool(ASK_TOOL, parsed.input).questions!;
+    expect(checkAnswers(questions, answers)).toBeDefined();
+    for (const other of ['   ', 'x'.repeat(ANSWER_OTHER_MAX + 1)]) {
+      const invalid = answers.map((a, i) => (i === 1 ? { question: i, other } : a));
+      expect(checkAnswers(questions, invalid)).toBeUndefined();
+      expect(answersToFormResult(parsed.map, invalid)).toBeUndefined();
+    }
+    expect(checkAnswers(questions, answers.map((a, i) => (i === 1 ? { question: i, other: 'x'.repeat(ANSWER_OTHER_MAX) } : a)))).toBeDefined();
+  });
+
+  it.each([
+    ['select', '<p>List?</p><select name="x"><option>A</option><option>B</option></select>'],
+    ['select múltiplo', '<p>List?</p><select name="x" multiple><option>A</option><option>B</option></select>'],
+    ['opção única', '<p>Check?</p><label><input type=checkbox name=x> One</label>'],
+    ['Other explícito', radio().replace('Memory', 'Other choice')],
+    ['cinco perguntas', Array.from({ length: 5 }, (_, i) => radio(`q${i}`)).join('')],
+    ['sete opções', `<p>Which?</p>${Array.from({ length: 7 }, (_, i) => `<label><input type=radio name=x value=${i}> ${i}</label>`).join('')}`],
+    ['nome repetido entre grupos', radio() + radio()],
+    ['rótulo repetido', radio().replace('Memory', 'Disk 💾')],
+    ['HTML malformado', radio().replace('</label>', '')],
+    ['controle sem nome', '<label>Name <input type=text></label>'],
+    ['imagem', '<img src="item.png">' + radio()],
+    ['contexto longo', `<p>${'x'.repeat(301)}</p>` + radio()],
+    ['script', '<script>noop</script>' + radio()],
+    ['atributo desconhecido', radio().replace('<label>', '<label data-extra="x">')],
+    ['grupo sem pergunta', boxes.replace('<p>Checks?</p>', '')],
+    ...['number', 'date', 'email', 'url'].map((type) => [type, `${radio()}<label>Field <input type=${type} name=x></label>`]),
+    ...['pattern=".*"', 'min="5"', 'max="5"', 'minlength="2"', 'maxlength="1999"'].map((attrs) => [attrs, `<label>Field <input name=x ${attrs}></label>`]),
+  ])('mantém só no terminal: %s', (_name, body) => {
+    expect(formToQuestions(form(body))).toBeUndefined();
   });
 });
 

@@ -388,10 +388,265 @@ function askQuestions(params: unknown): AskQuestion[] | undefined {
   return out;
 }
 
+type AskCard = { questions: Array<{ question: string; header?: string; options: AskQuestion['options']; multiSelect: boolean }> };
+
 /** A chamada do `ask` no formato do AskUserQuestion do Claude Code (o que o cartão de pergunta do escritório lê). */
-export function askToHabblaud(params: unknown): { questions: Array<{ question: string; header?: string; options: AskQuestion['options']; multiSelect: boolean }> } | undefined {
+export function askToHabblaud(params: unknown): AskCard | undefined {
   const qs = askQuestions(params);
   return qs && { questions: qs.map((q) => ({ question: q.question, ...(q.header ? { header: q.header } : {}), options: q.options, multiSelect: q.multi })) };
+}
+
+type FormField = {
+  name: string;
+  question: string;
+  type: 'radio' | 'checkbox' | 'text' | 'textarea';
+  required: boolean;
+  options: Array<{ label: string; value: string }>;
+};
+type FormNode = { tag: string; attrs: Record<string, string>; children: Array<FormNode | string> };
+
+// Limites do contrato do cartão (shared/activity.ts e shared/answers.ts).
+const FORM_OTHER_MAX = 2_000;
+const FORM_ATTRS: Record<string, readonly string[]> = {
+  form: [], fieldset: [], legend: [], p: [], ul: [], ol: [], li: [], label: [],
+  br: [], span: [], strong: [], b: [], em: [], i: [], code: [],
+  input: ['type', 'name', 'value', 'checked', 'required', 'placeholder', 'maxlength'],
+  textarea: ['name', 'required', 'placeholder', 'maxlength', 'rows'],
+};
+const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: '\u00a0' };
+const oneline = (text: string) => text.replace(/\s+/g, ' ').trim();
+
+/** Leitor de um subconjunto fechado do HTML do ask. Não resolve referências externas nem executa código. */
+function readAskForm(html: string): FormNode | undefined {
+  if (html.length > 32_768 || /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(html)) return undefined;
+  const root: FormNode = { tag: '', attrs: {}, children: [] };
+  const stack = [root];
+  let unknownEntity = false;
+  const decode = (text: string) => text.replace(/&(#(?:x[0-9a-f]+|\d+)|[a-z][a-z0-9]+);/gi, (raw, entity: string) => {
+    if (entity[0] === '#') {
+      const hex = entity[1]?.toLowerCase() === 'x';
+      const point = Number.parseInt(entity.slice(hex ? 2 : 1), hex ? 16 : 10);
+      if (point > 0 && point <= 0x10ffff && !(point >= 0xd800 && point <= 0xdfff)) return String.fromCodePoint(point);
+    } else if (Object.hasOwn(ENTITIES, entity.toLowerCase())) {
+      return ENTITIES[entity.toLowerCase()];
+    }
+    unknownEntity = true;
+    return raw;
+  });
+  const open = /<([a-z][a-z0-9-]*)/iy;
+  const close = /<\/([a-z][a-z0-9-]*)[ \t\r\n\f]*>/iy;
+  const end = /[ \t\r\n\f]*(\/?)>/y;
+  const attr = /[ \t\r\n\f]+([a-z][a-z0-9-]*)(?:[ \t\r\n\f]*=[ \t\r\n\f]*(?:"([^"<]*)"|'([^'<]*)'|([^ \t\r\n\f"'`=<>]+)))?/iy;
+  let at = 0;
+  while (at < html.length) {
+    const parent = stack[stack.length - 1];
+    if (html[at] !== '<') {
+      const next = html.indexOf('<', at);
+      const text = decode(html.slice(at, next < 0 ? html.length : next));
+      parent.children.push(text);
+      at = next < 0 ? html.length : next;
+      continue;
+    }
+    close.lastIndex = at;
+    const closing = close.exec(html);
+    if (closing) {
+      if (parent.tag !== closing[1].toLowerCase()) return undefined;
+      stack.pop();
+      at = close.lastIndex;
+      continue;
+    }
+    open.lastIndex = at;
+    const opening = open.exec(html);
+    if (!opening) return undefined;
+    const tag = opening[1].toLowerCase();
+    if (!Object.hasOwn(FORM_ATTRS, tag)) return undefined;
+    const attrs: FormNode['attrs'] = Object.create(null);
+    at = open.lastIndex;
+    end.lastIndex = at;
+    let tail = end.exec(html);
+    while (!tail) {
+      attr.lastIndex = at;
+      const pair = attr.exec(html);
+      if (!pair) return undefined;
+      const [, raw, double, single, bare] = pair;
+      const name = raw.toLowerCase();
+      const value = double ?? single ?? bare;
+      if (bare?.endsWith('/') && html[attr.lastIndex] === '>') return undefined;
+      if (!FORM_ATTRS[tag].includes(name) || Object.hasOwn(attrs, name)) return undefined;
+      if (value === undefined && name !== 'required' && name !== 'checked') return undefined;
+      attrs[name] = decode(value ?? '');
+      at = end.lastIndex = attr.lastIndex;
+      tail = end.exec(html);
+    }
+    at = end.lastIndex;
+    const node = { tag, attrs, children: [] };
+    parent.children.push(node);
+    if (tag !== 'input' && tag !== 'br') {
+      if (tail[1] || stack.length >= 16) return undefined;
+      stack.push(node);
+    }
+  }
+  const nodes = root.children.filter((node) => typeof node !== 'string' || node.trim());
+  const form = nodes[0];
+  return stack.length === 1 && !unknownEntity && nodes.length === 1 && typeof form === 'object' && form.tag === 'form' ? form : undefined;
+}
+
+/** Texto inline sem interação. Uma marca de quebra é espaço, como no resumo do omp. */
+function formText(nodes: FormNode['children']): string | undefined {
+  let text = '';
+  for (const node of nodes) {
+    if (typeof node === 'string') text += node;
+    else if (node.tag === 'br') text += ' ';
+    else if (['span', 'strong', 'b', 'em', 'i', 'code'].includes(node.tag)) {
+      const inner = formText(node.children);
+      if (inner === undefined) return undefined;
+      text += inner;
+    } else return undefined;
+  }
+  return text;
+}
+
+/** A projeção é conservadora: se o cartão não puder mostrar o contexto ou aceitar só respostas válidas, fica o nativo. */
+export function formToQuestions(html: string): { input: AskCard; map: FormField[] } | undefined {
+  const form = readAskForm(html);
+  if (!form) return undefined;
+  const map: FormField[] = [];
+  const questions: AskCard['questions'] = [];
+  const context: string[] = [];
+  const names = new Set<string>();
+
+  function section(nodes: FormNode['children'], legend = ''): boolean {
+    let lastGroup: FormField | undefined;
+    let caption = '';
+    for (const node of nodes) {
+      if (typeof node === 'string') {
+        if (node.trim()) return false;
+        continue;
+      }
+      if (node.tag === 'br') continue;
+      if (node.tag === 'fieldset') {
+        if (legend) return false;
+        const [title, ...body] = node.children.filter((child) => typeof child !== 'string' || child.trim());
+        const heading = typeof title === 'object' && title.tag === 'legend' ? formText(title.children) : undefined;
+        const before = map.length;
+        if (!heading || !oneline(heading) || !section(body, oneline(heading))) return false;
+        if (map.length === before) return false;
+        caption = '';
+        lastGroup = undefined;
+        continue;
+      }
+      if (node.tag === 'p' || node.tag === 'ul' || node.tag === 'ol') {
+        if (node.tag === 'p') {
+          const text = formText(node.children);
+          if (text === undefined) return false;
+          caption = oneline(text);
+        } else {
+          const items = node.children.filter((child) => typeof child !== 'string' || child.trim());
+          const parts: string[] = [];
+          for (const item of items) {
+            if (typeof item === 'string' || item.tag !== 'li') return false;
+            const text = formText(item.children);
+            if (!text || !oneline(text)) return false;
+            parts.push(`${node.tag === 'ul' ? '•' : `${parts.length + 1}.`} ${oneline(text)}`);
+          }
+          if (!parts.length) return false;
+          context.push(parts.join(' '));
+          caption = '';
+        }
+        if (caption) context.push(caption);
+        lastGroup = undefined;
+        continue;
+      }
+
+      let control = node;
+      let label = '';
+      if (node.tag === 'label') {
+        const position = node.children.findIndex((child) => typeof child !== 'string' && (child.tag === 'input' || child.tag === 'textarea'));
+        if (position < 0) return false;
+        control = node.children[position] as FormNode;
+        const text = formText(node.children.filter((_, i) => i !== position));
+        if (text === undefined) return false;
+        label = oneline(text);
+      }
+      if (control.tag !== 'input' && control.tag !== 'textarea') return false;
+      const { name, value, placeholder, maxlength } = control.attrs;
+      if (!name?.trim() || /[\x00-\x20\x7f]/.test(name) || Object.hasOwn(Object.prototype, name)) return false;
+      const type = control.tag === 'textarea' ? 'textarea' : (control.attrs.type ?? 'text').toLowerCase();
+      if (type !== 'radio' && type !== 'checkbox' && type !== 'text' && type !== 'textarea') return false;
+      if (type === 'textarea' && control.tag !== 'textarea') return false;
+      const choice = type === 'radio' || type === 'checkbox';
+      const required = Object.hasOwn(control.attrs, 'required');
+      if (choice) {
+        if (!label || label.length > 80 || /^\s*other\b/i.test(label) || placeholder !== undefined || maxlength !== undefined) return false;
+      } else if (Object.hasOwn(control.attrs, 'checked') || (maxlength !== undefined && !(/^\d+$/.test(maxlength) && Number.isSafeInteger(Number(maxlength)) && Number(maxlength) >= FORM_OTHER_MAX))) return false;
+
+      const option = { label, value: value ?? 'on' };
+      if (choice && lastGroup?.name === name && lastGroup.type === type) {
+        if (lastGroup.options.length >= 6 || lastGroup.options.some((o) => o.label === label)) return false;
+        lastGroup.options.push(option);
+        lastGroup.required ||= required;
+        questions[questions.length - 1].options.push({ label });
+        continue;
+      }
+      if (names.has(name) || map.length >= 4) return false;
+      const question = choice ? caption || legend : label || oneline(name.replace(/[_-]+/g, ' '));
+      if (!question || (choice && !caption && !legend)) return false;
+      if (caption && question === caption) context.pop();
+      if (legend && question !== legend && !context.includes(legend)) context.unshift(legend);
+      if (!choice) {
+        if (control.children.some((child) => typeof child !== 'string')) return false;
+        const preset = type === 'textarea' ? control.children.join('').replace(/^\r?\n/, '') : value;
+        if ([placeholder, preset].some((text) => text && (!oneline(text) || /[\r\n]/.test(text)))) return false;
+        if (placeholder) context.push(oneline(placeholder));
+        if (preset) context.push(oneline(preset));
+      }
+      names.add(name);
+      const displayQuestion = !choice && !label && caption && context.at(-1) === caption ? context.pop()! : question;
+      const cardQuestion = context.length ? `${context.join(' ')} — ${displayQuestion}` : displayQuestion;
+      if (cardQuestion.length > 300) return false;
+      context.length = 0;
+      caption = '';
+      const field = { name, question, type, required, options: choice ? [option] : [] };
+      map.push(field);
+      questions.push({ question: cardQuestion, multiSelect: type === 'checkbox', options: choice ? [{ label }] : [] });
+      lastGroup = choice ? field : undefined;
+    }
+    return true;
+  }
+
+  if (!section(form.children) || !map.length || map.some((field) => field.options.length === 1)) return undefined;
+  if (context.length) {
+    const last = questions[questions.length - 1];
+    last.question += ` — ${context.join(' ')}`;
+    if (last.question.length > 300) return undefined;
+  }
+  return { input: { questions }, map };
+}
+
+/** Mesmo JSON e resumo de `ask` HTML do omp, sem inventar notas nem marcar prazo esgotado. */
+export function answersToFormResult(map: readonly FormField[], answers: readonly AskAnswer[]): AskToolResult | undefined {
+  const byIndex = new Map(answers.map((a) => [a.question, a]));
+  if (byIndex.size !== answers.length || answers.some((a) => !map[a.question])) return undefined;
+  const data: Record<string, string | string[]> = Object.create(null);
+  const details: Array<{ name: string; question: string; answer: string }> = [];
+  for (const [index, field] of map.entries()) {
+    const submitted = byIndex.get(index);
+    const other = submitted?.other?.trim();
+    if (submitted?.other !== undefined && (!other || other.length > FORM_OTHER_MAX)) return undefined;
+    if (other && (field.type === 'textarea' ? /[\x00-\x08\x0b-\x1f\x7f]/ : /[\x00-\x1f\x7f]/).test(other)) return undefined;
+    const picked = submitted?.options ?? [];
+    if (new Set(picked).size !== picked.length || picked.some((i) => !field.options[i])) return undefined;
+    const values = field.options.flatMap(({ value }, i) => picked.includes(i) ? [value] : []);
+    if (other) values.push(other);
+    if ((field.type !== 'checkbox' && values.length > 1) || (field.required && !values.length)) return undefined;
+    const choice = field.type === 'radio' || field.type === 'checkbox';
+    if (!choice && !other) return undefined;
+    if (field.type === 'checkbox') data[field.name] = values;
+    else if (values.length) data[field.name] = values[0];
+    const answer = choice ? values.map((v) => field.options.find((o) => o.value === v)?.label ?? `Other: ${v}`).join(', ') : other!;
+    details.push({ name: field.name, question: field.question, answer });
+  }
+  return { content: [{ type: 'text', text: `User answers:\n${JSON.stringify(data, null, 2)}` }], details: { answers: details } };
 }
 
 /** Texto com mais de uma linha recuado embaixo do rótulo, como no `ask` do omp. */
