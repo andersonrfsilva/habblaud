@@ -15,19 +15,12 @@ private val LocalPresenter = staticCompositionLocalOf<UIViewController> { error(
 fun MainViewController(): UIViewController {
     lateinit var controller: UIViewController
     controller = ComposeUIViewController {
-    var foreground by remember { mutableStateOf(UIApplication.sharedApplication.applicationState != UIApplicationState.UIApplicationStateBackground) }
-    DisposableEffect(Unit) {
-        val center = NSNotificationCenter.defaultCenter
-        val stopped = center.addObserverForName(UIApplicationDidEnterBackgroundNotification, null, NSOperationQueue.mainQueue) { foreground = false }
-        val started = center.addObserverForName(UIApplicationWillEnterForegroundNotification, null, NSOperationQueue.mainQueue) { foreground = true }
-        onDispose { center.removeObserver(stopped); center.removeObserver(started) }
-    }
-    CompositionLocalProvider(
-        LocalPresenter provides controller,
-        LocalNotificationPlatform provides NotificationPlatform(false, {}, {}, { _, _ -> error("Notifications are unavailable on iOS") }),
-    ) {
-        if (foreground) ZaplaudApp()
-    }
+        CompositionLocalProvider(
+            LocalPresenter provides controller,
+            LocalNotificationPlatform provides NotificationPlatform(false, {}, {}, { _, _ -> error("Notifications are unavailable on iOS") }),
+        ) {
+            ZaplaudApp()
+        }
     }
     return controller
 }
@@ -62,12 +55,20 @@ actual fun platformSendsOnEnter(): Boolean = false
     val delegate = remember {
         object : NSObject(), UIDocumentPickerDelegateProtocol {
             override fun documentPicker(controller: UIDocumentPickerViewController, didPickDocumentsAtURLs: List<*>) {
-                val tokens = retainPickedDocuments(didPickDocumentsAtURLs.filterIsInstance<NSURL>())
-                pendingTokens.addAll(tokens)
-                try { callback(tokens) }
-                catch (error: Throwable) { discardPickedDocuments(tokens); pendingTokens.removeAll(tokens.toSet()); throw error }
+                var tokens = emptyList<String>()
+                try {
+                    tokens = retainPickedDocuments(didPickDocumentsAtURLs.filterIsInstance<NSURL>())
+                    pendingTokens.addAll(tokens)
+                    callback(tokens)
+                } catch (_: Throwable) {
+                    runCatching { discardPickedDocuments(tokens) }
+                    pendingTokens.removeAll(tokens)
+                    runCatching { callback(emptyList()) }
+                }
             }
-            override fun documentPickerWasCancelled(controller: UIDocumentPickerViewController) { callback(emptyList()) }
+            override fun documentPickerWasCancelled(controller: UIDocumentPickerViewController) {
+                runCatching { callback(emptyList()) }
+            }
         }
     }
     return {

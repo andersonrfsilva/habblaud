@@ -18,7 +18,7 @@ vai para a tabela abaixo, com o motivo. Textos ficam em `android/shared/src/comm
 
 | Recurso | Kotlin | Rust | Observação |
 |---|---|---|---|
-| Login, vários servidores, relogin por servidor | sim | sim | |
+| Login, vários servidores, relogin por servidor | sim | sim | iPad: trocar temporariamente de app preserva a tela e os campos de login digitados. |
 | Abertura da lista sem esperar a resposta dos servidores | sim | sim | Ambos consultam os servidores em paralelo. Pendente no Rust: mostrar «Entrar de novo» imediatamente quando não há cookie local, sem esperar um 401. |
 | Lista: abertas/recentes, busca, filtro por servidor, não lidas, subagentes | sim | sim | Ambos releem Recentes quando uma sessão some do snapshot e não está no histórico. |
 | Fixar e favoritar sessões, com filtro Favoritas | sim | sim | marcas independentes e locais; fixadas primeiro dentro dos filtros, por atividade; remoção do servidor limpa só suas marcas |
@@ -26,7 +26,7 @@ vai para a tabela abaixo, com o motivo. Textos ficam em `android/shared/src/comm
 | Resposta aberta e posição de leitura preservadas ao sair e voltar | sim | sim | estado local por conversa; rolar cancela a restauração; quem saiu acompanhando o fim volta ao fim |
 | Cache de conversas com teto de espaço | Android: sim (64 MiB); iPad: **pendente** | **pendente** (limite de 500 entradas por conversa, sem teto total) | Conversas removidas do cache são baixadas de novo ao abrir. Kotlin agrupa mudanças em janelas fixas de 3 s. Rust grava expansões na hora e reinicia o prazo de gravação nas demais mudanças. |
 | Duas colunas a partir de 840 dp, conversa usando a largura toda | sim | sim | celular: uma coluna |
-| Compositor: rascunho, anexos, modos de envio, interrupção, anel de contexto, shake | sim | sim | Rust: sem arrastar arquivos para a janela (Slint 1.18) |
+| Compositor: rascunho, anexos, modos de envio, interrupção, anel de contexto, shake | sim | sim | iPad: o seletor nativo permite marcar mais de cinco arquivos, mas o app recusa a seleção com um aviso. Rust: sem arrastar arquivos para a janela (Slint 1.18). |
 | Aprovação e perguntas, com resumo `text` e entrada não textual em JSON | sim | sim | Kotlin rola na horizontal; Rust quebra a linha e mostra "mais N linhas" |
 | Folha de permissão fica aberta durante o envio da decisão | sim | sim | Enquanto envia, botão Cancelar, Esc e clique fora não fecham a folha. |
 | Chamar personagem (também com conversa aberta em tela larga), dispensar, retomar | sim | sim | Sessões novas ignoram a pasta aberta e usam `HABBLAUD_CAST_FOLDER` ou, se ausente, a pasta pessoal. Retomar mantém a pasta da conversa retomada. |

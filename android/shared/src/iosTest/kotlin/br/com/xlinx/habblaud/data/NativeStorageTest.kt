@@ -232,6 +232,27 @@ class NativeStorageTest {
     }
 
     @Test
+    fun retainingMoreThanLimitDoesNotThrow() {
+        val directory = NSTemporaryDirectory() + "zaplaud-native-${NSUUID().UUIDString}"
+        check(NSFileManager.defaultManager.createDirectoryAtPath(directory, true, null, null))
+        try {
+            val urls = List(MAX_ATTACHMENTS + 2) { index ->
+                val path = "$directory/$index.txt"
+                protectedWrite(path, "document $index")
+                NSURL.fileURLWithPath(path)
+            }
+            val tokens = retainPickedDocuments(listOf(urls.first()) + urls)
+            try {
+                assertEquals(MAX_ATTACHMENTS + 1, tokens.size)
+            } finally {
+                discardPickedDocuments(tokens)
+            }
+        } finally {
+            NSFileManager.defaultManager.removeItemAtPath(directory, null)
+        }
+    }
+
+    @Test
     fun documentCopyRejectsEmptyOversizeAndSixthSelection() = runBlocking {
         val directory = NSTemporaryDirectory() + "zaplaud-native-${NSUUID().UUIDString}"
         check(NSFileManager.defaultManager.createDirectoryAtPath(directory, true, null, null))

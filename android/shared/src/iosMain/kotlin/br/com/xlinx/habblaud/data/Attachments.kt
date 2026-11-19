@@ -28,8 +28,8 @@ fun registerPickedDocument(url: NSURL): String {
     return token
 }
 fun retainPickedDocuments(urls: List<NSURL>): List<String> {
-    val selected = urls.distinctBy { it.absoluteString }
-    checkAttachmentCount(0, selected.size)
+    // Keep one extra token so select() rejects the whole selection instead of silently accepting five.
+    val selected = urls.asSequence().distinctBy { it.absoluteString }.take(MAX_ATTACHMENTS + 1)
     val retained = mutableListOf<String>()
     try {
         selected.forEach { retained += registerPickedDocument(it) }

@@ -179,6 +179,8 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Zaplaud iPad:** selecionar mais de cinco arquivos mostra um aviso de anexo, sem fechar o app.
+- **Zaplaud iPad:** trocar de app e voltar mantém a tela aberta e os campos de login já preenchidos.
 - **Zaplaud desktop:** o cliente preserva o erro HTTP (acesso bloqueado, sessão inexistente ou erro interno) quando a conexão cai durante a leitura do corpo, em vez de classificar a resposta como falha de rede.
 - **Zaplaud (Android e iOS):** uma queda durante a resposta do stream não oculta o erro do servidor nem impede o pedido de novo login quando a sessão vence.
 - **Zaplaud desktop:** trocar de conversa logo depois de rolar não altera mais o ponto de leitura da outra conversa.
