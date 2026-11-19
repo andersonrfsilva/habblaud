@@ -30,8 +30,8 @@ This is the [andersonrfsilva/habblaud](https://github.com/andersonrfsilva/habbla
 runtime, and native Zaplaud clients. Technical guides, currently in Portuguese:
 
 - [Server, configuration and integration contracts](server/README.md).
-- Zaplaud: [Android and iPadOS](README.pt-BR.md#aplicativo-android-zaplaud), [Rust desktop](zaplaud-rs/README.md)
-  and [desktop installation](zaplaud-rs/packaging/README.md).
+- Zaplaud: [Android](README.pt-BR.md#aplicativo-android-zaplaud), [iPadOS](README.pt-BR.md#aplicativo-ipados-zaplaud),
+  [Rust desktop](zaplaud-rs/README.md) and [desktop installation](zaplaud-rs/packaging/README.md).
 - [Client capabilities and validation limits](docs/zaplaud-paridade.md).
 - [Documentation review plans and their implementation status](plans/README.md).
 
@@ -53,6 +53,8 @@ conversation content. Some integrations use tokens supplied by the operator. See
 - [What it looks like](#what-it-looks-like)
 - [Installation](#installation)
 - [How to use](#how-to-use)
+- [Zaplaud for Android](#zaplaud-for-android)
+- [Zaplaud for iPadOS](#zaplaud-for-ipados)
 - [Accounts and usage (5-hour and weekly)](#accounts-and-usage-5-hour-and-weekly)
 - [Configuration](#configuration)
 - [Habblaud World](#habblaud-world)
@@ -252,6 +254,19 @@ npm run omp:status         # confere
 ```
 
 The extension applies to omp sessions opened **after** the installation. See [omp (oh-my-pi)](#omp-oh-my-pi).
+
+### Zaplaud for Android
+
+Zaplaud for Android 8.0 or later gives you a session list and conversations without the office view. Connect to the
+server's remote port and sign in; access to conversation history, sending messages and replying to approvals depends
+on server permissions. Android can show notifications while the app is in the background if Android allows them.
+See the [Android guide in Portuguese](README.pt-BR.md#aplicativo-android-zaplaud).
+
+### Zaplaud for iPadOS
+
+Zaplaud for iPad runs in the foreground only and does not send notifications. CI builds and tests it in the
+simulator and produces an unsigned IPA. Installation and re-signing on a physical iPad have not been validated.
+See the [iPadOS guide in Portuguese](README.pt-BR.md#aplicativo-ipados-zaplaud).
 
 ### Desktop (Linux and macOS)
 
