@@ -123,10 +123,12 @@ component EntryBubble inherits Rectangle {
         }
     }
     function capture-anchor(generation: int) {
-        ConversationViewState.anchor-entry = root.entry.entry-id;
-        ConversationViewState.anchor-row = root.entry.id;
-        ConversationViewState.anchor-offset = root.y + ConversationViewState.scroll-y;
-        ConversationViewState.reading-position(generation, root.entry.entry-id, root.entry.id, ConversationViewState.anchor-offset / 1px, ConversationViewState.following);
+        if generation == ConversationViewState.reading-generation {
+            ConversationViewState.anchor-entry = root.entry.entry-id;
+            ConversationViewState.anchor-row = root.entry.id;
+            ConversationViewState.anchor-offset = root.y + ConversationViewState.scroll-y;
+            ConversationViewState.reading-position(generation, root.entry.entry-id, root.entry.id, ConversationViewState.anchor-offset / 1px, ConversationViewState.following);
+        }
     }
     init => { ConversationViewState.observe(root.entry.entry-id); }
     changed entry => { ConversationViewState.observe(root.entry.entry-id); }
@@ -293,9 +295,12 @@ export component ConversationView inherits Rectangle {
         interval: 16ms;
         running: ConversationViewState.capture-pending;
         triggered => {
-            ConversationViewState.capture-generation = ConversationViewState.pending-capture-generation;
+            let generation = ConversationViewState.pending-capture-generation;
             ConversationViewState.capture-pending = false;
-            ConversationViewState.capture-request += 1;
+            if generation == ConversationViewState.reading-generation {
+                ConversationViewState.capture-generation = generation;
+                ConversationViewState.capture-request += 1;
+            }
         }
     }
     scroll-settle := Timer {
@@ -305,7 +310,8 @@ export component ConversationView inherits Rectangle {
         triggered => {
             self.stop();
             messages.scroll-from-end = false;
-            if ConversationViewState.rows.length > 0 && !ConversationViewState.restore-pending && ConversationViewState.anchor-ticks == 0
+            if messages.scroll-generation == ConversationViewState.reading-generation
+                && ConversationViewState.rows.length > 0 && !ConversationViewState.restore-pending && ConversationViewState.anchor-ticks == 0
                 && (ConversationViewState.following || messages.content-y <= messages.end-y + 2px) {
                 ConversationViewState.following = true;
                 messages.content-y = messages.end-y;
@@ -380,17 +386,21 @@ export component ConversationView inherits Rectangle {
                 property <int> scroll-generation;
                 changed end-y => { if ConversationViewState.following && !self.scroll-from-end { self.content-y = self.end-y; } }
                 changed content-y => {
-                    ConversationViewState.scroll-y = self.content-y;
-                    if self.scroll-from-end {
-                        if self.content-y > self.end-y + 2px {
-                            self.scroll-from-end = false;
-                            ConversationViewState.following = false;
-                            ConversationViewState.position(self.scroll-generation, false);
-                            root.request-capture(self.scroll-generation);
+                    if self.scroll-from-end && self.scroll-generation != ConversationViewState.reading-generation {
+                        self.scroll-from-end = false;
+                    } else {
+                        ConversationViewState.scroll-y = self.content-y;
+                        if self.scroll-from-end {
+                            if self.content-y > self.end-y + 2px {
+                                self.scroll-from-end = false;
+                                ConversationViewState.following = false;
+                                ConversationViewState.position(self.scroll-generation, false);
+                                root.request-capture(self.scroll-generation);
+                            }
+                        } else if ConversationViewState.following && self.content-y > self.end-y + 1px {
+                            // A lista virtual pode deslocar a janela medida sem alterar a altura total estimada.
+                            self.content-y = self.end-y;
                         }
-                    } else if ConversationViewState.following && self.content-y > self.end-y + 1px {
-                        // A lista virtual pode deslocar a janela medida sem alterar a altura total estimada.
-                        self.content-y = self.end-y;
                     }
                 }
                 scrolled => {
