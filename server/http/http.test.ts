@@ -284,8 +284,10 @@ describe('agentes fixos: persona e Telegram', () => {
       expect((await put(env.base, 'telegram', { token, peers: ['646407890'] })).status).toBe(200);
       const directory = join(env.dir, 'telegram');
       const file = join(directory, 'tiopatinhas.json');
-      expect(statSync(directory).mode & 0o777).toBe(0o700);
-      expect(statSync(file).mode & 0o777).toBe(0o600);
+      if (process.platform !== 'win32') {
+        expect(statSync(directory).mode & 0o777).toBe(0o700);
+        expect(statSync(file).mode & 0o777).toBe(0o600);
+      }
       expect(readdirSync(directory)).toEqual(['tiopatinhas.json']);
       expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ token, peers: ['646407890'] });
       const response = await (await fetch(`${env.base}/api/cast/pato/telegram`)).text();
