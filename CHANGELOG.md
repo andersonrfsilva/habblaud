@@ -14,6 +14,7 @@ do meio (0.**3**.0).
 
 - A integração com o Antigravity CLI foi removida e não é mais suportada.
 - **Zaplaud:** o bate-papo paralelo não abre mais pela puxada no fim da conversa; abre só pelo menu.
+- **Zaplaud:** Desktop Compose (`android/desktop` e o alvo JVM do código compartilhado) removido; o desktop do Zaplaud é o cliente Rust.
 
 ### Adicionado
 

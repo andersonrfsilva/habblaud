@@ -107,6 +107,9 @@ class FixtureUiInstrumentedTest {
     private fun text(id: Int) = context.getString(id)
     private fun awaitDescription(id: Int) = compose.waitUntil(15_000) { compose.onAllNodes(androidx.compose.ui.test.hasContentDescription(text(id))).fetchSemanticsNodes(atLeastOneRootRequired = false).isNotEmpty() }
     private fun await(id: Int) = compose.waitUntil(15_000) { compose.onAllNodes(hasText(text(id))).fetchSemanticsNodes(atLeastOneRootRequired = false).isNotEmpty() }
+    private val sessionRow = SemanticsMatcher("session-row tag") {
+        it.config.getOrNull(SemanticsProperties.TestTag)?.startsWith("session-row:") == true
+    }
 
     @Before fun prepare() {
         check(InstrumentationRegistry.getArguments().getString("fixture") == "true") {
@@ -264,6 +267,20 @@ class FixtureUiInstrumentedTest {
         compose.onNodeWithText(text(R.string.open_sessions)).assertIsDisplayed()
         pressBack()
         compose.waitUntil(15_000) { scenario?.state == androidx.lifecycle.Lifecycle.State.DESTROYED }
+    }
+
+    @Test fun conversationReplacesListOnNarrowScreen() {
+        resizeDisplay("400x800")
+        runBlocking { LocalStateStore(context).setLastSession(null) }
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        compose.waitUntil(15_000) {
+            compose.onAllNodes(sessionRow).fetchSemanticsNodes(atLeastOneRootRequired = false).isNotEmpty()
+        }
+        compose.onAllNodes(sessionRow)[0].performClick()
+        compose.waitUntil(15_000) { compose.onAllNodesWithTag("conversation-list").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("conversation-list").assertIsDisplayed()
+        compose.onAllNodes(sessionRow).assertCountEquals(0)
+        compose.onNodeWithContentDescription(text(R.string.cast_start)).assertDoesNotExist()
     }
 
     @Test fun imeDraftSurvivesRecreationRotationAndLargeFont() {
@@ -760,7 +777,7 @@ class FixtureUiInstrumentedTest {
         compose.onNodeWithText(text(R.string.deliver_mode)).assertIsDisplayed()
     }
 
-    @Test fun tabletKeepsCastAndUsesFullConversationWidth() {
+    private fun resizeDisplay(size: String) {
         val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
         fun shell(command: String): String =
             android.os.ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(command)).use { it.readBytes().decodeToString().trim() }
@@ -772,11 +789,24 @@ class FixtureUiInstrumentedTest {
             shell("wm user-rotation lock $angle")
             shell("wm user-rotation $rotation")
         }
+        shell("wm size $size")
+        shell("wm density 160")
+    }
+
+    @Test fun tabletKeepsCastAndUsesFullConversationWidth() {
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        // Mesmo girado, o AVD tem ao menos 1600 dp de largura: a conversa deve ultrapassar os antigos 840 dp.
+        resizeDisplay("1920x1600")
         run {
-            // Mesmo girado, o AVD tem ao menos 1600 dp de largura: a conversa deve ultrapassar os antigos 840 dp.
-            shell("wm size 1920x1600")
-            shell("wm density 160")
             scenario = ActivityScenario.launch(MainActivity::class.java)
+            await(R.string.message_text)
+            compose.waitUntil(15_000) { compose.onAllNodes(sessionRow).fetchSemanticsNodes().isNotEmpty() }
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(
+                automation.executeShellCommand("input keyevent KEYCODE_BACK")
+            ).use { it.readBytes() }
+            compose.waitUntil(15_000) { compose.onAllNodes(hasText("Selecione uma conversa")).fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("conversation-list").assertDoesNotExist()
+            compose.onNodeWithTag("session-row:${key.provider}:${key.sessionId}").performClick()
             await(R.string.message_text)
             awaitDescription(R.string.cast_start)
             compose.onNodeWithContentDescription(text(R.string.cast_start)).assertIsDisplayed()

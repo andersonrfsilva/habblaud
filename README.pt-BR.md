@@ -415,7 +415,6 @@ conversas permanecem no servidor.
 ### Desktop (Linux e macOS)
 
 O desktop do Zaplaud é o cliente nativo em Rust. Veja o [guia do Zaplaud desktop](zaplaud-rs/README.md).
-O cliente desktop Compose está **obsoleto** e permanece no repositório sem suporte.
 
 ### Aplicativo iPadOS (Zaplaud; validação pendente)
 

@@ -68,9 +68,9 @@ Os redutores `rules::{composer,aside,permission}::reduce(State, Event) -> (State
 
 Datas recebem `now` explicitamente; os helpers `*_in` aceitam um fuso para testes determinísticos. Horários fora da faixa representável pelo Chrono retornam `None`, nunca consultam o relógio para substituir a entrada. `conversation::summary_text` retorna unidades UTF-16 para preservar exatamente o corte Kotlin de 32768 unidades, inclusive um surrogate final. A ponte deve codificar esse vetor como string JSON com escapes UTF-16, sem corte por bytes.
 
-`attachments::guess_mime` recebe a base MIME da plataforma: o JVM usa `Files.probeContentType`, cujo resultado depende do sistema operacional. Não existe uma allowlist MIME Kotlin para copiar. A regra usa a extensão sem diferenciar maiúsculas e retorna `application/octet-stream` quando desconhecida.
+`attachments::guess_mime` recebe a base MIME da plataforma, usa a extensão sem diferenciar maiúsculas e retorna `application/octet-stream` quando desconhecida. Não há allowlist MIME Kotlin. As amostras históricas do desktop JVM foram obtidas com `Files.probeContentType`, cujo resultado dependia do sistema operacional.
 
-Os goldens em `crates/zaplaud-core/tests/golden/` foram produzidos executando as funções Kotlin reais em um teste JVM temporário, com `./gradlew :shared:jvmTest --tests br.com.xlinx.habblaud.RustRulesGoldenTest --max-workers=4`. Entradas: os três JSON de `tests/fixtures`; saídas: filtros/agrupamento e transições de notificações. `platform-kotlin.json` também fixa o formato pt-BR e amostras MIME do JVM Linux. O teste temporário e `local.properties` não fazem parte do código entregue.
+Os goldens em `crates/zaplaud-core/tests/golden/` foram produzidos executando as funções Kotlin reais em um teste JVM temporário. Entradas: os três JSON de `tests/fixtures`; saídas: filtros/agrupamento e transições de notificações. `platform-kotlin.json` também fixa o formato pt-BR e amostras MIME do JVM Linux.
 
 ## Recursos gerados
 
@@ -80,11 +80,11 @@ Não copie textos, cores ou paths vetoriais à mão para a UI. Preserve escapes 
 
 A fonte `ui/fonts/NotoSansMono-Regular.ttf` é importada pelo Slint para o Markdown monoespaçado; sua licença acompanha o arquivo. A geração conserva `ui/native-strings.xml`, os recursos do compositor e o ícone ARGB da bandeja; fontes e textos nativos permanecem sob a entrada `ui` observada pelo build.
 
-Os ícones `Icons.Default` não existem nos XML Kotlin. `scripts/DumpMaterialIcons.java` extrai os `ImageVector` da dependência Compose resolvida e gera `ui/widgets/material-icons.slint` (`MaterialIcons`) e seus SVGs. Não redesenhe paths: execute o extrator com o classpath `android/desktop/build/compose/binaries/main/app/Zaplaud/lib/app/*`, diretório de saída `zaplaud-rs/crates/zaplaud-ui/ui/widgets` e os nomes PascalCase dos ícones. Os vetores Material mantêm a licença Apache 2.0 em `material-icons/LICENSE.txt`.
+Os ícones `Icons.Default` não existem nos XML Kotlin. Os `ImageVector` da biblioteca Compose foram extraídos com `scripts/DumpMaterialIcons.java` para gerar `ui/widgets/material-icons.slint` (`MaterialIcons`) e seus SVGs. Os vetores Material mantêm a licença Apache 2.0 em `material-icons/LICENSE.txt`.
 
 ## Dados locais e convenções
 
-`ZAPLAUD_DATA_DIR` força uma raiz com os filhos `data` e `cache`, útil para testes isolados. Sem override, Linux respeita `XDG_DATA_HOME`/`XDG_CACHE_HOME` (com os fallbacks de `DesktopDirs.kt`); macOS usa `~/Library/Application Support/Zaplaud` e `~/Library/Caches/Zaplaud`. Diretórios Unix são privados (`0700`). A resolução cria os diretórios e propaga erros de disco.
+`ZAPLAUD_DATA_DIR` força uma raiz com os filhos `data` e `cache`, útil para testes isolados. Sem override, Linux respeita `XDG_DATA_HOME`/`XDG_CACHE_HOME`, com fallback para `~/.local/share/zaplaud` e `~/.cache/zaplaud`; macOS usa `~/Library/Application Support/Zaplaud` e `~/Library/Caches/Zaplaud`. Diretórios Unix são privados (`0700`). A resolução cria os diretórios e propaga erros de disco.
 
 O shell usa `LocalStateStore` pelo adaptador `AppPersistence`: servidores, última sessão, marcadores de leitura, bloqueio de tentativas, tema e preferências de visualização compartilham o formato desktop. Clientes HTTP restauram e atualizam cookies com `SecureSessionStorage`. O cache `AvatarDiskCache` alimenta o LRU de imagens decodificadas do shell (4 MiB); imagens permanecem fora dos snapshots. O tema salvo é aplicado na abertura; `ZAPLAUD_THEME` pode sobrescrevê-lo nesta execução.
 
@@ -104,7 +104,7 @@ O lint compartilhado usa `unsafe_code = "deny"`, não `forbid`: o Rust gerado pe
 
 ## Decisão de migração
 
-Premissa de trabalho, pendente de confirmação do proprietário: **quando o cliente Rust atingir paridade (fase 6), o desktop Compose (`android/desktop`, `android/shared/src/jvmMain`) será removido**. Esta fase não remove nem altera o cliente Kotlin. Os recursos ainda são gerados da árvore Kotlin; a remoção precisará preservar uma fonte canônica equivalente.
+O desktop Compose foi removido em 2026-11-18. O aplicativo Kotlin continua no Android e no iPadOS, e seu código comum permanece como fonte dos recursos gerados.
 
 ## Extensão paralela de recursos Slint
 
@@ -237,6 +237,8 @@ python3 zaplaud-rs/scripts/shell-smoke.py \
 ```
 
 O script inicia duas fixtures reais, autentica por XTest, confirma HTTP, observa linhas, abre/fecha conversa, revela busca, adiciona servidor e alterna entre 1100 e 600 px. Reinicia uma fixture para invalidar o cookie e capturar relogin. Grava `/tmp/zaplaud-rs-shell-*.png` e JSON com tempo até mapeamento, PSS/RSS e CPU de 30 segundos. Não execute junto com outras janelas Zaplaud no mesmo display.
+
+Os comandos opt-in da fixture são `seed-closed-omp <UUID>`, `seed-subagents <mainAgentId>` e `seed-usage`. Somente o primeiro habilita contas/histórico OMP no launcher de teste; sem comandos, o comportamento anterior permanece intacto.
 
 Os smokes usam os centros dos campos e botões do login Material integrado. A folha de permissões mantém a extensão vertical explícita do comando quebrado em linhas, para que o scroll e o marcador de linhas adicionais concordem.
 
@@ -474,8 +476,7 @@ Usam fixture real na porta 14788: título emoji em uma sessão recente e mensage
 com o probe no transcript. Um POST real de `/api/messages` contendo o probe foi
 confirmado pelo comando `deliver`, sem alterar o código do servidor.
 `cargo fmt --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`
-e `ZAPLAUD_KEYRING=memory cargo test --workspace --locked` passaram: 194 testes,
-um teste JVM de interoperabilidade ignorado no gate normal.
+e `ZAPLAUD_KEYRING=memory cargo test --workspace --locked` passaram nessa rodada: 194 testes.
 
 #### Símbolos de interface e apresentação de texto
 
@@ -548,9 +549,3 @@ Secret Service desbloqueado permite persistir cookies; D-Bus, notificações, ba
 O build habilita `backend-winit-x11` e `backend-winit-wayland`, com somente `renderer-software` e sem features padrão do Slint. O programa escolhe explicitamente winit, sem forçar `renderer_name`; `SLINT_BACKEND` não substitui a escolha de backend. Acessibilidade permanece habilitada. Dentro de winit 0.30, `WAYLAND_DISPLAY` ou `WAYLAND_SOCKET` não vazio tem precedência sobre `DISPLAY`. Sem Wayland, usa X11 quando `DISPLAY` existe. Para forçar X11 numa sessão mista, execute `env -u WAYLAND_DISPLAY -u WAYLAND_SOCKET zaplaud`. Para Wayland, mantenha `XDG_RUNTIME_DIR` apontando ao runtime da sessão e `WAYLAND_DISPLAY` ao socket do compositor.
 
 O `app_id` Wayland e `WM_CLASS` X11 são `zaplaud`. A rodada `fin-cast` não dispunha de compositor Wayland; compilação e símbolos daquele binário confirmaram suporte, não abertura de janela Wayland.
-
-### Interoperabilidade contínua com o desktop JVM
-
-O CI executa `bash packaging/jvm-interop.sh` com `ZAPLAUD_JVM_INTEROP_DIR` exclusivo. O runner instala temporariamente um teste JVM que grava pelo `LocalStateStore` real. Depois, `cargo test -p zaplaud-store --test jvm_interop -- --ignored` lê e altera os arquivos. Uma segunda execução JVM com `ZAPLAUD_JVM_INTEROP_VERIFY=1` relê o resultado Rust. O teste temporário é removido inclusive em falha; o runner não cria `local.properties`. Não execute ambos os clientes como escritores simultâneos.
-
-Os novos comandos opt-in da fixture são `seed-closed-omp <UUID>`, `seed-subagents <mainAgentId>` e `seed-usage`. Somente o primeiro habilita contas/histórico OMP no launcher de teste; sem comandos, o comportamento anterior permanece intacto.

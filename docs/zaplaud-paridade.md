@@ -5,8 +5,7 @@ O Zaplaud tem dois códigos de cliente:
 - **Kotlin** (`android/shared/src/commonMain`): Android e iPad (o projeto iOS só tem alvo iPad).
 - **Rust** (`zaplaud-rs/`): o desktop de Linux e macOS.
 
-O desktop Compose (`android/desktop`, `android/shared/src/jvmMain`) está obsoleto desde 2026-11-10: fica no
-repositório, mas não recebe mudanças nem entra na paridade.
+O desktop Compose foi removido em 2026-11-18.
 
 O Habblaud web (`client/`) é a referência de comportamento do servidor, mas tem interface própria.
 
@@ -80,7 +79,7 @@ do parágrafo que a cita.
 
 ## Verificação
 
-- Kotlin: `./gradlew :shared:testAndroidHostTest :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :shared:jvmTest`
+- Kotlin: `./gradlew :shared:testAndroidHostTest :app:testDebugUnitTest :app:lintDebug :app:assembleDebug`
   e os instrumentados no emulador. iOS só compila num Mac.
 - Rust: `cargo test --workspace --locked` em `zaplaud-rs/` e os roteiros `zaplaud-rs/scripts/*-smoke.py`.
 - Os dois usam o mesmo servidor de teste, `scripts/android-smoke.ts`.
