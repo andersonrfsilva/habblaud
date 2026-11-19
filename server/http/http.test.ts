@@ -263,9 +263,12 @@ describe('agentes fixos: persona e Telegram', () => {
       expect((await put(env.base, 'persona', { text: 'a'.repeat(PERSONA_MAX_CHARS + 1) })).status).toBe(413);
       expect((await put(env.base, 'persona', { text: '🦆'.repeat(PERSONA_MAX_CHARS) })).status).toBe(200);
       expect((await put(env.base, 'persona', { text: 3 })).status).toBe(400);
+      const deniedBody = '{}';
+      // node:http requires explicit body framing for GET and DELETE.
+      const deniedHeaders = { Host: 'habblaud.lan', ...JSON_HEADERS, 'Content-Length': String(Buffer.byteLength(deniedBody)) };
       for (const resource of ['persona', 'telegram']) {
         for (const method of ['GET', 'PUT', ...(resource === 'telegram' ? ['DELETE'] : [])]) {
-          expect((await raw(env.base, `/api/cast/pato/${resource}`, { method, headers: { Host: 'habblaud.lan', ...JSON_HEADERS }, body: '{}' })).status).toBe(403);
+          expect((await raw(env.base, `/api/cast/pato/${resource}`, { method, headers: deniedHeaders, body: deniedBody })).status).toBe(403);
         }
       }
     } finally { await env.close(); }
