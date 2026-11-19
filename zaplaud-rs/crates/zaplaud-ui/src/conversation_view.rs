@@ -26,11 +26,19 @@ enum Command {
     View(usize),
     Toggle(String),
     Observe(String),
-    Position(bool),
-    Anchor(String, String, f32, bool),
+    Position(i32, bool),
+    Anchor(i32, String, String, f32, bool),
     Metadata(Box<SessionItem>),
     Preferences,
     ModelQuery,
+}
+impl Command {
+    fn matches_reading_generation(&self, active: i32) -> bool {
+        match self {
+            Self::Position(generation, _) | Self::Anchor(generation, ..) => *generation == active,
+            _ => true,
+        }
+    }
 }
 thread_local! { static ROWS: RefCell<Option<Rc<VecModel<RenderRow>>>> = const { RefCell::new(None) }; }
 
@@ -110,7 +118,7 @@ impl SessionRun {
             );
         }
     }
-    fn render(&mut self, weak: &slint::Weak<AppWindow>, reset: bool) {
+    fn render(&mut self, weak: &slint::Weak<AppWindow>, reading_generation: Option<i32>) {
         let entries = self.controller.entries();
         let visible = conversation::visible_entries(&entries, &self.view);
         if let Some(last) = visible.last() {
@@ -165,7 +173,8 @@ impl SessionRun {
             state.set_truncated(truncated.into());
             state.set_view(view.into());
             state.set_new_count(count);
-            if reset {
+            if let Some(generation) = reading_generation {
+                state.set_reading_generation(generation);
                 state.set_reset_request(state.get_reset_request().wrapping_add(1));
                 state.set_restore_pending(!reading.following && !reading.entry.is_empty());
                 state.set_anchor_ticks(46);
@@ -185,7 +194,7 @@ impl SessionRun {
             let anchor = state.get_anchor_row();
             let entry = state.get_anchor_entry();
             let index = zaplaud_ui::conversation_rows::anchor_index(&rows, &entry, &anchor);
-            set_rows(&window, rows, reset);
+            set_rows(&window, rows, reading_generation.is_some());
             state.set_anchor_index(index.map_or(-1, |index| index as i32));
             if let Some(item) = item {
                 publish_info(&window, &item, &entries, partial);
@@ -462,6 +471,7 @@ async fn run_session(
     api: HabblaudApi,
     weak: slint::Weak<AppWindow>,
     commands: mpsc::UnboundedSender<Event>,
+    reading_generation: i32,
     mut receiver: mpsc::UnboundedReceiver<Command>,
 ) {
     let store = match LocalStateStore::new() {
@@ -502,7 +512,7 @@ async fn run_session(
         Ok(open) => open,
         Err(_) => return,
     };
-    run.render(&weak, true);
+    run.render(&weak, Some(reading_generation));
     let mut stream = match api.resilient_stream(&path) {
         Ok(stream) => stream,
         Err(_) => return,
@@ -518,13 +528,13 @@ async fn run_session(
                         run.last_visible = None;
                         run.new_count = 0;
                         if run.store.set_session_view(&item.key,view).is_err() { update_ui(&weak,|w| w.global::<ConversationViewState>().set_notice(strings::STORAGE_ERROR.into())); }
-                        run.render(&weak,false);
+                        run.render(&weak,None);
                     },
                     Some(Command::Toggle(id)) => {
                         run.reading.toggle(id);
                         run.expanded = run.reading.expanded.iter().cloned().collect();
                         run.save();
-                        run.render(&weak,false);
+                        run.render(&weak,None);
                     }
                     Some(Command::Observe(id)) => {
                         let entry = run.controller.conversation.snapshot().find(|entry| entry.id == id).cloned();
@@ -536,17 +546,17 @@ async fn run_session(
                                 let (state,effects) = conversation::reduce_summary(SummaryState::default(),SummaryEvent::Observe { entry,enabled:run.enabled,cached });
                                 run.summaries.insert(key,state);
                                 for effect in effects { if let SummaryEffect::Summarize { key,text } = effect { let api = api.clone(); summary_jobs.spawn(async move { (key,api.summary_utf16(&text).await) }); } }
-                                run.render(&weak,false);
+                                run.render(&weak,None);
                             }
                         }
                     }
-                    Some(Command::Position(following)) => {
+                    Some(Command::Position(_, following)) => {
                         run.following = following;
                         run.reading.following = following;
                         save_at = Some(tokio::time::Instant::now()+Duration::from_secs(1));
-                        if following && run.new_count != 0 { run.new_count = 0; run.render(&weak,false); }
+                        if following && run.new_count != 0 { run.new_count = 0; run.render(&weak,None); }
                     }
-                    Some(Command::Anchor(entry,row,offset,following)) => {
+                    Some(Command::Anchor(_,entry,row,offset,following)) => {
                         run.reading.entry = entry;
                         run.reading.row = row;
                         run.reading.offset = offset;
@@ -558,13 +568,13 @@ async fn run_session(
                         run.enabled = run.store.summarize().unwrap_or(false);
                         run.view = run.store.session_view(&item.key).unwrap_or_else(|_| "all".into());
                         run.last_visible = None;
-                        run.render(&weak,false);
+                        run.render(&weak,None);
                     }
                     Some(Command::Metadata(item)) => {
                         let changed = run.controller.selected.as_ref() != Some(item.as_ref());
                         run.controller.selected = Some(*item);
                         let enabled = run.store.summarize().unwrap_or(false);
-                        if run.enabled != enabled { run.enabled = enabled; run.render(&weak,false); }
+                        if run.enabled != enabled { run.enabled = enabled; run.render(&weak,None); }
                         else if changed {
                             let item = run.controller.selected.clone();
                             let entries = run.controller.entries();
@@ -596,7 +606,7 @@ async fn run_session(
                 }
                 let result = run.controller.apply(generation,event);
                 if run.controller.unauthorized { let _ = commands.send(Event::Unauthorized(item.key.origin.clone())); break; }
-                run.render(&weak,false);
+                run.render(&weak,None);
                 if result.is_err() { break; }
                 if result == Ok(true) { save_at = Some(tokio::time::Instant::now()+Duration::from_secs(3)); }
             }
@@ -608,7 +618,7 @@ async fn run_session(
                             Err(error) => { if unauthorized(&error) { let _ = commands.send(Event::Unauthorized(item.key.origin.clone())); } SummaryEvent::Failed { key:key.clone(),cancelled:false } }
                         };
                         run.summaries.insert(key,conversation::reduce_summary(state,event).0);
-                        run.render(&weak,false);
+                        run.render(&weak,None);
                     }
             }
             _ = tokio::time::sleep_until(save_at.unwrap_or_else(|| tokio::time::Instant::now()+Duration::from_secs(86400))), if save_at.is_some() => { run.save(); save_at = None; }
@@ -636,7 +646,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
         if let Some(window) = weak.upgrade() {
             let state = window.global::<ConversationViewState>();
             state.set_window_focused(focused);
-            state.invoke_position(state.get_following());
+            state.invoke_position(state.get_reading_generation(), state.get_following());
         }
     });
     state.set_back(strings::BACK.into());
@@ -712,7 +722,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
     });
     let send = sender.clone();
     let weak = window.as_weak();
-    state.on_reading_position(move |entry, row, offset, following| {
+    state.on_reading_position(move |generation, entry, row, offset, following| {
         if let Some(window) = weak.upgrade() {
             let state = window.global::<ConversationViewState>();
             let index = state
@@ -721,12 +731,18 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                 .position(|candidate| candidate.id == row);
             state.set_anchor_index(index.map_or(-1, |index| index as i32));
         }
-        let _ = send.send(Command::Anchor(entry.into(), row.into(), offset, following));
+        let _ = send.send(Command::Anchor(
+            generation,
+            entry.into(),
+            row.into(),
+            offset,
+            following,
+        ));
     });
     let weak = window.as_weak();
     let commands = context.commands.clone();
-    state.on_position(move |following| {
-        let _ = sender.send(Command::Position(following));
+    state.on_position(move |generation, following| {
+        let _ = sender.send(Command::Position(generation, following));
         if let Some(window) = weak.upgrade()
             && let Ok(key) = zaplaud_core::model::SessionKey::deserialize(
                 &window.global::<ConversationState>().get_key(),
@@ -758,6 +774,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
     let context = context.clone();
     context.runtime.clone().spawn(async move {
         let mut selected = None;
+        let mut reading_generation = 0i32;
         let mut task:Option<tokio::task::JoinHandle<()>> = None;
         let mut current:Option<mpsc::UnboundedSender<Command>> = None;
         loop {
@@ -778,6 +795,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                     stop_session(&mut task).await;
                     selected = key;
                     current = None;
+                    reading_generation = reading_generation.checked_add(1).expect("reading generation exhausted");
                     update_ui(&weak, |w| {
                         let state = w.global::<ConversationViewState>();
                         state.set_reset_request(state.get_reset_request().wrapping_add(1));
@@ -791,10 +809,15 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                         update_ui(&weak, move |w| publish_info(&w, &metadata, &[], true));
                         if !server.reading.terminal_allowed || server.needs_login { update_ui(&weak,|w| w.global::<ConversationViewState>().set_notice(strings::TERMINAL_BLOCKED.into()));continue; }
                         let (sender,receiver) = mpsc::unbounded_channel(); current = Some(sender);
-                        task = Some(context.runtime.spawn(run_session(item.clone(),server.api.clone(),weak.clone(),context.commands.clone(),receiver)));
+                        task = Some(context.runtime.spawn(run_session(item.clone(),server.api.clone(),weak.clone(),context.commands.clone(),reading_generation,receiver)));
                     }
                 }
-                command = receiver.recv() => { match command { Some(command) => if let Some(sender) = &current { let _ = sender.send(command); },None => break } }
+                command = receiver.recv() => {
+                    let Some(command) = command else { break };
+                    if let Some(sender) = &current && command.matches_reading_generation(reading_generation) {
+                        let _ = sender.send(command);
+                    }
+                }
             }
         }
         stop_session(&mut task).await;
@@ -830,6 +853,21 @@ pub(crate) fn open_system(target: &std::ffi::OsStr) -> std::io::Result<()> {
 mod tests {
     use super::*;
     use zaplaud_core::model::SessionKey;
+
+    #[test]
+    fn reading_commands_do_not_survive_reopening_the_same_conversation() {
+        let (a, b, reopened_a) = (1, 2, 3);
+        for command in [
+            Command::Position(a, false),
+            Command::Anchor(a, "entry".into(), "row".into(), -10., false),
+        ] {
+            assert!(command.matches_reading_generation(a));
+            assert!(!command.matches_reading_generation(b));
+            assert!(!command.matches_reading_generation(reopened_a));
+        }
+        assert!(Command::Position(reopened_a, true).matches_reading_generation(reopened_a));
+    }
+
     #[test]
     fn details_group_metadata_hide_empty_values_and_link_parent() {
         let parent = SessionKey {
