@@ -6,7 +6,7 @@ import android.content.pm.ActivityInfo
 import android.os.Build
 import android.provider.MediaStore
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -52,7 +52,7 @@ class FixtureFilesInstrumentedTest {
         if (Build.VERSION.SDK_INT >= 29 && arguments.getString("filesName") != null) {
             downloads().forEach { context.contentResolver.delete(it, null, null) }
         }
-        runBlocking { LocalStateStore(context).clear() }
+        compose.withFixture { LocalStateStore(context).clear() }
     }
 
     private fun awaitTag(tag: String) = compose.waitUntil(30_000) {
@@ -104,7 +104,7 @@ class FixtureFilesInstrumentedTest {
         compose.onNodeWithTag("files-entry:documentos").performClick()
         awaitTag("files-download:$name")
         for (theme in listOf("light", "dark")) {
-            runBlocking { LocalStateStore(context).setTheme(theme) }
+            compose.withFixture { LocalStateStore(context).setTheme(theme) }
             compose.waitForIdle()
             val screenshot = requireNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
             try {

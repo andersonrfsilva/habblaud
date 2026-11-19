@@ -4,7 +4,9 @@ import android.Manifest
 import android.os.Build
 import android.content.Context
 import android.content.pm.ActivityInfo
-import android.view.KeyEvent
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -28,7 +30,7 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -59,6 +61,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.atomic.AtomicBoolean
 
 @RunWith(AndroidJUnit4::class)
 class FixtureUiInstrumentedTest {
@@ -111,6 +114,35 @@ class FixtureUiInstrumentedTest {
         it.config.getOrNull(SemanticsProperties.TestTag)?.startsWith("session-row:") == true
     }
 
+    private fun awaitDrawnFrame() {
+        compose.waitForIdle()
+        if (Build.VERSION.SDK_INT >= 29) {
+            val drawn = AtomicBoolean(false)
+            scenario!!.onActivity { activity ->
+                val decor = activity.window.decorView
+                decor.viewTreeObserver.registerFrameCommitCallback { drawn.set(true) }
+                decor.postInvalidateOnAnimation()
+            }
+            compose.waitUntil(15_000) { drawn.get() }
+        }
+    }
+
+    private fun dismissSearchKeyboard() {
+        awaitDrawnFrame()
+        val ime = WindowInsetsCompat.Type.ime()
+        scenario!!.onActivity { activity ->
+            WindowCompat.getInsetsController(activity.window, activity.window.decorView).hide(ime)
+        }
+        compose.waitUntil(15_000) {
+            var visible = true
+            scenario!!.onActivity { activity ->
+                visible = ViewCompat.getRootWindowInsets(activity.window.decorView)?.isVisible(ime) ?: true
+            }
+            !visible
+        }
+        awaitDrawnFrame()
+    }
+
     @Before fun prepare() {
         check(InstrumentationRegistry.getArguments().getString("fixture") == "true") {
             "Informe fixture=true e configure adb reverse tcp:14748 tcp:14748 para executar a instrumentação."
@@ -138,7 +170,7 @@ class FixtureUiInstrumentedTest {
         restoreDisplay?.invoke()
         if (zeroClawFixture) fixtureCommand("runtime omp")
         if (prepared) {
-            runBlocking { LocalStateStore(context).clear() }
+            compose.withFixture { LocalStateStore(context).clear() }
             context.filesDir.resolve("remote-session").delete()
         }
     }
@@ -201,6 +233,8 @@ class FixtureUiInstrumentedTest {
             swipeDown(startY = top + 20f, endY = bottom - 20f, durationMillis = 600)
         }
         compose.waitUntil(15_000) { compose.onAllNodesWithTag("session-search").fetchSemanticsNodes().size == 1 }
+        // O teclado abre ao revelar o campo; aqui o gesto deve chegar à lista.
+        dismissSearchKeyboard()
         compose.onNodeWithTag("session-search").assertIsDisplayed()
         compose.onNode(hasScrollToNodeAction()).performTouchInput { swipeUp() }
         compose.onNodeWithTag("session-search").assertIsDisplayed()
@@ -218,9 +252,9 @@ class FixtureUiInstrumentedTest {
         }
         compose.waitUntil(15_000) { compose.onAllNodesWithTag("session-search").fetchSemanticsNodes().size == 1 }
         compose.onNodeWithTag("session-search").performTextInput("busca-impossivel")
+        dismissSearchKeyboard()
         compose.onNodeWithText(text(R.string.search_no_match)).assertIsDisplayed()
         compose.onNodeWithText(text(R.string.sessions_empty)).assertDoesNotExist()
-        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
         compose.onNodeWithText(text(R.string.search_clear)).assertIsDisplayed().performClick()
         compose.waitUntil(15_000) {
             compose.onAllNodes(SemanticsMatcher("row") {
@@ -247,10 +281,8 @@ class FixtureUiInstrumentedTest {
         compose.onAllNodes(hasText(text(R.string.logout)))[0].performScrollTo().performClick()
         await(R.string.confirm)
         compose.onNodeWithText(text(R.string.confirm)).performClick()
-        compose.waitUntil(15_000) {
-            runBlocking { LocalStateStore(context).servers() == listOf(other) }
-        }
-        assertEquals(listOf(other), runBlocking { LocalStateStore(context).servers() })
+        compose.awaitFixture { LocalStateStore(context).servers() == listOf(other) }
+        assertEquals(listOf(other), compose.withFixture { LocalStateStore(context).servers() })
         await(R.string.open_sessions)
         compose.onNodeWithText(text(R.string.open_sessions)).assertIsDisplayed()
         runBlocking { HabblaudApi(other).use { it.access() } }
@@ -287,7 +319,7 @@ class FixtureUiInstrumentedTest {
         scenario = ActivityScenario.launch(MainActivity::class.java)
         await(R.string.message_text)
         compose.onNodeWithText(text(R.string.message_text)).performTextInput("rascunho IME")
-        compose.waitUntil(15_000) { runBlocking { LocalStateStore(context).message(key).draft.text == "rascunho IME" } }
+        compose.awaitFixture { LocalStateStore(context).message(key).draft.text == "rascunho IME" }
         scenario!!.recreate()
         await(R.string.message_text)
         compose.onNodeWithText(text(R.string.message_text)).assertTextContains("rascunho IME")
@@ -391,8 +423,11 @@ class FixtureUiInstrumentedTest {
             android.os.ParcelFileDescriptor.AutoCloseInputStream(
                 InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("input keyevent KEYCODE_BACK")
             ).use { it.readBytes() }
-            Thread.sleep(1_000)
-            compose.waitForIdle()
+            val until = android.os.SystemClock.uptimeMillis() + 1_000
+            compose.waitUntil(5_000) {
+                compose.onAllNodesWithTag("aside-input").fetchSemanticsNodes().isEmpty() ||
+                    android.os.SystemClock.uptimeMillis() >= until
+            }
         }
         compose.waitUntil(15_000) { compose.onAllNodesWithTag("aside-input").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithContentDescription(text(R.string.back_sessions)).assertExists()
@@ -611,7 +646,7 @@ class FixtureUiInstrumentedTest {
             compose.onNodeWithText(text(mode)).performClick()
             compose.onNodeWithTag("message-input").performTextInput("pedido-$mode")
             compose.onNodeWithTag("message-send").performClick()
-            compose.waitUntil(15_000) { runBlocking { LocalStateStore(context).message(zeroClawKey).draft.text.isEmpty() } }
+            compose.awaitFixture { LocalStateStore(context).message(zeroClawKey).draft.text.isEmpty() }
         }
         val messages = fixture("/api/fixture/stats").getJSONArray("messageRequests")
         assertEquals(messageCount + 2, messages.length())
@@ -624,7 +659,7 @@ class FixtureUiInstrumentedTest {
         fixtureCommand("zc-working")
         awaitDescription(R.string.stop_agent)
         compose.onNodeWithContentDescription(text(R.string.stop_agent)).performClick()
-        compose.waitUntil(15_000) { fixture("/api/fixture/stats").getJSONArray("controlRequests").length() > controlCount }
+        compose.awaitFixture { fixture("/api/fixture/stats").getJSONArray("controlRequests").length() > controlCount }
         val stop = fixture("/api/fixture/stats").getJSONArray("controlRequests").getJSONObject(controlCount)
         assertEquals("fixture:zeroclaw", stop.getString("agentId"))
         assertTrue(stop.getBoolean("stop"))
@@ -634,13 +669,11 @@ class FixtureUiInstrumentedTest {
         compose.waitUntil(15_000) { compose.onAllNodes(hasTestTag("session-new") and androidx.compose.ui.test.isEnabled()).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("session-new").performClick()
         compose.onNodeWithText(text(R.string.confirm)).performClick()
-        compose.waitUntil(15_000) {
-            runBlocking { LocalStateStore(context).lastSession()?.let { it.provider == "zeroclaw" && it.sessionId != zeroClawKey.sessionId } == true }
-        }
-        val next = runBlocking { requireNotNull(LocalStateStore(context).lastSession()) }
+        compose.awaitFixture { LocalStateStore(context).lastSession()?.let { it.provider == "zeroclaw" && it.sessionId != zeroClawKey.sessionId } == true }
+        val next = compose.withFixture { requireNotNull(LocalStateStore(context).lastSession()) }
         assertEquals(zeroClawKey.account, next.account)
-        assertEquals("rascunho anterior", runBlocking { LocalStateStore(context).message(zeroClawKey).draft.text })
-        assertEquals("", runBlocking { LocalStateStore(context).message(next).draft.text })
+        assertEquals("rascunho anterior", compose.withFixture { LocalStateStore(context).message(zeroClawKey).draft.text })
+        assertEquals("", compose.withFixture { LocalStateStore(context).message(next).draft.text })
         val controls = fixture("/api/fixture/stats").getJSONArray("controlRequests")
         assertEquals(controlCount + 2, controls.length())
         val new = controls.getJSONObject(controlCount + 1)
@@ -658,7 +691,7 @@ class FixtureUiInstrumentedTest {
         compose.onNodeWithText(text(R.string.deliver_aside)).assertDoesNotExist()
         compose.onNodeWithText(text(R.string.settings_roles)).assertDoesNotExist()
         compose.onNodeWithText(text(R.string.settings_summarize)).performScrollTo().assertIsEnabled().performClick()
-        compose.waitUntil(15_000) { runBlocking { LocalStateStore(context).summarize.first() } }
+        compose.awaitFixture { LocalStateStore(context).summarize.first() }
         val after = fixture("/api/fixture/stats")
         assertEquals(before.getJSONObject("gets").optInt("/api/cast/roles"), after.getJSONObject("gets").optInt("/api/cast/roles"))
         assertEquals(before.getJSONObject("posts").optInt("/api/cast/roles"), after.getJSONObject("posts").optInt("/api/cast/roles"))
@@ -673,18 +706,22 @@ class FixtureUiInstrumentedTest {
         try {
             fixtureCommand("bind-omp 00000000-0000-4000-8000-000000000002")
             fixtureCommand("long-reply fixture:omp")
+            val sessionKey = SessionKey(origin, "omp", ".omp", "00000000-0000-4000-8000-000000000002")
+            val store = LocalStateStore(context)
             runBlocking {
-                LocalStateStore(context).setSummarize(true)
-                LocalStateStore(context).setLastSession(SessionKey(origin, "omp", ".omp", "00000000-0000-4000-8000-000000000002"))
+                store.setSummarize(true)
+                store.setLastSession(sessionKey)
             }
             scenario = ActivityScenario.launch(MainActivity::class.java)
             await(R.string.message_text)
             compose.waitUntil(15_000) { compose.onAllNodes(hasText("Resumo HTTP fictício sem Tiny.")).fetchSemanticsNodes().isNotEmpty() }
+            // A posição só é salva depois que a restauração da leitura termina.
+            compose.awaitFixture { store.conversation(sessionKey)?.reading?.position?.entryId != null }
             if (older) {
                 // A resposta resumida deixa de ser a última; o teste volta a ela pelo histórico.
                 val requests = fixture("/api/fixture/stats").getJSONObject("posts").optInt("/api/summaries")
                 fixtureCommand("long-reply fixture:omp")
-                compose.waitUntil(15_000) { fixture("/api/fixture/stats").getJSONObject("posts").optInt("/api/summaries") > requests }
+                compose.awaitFixture { fixture("/api/fixture/stats").getJSONObject("posts").optInt("/api/summaries") > requests }
                 compose.onNodeWithTag("conversation-list").performScrollToIndex(1)
             }
             val labels = compose.onAllNodes(hasText(text(R.string.summary_label)))
@@ -737,7 +774,7 @@ class FixtureUiInstrumentedTest {
         compose.waitUntil(15_000) { compose.onAllNodes(hasText("Zora Fictícia")).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Zora Fictícia").performClick()
         compose.onNodeWithText(text(R.string.cast_confirm)).performClick()
-        compose.waitUntil(15_000) { fixture("/api/fixture/stats").getJSONArray("castRequests").length() > before.getJSONArray("castRequests").length() }
+        compose.awaitFixture { fixture("/api/fixture/stats").getJSONArray("castRequests").length() > before.getJSONArray("castRequests").length() }
         val requests = fixture("/api/fixture/stats").getJSONArray("castRequests")
         val request = requests.getJSONObject(requests.length() - 1)
         val body = request
@@ -746,10 +783,8 @@ class FixtureUiInstrumentedTest {
         assertEquals(closed.account, body.getString("account"))
         assertEquals("/fixture/projeto", body.getString("room"))
         assertEquals(before.getJSONArray("controlRequests").length(), fixture("/api/fixture/stats").getJSONArray("controlRequests").length())
-        compose.waitUntil(15_000) {
-            fixture("/api/fixture/stats").getJSONArray("castRequests").let { it.length() > 0 } &&
-                compose.onAllNodesWithTag("message-input").fetchSemanticsNodes().isNotEmpty()
-        }
+        compose.awaitFixture { fixture("/api/fixture/stats").getJSONArray("castRequests").length() > 0 }
+        compose.waitUntil(15_000) { compose.onAllNodesWithTag("message-input").fetchSemanticsNodes().isNotEmpty() }
     }
 
     @Test fun switchingFromOmpToZeroClawHidesBothContextPositionsAndOldSubmenus() {
@@ -818,7 +853,7 @@ class FixtureUiInstrumentedTest {
             assertTrue("A conversa ainda está limitada a 840 dp: ${node.boundsInRoot.width} px",
                 node.boundsInRoot.width > 840 * node.layoutInfo.density.density)
             for (theme in listOf("light", "dark")) {
-                runBlocking { LocalStateStore(context).setTheme(theme) }
+                compose.withFixture { LocalStateStore(context).setTheme(theme) }
                 compose.waitForIdle()
                 val screenshot = requireNotNull(automation.takeScreenshot())
                 context.getExternalFilesDir(null)!!.resolve("zaplaud-align-kotlin-tablet-$theme.png").outputStream().use {
@@ -830,7 +865,7 @@ class FixtureUiInstrumentedTest {
             compose.onNodeWithContentDescription(text(R.string.cast_start)).performClick()
             compose.waitUntil(15_000) { compose.onAllNodes(hasText("Bia Fictícia")).fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithText("Bia Fictícia").performClick()
-            compose.waitUntil(15_000) { fixture("/api/fixture/stats").getJSONArray("castRequests").length() > before }
+            compose.awaitFixture { fixture("/api/fixture/stats").getJSONArray("castRequests").length() > before }
             val requests = fixture("/api/fixture/stats").getJSONArray("castRequests")
             val request = requests.getJSONObject(requests.length() - 1)
             assertEquals("new", request.getString("mode"))

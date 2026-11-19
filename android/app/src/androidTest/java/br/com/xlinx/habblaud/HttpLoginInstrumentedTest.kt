@@ -5,7 +5,7 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isDisplayed
-import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -59,7 +59,7 @@ class HttpLoginInstrumentedTest {
         compose.onNodeWithText(text(id)).performTextInput(value)
     }
     private fun origin() = server.url("/").toString().removeSuffix("/")
-    private fun savedOrigin() = runBlocking { LocalStateStore(context).servers().singleOrNull() }
+    private fun savedOrigin() = compose.withFixture { LocalStateStore(context).servers().singleOrNull() }
     private fun launch() {
         scenario = ActivityScenario.launch(MainActivity::class.java)
         await(R.string.login)
@@ -69,13 +69,28 @@ class HttpLoginInstrumentedTest {
         setField(R.string.password, "senha-ficticia")
         InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("input keyevent KEYCODE_BACK").close()
     }
-    private fun noRequest() { assertNull(server.takeRequest(300, TimeUnit.MILLISECONDS)) }
+    private fun noRequest() {
+        val until = android.os.SystemClock.uptimeMillis() + 300
+        compose.waitUntil(5_000) {
+            assertNull(server.takeRequest(0, TimeUnit.MILLISECONDS))
+            android.os.SystemClock.uptimeMillis() >= until
+        }
+    }
+
+    private fun awaitRequest(): RecordedRequest {
+        var request: RecordedRequest? = null
+        compose.waitUntil(5_000) {
+            request = server.takeRequest(0, TimeUnit.MILLISECONDS)
+            request != null
+        }
+        return requireNotNull(request)
+    }
     private fun rejectedLogin() {
         server.enqueue(MockResponse().setResponseCode(401))
         click(R.string.confirm)
-        val request = server.takeRequest(5, TimeUnit.SECONDS)
-        assertEquals("POST", request?.method)
-        assertEquals("/api/remote/login", request?.path)
+        val request = awaitRequest()
+        assertEquals("POST", request.method)
+        assertEquals("/api/remote/login", request.path)
         await(R.string.login_error)
         assertEquals(1, server.requestCount)
     }
@@ -95,7 +110,7 @@ class HttpLoginInstrumentedTest {
     @After fun cleanup() {
         scenario?.close()
         server.shutdown()
-        runBlocking {
+        compose.withFixture {
             val store = LocalStateStore(context)
             store.clear()
             store.setNotificationsEnabled(notificationsEnabled)
@@ -171,7 +186,7 @@ class HttpLoginInstrumentedTest {
         compose.waitUntil(15_000) { compose.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag(tag, useUnmergedTree = true).performClick()
         await(R.string.login)
-        assertEquals("/api/access", server.takeRequest(5, TimeUnit.SECONDS)?.path)
+        assertEquals("/api/access", awaitRequest().path)
         credentials()
         click(R.string.login)
         await(R.string.http_login_title)
@@ -209,9 +224,9 @@ class HttpLoginInstrumentedTest {
         scenario = ActivityScenario.launch(MainActivity::class.java)
         val tag = "relogin:$origin"
         compose.waitUntil(15_000) { compose.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
-        val rejected = server.takeRequest(5, TimeUnit.SECONDS)
-        assertEquals("/api/access", rejected?.path)
-        assertEquals(staleCookie, rejected?.getHeader("Cookie"))
+        val rejected = awaitRequest()
+        assertEquals("/api/access", rejected.path)
+        assertEquals(staleCookie, rejected.getHeader("Cookie"))
         compose.onNodeWithTag(tag, useUnmergedTree = true).performClick()
         await(R.string.login)
         credentials()
