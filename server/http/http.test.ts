@@ -263,9 +263,12 @@ describe('agentes fixos: persona e Telegram', () => {
       expect((await put(env.base, 'persona', { text: 'a'.repeat(PERSONA_MAX_CHARS + 1) })).status).toBe(413);
       expect((await put(env.base, 'persona', { text: '🦆'.repeat(PERSONA_MAX_CHARS) })).status).toBe(200);
       expect((await put(env.base, 'persona', { text: 3 })).status).toBe(400);
+      const deniedBody = '{}';
+      // node:http requires explicit body framing for GET and DELETE.
+      const deniedHeaders = { Host: 'habblaud.lan', ...JSON_HEADERS, 'Content-Length': String(Buffer.byteLength(deniedBody)) };
       for (const resource of ['persona', 'telegram']) {
         for (const method of ['GET', 'PUT', ...(resource === 'telegram' ? ['DELETE'] : [])]) {
-          expect((await raw(env.base, `/api/cast/pato/${resource}`, { method, headers: { Host: 'habblaud.lan', ...JSON_HEADERS }, body: '{}' })).status).toBe(403);
+          expect((await raw(env.base, `/api/cast/pato/${resource}`, { method, headers: deniedHeaders, body: deniedBody })).status).toBe(403);
         }
       }
     } finally { await env.close(); }
@@ -281,8 +284,10 @@ describe('agentes fixos: persona e Telegram', () => {
       expect((await put(env.base, 'telegram', { token, peers: ['646407890'] })).status).toBe(200);
       const directory = join(env.dir, 'telegram');
       const file = join(directory, 'tiopatinhas.json');
-      expect(statSync(directory).mode & 0o777).toBe(0o700);
-      expect(statSync(file).mode & 0o777).toBe(0o600);
+      if (process.platform !== 'win32') {
+        expect(statSync(directory).mode & 0o777).toBe(0o700);
+        expect(statSync(file).mode & 0o777).toBe(0o600);
+      }
       expect(readdirSync(directory)).toEqual(['tiopatinhas.json']);
       expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ token, peers: ['646407890'] });
       const response = await (await fetch(`${env.base}/api/cast/pato/telegram`)).text();
