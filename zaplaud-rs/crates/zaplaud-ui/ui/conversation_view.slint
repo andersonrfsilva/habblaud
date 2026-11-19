@@ -60,6 +60,7 @@ export global ConversationViewState {
     in property <int> new-count;
     in property <int> end-request;
     in property <int> reset-request;
+    in property <int> reading-generation;
     in property <int> geometry-request;
     in-out property <string> anchor-entry;
     in-out property <string> anchor-row;
@@ -69,6 +70,8 @@ export global ConversationViewState {
     in-out property <int> scroll-request;
     in-out property <int> capture-request;
     in-out property <bool> capture-pending;
+    in-out property <int> pending-capture-generation;
+    in-out property <int> capture-generation;
     in-out property <length> scroll-y;
     in-out property <int> scan-request;
     in-out property <int> scan-index: -1;
@@ -78,12 +81,12 @@ export global ConversationViewState {
     in-out property <int> anchor-ticks;
     in-out property <int> stable-ticks;
     in-out property <length> measured-height: -1px;
-    callback reading-position(string, string, float, bool);
+    callback reading-position(int, string, string, float, bool);
     callback geometry(string, float, float, float);
     callback observe(string);
     callback toggle(string);
     callback choose-view(int);
-    callback position(bool);
+    callback position(int, bool);
     callback open-link(string);
     callback copy(string);
     callback open-parent(string);
@@ -116,14 +119,14 @@ component EntryBubble inherits Rectangle {
     }
     changed capture-request => {
         if root.y + ConversationViewState.scroll-y <= 0px && root.y + root.height + ConversationViewState.scroll-y > 0px {
-            root.capture-anchor();
+            root.capture-anchor(ConversationViewState.capture-generation);
         }
     }
-    function capture-anchor() {
+    function capture-anchor(generation: int) {
         ConversationViewState.anchor-entry = root.entry.entry-id;
         ConversationViewState.anchor-row = root.entry.id;
         ConversationViewState.anchor-offset = root.y + ConversationViewState.scroll-y;
-        ConversationViewState.reading-position(root.entry.entry-id, root.entry.id, ConversationViewState.anchor-offset / 1px, ConversationViewState.following);
+        ConversationViewState.reading-position(generation, root.entry.entry-id, root.entry.id, ConversationViewState.anchor-offset / 1px, ConversationViewState.following);
     }
     init => { ConversationViewState.observe(root.entry.entry-id); }
     changed entry => { ConversationViewState.observe(root.entry.entry-id); }
@@ -134,8 +137,9 @@ component EntryBubble inherits Rectangle {
     property <bool> group: entry.kind == "thinking" || entry.kind == "tool";
     function toggle-expanded() {
         ConversationViewState.following = false;
-        ConversationViewState.position(false);
-        root.capture-anchor();
+        let generation = ConversationViewState.reading-generation;
+        ConversationViewState.position(generation, false);
+        root.capture-anchor(generation);
         ConversationViewState.restore-pending = false;
         ConversationViewState.anchor-ticks = 46;
         ConversationViewState.toggle(root.entry.entry-id);
@@ -252,26 +256,32 @@ export component ConversationView inherits Rectangle {
         messages.scroll-from-end = false;
         scroll-settle.stop();
     }
+    function request-capture(generation: int) {
+        ConversationViewState.pending-capture-generation = generation;
+        ConversationViewState.capture-pending = true;
+    }
     public function scroll-to(fraction: float) {
         root.cancel-restore();
         ConversationViewState.following = fraction >= 1;
         messages.content-y = min(0px, messages.height - messages.content-height) * clamp(fraction, 0, 1);
-        ConversationViewState.capture-pending = true;
-        ConversationViewState.position(ConversationViewState.following);
+        let generation = ConversationViewState.reading-generation;
+        root.request-capture(generation);
+        ConversationViewState.position(generation, ConversationViewState.following);
     }
     public function page-up() {
         root.cancel-restore();
         ConversationViewState.following = false;
         messages.content-y = min(0px, messages.content-y + messages.height * 0.9);
-        ConversationViewState.capture-pending = true;
-        ConversationViewState.position(false);
+        let generation = ConversationViewState.reading-generation;
+        root.request-capture(generation);
+        ConversationViewState.position(generation, false);
     }
     public function jump-to-end() {
         root.cancel-restore();
         if root.can-take-focus { scroll-keys.focus(); }
         ConversationViewState.following = true;
         messages.content-y = messages.end-y;
-        ConversationViewState.position(true);
+        ConversationViewState.position(ConversationViewState.reading-generation, true);
     }
     property <int> end-request: ConversationViewState.end-request;
     changed end-request => { root.jump-to-end(); }
@@ -283,6 +293,7 @@ export component ConversationView inherits Rectangle {
         interval: 16ms;
         running: ConversationViewState.capture-pending;
         triggered => {
+            ConversationViewState.capture-generation = ConversationViewState.pending-capture-generation;
             ConversationViewState.capture-pending = false;
             ConversationViewState.capture-request += 1;
         }
@@ -298,7 +309,7 @@ export component ConversationView inherits Rectangle {
                 && (ConversationViewState.following || messages.content-y <= messages.end-y + 2px) {
                 ConversationViewState.following = true;
                 messages.content-y = messages.end-y;
-                ConversationViewState.position(true);
+                ConversationViewState.position(messages.scroll-generation, true);
             }
         }
     }
@@ -345,12 +356,20 @@ export component ConversationView inherits Rectangle {
             key-pressed(event) => {
                 if event.text == Key.Home || event.text == Key.PageUp || event.text == Key.PageDown { root.cancel-restore(); }
                 if event.text == Key.End { root.jump-to-end(); return accept; }
-                if event.text == Key.Home { ConversationViewState.following = false; messages.content-y = 0px; ConversationViewState.capture-pending = true; ConversationViewState.position(false); return accept; }
+                if event.text == Key.Home {
+                    ConversationViewState.following = false;
+                    messages.content-y = 0px;
+                    let generation = ConversationViewState.reading-generation;
+                    root.request-capture(generation);
+                    ConversationViewState.position(generation, false);
+                    return accept;
+                }
                 if event.text == Key.PageUp || event.text == Key.PageDown {
                     ConversationViewState.following = false;
                     messages.content-y = min(0px, max(messages.height - messages.content-height, messages.content-y + (event.text == Key.PageUp ? 1 : -1) * messages.height * 0.9));
-                    ConversationViewState.capture-pending = true;
-                    ConversationViewState.position(false); return accept;
+                    let generation = ConversationViewState.reading-generation;
+                    root.request-capture(generation);
+                    ConversationViewState.position(generation, false); return accept;
                 }
                 return reject;
             }
@@ -358,6 +377,7 @@ export component ConversationView inherits Rectangle {
                 width: parent.width; height: parent.height;
                 property <length> end-y: min(0px, self.visible-height - self.content-height);
                 property <bool> scroll-from-end;
+                property <int> scroll-generation;
                 changed end-y => { if ConversationViewState.following && !self.scroll-from-end { self.content-y = self.end-y; } }
                 changed content-y => {
                     ConversationViewState.scroll-y = self.content-y;
@@ -365,8 +385,8 @@ export component ConversationView inherits Rectangle {
                         if self.content-y > self.end-y + 2px {
                             self.scroll-from-end = false;
                             ConversationViewState.following = false;
-                            ConversationViewState.position(false);
-                            ConversationViewState.capture-pending = true;
+                            ConversationViewState.position(self.scroll-generation, false);
+                            root.request-capture(self.scroll-generation);
                         }
                     } else if ConversationViewState.following && self.content-y > self.end-y + 1px {
                         // A lista virtual pode deslocar a janela medida sem alterar a altura total estimada.
@@ -378,10 +398,11 @@ export component ConversationView inherits Rectangle {
                     ConversationViewState.anchor-ticks = 0;
                     // A roda sinaliza o gesto antes de a animação alterar content-y.
                     let at-end = self.content-y <= self.end-y + 2px;
+                    self.scroll-generation = ConversationViewState.reading-generation;
                     self.scroll-from-end = self.end-y < 0px && ConversationViewState.following && at-end;
                     ConversationViewState.following = at-end;
-                    ConversationViewState.position(ConversationViewState.following);
-                    ConversationViewState.capture-pending = true;
+                    ConversationViewState.position(self.scroll-generation, ConversationViewState.following);
+                    root.request-capture(self.scroll-generation);
                     if scroll-settle.running { scroll-settle.restart(); }
                     else { scroll-settle.start(); }
                 }
