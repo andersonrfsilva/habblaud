@@ -56,6 +56,60 @@ fn response(status: u16, headers: &str, body: &str) -> String {
 }
 
 #[tokio::test]
+async fn deliveries_bounds_chunked_body_and_classifies_status() -> TestResult {
+    let oversized = " ".repeat(8 * 1024 * 1024 + 1);
+    let (origin, task) = server(vec![
+        format!(
+            "HTTP/1.1 200 OK\r\nConnection: close\r\nTransfer-Encoding: chunked\r\n\r\n{:x}\r\n{oversized}\r\n0\r\n\r\n",
+            oversized.len()
+        ),
+        response(200, "", r#"{"deliveries":[]}"#),
+        response(403, "", "{}"),
+        response(401, "", "{}"),
+    ])
+    .await?;
+    let api = HabblaudApi::new(&origin)?;
+    assert!(matches!(
+        api.deliveries().await,
+        Err(Error::ResponseTooLarge)
+    ));
+    assert!(api.deliveries().await?.is_empty());
+    assert!(matches!(
+        api.deliveries().await,
+        Err(Error::Api { status: 403, .. })
+    ));
+    assert!(matches!(api.deliveries().await, Err(Error::Unauthorized)));
+    assert!(
+        task.await?
+            .iter()
+            .all(|r| r.starts_with("GET /api/deliveries "))
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn delivery_download_encodes_id_and_preserves_bytes() -> TestResult {
+    let contents = "a\0ç\n";
+    let (origin, task) = server(vec![response(200, "", contents), response(404, "", "{}")]).await?;
+    let api = HabblaudApi::new(&origin)?;
+    let directory = tempfile::tempdir()?;
+    let destination = directory.path().join("a.txt");
+    api.download_delivery("um/á ?#%", &destination, |_, _| {})
+        .await?;
+    assert_eq!(tokio::fs::read(&destination).await?, contents.as_bytes());
+    assert!(matches!(
+        api.download_delivery("missing", &directory.path().join("b.txt"), |_, _| {})
+            .await,
+        Err(Error::Api { status: 404, .. })
+    ));
+    assert_eq!(std::fs::read_dir(directory.path())?.count(), 1);
+    let requests = task.await?;
+    assert!(requests[0].starts_with("GET /api/deliveries/file/um%2F%C3%A1%20%3F%23%25 "));
+    assert!(requests[1].starts_with("GET /api/deliveries/file/missing "));
+    Ok(())
+}
+
+#[tokio::test]
 async fn remote_image_refuses_redirects_and_embedded_credentials() -> TestResult {
     let (origin, task) = server(vec![response(302, "Location: /other.png\r\n", "")]).await?;
     let with_user = origin.replacen("://", "://image-user@", 1);

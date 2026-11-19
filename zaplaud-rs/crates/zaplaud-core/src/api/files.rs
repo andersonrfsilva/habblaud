@@ -1,6 +1,6 @@
 use super::{HabblaudApi, UrlPolicy};
 use crate::Error;
-use crate::model::{FileListing, FileRoot};
+use crate::model::{Delivery, FileListing, FileRoot, parse_deliveries};
 use serde::Deserialize;
 use std::path::Path;
 use tokio::io::AsyncWriteExt;
@@ -12,6 +12,7 @@ struct FileRoots {
 
 /// Limite por imagem mostrada na conversa.
 pub const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024;
+const MAX_DELIVERIES_BYTES: usize = 8 * 1024 * 1024;
 
 impl HabblaudApi {
     pub async fn files_roots(&self) -> Result<Vec<FileRoot>, Error> {
@@ -54,13 +55,38 @@ impl HabblaudApi {
         Ok(serde_json::from_str(&self.request(&route, None).await?)?)
     }
 
+    pub async fn deliveries(&self) -> Result<Vec<Delivery>, Error> {
+        let response = self.response("/api/deliveries", None).await?;
+        if response.content_length().unwrap_or(0) > MAX_DELIVERIES_BYTES as u64 {
+            return Err(Error::ResponseTooLarge);
+        }
+        let body = self.bytes(response, MAX_DELIVERIES_BYTES).await?;
+        Ok(parse_deliveries(&body)?)
+    }
+
+    pub async fn download_delivery<F>(
+        &self,
+        id: &str,
+        destination: &Path,
+        progress: F,
+    ) -> Result<(), Error>
+    where
+        F: FnMut(u64, Option<u64>) + Send,
+    {
+        if matches!(id, "" | "." | "..") {
+            return Err(Error::InvalidPath);
+        }
+        let route = format!("/api/deliveries/file/{}", super::encode_name(id));
+        self.download_to(&route, destination, progress).await
+    }
+
     /// Baixa sem limite de tamanho; só publica o destino completo, sem sobrescrever outro arquivo.
     /// Descartar a espera ou receber um erro remove o temporário irmão do destino.
     pub async fn files_download<F>(
         &self,
         path: &str,
         destination: &Path,
-        mut progress: F,
+        progress: F,
     ) -> Result<(), Error>
     where
         F: FnMut(u64, Option<u64>) + Send,
@@ -69,7 +95,19 @@ impl HabblaudApi {
             "/api/files/raw?path={}&download=1",
             super::encode_name(path)
         );
-        let url = self.url(&route)?;
+        self.download_to(&route, destination, progress).await
+    }
+
+    async fn download_to<F>(
+        &self,
+        route: &str,
+        destination: &Path,
+        mut progress: F,
+    ) -> Result<(), Error>
+    where
+        F: FnMut(u64, Option<u64>) + Send,
+    {
+        let url = self.url(route)?;
         let request = self.client.get(url.clone());
         let mut response = self.checked(self.send(request, &url, true).await?).await?;
         let total = response.content_length();

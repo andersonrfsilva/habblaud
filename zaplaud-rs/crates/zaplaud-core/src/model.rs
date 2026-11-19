@@ -29,6 +29,93 @@ pub struct FileListing {
     pub truncated: bool,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub struct Delivery {
+    pub id: String,
+    pub provider: String,
+    pub account: String,
+    pub session_id: String,
+    pub request: String,
+    pub headline: String,
+    pub summary: Option<String>,
+    pub text: String,
+    pub finished_at: i64,
+    pub attachments: Vec<DeliveryAttachment>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct DeliveryAttachment {
+    pub id: String,
+    pub name: String,
+    pub kind: String,
+    pub caption: Option<String>,
+}
+
+pub fn parse_deliveries(data: &[u8]) -> Result<Vec<Delivery>, serde_json::Error> {
+    fn take_string(fields: &mut Map<String, Value>, name: &str) -> Option<String> {
+        match fields.remove(name)? {
+            Value::String(text) => Some(text),
+            value => primitive(&value),
+        }
+    }
+
+    fn take_objects(
+        fields: &mut Map<String, Value>,
+        name: &str,
+    ) -> impl Iterator<Item = Map<String, Value>> {
+        match fields.remove(name) {
+            Some(Value::Array(items)) => items,
+            _ => Vec::new(),
+        }
+        .into_iter()
+        .filter_map(|value| match value {
+            Value::Object(item) => Some(item),
+            _ => None,
+        })
+    }
+
+    let mut root: Map<String, Value> = serde_json::from_slice(data)?;
+    Ok(take_objects(&mut root, "deliveries")
+        .filter_map(|mut item| {
+            Some(Delivery {
+                id: take_string(&mut item, "id").filter(|text| !text.is_empty())?,
+                provider: take_string(&mut item, "provider").unwrap_or_else(|| "claude".into()),
+                account: take_string(&mut item, "account").filter(|text| !text.is_empty())?,
+                session_id: take_string(&mut item, "sessionId").filter(|text| !text.is_empty())?,
+                request: take_string(&mut item, "request").unwrap_or_default(),
+                headline: take_string(&mut item, "headline").unwrap_or_default(),
+                summary: take_string(&mut item, "summary"),
+                text: take_string(&mut item, "text").unwrap_or_default(),
+                finished_at: item
+                    .get("finishedAt")
+                    .and_then(|value| value.as_i64().or_else(|| value.as_str()?.parse().ok()))
+                    .unwrap_or_default(),
+                attachments: take_objects(&mut item, "attachments")
+                    .filter_map(|mut attachment| {
+                        Some(DeliveryAttachment {
+                            id: take_string(&mut attachment, "id")
+                                .filter(|text| !text.is_empty())?,
+                            name: take_string(&mut attachment, "name")
+                                .filter(|text| !text.is_empty())?,
+                            kind: take_string(&mut attachment, "kind").unwrap_or_default(),
+                            caption: take_string(&mut attachment, "caption"),
+                        })
+                    })
+                    .collect(),
+            })
+        })
+        .collect())
+}
+
+pub fn deliveries_of(mut deliveries: Vec<Delivery>, key: &SessionKey) -> Vec<Delivery> {
+    deliveries.retain(|item| {
+        item.provider == key.provider
+            && item.account == key.account
+            && item.session_id == key.session_id
+    });
+    deliveries
+}
+
 pub const NEW_CAST_PREFIX: &str = "novo-";
 pub const MAX_ATTACHMENT_SIZE: i64 = 15 * 1024 * 1024;
 pub const MAX_ATTACHMENTS: usize = 5;

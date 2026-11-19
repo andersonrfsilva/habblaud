@@ -1,5 +1,6 @@
 use crate::{
-    AppWindow, FilesCrumbRow, FilesDownloadRow, FilesEntryRow, FilesRootRow, FilesState,
+    AppWindow, DeliveriesState, FilesCrumbRow, FilesDownloadRow, FilesEntryRow, FilesRootRow,
+    FilesState, deliveries,
     feature::{AppSnapshot, FeatureContext},
     state::Event,
     update_ui,
@@ -16,7 +17,8 @@ use zaplaud_core::{
     model::{FileListing, FileRoot},
 };
 
-enum Command {
+pub(crate) enum Command {
+    Deliveries(deliveries::Command),
     Open(bool),
     Close,
     Root(usize),
@@ -34,8 +36,13 @@ enum Command {
     Cancel(i32),
     OpenDownload(i32, bool),
 }
+enum DownloadTarget {
+    File(String),
+    Delivery(String),
+}
 struct Download {
     id: i32,
+    attachment_id: Option<String>,
     path: PathBuf,
     name: String,
     status: String,
@@ -58,6 +65,7 @@ struct Browser {
 
 pub fn setup(window: &AppWindow, context: &FeatureContext) {
     let (send, receive) = mpsc::unbounded_channel();
+    deliveries::setup(window, &send);
     let global = window.global::<FilesState>();
     global.set_title(crate::strings::FILES_TITLE.into());
     global.set_root_label(crate::strings::FILES_ROOT.into());
@@ -122,13 +130,26 @@ async fn run(
 ) {
     let mut snapshot: Option<Arc<AppSnapshot>> = None;
     let mut browser = Browser::default();
+    let mut deliveries = deliveries::Controller::default();
     let mut api: Option<HabblaudApi> = None;
     let mut request: Option<tokio::task::JoinHandle<()>> = None;
     let mut downloads: Vec<Download> = Vec::new();
     let mut next_id = 0i32;
     loop {
         let command = tokio::select! {
-            value=snapshots.recv()=>{match value {Ok(value)=>snapshot=Some(value),Err(tokio::sync::broadcast::error::RecvError::Lagged(_))=>{},Err(_)=>break};continue;},
+            value = snapshots.recv() => {
+                match value {
+                    Ok(value) => {
+                        if deliveries.selection_changed(&value, &weak) {
+                            close_deliveries(&mut deliveries, &mut downloads, &weak);
+                        }
+                        snapshot = Some(value);
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(_) => break,
+                }
+                continue;
+            }
             value=receive.recv()=>{let Some(value)=value else {break};value}
         };
         let downloads_only = matches!(
@@ -138,7 +159,56 @@ async fn run(
                 | Command::Cancel(..)
                 | Command::OpenDownload(..)
         );
+        let mut download_source = None;
         match command {
+            Command::Deliveries(command) => {
+                use deliveries::Command as DeliveryCommand;
+                match command {
+                    DeliveryCommand::Open => {
+                        if let Some(snapshot) = &snapshot {
+                            deliveries.open(snapshot, &weak, &send);
+                        }
+                    }
+                    DeliveryCommand::Close => {
+                        close_deliveries(&mut deliveries, &mut downloads, &weak);
+                    }
+                    DeliveryCommand::Refresh => deliveries.refresh(&weak, &send),
+                    DeliveryCommand::Loaded(generation, result) => {
+                        deliveries.loaded(generation, result, &weak, &commands);
+                    }
+                    DeliveryCommand::Download(attachment, name) => {
+                        let Some(api) = deliveries.api() else {
+                            continue;
+                        };
+                        if downloads.iter().any(|download| {
+                            download.running
+                                && download.attachment_id.as_deref() == Some(attachment.as_str())
+                        }) {
+                            continue;
+                        }
+                        let error = start_download(
+                            api.clone(),
+                            DownloadTarget::Delivery(attachment),
+                            &name,
+                            &mut next_id,
+                            &mut downloads,
+                            &send,
+                        )
+                        .err()
+                        .map(|error| {
+                            crate::strings::FILES_ERROR.replace("%1$s", &error.to_string())
+                        })
+                        .unwrap_or_default();
+                        update_ui(&weak, move |window| {
+                            window
+                                .global::<DeliveriesState>()
+                                .set_download_error(error.into());
+                        });
+                        publish_downloads(&weak, &downloads, true);
+                    }
+                }
+                continue;
+            }
             Command::Open(session) => {
                 let Some(snapshot) = &snapshot else { continue };
                 let origin = snapshot
@@ -269,46 +339,20 @@ async fn run(
                     continue;
                 }
                 let Some(api) = api.clone() else { continue };
-                let path = match download_path(&entry.name, &downloads) {
-                    Ok(path) => path,
-                    Err(error) => {
-                        browser.error = error.to_string();
-                        publish(&weak, &browser, &downloads);
-                        continue;
-                    }
-                };
-                let id = next_id;
-                next_id = next_id.saturating_add(1);
-                let sender = send.clone();
-                let destination = path.clone();
-                let task = tokio::spawn(async move {
-                    let origin = api.origin().to_owned();
-                    let mut last = std::time::Instant::now() - std::time::Duration::from_secs(1);
-                    let progress_sender = sender.clone();
-                    let result = api
-                        .files_download(&remote, &destination, move |received, total| {
-                            if last.elapsed() >= std::time::Duration::from_millis(100) {
-                                last = std::time::Instant::now();
-                                let _ =
-                                    progress_sender.send(Command::Progress(id, received, total));
-                            }
-                        })
-                        .await;
-                    let _ = sender.send(Command::Finished(id, origin, result));
-                });
-                downloads.push(Download {
-                    id,
-                    path,
-                    name: safe_name(&entry.name),
-                    status: crate::strings::FILES_DOWNLOADING.into(),
-                    progress: 0.,
-                    running: true,
-                    done: false,
-                    task,
-                });
+                if let Err(error) = start_download(
+                    api,
+                    DownloadTarget::File(remote),
+                    &entry.name,
+                    &mut next_id,
+                    &mut downloads,
+                    &send,
+                ) {
+                    browser.error = error.to_string();
+                }
             }
             Command::Progress(id, received, total) => {
                 if let Some(download) = downloads.iter_mut().find(|d| d.id == id && d.running) {
+                    download_source = Some(download.attachment_id.is_some());
                     download.progress = total
                         .filter(|n| *n > 0)
                         .map(|total| received as f32 / total as f32)
@@ -321,6 +365,7 @@ async fn run(
             }
             Command::Finished(id, origin, result) => {
                 if let Some(download) = downloads.iter_mut().find(|d| d.id == id && d.running) {
+                    download_source = Some(download.attachment_id.is_some());
                     download.running = false;
                     match result {
                         Ok(()) => {
@@ -340,6 +385,7 @@ async fn run(
             }
             Command::Cancel(id) => {
                 if let Some(download) = downloads.iter_mut().find(|d| d.id == id && d.running) {
+                    download_source = Some(download.attachment_id.is_some());
                     download.task.abort();
                     download.running = false;
                     download.status = crate::strings::FILES_CANCELLED.into();
@@ -357,9 +403,9 @@ async fn run(
             }
             _ => {}
         }
-        if downloads_only {
-            publish_downloads(&weak, &downloads);
-        } else {
+        if let Some(deliveries) = download_source {
+            publish_downloads(&weak, &downloads, deliveries);
+        } else if !downloads_only {
             publish(&weak, &browser, &downloads);
         }
     }
@@ -370,7 +416,75 @@ async fn run(
         download.task.abort();
     }
 }
-fn unauthorized(commands: &mpsc::UnboundedSender<Event>, api: Option<&HabblaudApi>, error: &Error) {
+
+fn start_download(
+    api: HabblaudApi,
+    target: DownloadTarget,
+    name: &str,
+    next_id: &mut i32,
+    downloads: &mut Vec<Download>,
+    send: &mpsc::UnboundedSender<Command>,
+) -> std::io::Result<()> {
+    let name = safe_name(name);
+    let path = download_path(&name, downloads)?;
+    let id = *next_id;
+    *next_id = next_id.saturating_add(1);
+    let attachment_id = match &target {
+        DownloadTarget::File(_) => None,
+        DownloadTarget::Delivery(id) => Some(id.clone()),
+    };
+    let sender = send.clone();
+    let destination = path.clone();
+    let task = tokio::spawn(async move {
+        let mut last: Option<std::time::Instant> = None;
+        let progress = |received, total| {
+            if last.is_none_or(|last| last.elapsed() >= std::time::Duration::from_millis(100)) {
+                last = Some(std::time::Instant::now());
+                let _ = sender.send(Command::Progress(id, received, total));
+            }
+        };
+        let result = match target {
+            DownloadTarget::File(path) => api.files_download(&path, &destination, progress).await,
+            DownloadTarget::Delivery(id) => {
+                api.download_delivery(&id, &destination, progress).await
+            }
+        };
+        let _ = sender.send(Command::Finished(id, api.origin().into(), result));
+    });
+    downloads.push(Download {
+        id,
+        attachment_id,
+        path,
+        name,
+        status: crate::strings::FILES_DOWNLOADING.into(),
+        progress: 0.,
+        running: true,
+        done: false,
+        task,
+    });
+    Ok(())
+}
+
+fn close_deliveries(
+    deliveries: &mut deliveries::Controller,
+    downloads: &mut Vec<Download>,
+    weak: &slint::Weak<AppWindow>,
+) {
+    downloads.retain(|download| {
+        if download.attachment_id.is_some() {
+            download.task.abort();
+            false
+        } else {
+            true
+        }
+    });
+    deliveries.close(weak);
+}
+pub(crate) fn unauthorized(
+    commands: &mpsc::UnboundedSender<Event>,
+    api: Option<&HabblaudApi>,
+    error: &Error,
+) {
     if matches!(error, Error::Unauthorized | Error::Api { status: 401, .. })
         && let Some(api) = api
     {
@@ -508,7 +622,7 @@ fn publish(weak: &slint::Weak<AppWindow>, browser: &Browser, downloads: &[Downlo
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let downloads = download_rows(downloads);
+    let downloads = download_rows(downloads, false);
     let truncated = browser
         .listing
         .as_ref()
@@ -532,9 +646,10 @@ fn publish(weak: &slint::Weak<AppWindow>, browser: &Browser, downloads: &[Downlo
     });
 }
 
-fn download_rows(downloads: &[Download]) -> Vec<FilesDownloadRow> {
+fn download_rows(downloads: &[Download], deliveries: bool) -> Vec<FilesDownloadRow> {
     downloads
         .iter()
+        .filter(|download| download.attachment_id.is_some() == deliveries)
         .map(|download| FilesDownloadRow {
             id: download.id,
             name: download.name.clone().into(),
@@ -546,12 +661,15 @@ fn download_rows(downloads: &[Download]) -> Vec<FilesDownloadRow> {
         .collect()
 }
 
-fn publish_downloads(weak: &slint::Weak<AppWindow>, downloads: &[Download]) {
-    let rows = download_rows(downloads);
+fn publish_downloads(weak: &slint::Weak<AppWindow>, downloads: &[Download], deliveries: bool) {
+    let rows = download_rows(downloads, deliveries);
     update_ui(weak, move |window| {
-        window
-            .global::<FilesState>()
-            .set_downloads(ModelRc::new(VecModel::from(rows)))
+        let model = ModelRc::new(VecModel::from(rows));
+        if deliveries {
+            window.global::<DeliveriesState>().set_downloads(model);
+        } else {
+            window.global::<FilesState>().set_downloads(model);
+        }
     });
 }
 fn safe_name(name: &str) -> String {
@@ -629,19 +747,18 @@ fn parse_download_dir(value: &str, home: &Path) -> Option<PathBuf> {
 fn download_path(name: &str, downloads: &[Download]) -> std::io::Result<PathBuf> {
     let dir = downloads_dir()?;
     std::fs::create_dir_all(&dir)?;
-    let name = safe_name(name);
-    let original = Path::new(&name);
+    let original = Path::new(name);
     let stem = original.file_stem().unwrap_or_default().to_string_lossy();
     let extension = original
         .extension()
         .map(|e| format!(".{}", e.to_string_lossy()))
         .unwrap_or_default();
     for index in 0u64.. {
-        let path = dir.join(if index == 0 {
-            name.clone()
+        let path = if index == 0 {
+            dir.join(name)
         } else {
-            format!("{stem} ({index}){extension}")
-        });
+            dir.join(format!("{stem} ({index}){extension}"))
+        };
         if !path.try_exists()? && !downloads.iter().any(|d| d.path == path && d.running) {
             return Ok(path);
         }

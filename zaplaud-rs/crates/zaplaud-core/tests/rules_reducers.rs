@@ -6,6 +6,41 @@ use zaplaud_core::{
 };
 
 #[test]
+fn deliveries_parse_and_filter_in_server_order() -> Result<(), serde_json::Error> {
+    let deliveries = parse_deliveries(br#"{"deliveries":[
+        {"id":"new","account":"a","sessionId":"s","headline":"Pronto","text":"**literal**",
+         "finishedAt":"42","attachments":[{"id":"x","name":"a.txt","caption":"nota"},{"id":"y"},{"name":"b"}]},
+        {"account":"a","sessionId":"s"},{"id":"missing-account","sessionId":"s"},{"id":"missing-session","account":"a"},
+        {"id":"other-provider","provider":"omp","account":"a","sessionId":"s"},
+        {"id":"other-account","account":"b","sessionId":"s"},
+        {"id":"other-session","account":"a","sessionId":"t"},
+        {"id":"old","provider":"claude","account":"a","sessionId":"s"}
+    ]}"#)?;
+    assert_eq!(deliveries.len(), 5);
+    let first = &deliveries[0];
+    assert_eq!(first.provider, "claude");
+    assert_eq!(first.request, "");
+    assert_eq!(first.headline, "Pronto");
+    assert_eq!(first.text, "**literal**");
+    assert_eq!(first.finished_at, 42);
+    assert_eq!(first.attachments.len(), 1);
+    assert_eq!(first.attachments[0].name, "a.txt");
+    assert_eq!(first.attachments[0].caption.as_deref(), Some("nota"));
+    let key = SessionKey {
+        provider: "claude".into(),
+        account: "a".into(),
+        session_id: "s".into(),
+        ..SessionKey::default()
+    };
+    let ids = deliveries_of(deliveries, &key)
+        .into_iter()
+        .map(|delivery| delivery.id)
+        .collect::<Vec<_>>();
+    assert_eq!(ids, ["new", "old"]);
+    Ok(())
+}
+
+#[test]
 fn server_access_preserves_missing_flags_and_requires_message_guard() {
     let access = ServerAccess::parse(&json!({"terminal": false, "permissions": true})).unwrap();
     assert_eq!(access.reading, Some(false));
