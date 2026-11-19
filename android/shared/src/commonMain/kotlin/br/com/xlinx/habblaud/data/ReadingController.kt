@@ -44,6 +44,13 @@ internal fun launchPersist(scope: CoroutineScope, block: suspend () -> Unit): Jo
     val readingLoaded: Boolean = false,
 )
 
+internal inline fun MutableStateFlow<ReadingState>.publishUnread(
+    state: ReadingState, open: SessionKey?, marks: Map<String, Long>, seenId: (SessionKey) -> String,
+) {
+    value = state.copy(unread = state.sessions.filter { it.key != open }
+        .associate { it.key to unreadCount(it.replies, marks[seenId(it.key)]) }.filterValues { it > 0 })
+}
+
 internal fun ReadingState.streamFailure(status: Int?, conversation: Boolean): ReadingState {
     val reason = when (status) { -1 -> "oversize"; 403 -> "forbidden"; 404 -> "missing"; else -> "network" }
     return if (conversation) copy(readingError = reason) else copy(connection = "offline", error = reason)
@@ -214,7 +221,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         val next = if (now > 0) updatedSeen(current, state.sessions.filter { it.agentId != null }.map { store.seenId(it.key) }, open?.let(store::seenId), now) else null
         if (next != null) { seen = next; saveSeen(2_000) }
         val marks = next ?: current
-        mutable.value = state.copy(unread = state.sessions.filter { it.key != open }.associate { it.key to unreadCount(it.replies, marks[store.seenId(it.key)]) }.filterValues { it > 0 })
+        mutable.publishUnread(state, open, marks, store::seenId)
     }
     private fun saveSeen(delayMs: Long) {
         val marks = seen ?: return
