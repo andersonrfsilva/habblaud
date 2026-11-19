@@ -29,7 +29,7 @@ vai para a tabela abaixo, com o motivo. Textos ficam em `android/shared/src/comm
 | Compositor: rascunho, anexos, modos de envio, interrupção, anel de contexto, shake | sim | sim | Rust: sem arrastar arquivos para a janela (Slint 1.18) |
 | Aprovação e perguntas, com resumo `text` e entrada não textual em JSON | sim | sim | Kotlin rola na horizontal; Rust quebra a linha e mostra "mais N linhas" |
 | Folha de permissão fica aberta durante o envio da decisão | sim | sim | Enquanto envia, botão Cancelar, Esc e clique fora não fecham a folha. |
-| Chamar personagem (também com conversa aberta em tela larga), dispensar, retomar | sim | sim | pasta da conversa aberta vem primeiro |
+| Chamar personagem (também com conversa aberta em tela larga), dispensar, retomar | sim | sim | Sessões novas ignoram a pasta aberta e usam `HABBLAUD_CAST_FOLDER` ou, se ausente, a pasta pessoal. Retomar mantém a pasta da conversa retomada. |
 | Confirmações de retomar e dispensar fecham ao trocar de conversa ou servidor | sim | sim | A confirmação só vale para o alvo de quando o diálogo abriu. |
 | Linha da lista compacta: horário curto ao lado do título, não lidas na linha de baixo, ações sem botão ⋮ | sim | sim | Kotlin: toque longo; desktop: clique direito. Dispensar pela lista segue **pendente** no Rust (fica no menu da conversa) |
 | Bate-papo paralelo, sem pular para o fim quando se lê acima | sim | sim | Abre só pelo menu da conversa. Só apaga o rascunho quando o servidor aceita a pergunta. Enquanto houver resposta em curso, uma consulta que falha é repetida após 3 segundos; o próximo sucesso limpa o erro. |
@@ -62,7 +62,7 @@ sem carregar fontes remotas. Tipos não suportados pela biblioteca continuam com
 
 Durante o carregamento, em blocos ainda abertos ou quando o pedido/leitor falha, permanece o bloco
 de código padrão. Os últimos 32 SVGs ficam em memória, separados por instância da API; SVG que o leitor
-recusa sai do cache. JVM/iOS usam `decodeToSvgPainter` de Compose Resources; Android usa AndroidSVG porque
+recusa sai do cache. iPadOS usa `decodeToSvgPainter` de Compose Resources; Android usa AndroidSVG porque
 Compose Resources 1.12.2 não fornece esse leitor no Android. O AndroidSVG não aceita SVG 2
 (`orient="auto-start-reverse"`), por isso o servidor troca esses marcadores pelo equivalente com `orient="auto"`.
 Tocar no diagrama abre tela cheia: pinça amplia até 8×, arrastar move, toque duplo volta ao inicial.

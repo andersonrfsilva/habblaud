@@ -884,7 +884,8 @@ principal, advisor ou subagente. Para subagentes, informe os tipos observados, c
 - No omp, `HABBLAUD_CAST=<id>` pede um membro para a sessão. O advisor e os subagentes vestem membros compatíveis
   com seus tipos.
 - `HABBLAUD_CAST_MAX` (1 a 50; ausente = sem limite) limita quantos personagens o Habblaud mantém abertos ao mesmo
-  tempo. Sessões `hb-*` abertas e chamadas em andamento contam; personagens sendo dispensados não.
+  tempo. Chamadas em andamento e sessões `hb-*` abertas contam. No OMP, personagens em dispensa não contam.
+  No ZeroClaw, a dispensa ocupa a vaga até o fechamento da sessão.
 
 O elenco fica em `~/.habblaud/cast.json`; vínculos de sessão expiram após 60 dias sem uso. Os personagens antigos
 das salas migram automaticamente, com cópia de segurança em `~/.habblaud/names.json.pre-031`. O elenco segue a trava
@@ -1110,10 +1111,27 @@ Tudo funciona sem configurar nada. Se precisar ajustar, use variáveis de ambien
 | `HABBLAUD_OMP_BIN` | `omp` no PATH, senão `~/.bun/bin/omp` | Executável do omp usado para o uso do plano (caminho ou nome no PATH). |
 | `HABBLAUD_OMP_PERMISSOES` | desligado | No ambiente **do omp**, não do Habblaud: `1` faz a extensão decidir as ferramentas pelo escritório (use com `omp --approval-mode yolo`). Ver [omp (oh-my-pi)](#omp-oh-my-pi). |
 | `HABBLAUD_OMP_MODELS` | todos os que o omp lista | No ambiente **do omp**, não do Habblaud: `provedor/id` ou `provedor/*`, separados por vírgula; a gaveta do agente só lista e só troca para esses modelos. |
+| `HABBLAUD_ZEROCLAW_URL` | não definida (elenco usa OMP) | Para ativar o [ZeroClaw](server/README.md#zeroclaw-opt-in), informe uma origem HTTP em loopback, sem credenciais, caminho, query ou fragmento. |
+| `HABBLAUD_ZEROCLAW_AGENTS` | não definida | O [ZeroClaw](server/README.md#zeroclaw-opt-in) exige um catálogo JSON não vazio, com modelos únicos e seus aliases derivados. |
+| `HABBLAUD_ZEROCLAW_DEFAULT_AGENT` | não definida | O [ZeroClaw](server/README.md#zeroclaw-opt-in) exige um alias padrão presente no catálogo de modelos. |
+| `HABBLAUD_ZEROCLAW_NAMED` | não definida (sem agentes fixos) | Lista JSON opcional de agentes fixos do [ZeroClaw](server/README.md#zeroclaw-opt-in), com aliases únicos no formato documentado. |
+| `HABBLAUD_SUMMARY_URL` | não definida (RPC/Tiny) | [Resumos por HTTP](server/README.md#resumos-por-http-ou-rpc) exigem uma URL-base HTTP(S) sem `/v1/messages`, credenciais, query ou fragmento. |
+| `HABBLAUD_SUMMARY_MODEL` | não definida | [Resumos por HTTP](server/README.md#resumos-por-http-ou-rpc) exigem um ID literal de modelo não vazio. |
+| `HABBLAUD_SUMMARY_TOKEN_FILE` | não definida | [Resumos por HTTP](server/README.md#resumos-por-http-ou-rpc) exigem o caminho de um arquivo de token legível e não vazio. |
+| `HABBLAUD_SUMMARY_AUTH` | `x-api-key` (HTTP) | [Resumos por HTTP](server/README.md#resumos-por-http-ou-rpc) aceitam apenas `x-api-key` ou `bearer`. |
+| `HABBLAUD_QUOTA_URL` | não definida (uso legado) | A [cota por HTTP](server/README.md#cota-da-instalação-por-http) exige o endpoint HTTP(S) completo, sem credenciais nem fragmento, junto com a variável do arquivo de token. |
+| `HABBLAUD_QUOTA_TOKEN_FILE` | não definida | A [cota por HTTP](server/README.md#cota-da-instalação-por-http) exige o caminho absoluto do arquivo do token bearer, junto com o endpoint. |
+| `HABBLAUD_CAST_MAX` | sem limite | O [limite do elenco](server/README.md#elenco-de-personagens) só se aplica a inteiros de `1` a `50`; outros valores não definem limite. |
+| `HABBLAUD_CAST_FOLDER` | pasta pessoal | A [pasta do elenco](server/README.md#elenco-de-personagens) para conversas novas, se definida, precisa ser um caminho absoluto. |
 | `HABBLAUD_UPDATE_CHECK` | ligado | `0` desliga a verificação de versão nova (uma consulta às releases do repositório no GitHub a cada 6 h). |
 | `HABBLAUD_LANG` | idioma do sistema (menos inglês), senão `pt-BR` | Idioma dos textos montados pelo servidor (atividades, avisos, logs): `pt-BR`, `en`, `es` ou `fr`. A interface segue o navegador ou a escolha em Configurações › Idioma. Ver [Idiomas](#idiomas). |
 | `HABBLAUD_ACCOUNTS` | — | JSON para personalizar nome, letra ou cor, casado pelo nome da pasta da conta. Ex.: `[{"id":".claude-conta2","name":"Trabalho","short":"T","color":"#5cc97b"}]`. |
 | `HABBLAUD_SEM_MARCA` | desligado | `1` tira da interface os nomes omp, Claude Code e Codex (viram "agente"), os selos de ferramenta e as dicas de instalação. Para instalações multiusuário. Os nomes dos modelos continuam. |
+
+O `docker-compose.yml` e o Quadlet do Podman do repositório não repassam por padrão as variáveis de ZeroClaw,
+resumo por HTTP, cota por HTTP e elenco acima. Acrescente-as ao ambiente do serviço no Compose ou ao arquivo de
+ambiente do Quadlet. Para resumo e cota, monte os arquivos de token somente para leitura e use os caminhos vistos
+pelo processo do servidor.
 
 **No Docker**, valem `HABBLAUD_PORT`, `HABBLAUD_BIND`, `HABBLAUD_ALLOWED_HOSTS`, `HABBLAUD_DEMO`, `HABBLAUD_TERMINAL`,
 `HABBLAUD_MENSAGENS`, `HABBLAUD_CODEX`, `HABBLAUD_OMP`, `HABBLAUD_UPDATE_CHECK`, `HABBLAUD_LANG`, `HABBLAUD_PTY`, os
@@ -1273,7 +1291,10 @@ O auxiliar do host (`npm run codex:bridge`) abre o omp em sessões `hb-<id>`. Pa
 | `GET /api/cast`, `POST /api/cast` | Lista ou cria membros em `cast.json`; acesso local ou pela porta remota após login, com `terminal` em `HABBLAUD_REMOTE_ALLOW`. |
 | `PUT /api/cast/:id`, `DELETE /api/cast/:id` | Edita ou apaga membro do elenco; acesso local ou pela porta remota após login, com `terminal` em `HABBLAUD_REMOTE_ALLOW`. |
 | `PUT /api/agents/:id/cast`, `DELETE /api/agents/:id/cast` | Veste o principal com `{cast}` ou volta ao sorteio. Sessões omp podem pedir um membro com `HABBLAUD_CAST=<id>`. |
-| `POST /api/cast/:id/start`, `POST /api/agents/:id/dismiss`, `GET /api/cast/jobs` | Chama, dispensa ou acompanha sessões do elenco; acesso local ou pela porta remota após login, com `terminal` em `HABBLAUD_REMOTE_ALLOW`. |
+| `GET /api/cast/models` | Obtém o catálogo ZeroClaw, com agentes fixos (`named`) quando configurados, ou o catálogo vazio do OMP. Segue a trava do terminal. |
+| `POST /api/cast/:id/start` | Inicia ou retoma uma conversa do elenco (`{mode, prompt?, model?}`); `model` só seleciona um modelo em conversa nova no ZeroClaw sem agente fixo. Segue a trava do terminal. |
+| `POST /api/cast/new` | Inicia uma conversa fora do elenco (`{prompt?, model?}`) ou retoma pelo histórico. `model` vale só para conversa nova no ZeroClaw. Segue a trava do terminal. |
+| `POST /api/agents/:id/dismiss`, `GET /api/cast/jobs` | Dispensa ou acompanha sessões do elenco; acesso local ou pela porta remota após login, com `terminal` em `HABBLAUD_REMOTE_ALLOW`. |
 | `POST /api/host/cast/poll`, `POST /api/host/cast/ack` | O auxiliar do host busca e confirma chamadas e dispensas. |
 | `GET /api/sessions/recent` | Histórico: sessões dos últimos 7 dias de todas as contas (até 150); só com acesso local. |
 | `GET /api/sessions/:conta/:sessionId/terminal` | SSE da conversa de uma sessão do histórico (mesmo protocolo do terminal); só com acesso local. |
@@ -1289,7 +1310,7 @@ O auxiliar do host (`npm run codex:bridge`) abre o omp em sessões `hb-<id>`. Pa
 | `/api/messages…` e `/api/mod/inbox…` | Mandar mensagens: a página deixa a mensagem na fila e acompanha a entrega; o plugin `habblaud-mensagens` a busca, entrega à sessão e confirma. Só com acesso local. |
 | `POST /api/codex/events` | Eventos dos hooks do Codex (sessão aberta, ferramenta, aprovação, fim do turno). Só com acesso local. |
 | `/api/codex/bridge/poll` e `/ack` | O `npm run codex:bridge` busca as mensagens para o Codex e confirma a entrega. Só com acesso local. |
-| `GET /api/access` | O que esta conexão pode usar (`remote`, `local`, `permissions`, `messages`, `terminal`, `spawn`, `world`); a página usa para mostrar ou esconder recursos. |
+| `GET /api/access` | O que esta conexão pode usar (`remote`, `local`, `permissions`, `messages`, `terminal`, `spawn`, `world`, `files`). `files` exige navegador de arquivos disponível e autorização `terminal` para a conexão. |
 | `GET /api/updates` e `POST /api/updates/check` | Verificação de versão nova: a versão em uso e o resultado; `check` ("Verificar agora") consulta o GitHub (no máximo uma vez a cada 30 s). Desligada com `HABBLAUD_UPDATE_CHECK=0`. |
 | `/api/world/*` | Habblaud World (conta, personagem e prédio); ligado por padrão, `HABBLAUD_WORLD=0` desliga. Só com acesso local, nunca pela porta do celular. |
 | `POST /api/omp/events` | Eventos da extensão do Habblaud no omp (sessão, ferramenta, aprovação, batimento). Só com acesso local. |

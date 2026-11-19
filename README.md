@@ -617,7 +617,8 @@ main, advisor or subagent. For subagents, enter observed types such as `reviewer
   **Back to random** removes the session binding. If the member is busy, the session gets a random character.
 - In omp, `HABBLAUD_CAST=<id>` requests a member for the session. Advisors and subagents use matching members.
 - `HABBLAUD_CAST_MAX` (1 to 50; unset means no limit) caps how many characters Habblaud keeps open at once. Open
-  `hb-*` sessions and pending starts count; characters being dismissed do not.
+  `hb-*` sessions and pending starts count. In OMP, characters being dismissed do not count. In ZeroClaw, dismissal
+  keeps the slot occupied until the session closes.
 
 The cast is stored in `~/.habblaud/cast.json`; session bindings expire after 60 days without use. Old room characters
 migrate automatically, with a backup at `~/.habblaud/names.json.pre-031`. The cast uses the terminal safeguard:
@@ -842,10 +843,26 @@ Everything works without configuring anything. If you need to adjust something, 
 | `HABBLAUD_OMP_BIN` | `omp` from PATH, otherwise `~/.bun/bin/omp` | The omp executable used for plan usage (a path or a name on the PATH). |
 | `HABBLAUD_OMP_PERMISSOES` | off | In **omp's** environment, not Habblaud's: `1` makes the extension decide tools through the office (use with `omp --approval-mode yolo`). See [omp (oh-my-pi)](#omp-oh-my-pi). |
 | `HABBLAUD_OMP_MODELS` | all that omp lists | In **omp's** environment, not Habblaud's: comma-separated `provider/id` or `provider/*`; the agent drawer only lists and only switches to these models. |
+| `HABBLAUD_ZEROCLAW_URL` | unset (cast uses OMP) | Set a loopback HTTP origin without credentials, a path, a query, or a fragment to enable [ZeroClaw](server/README.md#zeroclaw-opt-in). |
+| `HABBLAUD_ZEROCLAW_AGENTS` | unset | [ZeroClaw](server/README.md#zeroclaw-opt-in) requires a non-empty JSON catalog with unique models and their derived aliases. |
+| `HABBLAUD_ZEROCLAW_DEFAULT_AGENT` | unset | [ZeroClaw](server/README.md#zeroclaw-opt-in) requires a default alias from the model catalog. |
+| `HABBLAUD_ZEROCLAW_NAMED` | unset (no fixed agents) | Optional [ZeroClaw](server/README.md#zeroclaw-opt-in) JSON array of fixed agents with unique aliases that follow the documented format. |
+| `HABBLAUD_SUMMARY_URL` | unset (RPC/Tiny) | [HTTP summaries](server/README.md#resumos-por-http-ou-rpc) require an HTTP(S) base URL without `/v1/messages`, credentials, a query, or a fragment. |
+| `HABBLAUD_SUMMARY_MODEL` | unset | [HTTP summaries](server/README.md#resumos-por-http-ou-rpc) require a non-empty literal model ID. |
+| `HABBLAUD_SUMMARY_TOKEN_FILE` | unset | [HTTP summaries](server/README.md#resumos-por-http-ou-rpc) require a path to a readable, non-empty token file. |
+| `HABBLAUD_SUMMARY_AUTH` | `x-api-key` (HTTP) | [HTTP summaries](server/README.md#resumos-por-http-ou-rpc) accept only `x-api-key` or `bearer`. |
+| `HABBLAUD_QUOTA_URL` | unset (legacy usage) | [HTTP quota](server/README.md#cota-da-instalação-por-http) requires a full HTTP(S) endpoint without credentials or a fragment, together with the token file setting. |
+| `HABBLAUD_QUOTA_TOKEN_FILE` | unset | [HTTP quota](server/README.md#cota-da-instalação-por-http) requires an absolute path to the bearer token file, together with the endpoint. |
+| `HABBLAUD_CAST_MAX` | no limit | The [cast limit](server/README.md#elenco-de-personagens) applies only to integers from `1` to `50`; other values leave it unset. |
+| `HABBLAUD_CAST_FOLDER` | home folder | The [cast folder](server/README.md#elenco-de-personagens) for new conversations must be an absolute path if set. |
 | `HABBLAUD_UPDATE_CHECK` | on | `0` turns off the new-version check (a request to the repository's releases on GitHub every 6 h). |
 | `HABBLAUD_LANG` | system language (except English), otherwise `pt-BR` | Language of the texts the server builds (activities, notices, logs): `pt-BR`, `en`, `es` or `fr`. The interface follows the browser or the choice in Settings › Language. See [Languages](#languages). |
 | `HABBLAUD_ACCOUNTS` | — | JSON to customize name, letter or color, matched by the account folder name. E.g. `[{"id":".claude-conta2","name":"Trabalho","short":"T","color":"#5cc97b"}]`. |
 | `HABBLAUD_SEM_MARCA` | off | `1` removes the names omp, Claude Code and Codex from the interface (they become "agent"), the tool badges and the setup hints. For multi-user installs. Model names stay. |
+
+The repository's `docker-compose.yml` and Podman Quadlet do not pass the ZeroClaw, HTTP summary, HTTP quota,
+or cast variables above by default. Add them to the Compose service environment or the Quadlet's environment
+file. For summaries and quota, mount the token files read-only and set the paths as seen by the server process.
 
 **In Docker**, `HABBLAUD_PORT`, `HABBLAUD_BIND`, `HABBLAUD_ALLOWED_HOSTS`, `HABBLAUD_DEMO`, `HABBLAUD_TERMINAL`,
 `HABBLAUD_MENSAGENS`, `HABBLAUD_CODEX`, `HABBLAUD_OMP`, `HABBLAUD_UPDATE_CHECK`, `HABBLAUD_LANG`, `HABBLAUD_PTY`, the `HABBLAUD_WORLD*` and the
@@ -1005,7 +1022,10 @@ The host helper (`npm run codex:bridge`) opens omp in `hb-<id>` sessions. Use `t
 | `GET /api/cast`, `POST /api/cast` | List or create cast members in `cast.json`; local access or the remote port after login when `terminal` is in `HABBLAUD_REMOTE_ALLOW`. |
 | `PUT /api/cast/:id`, `DELETE /api/cast/:id` | Edit or delete a cast member; local access or the remote port after login when `terminal` is in `HABBLAUD_REMOTE_ALLOW`. |
 | `PUT /api/agents/:id/cast`, `DELETE /api/agents/:id/cast` | Dress the main agent with `{cast}`, or return to a random character. omp sessions can request a member with `HABBLAUD_CAST=<id>`; local access or the remote port after login when `terminal` is in `HABBLAUD_REMOTE_ALLOW`. |
-| `POST /api/cast/:id/start`, `POST /api/agents/:id/dismiss`, `GET /api/cast/jobs` | Start, dismiss or track cast sessions; local access or the remote port after login when `terminal` is in `HABBLAUD_REMOTE_ALLOW`. |
+| `GET /api/cast/models` | Get the ZeroClaw catalog, including fixed agents (`named`) when configured, or the empty OMP catalog. Uses the terminal access rule. |
+| `POST /api/cast/:id/start` | Start or resume a cast conversation (`{mode, prompt?, model?}`); `model` selects a model only for a new ZeroClaw conversation without a fixed agent. Uses the terminal access rule. |
+| `POST /api/cast/new` | Start a conversation outside the cast (`{prompt?, model?}`), or resume from history. `model` is only for a new ZeroClaw conversation. Uses the terminal access rule. |
+| `POST /api/agents/:id/dismiss`, `GET /api/cast/jobs` | Dismiss or track cast sessions; local access or the remote port after login when `terminal` is in `HABBLAUD_REMOTE_ALLOW`. |
 | `POST /api/host/cast/poll`, `POST /api/host/cast/ack` | The host helper fetches and acknowledges cast jobs. |
 | `GET /api/sessions/recent` | Session history: sessions from the last 7 days across all accounts (up to 150); local access only. |
 | `GET /api/sessions/:conta/:sessionId/terminal` | SSE of the conversation of a session from the history (same protocol as the terminal); local access only. |
@@ -1021,7 +1041,7 @@ The host helper (`npm run codex:bridge`) opens omp in `hb-<id>` sessions. Use `t
 | `/api/messages…` and `/api/mod/inbox…` | Sending messages: the page puts the message in the queue and follows its delivery; the `habblaud-mensagens` plugin fetches it, delivers it to the session and confirms. Local access only. |
 | `POST /api/codex/events` | Events from the Codex hooks (session opened, tool, approval, end of turn). Local access only. |
 | `/api/codex/bridge/poll` and `/ack` | `npm run codex:bridge` fetches the messages for Codex and confirms delivery. Local access only. |
-| `GET /api/access` | What this connection can use (`remote`, `local`, `permissions`, `messages`, `terminal`, `spawn`, `world`); the page uses it to show or hide features. |
+| `GET /api/access` | What this connection can use (`remote`, `local`, `permissions`, `messages`, `terminal`, `spawn`, `world`, `files`). `files` requires an available file browser and `terminal` authorization for this connection. |
 | `GET /api/updates` and `POST /api/updates/check` | New-version check: the version in use and the result; `check` ("Check now") asks GitHub (at most once every 30 s). Off with `HABBLAUD_UPDATE_CHECK=0`. |
 | `/api/world/*` | Habblaud World (account, character and building); on by default, `HABBLAUD_WORLD=0` turns it off. Local access only, never through the phone port. |
 | `POST /api/omp/events` | Events from the Habblaud extension in omp (session, tool, approval, heartbeat). Local access only. |
