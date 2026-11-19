@@ -264,7 +264,7 @@ export component ConversationView inherits Rectangle {
         root.cancel-restore();
         if root.can-take-focus { scroll-keys.focus(); }
         ConversationViewState.following = true;
-        messages.content-y = min(0px, messages.height - messages.content-height);
+        messages.content-y = messages.end-y;
         ConversationViewState.position(true);
     }
     property <int> end-request: ConversationViewState.end-request;
@@ -333,15 +333,17 @@ export component ConversationView inherits Rectangle {
             }
             messages := ScrollList {
                 width: parent.width; height: parent.height;
-                changed content-height => { if ConversationViewState.following { self.content-y = min(0px, self.height - self.content-height); } }
-                changed height => {
-                    if ConversationViewState.following { self.content-y = min(0px, self.height - self.content-height); }
+                property <length> end-y: min(0px, self.visible-height - self.content-height);
+                changed end-y => { if ConversationViewState.following { self.content-y = self.end-y; } }
+                changed content-y => {
+                    ConversationViewState.scroll-y = self.content-y;
+                    // A lista virtual pode deslocar a janela medida sem alterar a altura total estimada.
+                    if ConversationViewState.following && self.content-y > self.end-y + 1px { self.content-y = self.end-y; }
                 }
-                changed content-y => { ConversationViewState.scroll-y = self.content-y; }
                 scrolled => {
                     ConversationViewState.restore-pending = false;
                     ConversationViewState.anchor-ticks = 0;
-                    ConversationViewState.following = self.content-height <= self.height || self.content-y <= self.height - self.content-height + 2px;
+                    ConversationViewState.following = self.content-height <= self.visible-height || self.content-y <= self.end-y + 2px;
                     ConversationViewState.position(ConversationViewState.following);
                     ConversationViewState.capture-pending = true;
                 }
