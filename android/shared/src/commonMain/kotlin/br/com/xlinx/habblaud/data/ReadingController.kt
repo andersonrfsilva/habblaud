@@ -31,6 +31,12 @@ internal fun launchPersist(scope: CoroutineScope, block: suspend () -> Unit): Jo
     }
 }
 
+internal fun scheduleConversationSave(scope: CoroutineScope, pending: Job?, delayMs: Long, save: () -> Unit): Job? {
+    pending?.cancel()
+    if (delayMs == 0L) { save(); return null }
+    return launchPersist(scope) { delay(delayMs); save() }
+}
+
  data class ReadingState(
     val sessions: List<SessionItem> = emptyList(), val selected: SessionItem? = null,
     val entries: List<TerminalEntry> = emptyList(), val truncated: Boolean = false,
@@ -288,8 +294,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
     /** Guarda a conversa aberta no aparelho: na hora, ou alguns segundos depois da última novidade. */
     private fun persist(delayMs: Long = 0) {
         val key = cachedKey ?: return
-        saveJob?.cancel()
-        if (delayMs == 0L) save(key) else saveJob = scope.launch { delay(delayMs); if (cachedKey == key) save(key) }
+        saveJob = scheduleConversationSave(scope, saveJob, delayMs) { if (cachedKey == key) save(key) }
     }
     private fun save(key: SessionKey) {
         val entries = conversation.snapshot().toList()
