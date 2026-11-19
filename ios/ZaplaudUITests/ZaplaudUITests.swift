@@ -25,6 +25,14 @@ final class ZaplaudUITests: XCTestCase {
         let server = element(app, "server-url")
         server.tap()
         server.typeText(origin)
+        XCUIDevice.shared.press(.home)
+        let loginInBackground = NSPredicate { _, _ in
+            app.state == .runningBackground || app.state == .runningBackgroundSuspended
+        }
+        let backgrounded = XCTNSPredicateExpectation(predicate: loginInBackground, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [backgrounded], timeout: 10), .completed)
+        app.activate()
+        XCTAssertEqual(element(app, "server-url").value as? String, origin)
         let username = element(app, "username")
         username.tap()
         username.typeText("android-test")

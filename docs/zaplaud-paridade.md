@@ -18,7 +18,7 @@ vai para a tabela abaixo, com o motivo. Textos ficam em `android/shared/src/comm
 
 | Recurso | Kotlin | Rust | Observação |
 |---|---|---|---|
-| Login, vários servidores, relogin por servidor | sim | sim | |
+| Login, vários servidores, relogin por servidor | sim | sim | iPad: trocar temporariamente de app preserva a tela e os campos de login digitados. |
 | Abertura da lista sem esperar a resposta dos servidores | sim | sim | Ambos consultam os servidores em paralelo. Pendente no Rust: mostrar «Entrar de novo» imediatamente quando não há cookie local, sem esperar um 401. |
 | Lista: abertas/recentes, busca, filtro por servidor, não lidas, subagentes | sim | sim | Ambos releem Recentes quando uma sessão some do snapshot e não está no histórico. |
 | Fixar e favoritar sessões, com filtro Favoritas | sim | sim | marcas independentes e locais; fixadas primeiro dentro dos filtros, por atividade; remoção do servidor limpa só suas marcas |

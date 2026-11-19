@@ -185,6 +185,7 @@ do meio (0.**3**.0).
 ### Corrigido
 
 - **Zaplaud iPad:** selecionar mais de cinco arquivos mostra um aviso de anexo, sem fechar o app.
+- **Zaplaud iPad:** trocar de app e voltar mantém a tela aberta e os campos de login já preenchidos.
 - **Zaplaud desktop:** conversas longas abrem na última mensagem mesmo quando a fonte do sistema muda.
 - **Zaplaud desktop:** o bate-papo paralelo só apaga a pergunta quando o servidor aceita o envio.
 - **Zaplaud desktop:** o bate-papo paralelo volta a atualizar a resposta após uma falha de rede.
