@@ -20,6 +20,7 @@ vai para a tabela abaixo, com o motivo. Textos ficam em `android/shared/src/comm
 |---|---|---|---|
 | Login, vários servidores, relogin por servidor | sim | sim | |
 | Abertura da lista sem esperar a resposta dos servidores | sim | sim | Ambos consultam os servidores em paralelo. Pendente no Rust: mostrar «Entrar de novo» imediatamente quando não há cookie local, sem esperar um 401. |
+| Status do stream com corpo da resposta truncado | preserva 401/403/404/500 | preserva 401 | A correção de 403/404/500 no Rust fica para um plano próprio: [`api.rs:353–365`](../zaplaud-rs/crates/zaplaud-core/src/api.rs#L353-L365), [`api.rs:422–437`](../zaplaud-rs/crates/zaplaud-core/src/api.rs#L422-L437). |
 | Lista: abertas/recentes, busca, filtro por servidor, não lidas, subagentes | sim | sim | Ambos releem Recentes quando uma sessão some do snapshot e não está no histórico. |
 | Fixar e favoritar sessões, com filtro Favoritas | sim | sim | marcas independentes e locais; fixadas primeiro dentro dos filtros, por atividade; remoção do servidor limpa só suas marcas |
 | Conversa com markdown, pensamentos e ferramentas compactos, resumo, ir para o fim | sim | sim | Rust: seleção dentro de um bloco + "Copiar mensagem" (limite do Slint) |

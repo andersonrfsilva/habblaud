@@ -163,6 +163,21 @@ class ConversationStreamTest {
         }
     }
 
+    @Suppress("DEPRECATION")
+    @Test fun disconnectBeforeHeadersRetriesAsNetworkFailure() = runBlocking {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(500))
+            repeat(FAILURES_BEFORE_NOTICE - 1) {
+                server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST))
+            }
+            val client = client()
+            val repo = ConversationRepository(server.url("/").toString().removeSuffix("/"), { client }, {})
+            val first = withTimeout(15000) { repo.stream("/api/stream").first() }
+            assertEquals(StreamEvent.Failure(null), first)
+            assertEquals(FAILURES_BEFORE_NOTICE, server.requestCount)
+        }
+    }
+
     @Test fun cancellationStopsCall() = runBlocking {
         val server = MockWebServer()
         server.start()
