@@ -235,18 +235,29 @@ def main():
                         if copied != latest:
                             time.sleep(1)
                     assert copied == latest, f'A primeira carga não acompanhou o fim: {copied!r}'
+                    state_path = cache_dir / 'local_state.json'
+
+                    def load_state():
+                        return json.loads(state_path.read_text())
+
+                    initial_state = load_state()
+                    omp_session = initial_state['last_session']
+                    assert json.loads(omp_session)['provider'] == 'omp', 'A conversa inicial não é OMP'
+                    # Até aqui só o OMP foi aberto, portanto só ele tem posição gravada.
+                    omp_reading_key, = (key for key in initial_state if key.startswith('reading_'))
+
                     # Reabrir cache grande provoca estimativas intermediárias do ListView. Elas não são gestos do leitor.
                     for _ in range(3):
                         desktop.click(150, claude_row)
                         desktop.click(150, omp_row)
-                        time.sleep(.5)
-                        assert copy_last() == latest, 'Reabertura do cache saiu do fim'
+                        smoke.wait_for(lambda: copy_last() == latest, 'Reabertura do cache saiu do fim', 20)
                     result['baseline'] = smoke.memory(app.pid)
                     for index in range(args.switches):
                         desktop.click(150, claude_row if index % 2 == 0 else omp_row)
-                        time.sleep(.3)
                         if index % 2:
-                            assert copy_last() == latest, f'Reabertura {index + 1} saiu do fim'
+                            smoke.wait_for(lambda: copy_last() == latest, f'Reabertura {index + 1} saiu do fim', 20)
+                        else:
+                            time.sleep(.3)
                         stats = command('stats')
                         sample = {'switch': index + 1, **smoke.memory(app.pid), 'terminal': stats['terminal'], 'sse': stats['sse']}
                         assert stats['terminal'] == 1, sample
@@ -262,34 +273,46 @@ def main():
                         desktop.x.XSync(desktop.d, 0)
 
                     history_box = (377, 80, 890, 580)
+
+                    def at_history():
+                        return desktop.image().getpixel((1040, 638)) == colors['secondaryContainer']
+
+                    def showing_claude():
+                        session = load_state().get('last_session')
+                        return (session and json.loads(session)['provider'] == 'claude'
+                                and desktop.image().crop(history_box).getcolors(3) is None)
+
+                    def saved_history():
+                        reading = load_state().get(omp_reading_key)
+                        return reading and reading.get('entry') and not reading['following']
+
                     # Salva o histórico OMP e troca de volta antes de terminar a rolagem do Claude.
-                    state_path = cache_dir / 'local_state.json'
                     desktop.key('Home')
-                    smoke.wait_for(
-                        lambda: any(key.startswith('reading_') and value.get('entry') and not value['following']
-                                    for key, value in json.loads(state_path.read_text()).items()),
-                        'Posição no histórico OMP não foi salva',
-                    )
-                    saved_history = desktop.image().crop(history_box).tobytes()
-                    desktop.click(150, claude_row)
-                    smoke.wait_for(
-                        lambda: desktop.image().getpixel((1040, 638)) != colors['secondaryContainer']
-                        and desktop.image().crop(history_box).getcolors(3) is None,
-                        'Conversa Claude não abriu no fim',
-                    )
-                    started = time.monotonic()
-                    # No limite inferior a roda para baixo não desloca a lista nem inicia o timer.
-                    wheel(4, 1)
-                    desktop.x.XWarpPointer(desktop.d, 0, desktop.mapped()[0], 0, 0, 0, 0, 150, omp_row)
-                    for pressed in (1, 0):
-                        desktop.xt.XTestFakeButtonEvent(desktop.d, 1, pressed, 0)
-                    desktop.x.XSync(desktop.d, 0)
-                    assert time.monotonic() - started < .22, 'A troca excedeu os 220 ms da roda'
-                    time.sleep(1)
-                    restored = desktop.image()
-                    restored.save(f'/tmp/zaplaud-rs-fin-conversation-regression-restored-{args.theme}.png')
-                    assert restored.getpixel((1040, 638)) == colors['secondaryContainer'], 'A troca fez o OMP seguir o fim'
-                    assert restored.crop(history_box).tobytes() == saved_history, 'A roda da conversa anterior moveu o histórico OMP'
+                    smoke.wait_for(saved_history, 'Posição no histórico OMP não foi salva')
+                    for attempt in range(1, 6):
+                        desktop.click(150, claude_row)
+                        smoke.wait_for(showing_claude, f'Troca {attempt}: conversa Claude não abriu')
+                        if at_history():
+                            desktop.click(1060, 638)
+                        smoke.wait_for(lambda: not at_history(), f'Troca {attempt}: conversa Claude não chegou ao fim')
+                        before = load_state()[omp_reading_key]
+                        assert before.get('entry') and not before['following'], f'Troca {attempt}: OMP não estava no histórico'
+                        started = time.monotonic()
+                        # No limite inferior a roda para baixo não desloca a lista nem inicia o timer.
+                        wheel(4, 1)
+                        desktop.x.XWarpPointer(desktop.d, 0, desktop.mapped()[0], 0, 0, 0, 0, 150, omp_row)
+                        for pressed in (1, 0):
+                            desktop.xt.XTestFakeButtonEvent(desktop.d, 1, pressed, 0)
+                        desktop.x.XSync(desktop.d, 0)
+                        assert time.monotonic() - started < .22, 'A troca excedeu os 220 ms da roda'
+                        time.sleep(3)
+                        state = load_state()
+                        assert state.get('last_session') == omp_session, f'Troca {attempt}: conversa OMP não reabriu'
+                        after = state.get(omp_reading_key)
+                        assert after == before, f'Troca {attempt}: a roda da conversa anterior alterou a posição gravada do OMP: {before!r} -> {after!r}'
+                        assert at_history(), f'Troca {attempt}: o botão de voltar ao fim não apareceu no OMP'
+                    result['wheel_switches'] = 5
+                    desktop.image().save(f'/tmp/zaplaud-rs-fin-conversation-regression-restored-{args.theme}.png')
                     desktop.click(1060, 638)
                     smoke.wait_for(lambda: copy_last() == latest, 'Ir para o fim não voltou à última mensagem do OMP', 20)
 
@@ -348,6 +371,10 @@ def main():
                     assert copy_last() == latest, 'Rolagem não chegou à última entrada'
                     result['scroll_memory'] = smoke.memory(app.pid)
                     desktop.image().save(f'/tmp/zaplaud-rs-fin-conversation-regression-end-{args.theme}.png')
+                except Exception:
+                    if desktop.mapped():
+                        desktop.image().save(f'/tmp/zaplaud-rs-fin-conversation-regression-failure-{args.theme}.png')
+                    raise
                 finally:
                     app.terminate()
                     app.wait(timeout=10)
