@@ -62,12 +62,20 @@ actual fun platformSendsOnEnter(): Boolean = false
     val delegate = remember {
         object : NSObject(), UIDocumentPickerDelegateProtocol {
             override fun documentPicker(controller: UIDocumentPickerViewController, didPickDocumentsAtURLs: List<*>) {
-                val tokens = retainPickedDocuments(didPickDocumentsAtURLs.filterIsInstance<NSURL>())
-                pendingTokens.addAll(tokens)
-                try { callback(tokens) }
-                catch (error: Throwable) { discardPickedDocuments(tokens); pendingTokens.removeAll(tokens.toSet()); throw error }
+                var tokens = emptyList<String>()
+                try {
+                    tokens = retainPickedDocuments(didPickDocumentsAtURLs.filterIsInstance<NSURL>())
+                    pendingTokens.addAll(tokens)
+                    callback(tokens)
+                } catch (_: Throwable) {
+                    runCatching { discardPickedDocuments(tokens) }
+                    pendingTokens.removeAll(tokens)
+                    runCatching { callback(emptyList()) }
+                }
             }
-            override fun documentPickerWasCancelled(controller: UIDocumentPickerViewController) { callback(emptyList()) }
+            override fun documentPickerWasCancelled(controller: UIDocumentPickerViewController) {
+                runCatching { callback(emptyList()) }
+            }
         }
     }
     return {

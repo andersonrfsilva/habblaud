@@ -26,7 +26,7 @@ vai para a tabela abaixo, com o motivo. Textos ficam em `android/shared/src/comm
 | Resposta aberta e posição de leitura preservadas ao sair e voltar | sim | sim | estado local por conversa; rolar cancela a restauração; quem saiu acompanhando o fim volta ao fim |
 | Cache de conversas com teto de espaço | Android: sim (64 MiB); iPad: **pendente** | **pendente** (limite de 500 entradas por conversa, sem teto total) | Conversas removidas do cache são baixadas de novo ao abrir. |
 | Duas colunas a partir de 840 dp, conversa usando a largura toda | sim | sim | celular: uma coluna |
-| Compositor: rascunho, anexos, modos de envio, interrupção, anel de contexto, shake | sim | sim | Rust: sem arrastar arquivos para a janela (Slint 1.18) |
+| Compositor: rascunho, anexos, modos de envio, interrupção, anel de contexto, shake | sim | sim | iPad: o seletor nativo permite marcar mais de cinco arquivos, mas o app recusa a seleção com um aviso. Rust: sem arrastar arquivos para a janela (Slint 1.18). |
 | Aprovação e perguntas, com resumo `text` e entrada não textual em JSON | sim | sim | Kotlin rola na horizontal; Rust quebra a linha e mostra "mais N linhas" |
 | Folha de permissão fica aberta durante o envio da decisão | sim | sim | Enquanto envia, botão Cancelar, Esc e clique fora não fecham a folha. |
 | Chamar personagem (também com conversa aberta em tela larga), dispensar, retomar | sim | sim | pasta da conversa aberta vem primeiro |
