@@ -179,6 +179,7 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **omp:** formulários simples de escolha ou texto voltam a aparecer no Zaplaud e na página; formulários que o cartão não consegue representar ficam no terminal.
 - **Zaplaud iPad:** selecionar mais de cinco arquivos mostra um aviso de anexo, sem fechar o app.
 - **Zaplaud iPad:** trocar de app e voltar mantém a tela aberta e os campos de login já preenchidos.
 - **Zaplaud desktop:** o cliente preserva o erro HTTP (acesso bloqueado, sessão inexistente ou erro interno) quando a conexão cai durante a leitura do corpo, em vez de classificar a resposta como falha de rede.
