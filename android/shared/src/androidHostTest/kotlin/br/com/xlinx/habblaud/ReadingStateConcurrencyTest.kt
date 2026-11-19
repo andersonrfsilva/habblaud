@@ -26,7 +26,7 @@ class ReadingStateConcurrencyTest {
                 val computingUnread = CountDownLatch(1)
                 val readingPublished = CountDownLatch(1)
                 val refresh = async(Dispatchers.Default) {
-                    state.publishUnread(state.value, null, mapOf(key.sessionId to 1L)) {
+                    state.publishUnread(mapOf(key.sessionId to 1L)) {
                         // Pause the computation after it reads state but before it publishes the copy.
                         computingUnread.countDown()
                         if (readingPublished.await(5, SECONDS)) it.sessionId else ""
