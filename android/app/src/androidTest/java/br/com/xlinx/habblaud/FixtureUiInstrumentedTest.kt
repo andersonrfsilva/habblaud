@@ -199,9 +199,7 @@ class FixtureUiInstrumentedTest {
             swipeDown(startY = top + 20f, endY = bottom - 20f, durationMillis = 600)
         }
         compose.onNodeWithTag("session-search").performTextInput("Ana Fictícia")
-        android.os.ParcelFileDescriptor.AutoCloseInputStream(
-            InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("input keyevent KEYCODE_BACK")
-        ).use { it.readBytes() }
+        compose.hideIme(compose.onNodeWithTag("session-search"))
         val rowTag = "session-row:${key.provider}:${key.sessionId}"
         fun awaitRows(count: Int) = compose.waitUntil(15_000) {
             compose.onAllNodesWithTag(rowTag).fetchSemanticsNodes().size == count
@@ -417,18 +415,11 @@ class FixtureUiInstrumentedTest {
         compose.waitUntil(15_000) { compose.onAllNodes(androidx.compose.ui.test.hasContentDescription(text(R.string.aside_stop))).fetchSemanticsNodes().isNotEmpty() }
         compose.waitUntil(15_000) { compose.onAllNodes(hasText("Resposta paralela fictícia: o que você está fazendo?", substring = true)).fetchSemanticsNodes().isNotEmpty() }
         compose.waitUntil(15_000) { compose.onAllNodesWithTag("aside-send").fetchSemanticsNodes().isNotEmpty() }
-        // A pergunta não vira mensagem da conversa do agente. O primeiro Voltar pode só fechar o teclado.
-        repeat(2) {
-            if (compose.onAllNodesWithTag("aside-input").fetchSemanticsNodes().isEmpty()) return@repeat
-            android.os.ParcelFileDescriptor.AutoCloseInputStream(
-                InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("input keyevent KEYCODE_BACK")
-            ).use { it.readBytes() }
-            val until = android.os.SystemClock.uptimeMillis() + 1_000
-            compose.waitUntil(5_000) {
-                compose.onAllNodesWithTag("aside-input").fetchSemanticsNodes().isEmpty() ||
-                    android.os.SystemClock.uptimeMillis() >= until
-            }
-        }
+        // A pergunta não vira mensagem da conversa do agente.
+        compose.hideIme(compose.onNodeWithTag("aside-input"))
+        android.os.ParcelFileDescriptor.AutoCloseInputStream(
+            InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("input keyevent KEYCODE_BACK")
+        ).use { it.readBytes() }
         compose.waitUntil(15_000) { compose.onAllNodesWithTag("aside-input").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithContentDescription(text(R.string.back_sessions)).assertExists()
         compose.onAllNodes(hasText("o que você está fazendo?", substring = true)).assertCountEquals(0)
@@ -548,7 +539,7 @@ class FixtureUiInstrumentedTest {
         compose.onNodeWithText(text(R.string.permission_deny)).performClick()
         await(R.string.permission_reason)
         compose.onNodeWithText(text(R.string.permission_reason)).performTextInput("Não autorizado")
-        InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("input keyevent KEYCODE_BACK").close()
+        compose.hideIme(compose.onNodeWithText(text(R.string.permission_reason)))
         compose.onNodeWithText(text(R.string.permission_reason)).assertTextContains("Não autorizado")
         compose.onNodeWithText(text(R.string.permission_deny)).performScrollTo().assertIsDisplayed().assertIsEnabled().performClick()
         val denied = fixtureRequest("/api/permissions/$denialId/wait?timeout=5")
