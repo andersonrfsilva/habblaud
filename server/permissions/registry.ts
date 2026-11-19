@@ -15,9 +15,9 @@
 // conta no corpo). Diferenças: o agente casa pelo thread (agent_id ?? session_id) entre os agentes do Codex; sem
 // sugestões nem perguntas; recusar só com motivo (sem interromper); sem a busca da resposta no transcript (no Codex o
 // terminal só pede a aprovação depois que o hook termina, então ela nunca é respondida lá enquanto ele espera).
-// O omp (extensão mod/habblaud-omp, `provider: "omp"`) segue as mesmas regras do Codex, com o agente casado pelo
-// `session_id` entre os agentes do omp; quem retira o pedido quando o diálogo do terminal é respondido é a própria
-// extensão (POST /api/permissions/:id/decision com {behavior: "terminal"}).
+// O omp (extensão mod/habblaud-omp, `provider: "omp"`) não tem sugestões, mas envia seu `ask` como AskUserQuestion.
+// O agente casa pelo `session_id`. Quando o diálogo do terminal vence, a extensão retira o pedido com
+// POST /api/permissions/:id/decision ({behavior: "terminal"}).
 import { randomBytes } from 'node:crypto';
 import { describeTool, maskSecrets, truncate } from '../../shared/activity';
 import { ANSWER_OTHER_MAX, answerSummary, ASK_TOOL, checkAnswers } from '../../shared/answers';

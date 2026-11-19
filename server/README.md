@@ -480,6 +480,13 @@ Rótulo B, texto livre"}`, como a documentação dos hooks manda responder o `As
 pergunta é recusado (400); `deny` vale. Pergunta que o escritório não consegue mostrar inteira (mais de 4, ou
 nenhuma válida) não é desviada (`unsupported-tool`).
 
+A extensão do omp também manda `ask` como `AskUserQuestion`, incluindo o formato antigo e formulários HTML simples.
+Grupos de rádio/checkbox com a resposta livre nativa e campos de texto sem restrições incompatíveis com o cartão
+viram perguntas. Campos de texto usam «Outro», sem opções, e aceitam até 2.000 unidades UTF-16 de texto não vazio
+após aparar espaços. Para deixar a resposta em branco ou usar um controle não representável (por exemplo,
+`select` ou um campo numérico), use o diálogo do omp. A extensão converte a decisão pelo escritório no JSON e
+no resumo do `ask` nativo. Se o terminal responder primeiro, a extensão retira o cartão.
+
 `permissions/registry.ts` (`PermissionRegistry`):
 
 - só aceita o pedido com alguma página conectada por `Host` local (`Hub.localSize`) e com a sessão conhecida
