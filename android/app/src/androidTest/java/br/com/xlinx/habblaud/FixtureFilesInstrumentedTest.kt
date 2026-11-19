@@ -52,7 +52,7 @@ class FixtureFilesInstrumentedTest {
         if (Build.VERSION.SDK_INT >= 29 && arguments.getString("filesName") != null) {
             downloads().forEach { context.contentResolver.delete(it, null, null) }
         }
-        runBlocking { LocalStateStore(context).clear() }
+        compose.withFixture { LocalStateStore(context).clear() }
     }
 
     private fun awaitTag(tag: String) = compose.waitUntil(30_000) {
@@ -104,7 +104,7 @@ class FixtureFilesInstrumentedTest {
         compose.onNodeWithTag("files-entry:documentos").performClick()
         awaitTag("files-download:$name")
         for (theme in listOf("light", "dark")) {
-            runBlocking { LocalStateStore(context).setTheme(theme) }
+            compose.withFixture { LocalStateStore(context).setTheme(theme) }
             compose.waitForIdle()
             val screenshot = requireNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
             try {
