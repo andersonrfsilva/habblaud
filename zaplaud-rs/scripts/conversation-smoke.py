@@ -261,25 +261,31 @@ def main():
                                 desktop.xt.XTestFakeButtonEvent(desktop.d, button, pressed, 0)
                         desktop.x.XSync(desktop.d, 0)
 
-                    desktop.key('Home')
                     # A nova entrada deve atualizar o contador sem mover as mensagens em leitura.
-                    history_box = (377, 65, 980, 600)
+                    history_box = (377, 80, 890, 580)
                     badge_box = (1040, 620, 1080, 655)
-                    smoke.wait_for(
-                        lambda: desktop.image().getpixel((1040, 638)) == colors['secondaryContainer'],
-                        'Histórico não saiu do fim',
-                    )
-                    history = desktop.image()
-                    latest = 'Carga fictícia 221.'
-                    with transcript.open('a') as stream:
-                        write_entry(stream, latest, 'assistant')
-                    smoke.wait_for(
-                        lambda: desktop.image().crop(badge_box).tobytes() != history.crop(badge_box).tobytes(),
-                        'Contador de mensagens novas não atualizou', 20,
-                    )
-                    assert desktop.image().crop(history_box).tobytes() == history.crop(history_box).tobytes(), 'Mensagem nova moveu o histórico'
-                    desktop.click(1060, 638)
-                    smoke.wait_for(lambda: copy_last() == latest, 'Ir para o fim não chegou à mensagem nova', 20)
+                    for number, gesture in enumerate((lambda: wheel(4, 6), lambda: desktop.key('Home')), start=221):
+                        end = desktop.image().crop(history_box).tobytes()
+                        gesture()
+                        smoke.wait_for(
+                            lambda: desktop.image().getpixel((1040, 638)) == colors['secondaryContainer'],
+                            f'Histórico não saiu do fim antes da mensagem {number}',
+                        )
+                        time.sleep(.5)
+                        history = desktop.image()
+                        assert history.crop(history_box).tobytes() != end, 'A rolagem não mudou o histórico'
+                        time.sleep(2)
+                        assert desktop.image().crop(history_box).tobytes() == history.crop(history_box).tobytes(), 'Histórico voltou ao fim depois do gesto'
+                        latest = f'Carga fictícia {number}.'
+                        with transcript.open('a') as stream:
+                            write_entry(stream, latest, 'assistant')
+                        smoke.wait_for(
+                            lambda: desktop.image().crop(badge_box).tobytes() != history.crop(badge_box).tobytes(),
+                            'Contador de mensagens novas não atualizou', 20,
+                        )
+                        assert desktop.image().crop(history_box).tobytes() == history.crop(history_box).tobytes(), 'Mensagem nova moveu o histórico'
+                        desktop.click(1060, 638)
+                        smoke.wait_for(lambda: copy_last() == latest, 'Ir para o fim não chegou à mensagem nova', 20)
                     wheel(4, 400)
                     time.sleep(.5)
                     desktop.image().save(f'/tmp/zaplaud-rs-fin-conversation-regression-start-{args.theme}.png')

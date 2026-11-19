@@ -245,6 +245,7 @@ export component ConversationView inherits Rectangle {
     function cancel-restore() {
         ConversationViewState.restore-pending = false;
         ConversationViewState.anchor-ticks = 0;
+        messages.scroll-from-end = false;
     }
     public function scroll-to(fraction: float) {
         root.cancel-restore();
@@ -334,16 +335,29 @@ export component ConversationView inherits Rectangle {
             messages := ScrollList {
                 width: parent.width; height: parent.height;
                 property <length> end-y: min(0px, self.visible-height - self.content-height);
-                changed end-y => { if ConversationViewState.following { self.content-y = self.end-y; } }
+                property <bool> scroll-from-end;
+                changed end-y => { if ConversationViewState.following && !self.scroll-from-end { self.content-y = self.end-y; } }
                 changed content-y => {
                     ConversationViewState.scroll-y = self.content-y;
-                    // A lista virtual pode deslocar a janela medida sem alterar a altura total estimada.
-                    if ConversationViewState.following && self.content-y > self.end-y + 1px { self.content-y = self.end-y; }
+                    if self.scroll-from-end {
+                        if self.content-y > self.end-y + 2px {
+                            self.scroll-from-end = false;
+                            ConversationViewState.following = false;
+                            ConversationViewState.position(false);
+                            ConversationViewState.capture-pending = true;
+                        }
+                    } else if ConversationViewState.following && self.content-y > self.end-y + 1px {
+                        // A lista virtual pode deslocar a janela medida sem alterar a altura total estimada.
+                        self.content-y = self.end-y;
+                    }
                 }
                 scrolled => {
                     ConversationViewState.restore-pending = false;
                     ConversationViewState.anchor-ticks = 0;
-                    ConversationViewState.following = self.content-height <= self.visible-height || self.content-y <= self.end-y + 2px;
+                    // A roda sinaliza o gesto antes de a animação alterar content-y.
+                    let at-end = self.content-y <= self.end-y + 2px;
+                    self.scroll-from-end = self.end-y < 0px && ConversationViewState.following && at-end;
+                    ConversationViewState.following = at-end;
                     ConversationViewState.position(ConversationViewState.following);
                     ConversationViewState.capture-pending = true;
                 }
