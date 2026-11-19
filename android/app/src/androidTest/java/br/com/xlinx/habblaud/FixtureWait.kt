@@ -1,6 +1,11 @@
 package br.com.xlinx.habblaud
 
+import android.view.inputmethod.InputMethodManager
+import androidx.compose.ui.platform.ViewRootForTest
+import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.junit4.ComposeTestRule
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import java.util.concurrent.FutureTask
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -18,5 +23,16 @@ internal fun <T> ComposeTestRule.withFixture(work: suspend () -> T): T {
         return pending.get()
     } finally {
         pending.cancel(true)
+    }
+}
+
+internal fun ComposeTestRule.hideIme(node: SemanticsNodeInteraction) {
+    // A folha modal pode usar uma janela diferente da Activity.
+    val view = (node.fetchSemanticsNode().root as ViewRootForTest).view
+    runOnUiThread {
+        view.context.getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(view.windowToken, 0)
+    }
+    waitUntil(15_000) {
+        runOnUiThread { ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == false }
     }
 }

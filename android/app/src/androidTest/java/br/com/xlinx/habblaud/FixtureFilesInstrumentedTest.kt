@@ -70,9 +70,7 @@ class FixtureFilesInstrumentedTest {
         compose.onNodeWithTag("server-url").performTextReplacement(origin)
         compose.onNodeWithTag("username").performTextInput("android-test")
         compose.onNodeWithTag("password").performTextInput("android-test")
-        android.os.ParcelFileDescriptor.AutoCloseInputStream(
-            InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("input keyevent KEYCODE_BACK")
-        ).use { it.readBytes() }
+        compose.hideIme(compose.onNodeWithTag("password"))
         compose.onNodeWithTag("login-submit").performScrollTo().performClick()
         compose.waitUntil(30_000) {
             compose.onAllNodesWithText(context.getString(R.string.http_login_title)).fetchSemanticsNodes().isNotEmpty()

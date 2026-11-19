@@ -67,7 +67,7 @@ class HttpLoginInstrumentedTest {
     private fun credentials() {
         setField(R.string.user, "teste")
         setField(R.string.password, "senha-ficticia")
-        InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("input keyevent KEYCODE_BACK").close()
+        compose.hideIme(compose.onNodeWithText(text(R.string.password)))
     }
     private fun noRequest() {
         val until = android.os.SystemClock.uptimeMillis() + 300
@@ -131,17 +131,14 @@ class HttpLoginInstrumentedTest {
         assertNull(savedOrigin())
         click(R.string.login)
         await(R.string.http_login_title)
-        // `input keyevent` roda fora do processo: lê a saída para esperar o BACK sair. O primeiro pode só fechar o
-        // teclado; o segundo vai apenas se o diálogo ainda estiver aberto depois de esperar (mandado cedo demais, ele
-        // fechava a atividade junto).
-        fun back() = android.os.ParcelFileDescriptor.AutoCloseInputStream(
+        // O BACK testa o cancelamento do diálogo, não o fechamento do teclado.
+        compose.hideIme(compose.onNodeWithText(text(R.string.http_login_title)))
+        android.os.ParcelFileDescriptor.AutoCloseInputStream(
             InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("input keyevent KEYCODE_BACK"),
         ).use { it.readBytes() }
-        fun dialogGone(ms: Long) = runCatching {
-            compose.waitUntil(ms) { compose.onAllNodes(hasText(text(R.string.http_login_title))).fetchSemanticsNodes().isEmpty() }
-        }.isSuccess
-        back()
-        if (!dialogGone(2_000)) { back(); dialogGone(5_000) }
+        compose.waitUntil(5_000) {
+            compose.onAllNodes(hasText(text(R.string.http_login_title))).fetchSemanticsNodes().isEmpty()
+        }
         compose.onNodeWithText(text(R.string.http_login_title)).assertDoesNotExist()
         noRequest()
         assertNull(savedOrigin())

@@ -4,6 +4,7 @@ import android.Manifest
 import android.os.Build
 import android.content.Context
 import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -43,6 +44,8 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
+import androidx.test.runner.lifecycle.Stage
 import br.com.xlinx.habblaud.data.HabblaudApi
 import br.com.xlinx.habblaud.data.LocalStateStore
 import br.com.xlinx.habblaud.data.MessageDraft
@@ -166,8 +169,11 @@ class FixtureUiInstrumentedTest {
     }
 
     @After fun cleanup() {
-        scenario?.close()
-        restoreDisplay?.invoke()
+        try {
+            scenario?.close()
+        } finally {
+            restoreDisplay?.invoke()
+        }
         if (zeroClawFixture) fixtureCommand("runtime omp")
         if (prepared) {
             compose.withFixture { LocalStateStore(context).clear() }
@@ -199,9 +205,7 @@ class FixtureUiInstrumentedTest {
             swipeDown(startY = top + 20f, endY = bottom - 20f, durationMillis = 600)
         }
         compose.onNodeWithTag("session-search").performTextInput("Ana Fictícia")
-        android.os.ParcelFileDescriptor.AutoCloseInputStream(
-            InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("input keyevent KEYCODE_BACK")
-        ).use { it.readBytes() }
+        compose.hideIme(compose.onNodeWithTag("session-search"))
         val rowTag = "session-row:${key.provider}:${key.sessionId}"
         fun awaitRows(count: Int) = compose.waitUntil(15_000) {
             compose.onAllNodesWithTag(rowTag).fetchSemanticsNodes().size == count
@@ -316,30 +320,59 @@ class FixtureUiInstrumentedTest {
     }
 
     @Test fun imeDraftSurvivesRecreationRotationAndLargeFont() {
+        // Consultar semântica durante a troca pode deixar Espresso esperando o frame da janela antiga.
+        fun awaitWindow(previous: MainActivity? = null, matches: (Configuration) -> Boolean = { true }): MainActivity {
+            lateinit var resumed: MainActivity
+            compose.waitUntil(15_000) {
+                compose.runOnUiThread {
+                    val activity = ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.RESUMED)
+                        .filterIsInstance<MainActivity>().singleOrNull()
+                    if (activity == null || activity === previous || !activity.hasWindowFocus() ||
+                        !matches(activity.resources.configuration)
+                    ) return@runOnUiThread false
+                    val oldDecor = previous?.window?.peekDecorView()
+                    // Android pode reaproveitar a mesma janela na nova Activity.
+                    if (oldDecor !== activity.window.peekDecorView() && oldDecor?.isAttachedToWindow == true) {
+                        return@runOnUiThread false
+                    }
+                    resumed = activity
+                    true
+                }
+            }
+            return resumed
+        }
+
         scenario = ActivityScenario.launch(MainActivity::class.java)
         await(R.string.message_text)
         compose.onNodeWithText(text(R.string.message_text)).performTextInput("rascunho IME")
         compose.awaitFixture { LocalStateStore(context).message(key).draft.text == "rascunho IME" }
-        scenario!!.recreate()
+        val initial = awaitWindow()
+        compose.runOnUiThread { initial.recreate() }
+        val recreated = awaitWindow(initial)
         await(R.string.message_text)
         compose.onNodeWithText(text(R.string.message_text)).assertTextContains("rascunho IME")
-        scenario!!.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
+        compose.runOnUiThread { recreated.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
+        val rotated = awaitWindow(recreated) { it.orientation == Configuration.ORIENTATION_LANDSCAPE }
         await(R.string.message_text)
+        compose.onNodeWithText(text(R.string.message_text)).assertTextContains("rascunho IME")
         val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
-        fun shell(command: String) = automation.executeShellCommand(command).use {
-            android.os.ParcelFileDescriptor.AutoCloseInputStream(it).bufferedReader().readText().trim()
+        fun shell(command: String) = compose.withFixture {
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(command))
+                .bufferedReader().use { it.readText().trim() }
         }
         val original = shell("settings get system font_scale")
-        try {
-            shell("settings put system font_scale 1.5")
-            scenario!!.recreate()
-            await(R.string.message_text)
-            compose.onNodeWithText(text(R.string.message_text)).assertIsDisplayed()
-            compose.onNodeWithText(text(R.string.message_text)).assertTextContains("rascunho IME")
-        } finally {
+        val previousScale = compose.runOnUiThread { rotated.resources.configuration.fontScale }
+        restoreDisplay = {
             if (original == "null") shell("settings delete system font_scale")
             else shell("settings put system font_scale $original")
         }
+        shell("settings put system font_scale 1.5")
+        awaitWindow(if (previousScale == 1.5f) null else rotated) {
+            it.orientation == Configuration.ORIENTATION_LANDSCAPE && it.fontScale == 1.5f
+        }
+        await(R.string.message_text)
+        compose.onNodeWithText(text(R.string.message_text)).assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.message_text)).assertTextContains("rascunho IME")
     }
 
     @Test fun thinkingExpandsAllLinesAndCollapses() {
@@ -417,18 +450,11 @@ class FixtureUiInstrumentedTest {
         compose.waitUntil(15_000) { compose.onAllNodes(androidx.compose.ui.test.hasContentDescription(text(R.string.aside_stop))).fetchSemanticsNodes().isNotEmpty() }
         compose.waitUntil(15_000) { compose.onAllNodes(hasText("Resposta paralela fictícia: o que você está fazendo?", substring = true)).fetchSemanticsNodes().isNotEmpty() }
         compose.waitUntil(15_000) { compose.onAllNodesWithTag("aside-send").fetchSemanticsNodes().isNotEmpty() }
-        // A pergunta não vira mensagem da conversa do agente. O primeiro Voltar pode só fechar o teclado.
-        repeat(2) {
-            if (compose.onAllNodesWithTag("aside-input").fetchSemanticsNodes().isEmpty()) return@repeat
-            android.os.ParcelFileDescriptor.AutoCloseInputStream(
-                InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("input keyevent KEYCODE_BACK")
-            ).use { it.readBytes() }
-            val until = android.os.SystemClock.uptimeMillis() + 1_000
-            compose.waitUntil(5_000) {
-                compose.onAllNodesWithTag("aside-input").fetchSemanticsNodes().isEmpty() ||
-                    android.os.SystemClock.uptimeMillis() >= until
-            }
-        }
+        // A pergunta não vira mensagem da conversa do agente.
+        compose.hideIme(compose.onNodeWithTag("aside-input"))
+        android.os.ParcelFileDescriptor.AutoCloseInputStream(
+            InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("input keyevent KEYCODE_BACK")
+        ).use { it.readBytes() }
         compose.waitUntil(15_000) { compose.onAllNodesWithTag("aside-input").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithContentDescription(text(R.string.back_sessions)).assertExists()
         compose.onAllNodes(hasText("o que você está fazendo?", substring = true)).assertCountEquals(0)
@@ -548,7 +574,7 @@ class FixtureUiInstrumentedTest {
         compose.onNodeWithText(text(R.string.permission_deny)).performClick()
         await(R.string.permission_reason)
         compose.onNodeWithText(text(R.string.permission_reason)).performTextInput("Não autorizado")
-        InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("input keyevent KEYCODE_BACK").close()
+        compose.hideIme(compose.onNodeWithText(text(R.string.permission_reason)))
         compose.onNodeWithText(text(R.string.permission_reason)).assertTextContains("Não autorizado")
         compose.onNodeWithText(text(R.string.permission_deny)).performScrollTo().assertIsDisplayed().assertIsEnabled().performClick()
         val denied = fixtureRequest("/api/permissions/$denialId/wait?timeout=5")
