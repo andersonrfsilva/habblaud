@@ -24,7 +24,7 @@ vai para a tabela abaixo, com o motivo. Textos ficam em `android/shared/src/comm
 | Fixar e favoritar sessões, com filtro Favoritas | sim | sim | marcas independentes e locais; fixadas primeiro dentro dos filtros, por atividade; remoção do servidor limpa só suas marcas |
 | Conversa com markdown, pensamentos e ferramentas compactos, resumo, ir para o fim | sim | sim | Rust: seleção dentro de um bloco + "Copiar mensagem" (limite do Slint) |
 | Resposta aberta e posição de leitura preservadas ao sair e voltar | sim | sim | estado local por conversa; rolar cancela a restauração; quem saiu acompanhando o fim volta ao fim |
-| Cache de conversas com teto de espaço | Android: sim (64 MiB); iPad: **pendente** | **pendente** (limite de 500 entradas por conversa, sem teto total) | Conversas removidas do cache são baixadas de novo ao abrir. |
+| Cache de conversas com teto de espaço | Android: sim (64 MiB); iPad: **pendente** | **pendente** (limite de 500 entradas por conversa, sem teto total) | Conversas removidas do cache são baixadas de novo ao abrir. Kotlin agrupa mudanças em janelas fixas de 3 s. Rust grava expansões na hora e reinicia o prazo de gravação nas demais mudanças. |
 | Duas colunas a partir de 840 dp, conversa usando a largura toda | sim | sim | celular: uma coluna |
 | Compositor: rascunho, anexos, modos de envio, interrupção, anel de contexto, shake | sim | sim | Rust: sem arrastar arquivos para a janela (Slint 1.18) |
 | Aprovação e perguntas, com resumo `text` e entrada não textual em JSON | sim | sim | Kotlin rola na horizontal; Rust quebra a linha e mostra "mais N linhas" |

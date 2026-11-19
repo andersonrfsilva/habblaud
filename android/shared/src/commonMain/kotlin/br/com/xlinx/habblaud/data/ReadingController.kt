@@ -31,10 +31,28 @@ internal fun launchPersist(scope: CoroutineScope, block: suspend () -> Unit): Jo
     }
 }
 
-internal fun scheduleConversationSave(scope: CoroutineScope, pending: Job?, delayMs: Long, save: () -> Unit): Job? {
-    pending?.cancel()
-    if (delayMs == 0L) { save(); return null }
-    return launchPersist(scope) { delay(delayMs); save() }
+/** A primeira alteração abre a janela de gravação; as demais não adiam o prazo. */
+internal class ConversationCacheSchedule(private val scope: CoroutineScope, private val save: () -> Job?) {
+    private var pending: Job? = null
+    private var write: Job? = null
+
+    fun schedule() {
+        if (pending != null) return
+        pending = launchPersist(scope) {
+            delay(3_000)
+            pending = null
+            save()?.let { write = it }
+        }
+    }
+
+    fun flush(force: Boolean = true) {
+        if (pending == null && !force) return
+        pending?.cancel()
+        pending = null
+        save()?.let { write = it }
+    }
+
+    suspend fun awaitWrite() { write?.join() }
 }
 
  data class ReadingState(
@@ -224,8 +242,9 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         }
     }
     fun stop() {
+        cacheSave.flush(force = active)
         if (!active) return
-        persist(); saveSeen(0); active = false; accessReady = false; generation++
+        saveSeen(0); active = false; accessReady = false; generation++
         stateJob?.cancel(); conversationJob?.cancel(); recentJob?.cancel()
         pendingSummaries.values.toList().forEach { it.cancel() }; pendingSummaries.clear()
         messages.stop(); asides.pause(); api.cancelCalls()
@@ -233,7 +252,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
             it.copy(connection = "offline", readingError = if (it.selected != null && it.readingError == null) "network" else it.readingError)
         }
     }
-    fun close() { persist(); cachedKey = null; dropSummaries(); generation++; conversationJob?.cancel(); messages.close(); asides.close(); restore = null; val write = store.conversationWrite(api.origin, conversationEpoch); launchPersist(scope) { store.setLastSession(null, write) }; mutable.update { it.copy(selected = null, entries = emptyList(), error = null, readingError = null) }; refreshUnread() }
+    fun close() { cacheSave.flush(); cachedKey = null; dropSummaries(); generation++; conversationJob?.cancel(); messages.close(); asides.close(); restore = null; val write = store.conversationWrite(api.origin, conversationEpoch); launchPersist(scope) { store.setLastSession(null, write) }; mutable.update { it.copy(selected = null, entries = emptyList(), error = null, readingError = null) }; refreshUnread() }
     /** Até quando cada conversa foi lida (`LocalStateStore.seenId` → hora do servidor); null até ler do aparelho. */
     private var seen: Map<String, Long>? = null
     private var seenJob: Job? = null
@@ -255,8 +274,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
     }
     /** Sessão cuja conversa está em `conversation` (veio do aparelho ou do servidor) e pode ser guardada. */
     private var cachedKey: SessionKey? = null
-    private var saveJob: Job? = null
-    private var writeJob: Job? = null
+    private val cacheSave = ConversationCacheSchedule(scope, ::save)
     /** Resumos da conversa aberta (`summaryKey` → resumo): gravados no mesmo arquivo dela, para não pedir de novo. */
     private val summaries = HashMap<String, String>()
     fun summary(entry: TerminalEntry): String? = summaries[summaryKey(entry)]
@@ -266,12 +284,12 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         val expanded = reading.expand(id, open)
         reading = expanded
         mutable.update { it.copy(reading = expanded) }
-        persist()
+        scheduleCacheSave()
     }
     fun position(key: SessionKey, position: ReadingPosition) {
         if (mutable.value.selected?.key != key || !mutable.value.readingLoaded || reading.position == position) return
         reading = reading.copy(position = position)
-        persist(500)
+        scheduleCacheSave()
     }
     /** Resumos pedidos e ainda sem resposta: o mesmo item não pede duas vezes. */
     private val pendingSummaries = HashMap<String, Deferred<Result<String>>>()
@@ -286,24 +304,23 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         val token = generation
         // runCatching: a falha volta para quem espera sem derrubar o escopo do controlador.
         val job = pendingSummaries[key] ?: scope.async {
-            runCatching { api.summary(text) }.onSuccess { if (token == generation) { summaries[key] = it; persist(3_000) } }
+            runCatching { api.summary(text) }.onSuccess { if (token == generation) { summaries[key] = it; scheduleCacheSave() } }
         }.also { job -> pendingSummaries[key] = job; job.invokeOnCompletion { if (pendingSummaries[key] === job) pendingSummaries.remove(key) } }
         return job.await().getOrThrow()
     }
     private fun dropSummaries() { summaries.clear(); pendingSummaries.values.forEach { it.cancel() }; pendingSummaries.clear() }
-    /** Guarda a conversa aberta no aparelho: na hora, ou alguns segundos depois da última novidade. */
-    private fun persist(delayMs: Long = 0) {
-        val key = cachedKey ?: return
-        saveJob = scheduleConversationSave(scope, saveJob, delayMs) { if (cachedKey == key) save(key) }
+    private fun scheduleCacheSave() {
+        if (cachedKey != null) cacheSave.schedule()
     }
-    private fun save(key: SessionKey) {
+    private fun save(): Job? {
+        val key = cachedKey ?: return null
         val entries = conversation.snapshot().toList()
         val truncated = conversation.truncated
         val kept = HashMap(summaries)
         val savedReading = reading
         val write = store.conversationWrite(api.origin, conversationEpoch)
         // Escopo próprio: stop()/close() rodam no descarte da tela, quando `scope` já foi cancelado.
-        writeJob = launchPersist(persistScope) { store.setConversation(key, entries, truncated, write, kept, savedReading) }
+        return launchPersist(persistScope) { store.setConversation(key, entries, truncated, write, kept, savedReading) }
     }
     private fun publishConversation() {
         val entries = conversation.snapshot()
@@ -327,7 +344,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
     }
     fun open(item: SessionItem) {
         val sameSession = mutable.value.selected?.key == item.key
-        persist(); cachedKey = null; dropSummaries()
+        cacheSave.flush(); cachedKey = null; dropSummaries()
         val emptyReading = ConversationReading()
         reading = emptyReading
         generation++; val token = generation
@@ -343,7 +360,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
             // O que já foi lido aparece na hora; o servidor manda só o que veio depois da última entrada guardada.
             // Subagentes não ficam guardados: são conversas curtas, e cada uma viraria um arquivo a mais no aparelho.
             // Voltar imediatamente não pode ler o arquivo anterior à gravação feita no fechamento.
-            writeJob?.join()
+            cacheSave.awaitWrite()
             if (token != generation) return@launch
             val cached = if (item.sub) null else store.conversation(item.key)
             if (token != generation) return@launch
@@ -400,7 +417,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                         } else if (event.type == "append" && initialized) {
                             conversation.append(wireJson.parseToJsonElement(event.data).jsonArray.mapNotNull { (it as? kotlinx.serialization.json.JsonObject)?.let(TerminalEntry::parse) })
                         }
-                        persist(3_000)
+                        scheduleCacheSave()
                         publishConversation()
                     } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; mutable.update { it.copy(readingError = "oversize") }; conversationJob?.cancel() }
                 }
