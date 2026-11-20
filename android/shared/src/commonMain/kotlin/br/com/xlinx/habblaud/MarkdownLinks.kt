@@ -51,6 +51,24 @@ internal fun markdownImageKind(dest: String): ImageKind? = when {
 internal fun isImageLink(dest: String): Boolean =
     dest.substringBefore('?').substringBefore('#').substringAfterLast('.', "").lowercase() in setOf("png", "jpg", "jpeg", "gif", "webp", "svg")
 
+/** Caminho no host (lido por /api/files) de um destino HOST_FILE. */
+internal fun hostFilePath(dest: String): String = if (dest.startsWith("file:", ignoreCase = true)) dest.substring(7) else dest
+
+internal enum class LinkAction { BROWSER, DOWNLOAD, NONE }
+
+/**
+ * Toque num link da conversa: http(s) abre no navegador; arquivo do servidor que não é imagem é baixado pelo fluxo da
+ * janela de arquivos (a imagem já aparece desenhada abaixo do texto); o resto não faz nada.
+ */
+internal fun markdownLinkAction(uri: String): LinkAction {
+    val dest = uri.removeSurrounding("<", ">")
+    return when {
+        isHttpMarkdownLink(uri) -> LinkAction.BROWSER
+        markdownImageKind(dest) == ImageKind.HOST_FILE && !isImageLink(dest) -> LinkAction.DOWNLOAD
+        else -> LinkAction.NONE
+    }
+}
+
 internal fun markdownImages(source: String): List<Pair<String, String>> {
     val images = mutableListOf<Pair<String, String>>()
     fun descendant(node: ASTNode, type: org.intellij.markdown.IElementType): ASTNode? =

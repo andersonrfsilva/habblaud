@@ -35,6 +35,8 @@ pub(crate) enum Command {
     Finished(i32, String, Result<(), Error>),
     Cancel(i32),
     OpenDownload(i32, bool),
+    /// Arquivo do servidor tocado num link da conversa (caminho absoluto no host).
+    DownloadLink(String),
 }
 enum DownloadTarget {
     File(String),
@@ -112,6 +114,10 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
     let sender = send.clone();
     global.on_open_download(move |id, folder| {
         let _ = sender.send(Command::OpenDownload(id, folder));
+    });
+    let sender = send.clone();
+    global.on_download_link(move |path| {
+        let _ = sender.send(Command::DownloadLink(path.into()));
     });
     let weak = window.as_weak();
     let snapshots = context.snapshots.subscribe();
@@ -348,6 +354,36 @@ async fn run(
                     &send,
                 ) {
                     browser.error = error.to_string();
+                }
+            }
+            Command::DownloadLink(path) => {
+                let Some(snapshot) = &snapshot else { continue };
+                let Some(server) = snapshot.selected.as_ref().and_then(|item| {
+                    snapshot
+                        .servers
+                        .iter()
+                        .find(|s| s.api.origin() == item.key.origin)
+                }) else {
+                    continue;
+                };
+                let name = path.rsplit('/').next().unwrap_or_default().to_owned();
+                match start_download(
+                    server.api.clone(),
+                    DownloadTarget::File(path),
+                    &name,
+                    &mut next_id,
+                    &mut downloads,
+                    &send,
+                ) {
+                    // A janela de arquivos mostra o progresso, o cancelar e o erro do servidor (sem permissão etc.).
+                    Ok(()) if !browser.visible => {
+                        let _ = send.send(Command::Open(true));
+                    }
+                    Ok(()) => {}
+                    Err(error) => {
+                        browser.visible = true;
+                        browser.error = error.to_string();
+                    }
                 }
             }
             Command::Progress(id, received, total) => {

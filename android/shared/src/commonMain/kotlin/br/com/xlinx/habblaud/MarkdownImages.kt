@@ -83,7 +83,7 @@ private fun MarkdownImage(alt: String, dest: String, kind: ImageKind, api: Habbl
                     if (dest.length - start > ((IMAGE_MAX_BYTES + 2) / 3) * 4) null
                     else Base64.Default.decode(dest.substring(start)).takeIf { it.isNotEmpty() && it.size <= IMAGE_MAX_BYTES }
                 }
-                ImageKind.HOST_FILE -> api.imageBytes(if (dest.startsWith("file:", ignoreCase = true)) dest.substring(7) else dest)
+                ImageKind.HOST_FILE -> api.imageBytes(hostFilePath(dest))
                 ImageKind.REMOTE -> remoteImageBytes(dest)
             }
             if (loaded != null) {

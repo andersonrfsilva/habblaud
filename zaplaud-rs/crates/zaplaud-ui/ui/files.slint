@@ -37,6 +37,8 @@ export global FilesState {
     callback parent();
     callback cancel(int);
     callback open-download(int, bool);
+    // Arquivo do servidor tocado num link da conversa: a janela abre e baixa.
+    callback download-link(string);
 }
 
 export component DownloadPanel inherits VerticalLayout {

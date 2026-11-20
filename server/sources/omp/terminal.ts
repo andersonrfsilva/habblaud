@@ -8,6 +8,7 @@ import { maskSecrets, truncate } from '../../../shared/activity';
 import { tr } from '../../../shared/i18n';
 import { marked, oneLine, prepare, RESULT_MAX, RESULT_MAX_LINES, TEXT_MAX, THINKING_MAX, TODO_MARK, toolView, type TerminalParser } from '../terminal';
 import { ompTodoEntries, ompTodoPhases } from './parser';
+import { localLinks } from '../links';
 
 type Rec = Record<string, unknown>;
 type ToolEntry = Extract<TerminalEntry, { kind: 'tool' }>;
@@ -215,7 +216,7 @@ class OmpTerminalParser implements TerminalParser {
       const b = rec(raw);
       if (!b) return;
       if (b.type === 'text') {
-        const text = marked(prepare(textOf([b]), TEXT_MAX));
+        const text = localLinks(marked(prepare(textOf([b]), TEXT_MAX)), this.cwd);
         if (text) this.emit({ kind: 'assistant', id: `${id}:t${i}`, at, text });
       } else if (b.type === 'thinking') {
         const t = str(b.thinking);

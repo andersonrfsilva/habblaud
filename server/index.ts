@@ -55,6 +55,7 @@ import { ZeroClawMirror } from './sources/zeroclaw/mirror';
 import { ZeroClawSource } from './sources/zeroclaw/source';
 import { ZeroClawHistory } from './sources/zeroclaw/history';
 import { ompBinFrom } from './sources/omp/bin';
+import { configureLocalLinks } from './sources/links';
 import { Summarizer } from './summaries/summarizer';
 import { createBuildReader, readBuildInfo } from './build';
 import { UpdateChecker } from './updates/checker';
@@ -459,18 +460,20 @@ const remoteSessions = config.remote
   ? new RemoteSessions(loadSecret(join(config.dataDir, 'remote-secret')), config.remote, Date.now, join(config.dataDir, 'remote-revoked.json'))
   : undefined;
 
+// Arquivos das pastas de trabalho: as salas reais e ~/projetos. No Docker os caminhos das salas são do host e não
+// existem aqui; desligado.
+const browseRoots =
+  config.terminal && !config.inDocker
+    ? () => [
+        ...hub.current().rooms.filter((r) => !isDemoId(r.id)).map((r) => ({ path: r.path, label: r.name, roomId: r.id })),
+        { path: join(config.home, 'projetos'), label: 'projetos' },
+      ]
+    : undefined;
+// Links relativos do agente para arquivos do projeto viram caminhos que /api/files serve (mesmas raízes).
+configureLocalLinks(browseRoots);
+
 const api = createApiHandler({
-  // Arquivos das pastas de trabalho: as salas reais e ~/projetos. No Docker os caminhos das salas são do host e não
-  // existem aqui; desligado.
-  browse:
-    config.terminal && !config.inDocker
-      ? {
-          roots: () => [
-            ...hub.current().rooms.filter((r) => !isDemoId(r.id)).map((r) => ({ path: r.path, label: r.name, roomId: r.id })),
-            { path: join(config.home, 'projetos'), label: 'projetos' },
-          ],
-        }
-      : undefined,
+  browse: browseRoots ? { roots: browseRoots } : undefined,
   renameRoom: (id, name) => {
     const path = office.roomPath(id);
     if (!path) return undefined;

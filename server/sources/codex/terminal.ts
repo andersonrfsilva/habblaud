@@ -8,6 +8,7 @@
 import type { TerminalEntry, TerminalInputKind } from '../../../shared/types';
 import { formatDuration, maskSecrets } from '../../../shared/activity';
 import { marked, oneLine, prepare, RESULT_MAX, RESULT_MAX_LINES, TEXT_MAX, THINKING_MAX, toolView, INPUT_MAX, type TerminalParser } from '../terminal';
+import { localLinks } from '../links';
 import {
   commandText,
   contentText,
@@ -150,7 +151,7 @@ class CodexTerminalParser implements TerminalParser {
   }
 
   private assistant(id: string, at: number, raw: string): void {
-    const text = marked(prepare(raw, TEXT_MAX));
+    const text = localLinks(marked(prepare(raw, TEXT_MAX)), this.cwd);
     if (text) this.emit({ kind: 'assistant', id, at, text });
   }
 
