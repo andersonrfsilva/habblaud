@@ -53,6 +53,7 @@ vai para a tabela abaixo, com o motivo. Textos ficam em `android/shared/src/comm
 | Tentar de novo após erro de envio | sim | sim | Envio ambíguo continua pedindo confirmação. Conflito de envio ou comando só fecha a conversa de origem. Uma consulta de status antiga não altera a operação seguinte. |
 | Blocos `svg` desenhados na conversa, com a mesma tela cheia | sim | sim | desenho local nos dois; `var(--fg)`, `--accent` etc. viram cores fixas sobre fundo branco; só blocos fechados; Kotlin aceita até 200.000 caracteres e Rust até 200.000 bytes e 6.000 px de altura natural |
 | Imagens do markdown abaixo do texto; o link continua no texto; links externos só `http`/`https` | sim | sim | `data:` e caminho absoluto do host (`/api/files/raw`) carregam sozinhos; `http`/`https` só após "Carregar imagem", sem credenciais nem redirecionamentos; até 10 MB. Link comum com destino `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp` ou `.svg` também é desenhado; URL solta sem `<>` só no Kotlin. |
+| GIF animado | plano 149 | sim | Desktop: toca em loop só enquanto visível na conversa ou em tela cheia. Acima de 300 quadros ou 50 MB decodificados, mostra só o primeiro quadro. |
 | Links para arquivos do projeto | sim | sim | O servidor troca o destino relativo à pasta da sessão (`[x](pasta/arte.png)`) pelo caminho absoluto, só se o arquivo existe e `/api/files` o serviria; tocar num arquivo que não é imagem abre a janela de arquivos e baixa; imagem já aparece desenhada. |
 
 ### Diagramas no cliente Kotlin

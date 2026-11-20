@@ -34,6 +34,7 @@ do meio (0.**3**.0).
 - **Zaplaud:** imagens do markdown aparecem abaixo do texto. Imagens embutidas (`data:`) e arquivos do computador do
   agente (caminho absoluto, onde o navegador de arquivos é permitido) carregam sozinhas; imagens de outros sites só
   depois de tocar em "Carregar imagem". Link comum que aponta para um arquivo de imagem também é desenhado.
+- **Zaplaud desktop:** GIF animado toca na conversa.
 - **Zaplaud:** linha da lista de sessões mais compacta. O horário vai para o canto do título, sem o "há"; o contador
   de não lidas fica na linha de baixo; as ações da sessão abrem com toque longo no Android e no iPad ou com
   clique direito no desktop. "Dispensar contato" fica nesse menu no Android e no iPad; no desktop Rust, segue
