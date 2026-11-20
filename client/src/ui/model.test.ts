@@ -24,6 +24,8 @@ import {
   shortcutHint,
   sortByUrgency,
   statusLabel,
+  taskProgress,
+  taskRows,
   visibleShells,
   waitingAgents,
 } from './model';
@@ -135,6 +137,29 @@ describe('utilidades', () => {
   });
   it('aggregateTasks soma tarefas de vários agentes', () => {
     expect(aggregateTasks(agents)).toEqual({ completed: 1, inProgress: 1, total: 3 });
+  });
+  it('conta apenas tarefas não abandonadas no progresso individual e da sala', () => {
+    const abandoned = { id: '3', title: 'Rascunhar etiqueta', status: 'abandoned' as const, phase: 'Envio' };
+    const completed = { id: '4', title: 'Contar caixas', status: 'completed' as const };
+    expect(taskProgress([abandoned])).toEqual({ completed: 0, inProgress: 0, total: 0 });
+    expect(aggregateTasks([{ tasks: [abandoned] }, { tasks: [completed, abandoned] }]))
+      .toEqual({ completed: 1, inProgress: 0, total: 1 });
+  });
+
+  it('agrupa tarefas por fase na ordem recebida sem esconder abandonadas nem alterar listas sem fase', () => {
+    const completed = { id: '1', title: 'Contar caixas', status: 'completed' as const, phase: 'Triagem' };
+    const pending = { id: '2', title: 'Entregar caixas', status: 'pending' as const, phase: 'Envio' };
+    const abandoned = { id: '3', title: 'Usar palete', status: 'abandoned' as const, phase: 'Triagem' };
+    const flat = { id: '1', title: 'Separar etiquetas', status: 'pending' as const };
+    const rows = taskRows([
+      { id: 'omp', name: 'OMP', tasks: [completed, pending, abandoned] },
+      { id: 'claude', name: 'Claude', tasks: [flat] },
+    ], true);
+    expect(rows).toMatchObject([
+      { heading: 'Triagem' }, { task: completed, owner: 'OMP' }, { task: abandoned, owner: 'OMP' },
+      { heading: 'Envio' }, { task: pending, owner: 'OMP' }, { task: flat, owner: 'Claude' },
+    ]);
+    expect(new Set(rows.map((row) => row.key)).size).toBe(rows.length);
   });
   it('accountsOf respeita a ordem das contas', () => {
     expect(accountsOf([{ account: '.claude-conta2' }, { account: '.claude' }, { account: 'x' }], accounts)).toEqual(['.claude', '.claude-conta2', 'x']);

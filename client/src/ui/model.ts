@@ -278,8 +278,10 @@ export interface TaskProgress {
 }
 
 export function taskProgress(tasks: readonly Pick<TaskItem, 'status'>[]): TaskProgress {
-  const p: TaskProgress = { completed: 0, inProgress: 0, total: tasks.length };
+  const p: TaskProgress = { completed: 0, inProgress: 0, total: 0 };
   for (const t of tasks) {
+    if (t.status === 'abandoned') continue;
+    p.total++;
     if (t.status === 'completed') p.completed++;
     else if (t.status === 'in_progress') p.inProgress++;
   }
@@ -289,6 +291,28 @@ export function taskProgress(tasks: readonly Pick<TaskItem, 'status'>[]): TaskPr
 /** Soma as tarefas de vários agentes (progresso agregado de uma sala). */
 export function aggregateTasks(agents: readonly Pick<AgentInfo, 'tasks'>[]): TaskProgress {
   return taskProgress(agents.flatMap((a) => a.tasks));
+}
+
+export type TaskRow =
+  | { key: string; heading: string }
+  | { key: string; task: TaskItem; owner?: string };
+
+/** Cada agente preserva a ordem em que suas fases aparecem. */
+export function taskRows(agents: readonly Pick<AgentInfo, 'id' | 'name' | 'tasks'>[], showOwner = false): TaskRow[] {
+  const rows: TaskRow[] = [];
+  for (const a of agents) {
+    const phases = new Map<string | undefined, TaskItem[]>();
+    for (const task of a.tasks) {
+      const items = phases.get(task.phase);
+      if (items) items.push(task);
+      else phases.set(task.phase, [task]);
+    }
+    for (const [phase, items] of phases) {
+      if (phase !== undefined) rows.push({ key: `phase:${a.id}#${phase}`, heading: phase });
+      for (const task of items) rows.push({ key: `task:${a.id}#${task.id}`, task, owner: showOwner ? a.name : undefined });
+    }
+  }
+  return rows;
 }
 
 // ---------------------------------------------------------------- agrupamento e filtros
