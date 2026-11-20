@@ -6,6 +6,8 @@ use slint::{Rgba8Pixel, SharedPixelBuffer};
 use zaplaud_core::api::{MAX_IMAGE_BYTES, UrlPolicy};
 
 const MAX_IMAGE_PIXELS: u64 = 4096 * 4096;
+const RASTER_DECODER_BYTES: usize = 256 * 1024 * 1024;
+pub const MAX_DECODE_BYTES: usize = RASTER_DECODER_BYTES + MAX_IMAGE_PIXELS as usize * 4;
 const MAX_GIF_FRAMES: usize = 300;
 const MAX_GIF_BYTES: usize = 50_000_000;
 
@@ -61,6 +63,23 @@ pub enum Decoded {
     Svg(Vec<u8>),
 }
 
+/// Reserva pixels antes da descompressão, sem percorrer os dados dos quadros.
+pub fn decode_reservation(bytes: &[u8]) -> Option<usize> {
+    if !bytes.starts_with(b"GIF87a") && !bytes.starts_with(b"GIF89a") {
+        // Outros formatos mantêm o teto do decodificador mais a cópia para o Slint.
+        return Some(MAX_DECODE_BYTES);
+    }
+    let width = u16::from_le_bytes([*bytes.get(6)?, *bytes.get(7)?]);
+    let height = u16::from_le_bytes([*bytes.get(8)?, *bytes.get(9)?]);
+    let frame_bytes = raster_bytes(width.into(), height.into())?;
+    // Até três buffers do codec e um quadro ainda não convertido para o Slint.
+    Some((gif_frame_limit(frame_bytes).max(1) + 4) * frame_bytes)
+}
+
+fn gif_frame_limit(frame_bytes: usize) -> usize {
+    (MAX_GIF_BYTES / frame_bytes).min(MAX_GIF_FRAMES)
+}
+
 pub fn decode(bytes: Vec<u8>) -> Option<Decoded> {
     if bytes.trim_ascii_start().starts_with(b"<") {
         return Some(Decoded::Svg(bytes));
@@ -73,7 +92,7 @@ pub fn decode(bytes: Vec<u8>) -> Option<Decoded> {
     }
     // Limita a descompressão: uma imagem pequena no fio não pode pedir gigabytes de pixels.
     let mut limits = image::Limits::default();
-    limits.max_alloc = Some(256 * 1024 * 1024);
+    limits.max_alloc = Some(RASTER_DECODER_BYTES as u64);
     reader.limits(limits.clone());
     let mut decoder = reader.into_decoder().ok()?;
     let (width, height) = decoder.dimensions();
@@ -90,9 +109,10 @@ fn decode_gif(bytes: &[u8]) -> Option<Decoded> {
     let mut decoder = GifDecoder::new(std::io::Cursor::new(bytes)).ok()?;
     let (width, height) = decoder.dimensions();
     let frame_bytes = raster_bytes(width, height)?;
-    let max_frames = (MAX_GIF_BYTES / frame_bytes).min(MAX_GIF_FRAMES);
+    let max_frames = gif_frame_limit(frame_bytes);
     let mut limits = image::Limits::default();
-    limits.max_alloc = Some(256 * 1024 * 1024);
+    // Uma tela persistente e até dois buffers locais para ler e compor o quadro.
+    limits.max_alloc = Some(3 * frame_bytes as u64);
     decoder.set_limits(limits).ok()?;
     let mut decoded = decoder.into_frames().map_while(Result::ok);
     let first = decoded.next()?;
