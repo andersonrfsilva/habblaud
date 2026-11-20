@@ -4,9 +4,10 @@
 // Uma instância por leitura de arquivo, alimentada na ordem do arquivo; só `message` e `compaction` geram entradas (as
 // linhas de bastidor do omp, como credential_pin, mode_change e tool_execution_start, ficam de fora).
 import type { TerminalEntry } from '../../../shared/types';
-import { maskSecrets } from '../../../shared/activity';
+import { maskSecrets, truncate } from '../../../shared/activity';
 import { tr } from '../../../shared/i18n';
-import { marked, oneLine, prepare, RESULT_MAX, RESULT_MAX_LINES, TEXT_MAX, THINKING_MAX, toolView, type TerminalParser } from '../terminal';
+import { marked, oneLine, prepare, RESULT_MAX, RESULT_MAX_LINES, TEXT_MAX, THINKING_MAX, TODO_MARK, toolView, type TerminalParser } from '../terminal';
+import { ompTodoEntries, ompTodoPhases } from './parser';
 
 type Rec = Record<string, unknown>;
 type ToolEntry = Extract<TerminalEntry, { kind: 'tool' }>;
@@ -100,11 +101,38 @@ export function ompToolView(name: string, args: Rec, cwd?: string): View {
     }
     case 'ask':
       return via('AskUserQuestion', { questions: Array.isArray(args.questions) ? args.questions : args.question !== undefined ? [{ question: args.question }] : [] });
+    case 'todo': {
+      const op = oneLine(str(args.op) ?? '', 20);
+      if (!op) return { tool: name, title: name };
+      const count = op === 'init' && Array.isArray(args.list)
+        ? args.list.reduce((sum: number, phase) => {
+          const items = rec(phase)?.items;
+          return sum + (Array.isArray(items) ? items.length : 0);
+        }, 0)
+        : (op === 'init' || op === 'append') && Array.isArray(args.items) ? args.items.length : undefined;
+      return { tool: name, title: count === undefined ? `todo(${op})` : `todo(${op}: ${count})` };
+    }
     case 'eval':
       return { tool: 'eval', ...toolView('eval', { title: args.title ?? args.i, language: args.language, code: args.code }, cwd) };
     default:
       return { tool: name, ...toolView(name, args, cwd) };
   }
+}
+
+function todoResult(raw: unknown): string | undefined {
+  const phases = ompTodoPhases(raw);
+  if (!phases) return undefined;
+  const showPhase = phases.length !== 1 || phases[0].name !== 'Tasks';
+  const lines: string[] = [];
+  for (const { name, tasks } of phases) {
+    if (showPhase) lines.push(`${truncate(maskSecrets(name), 120)}:`);
+    for (const { content, status } of ompTodoEntries(tasks)) {
+      lines.push(`${status === 'abandoned' ? '⊘' : TODO_MARK[status]} ${truncate(maskSecrets(content), 120)}`);
+      if (lines.length > RESULT_MAX_LINES) break;
+    }
+    if (lines.length > RESULT_MAX_LINES) break;
+  }
+  return lines.length ? lines.join('\n') : tr('Nenhuma tarefa.');
 }
 
 class OmpTerminalParser implements TerminalParser {
@@ -212,7 +240,8 @@ class OmpTerminalParser implements TerminalParser {
 
   private result(m: Rec, id: string, at: number): void {
     const toolId = str(m.toolCallId) ?? id;
-    const p = prepare(textOf(m.content), RESULT_MAX, RESULT_MAX_LINES);
+    const todo = m.toolName === 'todo' && m.isError !== true ? todoResult(rec(m.details)?.phases) : undefined;
+    const p = prepare(todo ?? textOf(m.content), RESULT_MAX, RESULT_MAX_LINES);
     const e: ResultEntry = { kind: 'result', id: `${toolId}:r`, at, toolUseId: toolId, text: p.text || tr('(sem saída)') };
     if (m.isError === true) e.error = true;
     if (p.truncated) e.truncated = true;

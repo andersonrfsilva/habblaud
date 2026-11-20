@@ -313,6 +313,7 @@ export const EN: Readonly<Record<string, string>> = {
   "concluída": "completed",
   "em andamento": "in progress",
   "abandonada": "abandoned",
+  "Nenhuma tarefa.": "No tasks.",
   "Comando": "Command",
   "Copiar comando": "Copy command",
   "Rodando há {0} (desde {1})": "Running for {0} (since {1})",
