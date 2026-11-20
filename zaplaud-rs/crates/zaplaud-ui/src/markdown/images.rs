@@ -171,11 +171,8 @@ mod tests {
         let mut bytes = Vec::new();
         let mut encoder = image::codecs::gif::GifEncoder::new(&mut bytes);
         for (index, delay) in delays.into_iter().enumerate() {
-            let pixels = image::RgbaImage::from_pixel(
-                width,
-                height,
-                image::Rgba([index as u8, 0, 0, 255]),
-            );
+            let pixels =
+                image::RgbaImage::from_pixel(width, height, image::Rgba([index as u8, 0, 0, 255]));
             encoder
                 .encode_frame(image::Frame::from_parts(
                     pixels,
