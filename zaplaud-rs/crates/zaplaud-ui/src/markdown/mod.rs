@@ -1,4 +1,4 @@
-//! Markdown GFM sem HTML executável e sem cache global.
+//! Markdown GFM sem HTML executável; o único cache global é o dos desenhos (`diagram`).
 //!
 //! `MarkdownView` recebe `blocks`, `source-markdown` e emite `link-clicked(string)`
 //! e `copy(string)`. O aplicativo deve copiar no clipboard e validar/abrir links.
@@ -9,7 +9,7 @@
 //! `parse` sob demanda; este módulo não retém mensagens nem cria runtimes.
 //!
 //! `MdBlock.kind` é `text`, `quote`, `code`, `table` ou `rule`. Blocos ```` ```mermaid ```` e
-//! ```` ```svg ```` válidos seguem `code`, com o desenho renderizado localmente em `diagram`. `level` é 1–6
+//! ```` ```svg ```` válidos e fechados seguem `code`, com o desenho renderizado localmente em `diagram`. `level` é 1–6
 //! para títulos e zero para parágrafos. `depth` é a indentação de listas a partir
 //! de zero, e `marker` conserva a numeração ou o estado da tarefa. `spans` expõe
 //! texto, bold, italic, strike, code e link; `rich` mantém o fluxo inline nativo.
@@ -23,7 +23,9 @@
 
 use pulldown_cmark::{Alignment, CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 use slint::{ModelExt, ModelRc, StyledText, VecModel};
+use std::collections::VecDeque;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex, PoisonError};
 
 pub mod images;
 
@@ -143,6 +145,106 @@ fn svg_theme_colors(svg: &str) -> String {
     out
 }
 
+/// Fontes maiores ficam como código, como no Android (`MermaidCodeFence.kt`).
+const MAX_SVG_BYTES: usize = 200_000;
+const MAX_MERMAID_BYTES: usize = 20_000;
+/// O bloco nunca exibe o desenho mais alto que a imagem; acima disso o fragmento do transcript
+/// passaria do orçamento de coordenadas i16 (`transcript::HEIGHT_BUDGET`), então fica como código.
+pub const MAX_DIAGRAM_HEIGHT: u32 = 6_000;
+/// Fontes e SVGs guardados; a conversa é reconstruída a cada atualização e não deve renderizar de novo.
+const DIAGRAM_CACHE_BYTES: usize = 16 * 1024 * 1024;
+
+pub struct Diagram {
+    svg: String,
+    /// Altura natural em px lógicos: teto da altura exibida, que limita a largura à da imagem.
+    pub height: u32,
+}
+
+impl Diagram {
+    pub fn image(&self) -> slint::Image {
+        slint::Image::load_from_svg_data(self.svg.as_bytes()).unwrap_or_default()
+    }
+}
+
+type DiagramEntry = (String, String, Option<Arc<Diagram>>);
+static DIAGRAMS: Mutex<(VecDeque<DiagramEntry>, usize)> = Mutex::new((VecDeque::new(), 0));
+
+fn entry_bytes((language, source, diagram): &DiagramEntry) -> usize {
+    language.len() + source.len() + diagram.as_ref().map_or(0, |d| d.svg.len())
+}
+
+/// Desenho de uma cerca `svg`/`mermaid` com o conteúdo `source`; `None` a deixa como código.
+/// A divisão do transcript (fora da thread da tela) e a montagem dos blocos perguntam pela
+/// mesma cerca: o resultado fica guardado por conteúdo e o Mermaid é renderizado uma vez.
+pub fn diagram(language: &str, source: &str) -> Option<Arc<Diagram>> {
+    let language = language.trim();
+    let limit = match language {
+        "mermaid" => MAX_MERMAID_BYTES,
+        "svg" => MAX_SVG_BYTES,
+        _ => return None,
+    };
+    if source.len() > limit {
+        return None;
+    }
+    {
+        let mut cache = DIAGRAMS.lock().unwrap_or_else(PoisonError::into_inner);
+        let entries = &mut cache.0;
+        if let Some(index) = entries
+            .iter()
+            .position(|(l, s, _)| l == language && s == source)
+            && let Some(entry) = entries.remove(index)
+        {
+            let diagram = entry.2.clone();
+            entries.push_back(entry);
+            return diagram;
+        }
+    }
+    // Desenho inválido cai no bloco de código comum.
+    let svg = match language {
+        "mermaid" => mermaid_rs_renderer::render(source).ok(),
+        _ => Some(svg_theme_colors(source)),
+    };
+    let diagram = svg.and_then(|svg| {
+        let size = slint::Image::load_from_svg_data(svg.as_bytes())
+            .ok()?
+            .size();
+        (size.width > 0 && size.height <= MAX_DIAGRAM_HEIGHT).then(|| {
+            Arc::new(Diagram {
+                svg,
+                height: size.height,
+            })
+        })
+    });
+    let entry = (language.to_owned(), source.to_owned(), diagram.clone());
+    let mut cache = DIAGRAMS.lock().unwrap_or_else(PoisonError::into_inner);
+    let (entries, bytes) = &mut *cache;
+    *bytes += entry_bytes(&entry);
+    entries.push_back(entry);
+    while *bytes > DIAGRAM_CACHE_BYTES
+        && entries.len() > 1
+        && let Some(old) = entries.pop_front()
+    {
+        *bytes -= entry_bytes(&old);
+    }
+    diagram
+}
+
+/// Cerca com a linha de fechamento no próprio texto. O parser fecha no fim do texto a cerca que
+/// ainda está chegando; desenhá-la faria a altura mudar até o fechamento.
+pub fn fence_closed(block: &str) -> bool {
+    let opening = block.trim_start();
+    let delimiter = opening.chars().next().unwrap_or('`');
+    let run = opening.chars().take_while(|&c| c == delimiter).count();
+    let mut lines = block.trim_end_matches(['\n', '\r']).lines();
+    lines.next();
+    lines.next_back().is_some_and(|last| {
+        let last = last
+            .trim_start_matches(|c: char| c == '>' || c.is_whitespace())
+            .trim_end();
+        last.len() >= run && last.chars().all(|c| c == delimiter)
+    })
+}
+
 #[derive(Default)]
 struct Blocks {
     blocks: Vec<MdBlock>,
@@ -151,7 +253,8 @@ struct Blocks {
     marker: String,
     quote: usize,
     level: i32,
-    code: Option<(String, String)>,
+    /// Linguagem, texto e se a linha de fechamento está no texto.
+    code: Option<(String, String, bool)>,
     cells: Vec<MdCell>,
     alignments: Vec<Alignment>,
     column: usize,
@@ -216,7 +319,7 @@ pub fn parse(markdown: &str) -> Vec<MdBlock> {
     let options =
         Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
     let mut state = Blocks::default();
-    for event in Parser::new_ext(markdown, options) {
+    for (event, range) in Parser::new_ext(markdown, options).into_offset_iter() {
         match event {
             Event::Start(Tag::Paragraph | Tag::HtmlBlock) => state.flush(),
             Event::End(TagEnd::Paragraph | TagEnd::HtmlBlock) => state.flush(),
@@ -312,22 +415,21 @@ pub fn parse(markdown: &str) -> Vec<MdBlock> {
             }
             Event::Start(Tag::CodeBlock(kind)) => {
                 state.flush();
-                let language = match kind {
-                    CodeBlockKind::Fenced(info) => info.to_string(),
-                    CodeBlockKind::Indented => String::new(),
+                let (language, closed) = match kind {
+                    CodeBlockKind::Fenced(info) => {
+                        (info.to_string(), fence_closed(&markdown[range]))
+                    }
+                    CodeBlockKind::Indented => (String::new(), false),
                 };
-                state.code = Some((language, String::new()));
+                state.code = Some((language, String::new(), closed));
             }
             Event::End(TagEnd::CodeBlock) => {
-                if let Some((language, text)) = state.code.take() {
-                    // Desenho inválido ou incompleto (streaming) cai no bloco de código comum.
-                    let diagram = match language.trim() {
-                        "mermaid" => mermaid_rs_renderer::render(&text).ok(),
-                        "svg" => Some(svg_theme_colors(&text)),
-                        _ => None,
-                    }
-                    .and_then(|svg| slint::Image::load_from_svg_data(svg.as_bytes()).ok())
-                    .unwrap_or_default();
+                if let Some((language, text, closed)) = state.code.take() {
+                    // Desenho inválido, grande demais ou incompleto (streaming) fica como código.
+                    let diagram = closed
+                        .then(|| diagram(&language, &text))
+                        .flatten()
+                        .map_or_else(slint::Image::default, |d| d.image());
                     state.blocks.push(MdBlock {
                         kind: "code".into(),
                         code_lines: text.lines().count().max(1) as i32,
@@ -374,7 +476,7 @@ pub fn parse(markdown: &str) -> Vec<MdBlock> {
                 });
             }
             Event::Text(text) => {
-                if let Some((_, code)) = &mut state.code {
+                if let Some((_, code, _)) = &mut state.code {
                     code.push_str(&text);
                 } else {
                     state.inline.push(&text, false);
@@ -527,6 +629,33 @@ mod tests {
             svg_theme_colors("a var(--fg) b var( --x"),
             "a #1f2328 b var( --x"
         );
+    }
+
+    #[test]
+    fn drawings_need_the_closing_fence_in_the_text() {
+        let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect width="40" height="20"/></svg>"#;
+        // Streaming: o parser fecha a cerca no fim do texto, mas o desenho espera o fechamento.
+        for open in ["```svg", "~~~svg", "````svg"] {
+            assert_eq!(
+                parse(&format!("{open}\n{svg}\n"))[0].diagram.size().width,
+                0
+            );
+        }
+        assert_eq!(
+            parse(&format!("````svg\n{svg}\n```"))[0]
+                .diagram
+                .size()
+                .width,
+            0
+        );
+        for (open, close) in [("```svg", "```"), ("~~~svg", "~~~~"), ("````svg", "````")] {
+            let blocks = parse(&format!("{open}\n{svg}\n{close}\n\ndepois"));
+            assert_eq!(blocks[0].diagram.size().width, 40, "{open}");
+        }
+        let quoted = parse(&format!("> ```svg\n> {svg}\n> ```\n"));
+        assert_eq!(quoted[0].diagram.size().width, 40);
+        let listed = parse(&format!("- item\n\n  ```svg\n  {svg}\n  ```\n"));
+        assert!(listed.iter().any(|b| b.diagram.size().width == 40));
     }
 
     #[test]
