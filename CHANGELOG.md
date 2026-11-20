@@ -184,6 +184,9 @@ do meio (0.**3**.0).
 ### Corrigido
 
 - **omp:** formulários simples de escolha ou texto voltam a aparecer no Zaplaud e na página; formulários que o cartão não consegue representar ficam no terminal.
+- **omp:** formulários de pergunta com até 12 perguntas e 12 opções por pergunta aparecem no Zaplaud e na página
+  (antes, acima de 4 perguntas ficavam só no terminal). Opções com rótulo de até 300 caracteres (os agentes costumam
+  escrever a explicação dentro dele) também passam, e o cartão mostra o rótulo inteiro, com quebra de linha.
 - **Zaplaud iPad:** selecionar mais de cinco arquivos mostra um aviso de anexo, sem fechar o app.
 - **Zaplaud iPad:** trocar de app e voltar mantém a tela aberta e os campos de login já preenchidos.
 - **Zaplaud desktop:** o cliente preserva o erro HTTP (acesso bloqueado, sessão inexistente ou erro interno) quando a conexão cai durante a leitura do corpo, em vez de classificar a resposta como falha de rede.
