@@ -11,7 +11,8 @@
 // extensão manda no formato do AskUserQuestion e se respondem como as do Claude Code. Nos dois, o diálogo do omp fica
 // aberto junto no terminal e a extensão retira o pedido daqui quando ele é respondido lá.
 import { access, isLoopbackHostname } from '../net/access';
-import { ANSWER_OTHER_MAX, ASK_TOOL, checkAnswers } from '../../../shared/answers';
+import { ASK_TOOL, checkAnswers } from '../../../shared/answers';
+import { ANSWER_OTHER_MAX } from '../../../shared/ask-limits';
 import type { AgentInfo, AskQuestion, PermissionAnswer, PermissionDecision, PermissionRequestInfo, PermissionSuggestionInfo } from '../../../shared/types';
 import type { UiContext } from './context';
 import { h, KeyedList, setAttr, setHidden, setText, setTitle } from './dom';

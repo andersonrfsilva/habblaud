@@ -1,6 +1,7 @@
 // Tradução de chamadas de ferramenta do Claude Code em atividades legíveis (PT-BR).
 // Código puro, usado pelo servidor (transcripts reais) e pelo simulador de demonstração.
 import type { ActivityKind, AskQuestion } from './types';
+import { ASK_LABEL_MAX, ASK_MAX_OPTIONS, ASK_MAX_QUESTIONS, ASK_QUESTION_MAX } from './ask-limits';
 import { tr } from './i18n';
 
 export interface ActivityDescription {
@@ -11,23 +12,20 @@ export interface ActivityDescription {
   questions?: AskQuestion[];
 }
 
-const MAX_QUESTIONS = 4;
-const MAX_OPTIONS = 6;
-
 /** Perguntas de um AskUserQuestion para exibir no escritório (mascaradas e cortadas, como o resto). */
 function askQuestions(raw: unknown): AskQuestion[] {
   const clean = (v: unknown, n: number) => (typeof v === 'string' && v.trim() ? truncate(maskSecrets(v.slice(0, n * 4)), n) : '');
   const obj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object';
   // As posições contam no original (com as entradas inválidas): a resposta pelo escritório volta por elas.
-  const qs = Array.isArray(raw) ? raw.slice(0, MAX_QUESTIONS) : [];
+  const qs = Array.isArray(raw) ? raw.slice(0, ASK_MAX_QUESTIONS) : [];
   return qs.flatMap((q, index) => {
     if (!obj(q)) return [];
-    const question = clean(q.question, 300);
+    const question = clean(q.question, ASK_QUESTION_MAX);
     if (!question) return [];
-    const opts = Array.isArray(q.options) ? q.options.slice(0, MAX_OPTIONS) : [];
+    const opts = Array.isArray(q.options) ? q.options.slice(0, ASK_MAX_OPTIONS) : [];
     const options = opts.flatMap((o, index) => {
       if (!obj(o)) return [];
-      const label = clean(o.label, 80);
+      const label = clean(o.label, ASK_LABEL_MAX);
       if (!label) return [];
       const description = clean(o.description, 200);
       return [{ index, label, ...(description ? { description } : {}) }];

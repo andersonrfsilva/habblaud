@@ -20,7 +20,8 @@
 // POST /api/permissions/:id/decision ({behavior: "terminal"}).
 import { randomBytes } from 'node:crypto';
 import { describeTool, maskSecrets, truncate } from '../../shared/activity';
-import { ANSWER_OTHER_MAX, answerSummary, ASK_TOOL, checkAnswers } from '../../shared/answers';
+import { answerSummary, ASK_TOOL, checkAnswers } from '../../shared/answers';
+import { ANSWER_OTHER_MAX, ASK_MAX_QUESTIONS } from '../../shared/ask-limits';
 import type { Activity, AgentInfo, PermissionAnswer, PermissionDecision, PermissionRequestInfo, PermissionSuggestionInfo } from '../../shared/types';
 import { errMsg, log } from '../log';
 import { toolView } from '../sources/terminal';
@@ -56,8 +57,6 @@ const DESTINATIONS = new Set(['session', 'localSettings', 'projectSettings', 'us
 const MAX_SUGGESTIONS = 4;
 const MAX_MESSAGE = 1_000;
 const RULE_MAX = 160;
-/** Respostas numa decisão `answer` (o AskUserQuestion faz até 4 perguntas). */
-const MAX_ANSWERS = 4;
 
 /** O que o registro usa do Office (interface mínima: facilita os testes). */
 export interface OfficeLike {
@@ -312,12 +311,12 @@ export function parseHookInput(raw: unknown): {
 }
 
 /**
- * Respostas de uma decisão `answer`: até MAX_ANSWERS, cada uma com a posição da pergunta, as posições das opções
+ * Respostas de uma decisão `answer`: até ASK_MAX_QUESTIONS, cada uma com a posição da pergunta, as posições das opções
  * (distintas; ficam em ordem crescente) e/ou o texto livre (aparado, até ANSWER_OTHER_MAX). Se batem com as
  * perguntas do pedido, quem confere é o registro (decide).
  */
 function parseAnswers(raw: unknown): PermissionAnswer[] | undefined {
-  if (!Array.isArray(raw) || !raw.length || raw.length > MAX_ANSWERS) return undefined;
+  if (!Array.isArray(raw) || !raw.length || raw.length > ASK_MAX_QUESTIONS) return undefined;
   const out: PermissionAnswer[] = [];
   for (const item of raw) {
     const r = rec(item);

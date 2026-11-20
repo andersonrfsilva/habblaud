@@ -1,7 +1,7 @@
 // Extensão do Habblaud para o omp (oh-my-pi): carregada pelo omp 18+ de <pasta do omp>/extensions/habblaud.ts (o
 // instalador, scripts/omp-install.ts, grava lá um arquivo de uma linha que reexporta este). Roda dentro do Bun do omp,
 // fora do projeto: só node:* e fetch, e os únicos imports do Habblaud são de tipos (apagados na carga) e de
-// shared/omp-events.ts e shared/asides.ts (este só depende do primeiro), sem dependências.
+// shared/omp-events.ts, shared/asides.ts (este só depende do primeiro) e shared/ask-limits.ts, sem dependências.
 //
 // O que faz (design 2, 4 e 5 da mudança suporte-ao-omp):
 //
@@ -54,6 +54,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { OMP_COMMANDS, OMP_HEARTBEAT_MS, OMP_SESSION_ID, type OmpCommand, type OmpEvent, type OmpEventKind } from '../../shared/omp-events';
 import { ASIDE_ANSWER_MAX, ASIDE_HEARTBEAT_MS, ASIDE_PROGRESS_MS, clipAnswer, type AsideProgress, type AsideRequest } from '../../shared/asides';
+import { ANSWER_OTHER_MAX, ASK_LABEL_MAX, ASK_MAX_OPTIONS, ASK_MAX_QUESTIONS, ASK_QUESTION_MAX } from '../../shared/ask-limits';
 import type { OmpDeliverAs } from '../../shared/messages';
 
 export const DEFAULT_PORT = 4747;
@@ -405,8 +406,6 @@ type FormField = {
 };
 type FormNode = { tag: string; attrs: Record<string, string>; children: Array<FormNode | string> };
 
-// Limites do contrato do cartão (shared/activity.ts e shared/answers.ts).
-const FORM_OTHER_MAX = 2_000;
 const FORM_ATTRS: Record<string, readonly string[]> = {
   form: [], fieldset: [], legend: [], p: [], ul: [], ol: [], li: [], label: [],
   br: [], span: [], strong: [], b: [], em: [], i: [], code: [],
@@ -578,18 +577,18 @@ export function formToQuestions(html: string): { input: AskCard; map: FormField[
       const choice = type === 'radio' || type === 'checkbox';
       const required = Object.hasOwn(control.attrs, 'required');
       if (choice) {
-        if (!label || label.length > 80 || /^\s*other\b/i.test(label) || placeholder !== undefined || maxlength !== undefined) return false;
-      } else if (Object.hasOwn(control.attrs, 'checked') || (maxlength !== undefined && !(/^\d+$/.test(maxlength) && Number.isSafeInteger(Number(maxlength)) && Number(maxlength) >= FORM_OTHER_MAX))) return false;
+        if (!label || label.length > ASK_LABEL_MAX || /^\s*other\b/i.test(label) || placeholder !== undefined || maxlength !== undefined) return false;
+      } else if (Object.hasOwn(control.attrs, 'checked') || (maxlength !== undefined && !(/^\d+$/.test(maxlength) && Number.isSafeInteger(Number(maxlength)) && Number(maxlength) >= ANSWER_OTHER_MAX))) return false;
 
       const option = { label, value: value ?? 'on' };
       if (choice && lastGroup?.name === name && lastGroup.type === type) {
-        if (lastGroup.options.length >= 6 || lastGroup.options.some((o) => o.label === label)) return false;
+        if (lastGroup.options.length >= ASK_MAX_OPTIONS || lastGroup.options.some((o) => o.label === label)) return false;
         lastGroup.options.push(option);
         lastGroup.required ||= required;
         questions[questions.length - 1].options.push({ label });
         continue;
       }
-      if (names.has(name) || map.length >= 4) return false;
+      if (names.has(name) || map.length >= ASK_MAX_QUESTIONS) return false;
       const question = choice ? caption || legend : label || oneline(name.replace(/[_-]+/g, ' '));
       if (!question || (choice && !caption && !legend)) return false;
       if (caption && question === caption) context.pop();
@@ -604,7 +603,7 @@ export function formToQuestions(html: string): { input: AskCard; map: FormField[
       names.add(name);
       const displayQuestion = !choice && !label && caption && context.at(-1) === caption ? context.pop()! : question;
       const cardQuestion = context.length ? `${context.join(' ')} — ${displayQuestion}` : displayQuestion;
-      if (cardQuestion.length > 300) return false;
+      if (cardQuestion.length > ASK_QUESTION_MAX) return false;
       context.length = 0;
       caption = '';
       const field = { name, question, type, required, options: choice ? [option] : [] };
@@ -619,7 +618,7 @@ export function formToQuestions(html: string): { input: AskCard; map: FormField[
   if (context.length) {
     const last = questions[questions.length - 1];
     last.question += ` — ${context.join(' ')}`;
-    if (last.question.length > 300) return undefined;
+    if (last.question.length > ASK_QUESTION_MAX) return undefined;
   }
   return { input: { questions }, map };
 }
@@ -633,7 +632,7 @@ export function answersToFormResult(map: readonly FormField[], answers: readonly
   for (const [index, field] of map.entries()) {
     const submitted = byIndex.get(index);
     const other = submitted?.other?.trim();
-    if (submitted?.other !== undefined && (!other || other.length > FORM_OTHER_MAX)) return undefined;
+    if (submitted?.other !== undefined && (!other || other.length > ANSWER_OTHER_MAX)) return undefined;
     if (other && (field.type === 'textarea' ? /[\x00-\x08\x0b-\x1f\x7f]/ : /[\x00-\x1f\x7f]/).test(other)) return undefined;
     const picked = submitted?.options ?? [];
     if (new Set(picked).size !== picked.length || picked.some((i) => !field.options[i])) return undefined;

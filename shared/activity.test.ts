@@ -229,6 +229,17 @@ describe('AskUserQuestion no escritório', () => {
     expect(d.questions![0]!.options).toEqual([{ index: 1, label: 'Sim' }]);
   });
 
+  it('exibe até 12 perguntas e 12 opções por pergunta, com o rótulo da opção inteiro até 300 caracteres', () => {
+    const label = 'x'.repeat(300);
+    const options = Array.from({ length: 13 }, (_, i) => ({ label: i ? `Opção ${i}` : label }));
+    const qs = describeTool('AskUserQuestion', { questions: Array.from({ length: 13 }, (_, i) => ({ question: `Pergunta ${i}?`, options })) }).questions!;
+    expect(qs.map((q) => q.index)).toEqual(Array.from({ length: 12 }, (_, i) => i));
+    expect(qs[11]!.options.map((o) => o.index)).toEqual(Array.from({ length: 12 }, (_, i) => i));
+    expect(qs[0]!.options[0]!.label).toBe(label);
+    const cut = describeTool('AskUserQuestion', { questions: [{ question: 'Q?', options: [{ label: `${label}y` }] }] }).questions!;
+    expect(cut[0]!.options[0]!.label).toBe(`${'x'.repeat(299)}…`);
+  });
+
   it('sem perguntas válidas, não cria o campo', () => {
     expect(describeTool('AskUserQuestion', {}).questions).toBeUndefined();
   });
