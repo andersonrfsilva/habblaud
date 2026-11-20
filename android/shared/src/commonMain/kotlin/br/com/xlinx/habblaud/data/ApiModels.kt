@@ -34,7 +34,13 @@ data class Avatar(val seed: Long, val look: String, val kind: String = "main", v
 /** Id de quem foi chamado como "Novo" (fora do elenco), igual a NEW_CAST_PREFIX de shared/types.ts no servidor. */
 const val NEW_CAST_PREFIX = "novo-"
 
-data class SessionItem(val key: SessionKey, val agentId: String?, val title: String, val project: String?, val status: String?, val activity: String?, val permission: Boolean = false, val agentName: String? = null, val canMessage: Boolean = false, val permissionId: String? = null, val lastAt: Long? = null, val avatar: Avatar? = null, val cast: String? = null, val castOpened: Boolean = false, val permissionQuestion: Boolean = false, val characterName: String? = null, val contextTokens: Long? = null, val contextWindow: Long? = null, val model: String? = null, val thinking: String? = null, val models: List<String> = emptyList(), val subagents: List<SubAgent> = emptyList(), val sub: Boolean = false, val replies: List<Long> = emptyList(), val statusSince: Long? = null, val roomId: String? = null, val role: String? = null, val task: String? = null, val parentKey: SessionKey? = null, val serverSessionId: String? = null)
+data class SessionItem(val key: SessionKey, val agentId: String?, val title: String, val project: String?, val status: String?, val activity: String?, val permission: Boolean = false, val agentName: String? = null, val canMessage: Boolean = false, val permissionId: String? = null, val lastAt: Long? = null, val avatar: Avatar? = null, val cast: String? = null, val castOpened: Boolean = false, val permissionQuestion: Boolean = false, val characterName: String? = null, val contextTokens: Long? = null, val contextWindow: Long? = null, val model: String? = null, val thinking: String? = null, val models: List<String> = emptyList(), val subagents: List<SubAgent> = emptyList(), val sub: Boolean = false, val replies: List<Long> = emptyList(), val statusSince: Long? = null, val roomId: String? = null, val role: String? = null, val task: String? = null, val parentKey: SessionKey? = null, val serverSessionId: String? = null, val tasks: List<AgentTask> = emptyList())
+
+enum class TaskStatus { PENDING, IN_PROGRESS, COMPLETED, ABANDONED }
+
+data class AgentTask(val id: String, val title: String, val status: TaskStatus, val activeForm: String? = null, val phase: String? = null) {
+    val displayTitle: String get() = if (status == TaskStatus.IN_PROGRESS) activeForm ?: title else title
+}
 
 /** Subagente ou advisor trabalhando agora sob um agente principal (some do snapshot ao terminar). */
 data class SubAgent(val id: String, val name: String, val avatar: Avatar?, val advisor: Boolean, val activity: String?, val role: String? = null, val task: String? = null, val status: String? = null, val statusSince: Long? = null, val lastAt: Long? = null, val model: String? = null, val thinking: String? = null, val contextTokens: Long? = null, val contextWindow: Long? = null, val sessionId: String? = null)
