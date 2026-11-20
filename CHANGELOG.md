@@ -186,6 +186,7 @@ do meio (0.**3**.0).
 
 - **Zaplaud:** links para arquivos do projeto citados pelo agente (caminho relativo) passam a abrir: imagens
   aparecem na conversa e os demais arquivos podem ser baixados.
+- Imagens que o agente mostra com `<img src="…">` aparecem no Zaplaud como imagem.
 - **Zaplaud desktop:** desenhos `svg` e diagramas Mermaid de tamanho real aparecem desenhados; antes, só os muito
   pequenos, e os demais apareciam como código.
 - **omp:** formulários simples de escolha ou texto voltam a aparecer no Zaplaud e na página; formulários que o cartão não consegue representar ficam no terminal.

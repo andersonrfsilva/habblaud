@@ -164,11 +164,11 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
   for (const [index, agent] of AGENTS.entries()) paths.set(agent.id, seed(agent.sessionId, agent.provider, agent.id === 'fixture:claude', `/fixture/${projects[index]}`));
   seed(CLOSED);
   for (let index = 0; index < 6; index++) seed(`00000000-0000-4000-8000-${String(index + 20).padStart(12, '0')}`, 'claude', false, `/fixture/${projects[index]}`);
-  // Com --files: resposta com links relativos à raiz exposta (arquivo.png, sub/anim.gif, sub/fonte.aseprite), como os
-  // agentes entregam arte. O servidor os troca por caminhos absolutos se quem roda a fixture criou os arquivos lá.
+  // Com --files: links e uma tag img relativos à raiz exposta, como os agentes entregam arte. O servidor usa
+  // caminhos absolutos se quem roda a fixture criou os arquivos lá.
   configureLocalLinks(filesRoots ? () => filesRoots : undefined);
   if (filesRoots) {
-    const text = 'Arte fictícia pronta:\n\n![Quatro vistas fictícias](arquivo.png)\n\n[Caminhada fictícia em GIF](sub/anim.gif)\n\n[Aseprite fictício editável](sub/fonte.aseprite)';
+    const text = 'Arte fictícia pronta:\n\n![Quatro vistas fictícias](arquivo.png)\n\n<img src="arquivo.png" alt="Imagem fictícia em HTML">\n\n[Caminhada fictícia em GIF](sub/anim.gif)\n\n[Aseprite fictício editável](sub/fonte.aseprite)';
     appendFileSync(paths.get(AGENTS[0].id)!, JSON.stringify({ uuid: randomUUID(), timestamp: new Date().toISOString(), sessionId: AGENTS[0].sessionId, cwd: filesRoots[0].path, isSidechain: false, type: 'assistant', message: { id: randomUUID(), role: 'assistant', content: [{ type: 'text', text }] } }) + '\n');
   }
   const accounts = new AccountsService({ dirs: [accountDir], home: root, env: {}, onChange: () => {} });
