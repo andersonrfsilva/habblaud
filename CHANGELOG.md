@@ -25,6 +25,7 @@ do meio (0.**3**.0).
 - **Zaplaud (Android/iPad):** a lista de tarefas do agente aparece nas informações da sessão, com o progresso acima do campo de mensagem.
 - **Zaplaud desktop:** a lista de tarefas do agente aparece nas informações da sessão, com o progresso acima do campo de mensagem.
 - **Zaplaud (Android):** os avisos voltam sozinhos depois de reiniciar o aparelho ou atualizar o app, se estavam ligados.
+- **Zaplaud (Android):** GIF animado toca na conversa (Android 9 ou superior).
 - **Zaplaud:** o menu da conversa abre as Entregas da sessão, com o pedido, a resposta e os arquivos de cada
   trabalho concluído, e baixa os arquivos.
 - **Zaplaud (desktop Rust):** Entregas da sessão também no menu da conversa, com texto selecionável e download dos anexos.
