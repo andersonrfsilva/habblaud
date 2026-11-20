@@ -16,6 +16,7 @@ import type { TerminalEntry, TerminalInputKind } from '../../shared/types';
 import { formatDuration, maskSecrets, truncate } from '../../shared/activity';
 import { forkDirective, parseTaskNotification } from './transcript';
 import { tr } from '../../shared/i18n';
+import { localLinks } from './links';
 
 export interface TerminalParser {
   /** Interpreta uma linha do JSONL. Linhas inválidas ou irrelevantes devolvem []. */
@@ -672,7 +673,7 @@ class Parser implements TerminalParser {
             if (!NO_RESPONSE.test(t.trim())) this.sysContent(c, t, 'info', undefined, `:${i}`);
             return;
           }
-          const text = marked(prepare(t, TEXT_MAX));
+          const text = localLinks(marked(prepare(t, TEXT_MAX)), c.cwd);
           if (text) this.emit({ kind: 'assistant', id, at: c.at, text });
           return;
         }
