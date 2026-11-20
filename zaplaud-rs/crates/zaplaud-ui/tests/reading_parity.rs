@@ -2,11 +2,13 @@ use slint::platform::{
     Platform, WindowAdapter, WindowEvent,
     software_renderer::{MinimalSoftwareWindow, RepaintBufferType},
 };
-use slint::{ComponentHandle, Model, ModelRc, Rgb8Pixel, VecModel};
-use std::{rc::Rc, time::Duration};
+use slint::{
+    ComponentHandle, Image, Model, ModelRc, Rgb8Pixel, Rgba8Pixel, SharedPixelBuffer, VecModel,
+};
+use std::{cell::Cell, rc::Rc, time::Duration};
 use zaplaud_ui::conversation_rows::{
     AppWindow, ConversationRow, ConversationState, ConversationViewState, DiagramState, FilesState,
-    TranscriptProbe,
+    GifFrame, MarkdownImages, MdBlock, TranscriptProbe,
 };
 
 struct Headless(Rc<MinimalSoftwareWindow>);
@@ -24,6 +26,63 @@ fn frame(window: &MinimalSoftwareWindow) -> Vec<Rgb8Pixel> {
         renderer.render(&mut pixels, 800);
     });
     pixels
+}
+
+#[test]
+fn visible_gif_layout_does_not_reenter_the_frame_binding() {
+    let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
+    slint::platform::set_platform(Box::new(Headless(window.clone()))).unwrap();
+    let probe = TranscriptProbe::new().unwrap();
+    probe.set_requested_width(800.);
+    probe.set_requested_height(600.);
+    probe.show().unwrap();
+    window.set_size(slint::PhysicalSize::new(800, 600));
+
+    let picture = |r, g, b| {
+        let mut pixels = SharedPixelBuffer::<Rgba8Pixel>::new(32, 32);
+        pixels.make_mut_slice().fill(Rgba8Pixel { r, g, b, a: 255 });
+        Image::from_rgba8(pixels)
+    };
+    let poster = picture(193, 38, 111);
+    let frames = ModelRc::new(VecModel::from(vec![
+        GifFrame {
+            picture: poster.clone(),
+            delay: 5000,
+        },
+        GifFrame {
+            picture: picture(17, 71, 201),
+            delay: 5000,
+        },
+    ]));
+    let images = probe.global::<MarkdownImages>();
+    images.on_get(move |_, _| poster.clone());
+    let requested = Rc::new(Cell::new(false));
+    let requested_by_view = requested.clone();
+    images.on_frames(move |_, _| {
+        requested_by_view.set(true);
+        frames.clone()
+    });
+    probe
+        .global::<ConversationViewState>()
+        .set_rows(ModelRc::new(VecModel::from(vec![ConversationRow {
+            id: "gif".into(),
+            entry_id: "gif".into(),
+            kind: "assistant".into(),
+            blocks: ModelRc::new(VecModel::from(vec![MdBlock {
+                kind: "image".into(),
+                text: "/tmp/fictitious.gif".into(),
+                ..Default::default()
+            }])),
+            first: true,
+            last: true,
+            ..Default::default()
+        }])));
+    assert!(frame(&window).contains(&Rgb8Pixel {
+        r: 193,
+        g: 38,
+        b: 111
+    }));
+    assert!(requested.get(), "the visible GIF requests its frames");
 }
 
 #[test]

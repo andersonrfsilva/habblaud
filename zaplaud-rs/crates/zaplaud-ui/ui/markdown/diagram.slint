@@ -1,10 +1,57 @@
 import { TextButton } from "../widgets/kit.slint";
 import { FilesState } from "../files.slint";
 
+export struct GifFrame { picture: image, delay: int }
+
+/// Imagens `![alt](destino)`: `get` devolve a já carregada; `revision` refaz o binding quando uma chega.
+export global MarkdownImages {
+    in-out property <int> revision;
+    in property <string> failed-label;
+    pure callback get(string, int) -> image;
+    pure callback frames(string, int) -> [GifFrame];
+    pure callback failed(string, int) -> bool;
+    callback load(string);
+}
+
+export component PlaybackImage inherits Image {
+    in property <image> poster;
+    in property <string> destination;
+    in property <bool> in-view;
+    private property <[GifFrame]> frames: root.in-view && root.destination != "" ? MarkdownImages.frames(root.destination, MarkdownImages.revision) : [];
+    private property <int> index;
+    private property <GifFrame> frame: root.frames.length > 1 ? root.frames[min(root.index, root.frames.length - 1)] : { picture: root.poster, delay: 0 };
+    changed destination => { root.index = 0; }
+    // A medida não pode ler o quadro: ele depende da posição que o layout ainda está calculando.
+    preferred-width: root.poster.width * 1px;
+    preferred-height: root.poster.height * 1px;
+    source: root.frame.picture;
+    image-fit: contain;
+    Timer {
+        running: root.frames.length > 1;
+        interval: root.frame.delay * 1ms;
+        triggered => {
+            if root.frames.length > 1 {
+                root.index = root.index + 1 < root.frames.length ? root.index + 1 : 0;
+            }
+        }
+    }
+}
+
 export global DiagramState {
     in-out property <image> diagram;
     in-out property <bool> visible;
-    public function open(image: image) { self.diagram = image; self.visible = true; }
+    out property <string> destination;
+    public function open(image: image) { self.open-image(image, ""); }
+    public function open-image(image: image, destination: string) {
+        self.diagram = image;
+        self.destination = destination;
+        self.visible = true;
+    }
+    public function close() {
+        self.visible = false;
+        self.destination = "";
+        self.diagram = @image-url("");
+    }
 }
 
 export component DiagramFullscreen inherits Rectangle {
@@ -27,16 +74,17 @@ export component DiagramFullscreen inherits Rectangle {
             return reject;
         }
         key-released(event) => {
-            if event.text == Key.Escape { DiagramState.visible = false; return accept; }
+            if event.text == Key.Escape { DiagramState.close(); return accept; }
             return reject;
         }
-        Image {
-            source: DiagramState.diagram;
+        PlaybackImage {
+            destination: DiagramState.destination;
+            poster: DiagramState.diagram;
+            in-view: self.x < root.width && self.x + self.width > 0px && self.y < root.height && self.y + self.height > 48px;
             width: root.fit-width * root.zoom;
             height: self.width * DiagramState.diagram.height / max(1, DiagramState.diagram.width);
             x: (root.width - self.width) / 2 + root.pan-x;
             y: 48px + (root.height - 48px - self.height) / 2 + root.pan-y;
-            image-fit: contain;
         }
         drag := TouchArea {
             pointer-event(event) => {
@@ -54,7 +102,7 @@ export component DiagramFullscreen inherits Rectangle {
             TextButton { horizontal-stretch: 0; min-width: 64px; text: round(root.zoom * 100) + "%"; foreground: #202020; clicked => { root.reset(); } }
             TextButton { horizontal-stretch: 0; min-width: 48px; text: "+"; foreground: #202020; clicked => { root.zoom = min(8, root.zoom * 1.25); } }
             Rectangle {}
-            TextButton { horizontal-stretch: 0; text: FilesState.close-label; foreground: #202020; clicked => { DiagramState.visible = false; } }
+            TextButton { horizontal-stretch: 0; text: FilesState.close-label; foreground: #202020; clicked => { DiagramState.close(); } }
         }
     }
 }

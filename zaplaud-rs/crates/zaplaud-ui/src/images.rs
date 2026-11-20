@@ -1,7 +1,7 @@
 //! Carrega as imagens citadas no Markdown e as entrega ao Slint por `MarkdownImages`.
 
-use crate::{AppWindow, MarkdownImages, feature::FeatureContext, strings, update_ui};
-use slint::ComponentHandle;
+use crate::{AppWindow, GifFrame, MarkdownImages, feature::FeatureContext, strings, update_ui};
+use slint::{ComponentHandle, ModelRc, VecModel};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -13,11 +13,25 @@ const CACHE_BYTES: usize = 64 * 1024 * 1024;
 // A troca de sessão descarta o cache e invalida cargas ainda em andamento.
 thread_local! { static IMAGES: RefCell<Images> = RefCell::default(); }
 
+struct CachedImage {
+    poster: slint::Image,
+    frames: ModelRc<GifFrame>,
+}
+
+impl CachedImage {
+    fn still(poster: slint::Image) -> Self {
+        Self {
+            poster,
+            frames: ModelRc::default(),
+        }
+    }
+}
+
 #[derive(Default)]
 struct Images {
     api: Option<HabblaudApi>,
     generation: u64,
-    entries: HashMap<Arc<str>, (slint::Image, usize)>,
+    entries: HashMap<Arc<str>, (CachedImage, usize)>,
     order: VecDeque<Arc<str>>,
     bytes: usize,
     loading: HashSet<Arc<str>>,
@@ -25,7 +39,7 @@ struct Images {
 }
 
 impl Images {
-    fn insert(&mut self, dest: Arc<str>, image: slint::Image, bytes: usize) {
+    fn insert(&mut self, dest: Arc<str>, image: CachedImage, bytes: usize) {
         while self.bytes + bytes > CACHE_BYTES {
             let Some(oldest) = self.order.pop_front() else {
                 return;
@@ -49,7 +63,17 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                 .borrow()
                 .entries
                 .get(dest.as_str())
-                .map(|(image, _)| image.clone())
+                .map(|(image, _)| image.poster.clone())
+                .unwrap_or_default()
+        })
+    });
+    global.on_frames(|dest, _| {
+        IMAGES.with(|images| {
+            images
+                .borrow()
+                .entries
+                .get(dest.as_str())
+                .map(|(image, _)| image.frames.clone())
                 .unwrap_or_default()
         })
     });
@@ -136,7 +160,23 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                 let image = decoded.and_then(|decoded| match decoded {
                     Decoded::Pixels(pixels) => {
                         let bytes = images::raster_bytes(pixels.width(), pixels.height())?;
-                        Some((slint::Image::from_rgba8(pixels), bytes))
+                        Some((CachedImage::still(slint::Image::from_rgba8(pixels)), bytes))
+                    }
+                    Decoded::Animated { frames, delays } => {
+                        let first = frames.first()?;
+                        let bytes =
+                            images::raster_bytes(first.width(), first.height())? * frames.len();
+                        let frames: Vec<_> = frames
+                            .into_iter()
+                            .zip(delays)
+                            .map(|(pixels, delay)| GifFrame {
+                                picture: slint::Image::from_rgba8(pixels),
+                                delay: delay as i32,
+                            })
+                            .collect();
+                        let poster = frames.first()?.picture.clone();
+                        let frames = ModelRc::new(VecModel::from(frames));
+                        Some((CachedImage { poster, frames }, bytes))
                     }
                     Decoded::Svg(svg) => {
                         let image = slint::Image::load_from_svg_data(&svg).ok()?;
@@ -144,7 +184,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                         let bytes = svg
                             .len()
                             .max(images::raster_bytes(size.width, size.height)?);
-                        Some((image, bytes))
+                        Some((CachedImage::still(image), bytes))
                     }
                 });
                 IMAGES.with(|images| {

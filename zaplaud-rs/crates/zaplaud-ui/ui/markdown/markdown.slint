@@ -2,7 +2,7 @@ import { ScrollView, ListView } from "std-widgets.slint";
 import { Theme } from "resources.slint";
 import { IconButton } from "../widgets/kit.slint";
 import { MaterialIcons } from "../widgets/material-icons.slint";
-import { DiagramState } from "diagram.slint";
+import { DiagramState, MarkdownImages, PlaybackImage } from "diagram.slint";
 export { Theme }
 
 export struct MdSpan {
@@ -25,15 +25,6 @@ export struct MdBlock {
 export global MarkdownGeometry {
     in property <int> request;
     callback measured(string, float, float, float, float);
-}
-
-/// Imagens `![alt](destino)`: `get` devolve a já carregada; `revision` refaz o binding quando uma chega.
-export global MarkdownImages {
-    in-out property <int> revision;
-    in property <string> failed-label;
-    pure callback get(string, int) -> image;
-    pure callback failed(string, int) -> bool;
-    callback load(string);
 }
 
 component MeasuredText inherits StyledText {
@@ -147,6 +138,8 @@ export component MarkdownView inherits Rectangle {
     in property <[MdBlock]> blocks;
     in property <string> source-markdown;
     in property <string> row-id;
+    in property <length> viewport-top;
+    in property <length> viewport-bottom;
     callback link-clicked(string);
     callback copy(string);
     in-out property <bool> selecting: false;
@@ -285,13 +278,18 @@ export component MarkdownView inherits Rectangle {
                     height: self.picture-width * image-box.picture.height / image-box.picture.width;
                     border-radius: 6px;
                     clip: true;
-                    Image {
-                        source: image-box.picture;
-                        image-fit: contain;
+                    PlaybackImage {
+                        width: parent.width; height: parent.height;
+                        poster: image-box.picture;
+                        destination: block.text;
+                        // Uma linha longa pode estar na lista virtual com a imagem ainda cortada.
+                        in-view: !DiagramState.visible && root.viewport-bottom > root.viewport-top
+                            && self.absolute-position.y < root.viewport-bottom
+                            && self.absolute-position.y + self.height > root.viewport-top;
                         accessible-role: image;
                         accessible-label: "Imagem";
                     }
-                    TouchArea { clicked => { DiagramState.open(image-box.picture); } }
+                    TouchArea { clicked => { DiagramState.open-image(image-box.picture, block.text); } }
                 }
             }
             if MarkdownImages.failed(block.text, MarkdownImages.revision): Text {
