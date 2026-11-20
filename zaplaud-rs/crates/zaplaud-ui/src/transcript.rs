@@ -211,4 +211,67 @@ mod tests {
             assert_eq!(joined, code);
         }
     }
+
+    /// SVG fictício de 30 linhas com ~80 caracteres, como os diagramas que os agentes mandam.
+    fn real_svg(view_box: &str) -> String {
+        let mut svg = format!(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"{view_box}\" font-size=\"12\">\n"
+        );
+        for i in 0..28 {
+            svg.push_str(&format!(
+                "  <rect x=\"{}\" y=\"{}\" width=\"80\" height=\"20\" fill=\"var(--surface)\"/><text x=\"4\">Etapa {i}</text>\n",
+                i % 5 * 90,
+                i * 10
+            ));
+        }
+        svg.push_str("</svg>\n");
+        svg
+    }
+
+    fn real_mermaid() -> String {
+        let mut diagram = "flowchart TD\n".to_owned();
+        for i in 0..29 {
+            diagram.push_str(&format!(
+                "  N{i}[Etapa fictícia {i} do processo] --> N{}[Etapa fictícia {} do processo]\n",
+                i + 1,
+                i + 1
+            ));
+        }
+        diagram
+    }
+
+    /// (blocos desenhados, blocos de código da linguagem sem desenho) no caminho da tela.
+    fn drawn(source: &str, language: &str) -> (usize, usize) {
+        use slint::Model;
+        let markdown = crate::conversation_rows::MarkdownSource::new(source);
+        let (mut drawn, mut code) = (0, 0);
+        for piece in transcript_pieces(source) {
+            for block in markdown.model(&piece.display, piece.range).iter() {
+                if block.kind == "code" && block.language == language {
+                    if block.diagram.size().width > 0 {
+                        drawn += 1;
+                    } else {
+                        code += 1;
+                    }
+                }
+            }
+        }
+        (drawn, code)
+    }
+
+    #[test]
+    fn real_size_svg_fence_is_drawn_whole() {
+        let svg = real_svg("0 0 900 300");
+        assert!(estimate(&svg) > HEIGHT_BUDGET * 3);
+        let source = format!("Antes do desenho.\n\n```svg\n{svg}```\n\nDepois do desenho.\n");
+        assert_eq!(drawn(&source, "svg"), (1, 0));
+    }
+
+    #[test]
+    fn real_size_mermaid_fence_is_drawn_whole() {
+        let diagram = real_mermaid();
+        assert!(estimate(&diagram) > HEIGHT_BUDGET * 3);
+        let source = format!("Antes do desenho.\n\n```mermaid\n{diagram}```\n\nDepois do desenho.\n");
+        assert_eq!(drawn(&source, "mermaid"), (1, 0));
+    }
 }
