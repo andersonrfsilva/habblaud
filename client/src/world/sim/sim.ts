@@ -827,7 +827,7 @@ export class Sim {
       for (const c of this.chars.values()) {
         if (c.roomId !== room.id || c.leaving) continue;
         accs.add(c.info.account);
-        if (c.info.kind === 'main') for (const t of c.info.tasks) if (board.length < 15) board.push({ status: t.status });
+        if (c.info.kind === 'main') for (const t of c.info.tasks) if (t.status !== 'abandoned' && board.length < 15) board.push({ status: t.status });
       }
       room.accounts = [...accs].sort();
       room.board = board;

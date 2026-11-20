@@ -41,6 +41,8 @@ import {
   sortByUrgency,
   statusLabel,
   taskProgress,
+  taskRows,
+  type TaskRow,
   visibleShells,
 } from './model';
 import { access } from '../net/access';
@@ -105,8 +107,8 @@ function copyButton(getText: () => string, label: string): HTMLButtonElement {
   return b;
 }
 
-const TASK_MARK: Record<TaskItem['status'], string> = { completed: '✓', in_progress: '◐', pending: '○' };
-const TASK_STATE: Record<TaskItem['status'], string> = { completed: tr('concluída'), in_progress: tr('em andamento'), pending: 'pendente' };
+const TASK_MARK: Record<TaskItem['status'], string> = { completed: '✓', in_progress: '◐', pending: '○', abandoned: '⊘' };
+const TASK_STATE: Record<TaskItem['status'], string> = { completed: tr('concluída'), in_progress: tr('em andamento'), pending: 'pendente', abandoned: tr('abandonada') };
 
 function createTaskItem(): HTMLElement {
   return h('li', { class: 'ui-task' }, h('span', { class: 'ui-task__mark', attrs: { 'aria-hidden': 'true' } }), h('span', { class: 'ui-task__text' }), h('span', { class: 'ui-task__owner' }));
@@ -120,6 +122,17 @@ function updateTaskItem(li: HTMLElement, t: TaskItem, owner?: string): void {
   setHidden(ownerEl, !owner);
   setVariant(li, 'is-', t.status);
   setAttr(li, 'aria-label', `${t.title}: ${TASK_STATE[t.status]}`);
+}
+
+function createTaskList(el: HTMLElement): KeyedList<TaskRow> {
+  return new KeyedList(el, {
+    key: (row) => row.key,
+    create: (row) => 'task' in row ? createTaskItem() : h('li', { role: 'presentation' }, h('h4', { class: 'ui-task__phase' })),
+    update: (li, row) => {
+      if ('task' in row) updateTaskItem(li, row.task, row.owner);
+      else setText(li.firstElementChild as HTMLElement, row.heading);
+    },
+  });
 }
 
 function createTimelineItem(): HTMLElement {
@@ -268,7 +281,7 @@ class AgentView {
   private msgSec: ReturnType<typeof section>;
   private tasksSec: ReturnType<typeof section>;
   private tasksBar: HTMLElement;
-  private tasks: KeyedList<TaskItem>;
+  private tasks: KeyedList<TaskRow>;
   private teamSec: ReturnType<typeof section>;
   private team: KeyedList<AgentInfo>;
   private favStar = createFavStar();
@@ -429,7 +442,7 @@ class AgentView {
     this.tasksBar = createProgress(tr('Progresso das tarefas'));
     const tasksList = h('ul', { class: 'ui-tasks' });
     this.tasksSec = section(tr('Tarefas'), this.tasksBar, tasksList);
-    this.tasks = new KeyedList<TaskItem>(tasksList, { key: (t) => t.id, create: createTaskItem, update: (li, t) => updateTaskItem(li, t) });
+    this.tasks = createTaskList(tasksList);
 
     const teamList = h('div', { class: 'ui-team' });
     this.teamEmpty = h('p', { class: 'ui-muted ui-small', text: tr('Nenhum subagente no momento.') });
@@ -713,9 +726,10 @@ class AgentView {
     // Tarefas.
     const tp = taskProgress(a.tasks);
     setHidden(this.tasksSec.el, a.tasks.length === 0);
+    setHidden(this.tasksBar, tp.total === 0);
     updateProgress(this.tasksBar, tp.completed, tp.total, tp.inProgress);
-    setText(this.tasksSec.extra, `${tp.completed}/${tp.total}`);
-    this.tasks.sync(a.tasks);
+    setText(this.tasksSec.extra, tp.total ? `${tp.completed}/${tp.total}` : '');
+    this.tasks.sync(taskRows([a]));
 
     // Equipe: subagentes (principal) ou responsável (sub).
     if (a.kind === 'main') {
@@ -1009,7 +1023,7 @@ class RoomView {
   private agentsEmpty: HTMLElement;
   private tasksSec: ReturnType<typeof section>;
   private tasksBar: HTMLElement;
-  private tasks: KeyedList<{ task: TaskItem; owner: string; key: string }>;
+  private tasks: KeyedList<TaskRow>;
   private feed: KeyedList<FeedItem>;
   private feedSec: ReturnType<typeof section>;
   private newBtn: HTMLButtonElement;
@@ -1073,7 +1087,7 @@ class RoomView {
     this.tasksBar = createProgress(tr('Progresso das tarefas da sala'));
     const tasksList = h('ul', { class: 'ui-tasks' });
     this.tasksSec = section(tr('Tarefas'), this.tasksBar, tasksList);
-    this.tasks = new KeyedList(tasksList, { key: (t) => t.key, create: createTaskItem, update: (li, t) => updateTaskItem(li, t.task, t.owner) });
+    this.tasks = createTaskList(tasksList);
 
     const feedList = h('ol', { class: 'ui-timeline' });
     this.feedSec = section(tr('Atividade recente'), feedList);
@@ -1155,10 +1169,11 @@ class RoomView {
     this.agents.sync(ordered);
 
     const tp = aggregateTasks(agents);
-    setHidden(this.tasksSec.el, tp.total === 0);
+    setHidden(this.tasksSec.el, !agents.some((a) => a.tasks.length > 0));
+    setHidden(this.tasksBar, tp.total === 0);
     updateProgress(this.tasksBar, tp.completed, tp.total, tp.inProgress);
-    setText(this.tasksSec.extra, `${tp.completed}/${tp.total}`);
-    this.tasks.sync(agents.flatMap((a) => a.tasks.map((task) => ({ task, owner: a.name, key: `${a.id}#${task.id}` }))));
+    setText(this.tasksSec.extra, tp.total ? `${tp.completed}/${tp.total}` : '');
+    this.tasks.sync(taskRows(agents, true));
 
     const feed = this.ctx.store.feed.filter((f) => f.roomId === r.id).slice(-ROOM_FEED_LIMIT).reverse();
     setHidden(this.feedSec.el, feed.length === 0);

@@ -152,7 +152,19 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
   // Contexto e modelo do omp (vêm da extensão em produção) para o anel do campo de mensagem (60% = alerta) e o símbolo
   // do modelo junto do avatar aparecerem nas capturas.
   const ompAgent = office.get('fixture:omp');
-  if (ompAgent) office.applyTranscript(ompAgent.id, { title: ompAgent.title, tasks: ompAgent.tasks, stats: ompAgent.stats, model: 'claude-opus-5-5', context: { tokens: 120_000, window: 200_000 } });
+  if (ompAgent) office.applyTranscript(ompAgent.id, {
+    title: ompAgent.title,
+    tasks: [
+      { id: 'fixture-todo-1', phase: 'Preparação', title: 'Conferir materiais', status: 'completed' },
+      { id: 'fixture-todo-2', phase: 'Preparação', title: 'Recortar molde alternativo', status: 'abandoned' },
+      { id: 'fixture-todo-3', phase: 'Execução', title: 'Montar a maquete', status: 'in_progress' },
+      { id: 'fixture-todo-4', phase: 'Execução', title: 'Pintar a maquete', status: 'pending' },
+      { id: 'fixture-todo-5', phase: 'Execução', title: 'Fotografar a maquete', status: 'pending' },
+    ],
+    stats: ompAgent.stats,
+    model: 'claude-opus-5-5',
+    context: { tokens: 120_000, window: 200_000 },
+  });
   if (office.putCast({ id: 'ana', name: 'Ana Fictícia', kind: 'main', seed: 1001, look: 'f' }, 'fixture:claude') !== 'ok' ||
       office.putCast({ id: 'bia', name: 'Bia Fictícia', kind: 'main', seed: 1002, look: 'f', last: { '/fixture/projeto': CLOSED } }) !== 'ok' ||
       office.putCast({ id: 'caio', name: 'Caio Fictício', kind: 'main', seed: 1003, look: 'm' }) !== 'ok' ||

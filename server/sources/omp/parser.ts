@@ -9,8 +9,9 @@
 //   aborted | length) e `toolResult` ({toolCallId, toolName, content, isError});
 // - `model_change` ({model: "provedor/modelo"}), `title_change` ({title}), `compaction`, `custom` com `customType`
 //   `session_exit` (saída limpa; crash não grava nada) e `tool_execution_start`; o resto é ignorado.
-// Nada aqui lê o conteúdo para outra coisa além de atividade (mascarada e cortada, como as outras fontes).
-import type { Activity, AgentStats, TaskItem } from '../../../shared/types';
+// Resultados de `todo` e entradas `user_todo_edit` atualizam a lista no snapshot.
+import { createHash } from 'node:crypto';
+import type { Activity, AgentStats, TaskItem, TaskStatus } from '../../../shared/types';
 import { describePrompt, describeShellJob, describeTool, maskSecrets, SPECIAL, truncate, type ActivityDescription } from '../../../shared/activity';
 import { tr } from '../../../shared/i18n';
 import type { ParsedActivity } from '../transcript';
@@ -26,6 +27,48 @@ function rec(v: unknown): Rec | undefined {
 
 function str(v: unknown): string | undefined {
   return typeof v === 'string' && v.trim() ? v : undefined;
+}
+
+/** `undefined` distingue dados inválidos de uma lista vazia. */
+export function ompTodoPhases(raw: unknown): { name: string; tasks: unknown[] }[] | undefined {
+  if (!Array.isArray(raw) || !raw.every((value): value is { name: string; tasks: unknown[] } => {
+    const phase = rec(value);
+    return typeof phase?.name === 'string' && Array.isArray(phase.tasks);
+  })) return undefined;
+  return raw;
+}
+
+export function* ompTodoEntries(entries: unknown[]): Generator<{ content: string; status: TaskStatus }> {
+  for (const value of entries) {
+    const entry = rec(value);
+    const content = str(entry?.content);
+    const status = entry?.status;
+    if (content && (status === 'pending' || status === 'in_progress' || status === 'completed' || status === 'abandoned')) {
+      yield { content, status };
+    }
+  }
+}
+
+function ompTodoTasks(raw: unknown): TaskItem[] | undefined {
+  const phases = ompTodoPhases(raw);
+  if (!phases) return undefined;
+
+  const tasks: TaskItem[] = [];
+  const occurrences = new Map<string, number>();
+  const flat = phases.length === 1 && phases[0].name === 'Tasks';
+  for (const { name, tasks: entries } of phases) {
+    const phase = flat ? undefined : maskSecrets(name);
+    for (const { content, status } of ompTodoEntries(entries)) {
+      const key = createHash('sha256').update(JSON.stringify([name, content])).digest('base64url');
+      const occurrence = (occurrences.get(key) ?? 0) + 1;
+      occurrences.set(key, occurrence);
+      const task: TaskItem = { id: `${key}:${occurrence}`, title: truncate(maskSecrets(content), 120), status };
+      if (phase !== undefined) task.phase = phase;
+      tasks.push(task);
+      if (tasks.length === 200) return tasks;
+    }
+  }
+  return tasks;
 }
 
 function num(v: unknown): number | undefined {
@@ -428,6 +471,7 @@ class OmpLineParser {
           this.s.jobs.clear();
           this.out.signals.push({ type: 'exit' });
         }
+        if (this.j.customType === 'user_todo_edit') this.replaceTasks(rec(this.j.data)?.phases);
         return;
       case 'custom_message':
         // Entrega automática de jobs que terminaram (`details.jobs[].jobId`).
@@ -568,6 +612,7 @@ class OmpLineParser {
     const name = str(m.toolName) ?? call?.name ?? 'ferramenta';
     if (id) this.s.pending.delete(id);
     const details = rec(m.details);
+    if (m.toolName === 'todo' && m.isError !== true) this.replaceTasks(details?.phases);
     if (name === 'wait') this.settleJobs(details?.jobs);
     else if (name === 'bash') {
       // Comando que foi para o segundo plano (pedido async ou movido no meio): `details.async` traz o id do job.
@@ -587,6 +632,13 @@ class OmpLineParser {
     if (m.isError !== true) return;
     const { tool } = describeOmpTool(name, {});
     this.push(SPECIAL.error(tool, firstLine(textOf(m.content))), { key: `${id ?? this.key()}:e`, tool, current: false });
+  }
+
+  private replaceTasks(phases: unknown): void {
+    const tasks = ompTodoTasks(phases);
+    if (tasks === undefined) return;
+    this.s.tasks = tasks;
+    this.out.changed = true;
   }
 
   private openJob(id: string, job: OmpJob): void {

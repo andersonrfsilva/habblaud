@@ -42,6 +42,36 @@ describe('terminal do omp', () => {
     expect(titles.WebSearch).toMatch(/^WebSearch\(/);
   });
 
+  it('todo(init) e todo(done) mostram os estados por fase sem JSON cru', () => {
+    const p = createOmpTerminalParser();
+    const msg = (id: string, message: object) => p.push(JSON.stringify({ type: 'message', id, message }));
+    const call = (op: string, args: object) => msg(`c-${op}`, {
+      role: 'assistant', content: [{ type: 'toolCall', id: op, name: 'todo', arguments: { op, ...args } }],
+    });
+    const result = (op: string, details: unknown, isError = false) => msg(`r-${op}`, {
+      role: 'toolResult', toolCallId: op, toolName: 'todo', details,
+      content: [{ type: 'text', text: 'Saída original' }], isError,
+    });
+    expect(call('init', { list: [{ phase: 'Triagem', items: ['Contar caixas'] }, { phase: 'Envio', items: ['Enviar caixas'] }] })[0])
+      .toMatchObject({ kind: 'tool', title: 'todo(init: 2)' });
+    const phases = [
+      { name: 'Triagem', tasks: [{ content: 'Contar caixas', status: 'pending' }] },
+      { name: 'Envio', tasks: [{ content: 'Enviar caixas', status: 'pending' }, { content: 'Usar palete', status: 'abandoned' }] },
+    ];
+    expect(result('init', { phases })[0]).toMatchObject({
+      kind: 'result', toolUseId: 'init', text: 'Triagem:\n☐ Contar caixas\nEnvio:\n☐ Enviar caixas\n⊘ Usar palete',
+    });
+    expect(call('done', { task: 'Contar caixas' })[0]).toMatchObject({ kind: 'tool', title: 'todo(done)' });
+    phases[0].tasks[0].status = 'completed';
+    phases[1].tasks[0].status = 'in_progress';
+    expect(result('done', { phases })[0]).toMatchObject({
+      kind: 'result', toolUseId: 'done', text: 'Triagem:\n☒ Contar caixas\nEnvio:\n◐ Enviar caixas\n⊘ Usar palete',
+    });
+    expect(result('rm', { phases: [] })[0]).toMatchObject({ kind: 'result', text: 'Nenhuma tarefa.' });
+    expect(result('view', { phases: [{ name: 'Triagem' }] })[0]).toMatchObject({ kind: 'result', text: 'Saída original' });
+    expect(result('drop', { phases }, true)[0]).toMatchObject({ kind: 'result', text: 'Saída original', error: true });
+  });
+
   it('erro da API vira entrada de sistema com nível de erro; resultado com isError é marcado', () => {
     const e = entries('main-error.jsonl');
     expect(e.at(-1)).toMatchObject({ kind: 'system', level: 'error' });

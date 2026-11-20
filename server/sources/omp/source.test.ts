@@ -159,6 +159,30 @@ describe('fonte do omp: presença pelo arquivo', () => {
     expect(c.source.sources()[0].sessions).toBe(0);
   });
 
+  it('publica as tarefas do todo no snapshot ao recarregar e ao atualizar', () => {
+    const c = setup();
+    const path = c.path();
+    const todo = (phases: unknown[]) => {
+      const line = L.result(c, 'todo-1', 'todo');
+      return { ...line, message: { ...line.message, details: { phases, storage: 'session' } } };
+    };
+    c.session(path, [todo([
+      { name: 'Triagem', tasks: [{ content: 'Contar caixas', status: 'completed' }, { content: 'Empilhar caixas', status: 'abandoned' }] },
+      { name: 'Envio', tasks: [{ content: 'Imprimir etiquetas', status: 'in_progress' }, { content: 'Entregar caixas', status: 'pending' }] },
+    ])]);
+    c.source.boot();
+    expect(c.agent()?.tasks).toMatchObject([
+      { title: 'Contar caixas', status: 'completed', phase: 'Triagem' },
+      { title: 'Empilhar caixas', status: 'abandoned', phase: 'Triagem' },
+      { title: 'Imprimir etiquetas', status: 'in_progress', phase: 'Envio' },
+      { title: 'Entregar caixas', status: 'pending', phase: 'Envio' },
+    ]);
+
+    c.advance(1_000);
+    c.append(path, [todo([])]);
+    expect(c.poll().snapshot.agents.find((a) => a.id === KEY)?.tasks).toEqual([]);
+  });
+
   it('arquivo crescendo: nova instrução volta a trabalhar, ferramenta com erro, subagente aparece e entrega', () => {
     const c = setup();
     const path = c.path();

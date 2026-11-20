@@ -312,6 +312,8 @@ export const FR: Readonly<Record<string, string>> = {
   "Não foi possível copiar": "Copie impossible",
   "concluída": "terminée",
   "em andamento": "en cours",
+  "abandonada": "abandonnée",
+  "Nenhuma tarefa.": "Aucune tâche.",
   "Comando": "Commande",
   "Copiar comando": "Copier la commande",
   "Rodando há {0} (desde {1})": "En cours depuis {0} (depuis {1})",

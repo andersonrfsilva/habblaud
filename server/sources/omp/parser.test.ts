@@ -109,6 +109,87 @@ describe('saída limpa (session_exit)', () => {
   });
 });
 
+describe('lista de tarefas do omp', () => {
+  const phase = (name: string, ...items: [string, string][]) => ({
+    name, tasks: items.map(([content, status]) => ({ content, status })),
+  });
+  const result = (details?: unknown, isError = false) => ({
+    type: 'message', message: { role: 'toolResult', toolCallId: 'sem-chamada', toolName: 'todo', details, isError },
+  });
+  function setupTodo() {
+    const state = createOmpState();
+    const feed = (entry: object) => parseOmpLine(state, JSON.stringify(entry), { idPrefix: 'omp:t', now: 1 });
+    return { state, feed };
+  }
+
+  it('reproduz init sem chamada e substitui a lista em start, done, drop e rm', () => {
+    const { state, feed } = setupTodo();
+    const update = (op: string, phases: unknown) => feed(result({ op, phases }));
+    expect(update('init', [phase('Triagem', ['Mapear caixas', 'pending']), phase('Envio', ['Entregar caixas', 'pending'])]).changed).toBe(true);
+    expect(state.tasks).toMatchObject([
+      { phase: 'Triagem', title: 'Mapear caixas', status: 'pending' },
+      { phase: 'Envio', title: 'Entregar caixas', status: 'pending' },
+    ]);
+    const [mapId, sendId] = state.tasks.map((t) => t.id);
+    update('start', [phase('Triagem', ['Mapear caixas', 'in_progress']), phase('Envio', ['Entregar caixas', 'pending'])]);
+    expect(state.tasks[0]).toMatchObject({ id: mapId, status: 'in_progress' });
+    update('done', [phase('Triagem', ['Mapear caixas', 'completed']), phase('Envio', ['Entregar caixas', 'in_progress'])]);
+    expect(state.tasks[0]).toMatchObject({ id: mapId, status: 'completed' });
+    update('drop', [phase('Triagem', ['Mapear caixas', 'completed']), phase('Envio', ['Entregar caixas', 'abandoned'])]);
+    expect(state.tasks[1]).toMatchObject({ id: sendId, status: 'abandoned' });
+    update('rm', [phase('Envio', ['Entregar caixas', 'abandoned'])]);
+    expect(state.tasks).toMatchObject([{ id: sendId, status: 'abandoned' }]);
+    update('rm', []);
+    expect(state.tasks).toEqual([]);
+  });
+
+  it('mantém a lista se o resultado falhar, omitir fases ou tiver uma fase inválida', () => {
+    const { state, feed } = setupTodo();
+    feed(result({ phases: [phase('Tasks', ['Contar caixas', 'pending'])] }));
+    const previous = state.tasks;
+    expect(previous).toHaveLength(1);
+    for (const line of [
+      result({ phases: [] }, true),
+      result(),
+      result({ phases: {} }),
+      result({ phases: [phase('Envio'), { name: 'Inválida' }] }),
+      result({ phases: [{ tasks: [] }] }),
+      { ...result({ phases: [] }), message: { ...result({ phases: [] }).message, toolName: 'read' } },
+    ]) {
+      expect(feed(line).changed).toBe(false);
+      expect(state.tasks).toBe(previous);
+    }
+  });
+
+  it('preserva ids de textos repetidos, corta títulos e omite a fase padrão única', () => {
+    const { state, feed } = setupTodo();
+    const long = 'x'.repeat(180);
+    feed(result({ phases: [phase('Tasks', ['Remover', 'pending'], [long, 'pending'], [long, 'completed'])] }));
+    expect(state.tasks).toHaveLength(3);
+    const [, ...ids] = state.tasks.map((t) => t.id);
+    expect(new Set(ids).size).toBe(2);
+    expect(state.tasks[1].title).toHaveLength(120);
+    expect(state.tasks.every((t) => !Object.hasOwn(t, 'phase'))).toBe(true);
+    feed(result({ phases: [phase('Tasks', [long, 'in_progress'], [long, 'completed']), phase('Envio', [long, 'pending'])] }));
+    expect(state.tasks.slice(0, 2).map((t) => t.id)).toEqual(ids);
+    expect(new Set(state.tasks.map((t) => t.id)).size).toBe(3);
+  });
+
+  it('aplica edição manual, ignora metadados do HUD e limita a 200 tarefas válidas', () => {
+    const { state, feed } = setupTodo();
+    feed({ type: 'custom', customType: 'user_todo_edit', data: { phases: [
+      phase('Tasks', [' ', 'pending'], ['Estado antigo', 'blocked'], ...Array.from({ length: 205 }, (_, i): [string, string] => [`Caixa ${i}`, 'pending'])),
+    ] } });
+    expect(state.tasks).toHaveLength(200);
+    expect(state.tasks[0].title).toBe('Caixa 0');
+    expect(state.tasks[199].title).toBe('Caixa 199');
+    feed({ type: 'custom', customType: 'todo_hud_state', data: { phases: [], visibility: 'dismissed' } });
+    expect(state.tasks).toHaveLength(200);
+    feed({ type: 'custom', customType: 'user_todo_edit', data: { phases: [] } });
+    expect(state.tasks).toEqual([]);
+  });
+});
+
 describe('ferramentas do omp', () => {
   const r = run('main-tools.jsonl');
   const acts = r.results.flatMap((x) => x.activities.map((a) => a.activity));

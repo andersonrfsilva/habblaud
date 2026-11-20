@@ -256,7 +256,7 @@ function diffInput(oldRaw: string, newRaw: string): Pick<ToolView, 'input' | 'in
   return text ? { input: text, inputKind: 'diff' } : {};
 }
 
-const TODO_MARK: Record<string, string> = { completed: '☒', in_progress: '◐', pending: '☐' };
+export const TODO_MARK: Record<string, string> = { completed: '☒', in_progress: '◐', pending: '☐' };
 const TASK_STATUS: Record<string, string> = { completed: tr('concluída'), in_progress: tr('em andamento'), pending: 'pendente', deleted: 'removida' };
 
 function todoList(raw: unknown): { list: string; done: number; total: number } {
