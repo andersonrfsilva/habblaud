@@ -44,7 +44,10 @@ final class ZaplaudUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-AppleLanguages", "(pt-BR)"]
         app.launch()
+        // The scene delegate is the only code that creates the application's window.
+        XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 30), "Missing scene window")
         let server = element(app, "server-url")
+        XCTAssertTrue(server.isHittable, "Login is not visible in the scene window")
         server.tap()
         server.typeText(origin)
         XCUIDevice.shared.press(.home)
