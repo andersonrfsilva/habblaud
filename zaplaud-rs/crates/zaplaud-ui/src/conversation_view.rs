@@ -15,8 +15,9 @@ use tokio::sync::mpsc;
 use zaplaud_core::{
     api::{HabblaudApi, retry_after},
     controller::conversation::{ConversationController, snapshot_matches_session},
-    model::{SessionItem, StreamEvent},
+    model::{SessionItem, StreamEvent, TaskStatus},
     rules::conversation::{self, SummaryEffect, SummaryEvent, SummaryState},
+    rules::tasks::{task_phases, task_progress},
     rules::time,
 };
 use zaplaud_store::{LocalStateStore, ReadingState};
@@ -216,7 +217,7 @@ fn info_rows(
     partial: bool,
 ) -> Vec<InfoRow> {
     let mut rows = Vec::new();
-    let mut section = |label: &str, mut values: Vec<InfoRow>| {
+    let section = |rows: &mut Vec<InfoRow>, label: &str, mut values: Vec<InfoRow>| {
         values.retain(|row| !row.value.trim().is_empty());
         if !values.is_empty() {
             rows.push(InfoRow {
@@ -264,6 +265,7 @@ fn info_rows(
         loaded.push_str(&format!(" · {}", strings::INFO_PARTIAL));
     }
     section(
+        &mut rows,
         strings::INFO_STATUS_SECTION,
         vec![
             info_row(strings::INFO_ROLE, item.role.clone().unwrap_or_default()),
@@ -287,6 +289,7 @@ fn info_rows(
         ],
     );
     section(
+        &mut rows,
         strings::INFO_MODEL_SECTION,
         vec![
             info_row(strings::MODEL_MENU, item.model.clone().unwrap_or_default()),
@@ -311,14 +314,58 @@ fn info_rows(
         })
         .unwrap_or_default();
     section(
+        &mut rows,
         strings::INFO_CONTEXT_SECTION,
         vec![info_row(strings::INFO_CONTEXT, context)],
     );
+    if !item.tasks.is_empty() {
+        let (done, total) =
+            task_progress(&item.tasks).map_or((0, 0), |progress| (progress.done, progress.total));
+        rows.push(InfoRow {
+            section: true,
+            fraction: if total == 0 {
+                0.
+            } else {
+                done as f32 / total as f32
+            },
+            ..info_row(
+                strings::TASKS_TITLE,
+                crate::formatted(
+                    "tasks_progress_summary",
+                    &[&done.to_string(), &total.to_string()],
+                ),
+            )
+        });
+        for (phase, tasks) in task_phases(&item.tasks) {
+            if let Some(phase) = phase {
+                rows.push(InfoRow {
+                    label: phase.into(),
+                    task_phase: true,
+                    ..Default::default()
+                });
+            }
+            for task in tasks {
+                let (marker, state) = match task.status {
+                    TaskStatus::Pending => ("○", strings::TASKS_STATE_PENDING),
+                    TaskStatus::InProgress => ("◐", strings::TASKS_STATE_IN_PROGRESS),
+                    TaskStatus::Completed => ("✓", strings::TASKS_STATE_COMPLETED),
+                    TaskStatus::Abandoned => ("–", strings::TASKS_STATE_ABANDONED),
+                };
+                rows.push(InfoRow {
+                    value: task.display_title().into(),
+                    task_marker: marker.into(),
+                    task_state: state.into(),
+                    ..Default::default()
+                });
+            }
+        }
+    }
     let technical = |label, value| InfoRow {
         copyable: true,
         ..info_row(label, value)
     };
     section(
+        &mut rows,
         strings::INFO_TECHNICAL_SECTION,
         vec![
             technical(
