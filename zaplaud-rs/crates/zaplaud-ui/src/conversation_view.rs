@@ -708,6 +708,34 @@ fn valid_link(url: &str) -> bool {
         .is_ok_and(|url| matches!(url.scheme(), "http" | "https") && url.host_str().is_some())
 }
 
+#[derive(Debug, PartialEq)]
+enum LinkAction {
+    Browser,
+    /// Arquivo do servidor que não é imagem: baixado pelo fluxo da janela de arquivos.
+    Download(String),
+    Nothing,
+}
+
+/// Toque num link da conversa. A imagem do servidor já aparece desenhada; nada abre caminhos locais.
+fn link_action(url: &str) -> LinkAction {
+    if valid_link(url) {
+        return LinkAction::Browser;
+    }
+    // markdown/mod.rs troca estes caracteres por %XX no texto do Slint; aqui o caminho volta a ser o do servidor.
+    let url = url
+        .replace("%28", "(")
+        .replace("%29", ")")
+        .replace("%3C", "<")
+        .replace("%3E", ">")
+        .replace("%5C", "\\");
+    match zaplaud_ui::markdown::images::host_path(&url) {
+        Some(path) if !zaplaud_ui::markdown::images::is_image_link(path) => {
+            LinkAction::Download(path.to_owned())
+        }
+        _ => LinkAction::Nothing,
+    }
+}
+
 async fn stop_session(task: &mut Option<tokio::task::JoinHandle<()>>) {
     if let Some(task) = task.take() {
         task.abort();
@@ -841,10 +869,19 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
             window.invoke_copy_conversation(text);
         }
     });
-    state.on_open_link(move |url| {
-        if valid_link(&url) {
+    let weak = window.as_weak();
+    state.on_open_link(move |url| match link_action(&url) {
+        LinkAction::Browser => {
             let _ = open_system(std::ffi::OsStr::new(url.as_str()));
         }
+        LinkAction::Download(path) => {
+            if let Some(window) = weak.upgrade() {
+                window
+                    .global::<crate::FilesState>()
+                    .invoke_download_link(path.into());
+            }
+        }
+        LinkAction::Nothing => {}
     });
     let mut snapshots = context.snapshots.subscribe();
     let weak = window.as_weak();
@@ -1065,6 +1102,32 @@ mod tests {
             "https:",
         ] {
             assert!(!valid_link(url));
+        }
+    }
+
+    #[test]
+    fn tapping_a_host_file_that_is_not_an_image_downloads_it() {
+        for (url, path) in [
+            ("/proj/sub/fonte.aseprite", "/proj/sub/fonte.aseprite"),
+            ("file:///proj/notas.txt", "/proj/notas.txt"),
+            ("/proj/Arte Final/a%28b%29.zip", "/proj/Arte Final/a(b).zip"),
+        ] {
+            assert_eq!(link_action(url), LinkAction::Download(path.into()), "{url}");
+        }
+        for url in ["https://example.org/a.zip", "http://localhost:4747/x"] {
+            assert_eq!(link_action(url), LinkAction::Browser, "{url}");
+        }
+        // Imagem já aparece desenhada; relativo, // e esquemas de aplicativo não fazem nada.
+        for url in [
+            "/proj/arte.png",
+            "/proj/anim.GIF",
+            "sub/fonte.aseprite",
+            "//host/x.bin",
+            "javascript:alert(1)",
+            "mailto:a@b.c",
+            "",
+        ] {
+            assert_eq!(link_action(url), LinkAction::Nothing, "{url}");
         }
     }
 
