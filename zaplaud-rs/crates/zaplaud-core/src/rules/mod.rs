@@ -6,6 +6,7 @@ pub mod composer;
 pub mod conversation;
 pub mod list;
 pub mod permission;
+pub mod tasks;
 pub mod time;
 pub mod url_policy;
 
