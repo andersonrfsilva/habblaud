@@ -45,13 +45,13 @@ vai para a tabela abaixo, com o motivo. Textos ficam em `android/shared/src/comm
 | Avisos de aprovação, pergunta e fim de turno | sim | sim | Android: se ativos, retomam após atualização do app ou primeiro desbloqueio depois do reinício; restrições do fabricante podem impedir a retomada. **iPad: sem avisos**; desktop: só com o app aberto. |
 | Ícone na bandeja | não se aplica | sim | |
 | Chaveiro destrancado quando o padrão está trancado (Linux) | não se aplica | sim | |
-| Diagramas Mermaid desenhados na conversa | sim | sim | Kotlin pede o SVG ao servidor (`POST /api/mermaid`); Rust desenha localmente (`mermaid-rs-renderer`) |
+| Diagramas Mermaid desenhados na conversa | sim | sim | Kotlin pede o SVG ao servidor (`POST /api/mermaid`); Rust desenha localmente (`mermaid-rs-renderer`). Nos dois, só blocos fechados e até 20.000 caracteres; Rust também recusa desenho com mais de 6.000 px de altura natural, que fica como código |
 | Diagrama Mermaid em tela cheia, com zoom e arrasto | sim | sim | Kotlin: pinça; desktop: botões +/− e teclado +/−, até 8×; arrasto move, duplo clique/toque restaura, Esc ou Fechar sai |
 | Detalhes da sessão e do subagente: seções Estado, Modelo, Contexto e Identificadores; campos vazios ocultos | sim | sim | subagente mostra papel, tarefa, modelo e contexto próprios e leva à sessão principal; identificadores copiáveis |
 | Lista de tarefas do agente | sim | sim | A folha mostra as fases e os estados; a conversa mostra o progresso acima do compositor. |
 | Copiar bloco de código, código do Mermaid e mensagem inteira | sim | sim | |
 | Tentar de novo após erro de envio | sim | sim | Envio ambíguo continua pedindo confirmação. Conflito de envio ou comando só fecha a conversa de origem. Uma consulta de status antiga não altera a operação seguinte. |
-| Blocos `svg` desenhados na conversa, com a mesma tela cheia | sim | sim | desenho local nos dois; `var(--fg)`, `--accent` etc. viram cores fixas sobre fundo branco; Kotlin aceita até 200.000 caracteres |
+| Blocos `svg` desenhados na conversa, com a mesma tela cheia | sim | sim | desenho local nos dois; `var(--fg)`, `--accent` etc. viram cores fixas sobre fundo branco; só blocos fechados; Kotlin aceita até 200.000 caracteres e Rust até 200.000 bytes e 6.000 px de altura natural |
 | Imagens do markdown abaixo do texto; o link continua no texto; links externos só `http`/`https` | sim | sim | `data:` e caminho absoluto do host (`/api/files/raw`) carregam sozinhos; `http`/`https` só após "Carregar imagem", sem credenciais nem redirecionamentos; até 10 MB. Link comum com destino `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp` ou `.svg` também é desenhado; URL solta sem `<>` só no Kotlin. |
 
 ### Diagramas no cliente Kotlin

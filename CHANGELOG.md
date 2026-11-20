@@ -184,6 +184,8 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Zaplaud desktop:** desenhos `svg` e diagramas Mermaid de tamanho real aparecem desenhados; antes, só os muito
+  pequenos, e os demais apareciam como código.
 - **omp:** formulários simples de escolha ou texto voltam a aparecer no Zaplaud e na página; formulários que o cartão não consegue representar ficam no terminal.
 - **omp:** formulários de pergunta com até 12 perguntas e 12 opções por pergunta aparecem no Zaplaud e na página
   (antes, acima de 4 perguntas ficavam só no terminal). Opções com rótulo de até 300 caracteres (os agentes costumam
