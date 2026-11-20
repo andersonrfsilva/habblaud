@@ -170,7 +170,7 @@ export interface AskQuestion {
   options: Array<{ index: number; label: string; description?: string }>;
 }
 
-export type TaskStatus = 'pending' | 'in_progress' | 'completed';
+export type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'abandoned';
 
 export interface TaskItem {
   id: string;
@@ -178,6 +178,7 @@ export interface TaskItem {
   status: TaskStatus;
   /** Forma no gerúndio ("Escrevendo testes"), quando disponível. */
   activeForm?: string;
+  phase?: string;
 }
 
 export interface AgentStats {

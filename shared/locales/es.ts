@@ -312,6 +312,7 @@ export const ES: Readonly<Record<string, string>> = {
   "Não foi possível copiar": "No se pudo copiar",
   "concluída": "completada",
   "em andamento": "en curso",
+  "abandonada": "abandonada",
   "Comando": "Comando",
   "Copiar comando": "Copiar comando",
   "Rodando há {0} (desde {1})": "Lleva {0} en ejecución (desde {1})",
