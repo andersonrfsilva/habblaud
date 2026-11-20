@@ -223,6 +223,53 @@ impl Avatar {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskStatus {
+    Pending,
+    InProgress,
+    Completed,
+    Abandoned,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentTask {
+    pub id: String,
+    pub title: String,
+    pub status: TaskStatus,
+    pub active_form: Option<String>,
+    pub phase: Option<String>,
+}
+
+impl AgentTask {
+    fn parse(value: &Value) -> Option<Self> {
+        let field = |key| value.get(key)?.as_str();
+        let status = match field("status")? {
+            "pending" => TaskStatus::Pending,
+            "in_progress" => TaskStatus::InProgress,
+            "completed" => TaskStatus::Completed,
+            "abandoned" => TaskStatus::Abandoned,
+            _ => return None,
+        };
+        Some(Self {
+            id: field("id")?.into(),
+            title: field("title")?.into(),
+            status,
+            active_form: field("activeForm").map(str::to_owned),
+            phase: field("phase").map(str::to_owned),
+        })
+    }
+
+    pub fn display_title(&self) -> &str {
+        if self.status == TaskStatus::InProgress {
+            self.active_form.as_deref().unwrap_or(&self.title)
+        } else {
+            &self.title
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SessionItem {
@@ -253,6 +300,7 @@ pub struct SessionItem {
     pub status_since: Option<i64>,
     pub role: Option<String>,
     pub task: Option<String>,
+    pub tasks: Vec<AgentTask>,
     pub parent_key: Option<SessionKey>,
     pub server_session_id: Option<String>,
 }
@@ -317,6 +365,13 @@ impl SessionItem {
             task: (string(o, "kind").as_deref() == Some("sub"))
                 .then(|| string(o, "title"))
                 .flatten(),
+            tasks: o
+                .get("tasks")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(AgentTask::parse)
+                .collect(),
             server_session_id: string(o, "sessionId"),
             replies: o
                 .get("replies")
@@ -1347,6 +1402,55 @@ impl EntryRow {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn session_tolerates_missing_or_non_array_tasks() {
+        let mut agent = json!({"account":"test","sessionId":"session"});
+        let parse = |agent: &Value| SessionItem::parse("https://test", agent, None, 0, 0).unwrap();
+        assert!(parse(&agent).tasks.is_empty());
+        for value in [Value::Null, json!({}), json!(true), json!("tasks")] {
+            agent["tasks"] = value;
+            assert!(parse(&agent).tasks.is_empty());
+        }
+    }
+
+    #[test]
+    fn session_keeps_valid_tasks_and_ignores_malformed_entries() {
+        let agent = json!({
+            "account":"test","sessionId":"session",
+            "tasks":[
+                null, [], true,
+                {"title":"Sem id","status":"pending"},
+                {"id":"sem-titulo","status":"pending"},
+                {"id":"sem-estado","title":"Sem estado"},
+                {"id":"desconhecido","title":"Desconhecido","status":"unknown"},
+                {"id":25,"title":"Id inválido","status":"pending"},
+                {"id":"titulo-objeto","title":{},"status":"pending"},
+                {"id":"1","title":"Válida","status":"in_progress","activeForm":"Fazendo","phase":"Teste"},
+                {"id":"2","title":"Ignora opcionais inválidos","status":"pending","activeForm":[],"phase":true}
+            ]
+        });
+        let session = SessionItem::parse("https://test", &agent, None, 0, 0).unwrap();
+        assert_eq!(
+            session.tasks,
+            [
+                AgentTask {
+                    id: "1".into(),
+                    title: "Válida".into(),
+                    status: TaskStatus::InProgress,
+                    active_form: Some("Fazendo".into()),
+                    phase: Some("Teste".into()),
+                },
+                AgentTask {
+                    id: "2".into(),
+                    title: "Ignora opcionais inválidos".into(),
+                    status: TaskStatus::Pending,
+                    active_form: None,
+                    phase: None,
+                },
+            ]
+        );
+    }
 
     #[test]
     fn keys_avatars_permissions_and_roles_match_primitive_optionality() {
