@@ -176,6 +176,7 @@ do meio (0.**3**.0).
 - **Zaplaud:** ferramentas e pensamentos aparecem como linhas compactas com seta de expandir, sem competir com as respostas.
 - **Zaplaud:** a busca da lista fica oculta, aparece com uma puxada longa no topo e permanece fixa enquanto a lista rola. Sem resultados, o app oferece "Limpar busca".
 - **Zaplaud:** o campo de mensagem é uma pílula com o anexo e o uso de contexto dentro dela.
+- **Zaplaud (iPad):** o app passa a usar o ciclo de vida por cenas, exigido pelos próximos SDKs da Apple.
 
 ### Corrigido
 
