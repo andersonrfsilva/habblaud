@@ -12,7 +12,7 @@ import { ConversationView, ConversationStatus, ConversationViewState, Conversati
 export { ConversationViewState, ConversationRow, ToolDetail, InfoRow, ModelChoice, MdBlock, MdCell, MdSpan } from "conversation_view.slint";
 export { TranscriptProbe, MarkdownGeometry, MarkdownImages } from "conversation_view.slint";
 export { ComposerState, ComposerAttachment } from "composer.slint";
-import { Dialog } from "widgets/kit.slint";
+import { Dialog, TextButton } from "widgets/kit.slint";
 import { CastSheet, CastState } from "cast.slint";
 import { AsideSheet, AsideState } from "aside.slint";
 export { CastState, CastRow } from "cast.slint";
@@ -103,6 +103,18 @@ export component AppWindow inherits Window {
                     spacing: 0px;
                     ConversationView { can-take-focus: !root.overlay-open; }
                     ConversationStatus {}
+                    if ConversationState.selected && ConversationViewState.task-progress != "": TextButton {
+                        enabled: !root.overlay-open;
+                        min-height: 24px; preferred-height: 24px; border-radius: 4px;
+                        accessible-label: ConversationViewState.task-progress;
+                        accessible-description: ConversationViewState.info-label;
+                        clicked => { ConversationViewState.info-open = true; }
+                        Text {
+                            x: 16px; width: parent.width - 32px; height: parent.height;
+                            text: ConversationViewState.task-progress; color: Theme.primary;
+                            font-size: 12px; max-lines: 1; overflow: elide; vertical-alignment: center;
+                        }
+                    }
                     HorizontalLayout {
                         padding-left: 12px; padding-right: 12px; spacing: 0px;
                         ComposerPane {}

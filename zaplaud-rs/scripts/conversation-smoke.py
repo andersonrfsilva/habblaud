@@ -214,7 +214,7 @@ def main():
                     def copy_last():
                         # A ação está 18 px abaixo do topo do balão, não a um y fixo da janela.
                         image = desktop.image()
-                        top = 644
+                        top = 620
                         if image.getpixel((700, top)) != colors['surface']:
                             return ''
                         while top > 64 and image.getpixel((700, top - 1)) == colors['surface']:
@@ -274,8 +274,10 @@ def main():
 
                     history_box = (377, 80, 890, 580)
 
-                    def at_history():
-                        return desktop.image().getpixel((1040, 638)) == colors['secondaryContainer']
+                    omp_end_button_y = 614
+
+                    def at_history(y=omp_end_button_y):
+                        return desktop.image().getpixel((1040, y)) == colors['secondaryContainer']
 
                     def showing_claude():
                         session = load_state().get('last_session')
@@ -298,9 +300,9 @@ def main():
                     for attempt in range(1, 6):
                         desktop.click(150, claude_row)
                         smoke.wait_for(showing_claude, f'Troca {attempt}: conversa Claude não abriu')
-                        if at_history():
+                        if at_history(638):
                             desktop.click(1060, 638)
-                        smoke.wait_for(lambda: not at_history(), f'Troca {attempt}: conversa Claude não chegou ao fim')
+                        smoke.wait_for(lambda: not at_history(638), f'Troca {attempt}: conversa Claude não chegou ao fim')
                         before = load_state()[omp_reading_key]
                         assert before.get('entry') and not before['following'], f'Troca {attempt}: OMP não estava no histórico'
                         started = time.monotonic()
@@ -321,7 +323,7 @@ def main():
                             f'Troca {attempt}: o OMP não voltou à âncora visível')
                     result['wheel_switches'] = 5
                     desktop.image().save(f'/tmp/zaplaud-rs-fin-conversation-regression-restored-{args.theme}.png')
-                    desktop.click(1060, 638)
+                    desktop.click(1060, omp_end_button_y)
                     smoke.wait_for(lambda: copy_last() == latest, 'Ir para o fim não voltou à última mensagem do OMP', 20)
 
                     # A roda no fim e o retorno pela roda devem continuar seguindo as entradas novas.
@@ -329,12 +331,12 @@ def main():
                         if return_to_end:
                             wheel(4, 6)
                             smoke.wait_for(
-                                lambda: desktop.image().getpixel((1040, 638)) == colors['secondaryContainer'],
+                                at_history,
                                 'Roda para cima não saiu do fim',
                             )
                         wheel(5, 6)
                         smoke.wait_for(
-                            lambda: desktop.image().getpixel((1040, 638)) != colors['secondaryContainer'],
+                            lambda: not at_history(),
                             'Roda para baixo não voltou a seguir o fim',
                         )
                         latest = f'Carga fictícia {number}.'
@@ -343,12 +345,12 @@ def main():
                         smoke.wait_for(lambda: copy_last() == latest, 'Roda no fim impediu acompanhar a entrada nova', 20)
 
                     # A nova entrada deve atualizar o contador sem mover as mensagens em leitura.
-                    badge_box = (1040, 620, 1080, 655)
+                    badge_box = (1040, 596, 1080, 631)
                     for number, gesture in enumerate((lambda: wheel(4, 6), lambda: desktop.key('Home')), start=223):
                         end = desktop.image().crop(history_box).tobytes()
                         gesture()
                         smoke.wait_for(
-                            lambda: desktop.image().getpixel((1040, 638)) == colors['secondaryContainer'],
+                            at_history,
                             f'Histórico não saiu do fim antes da mensagem {number}',
                         )
                         time.sleep(.5)
@@ -364,7 +366,7 @@ def main():
                             'Contador de mensagens novas não atualizou', 20,
                         )
                         assert desktop.image().crop(history_box).tobytes() == history.crop(history_box).tobytes(), 'Mensagem nova moveu o histórico'
-                        desktop.click(1060, 638)
+                        desktop.click(1060, omp_end_button_y)
                         smoke.wait_for(lambda: copy_last() == latest, 'Ir para o fim não chegou à mensagem nova', 20)
                     wheel(4, 400)
                     time.sleep(.5)

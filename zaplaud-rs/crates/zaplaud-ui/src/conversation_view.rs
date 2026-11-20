@@ -17,7 +17,7 @@ use zaplaud_core::{
     controller::conversation::{ConversationController, snapshot_matches_session},
     model::{SessionItem, StreamEvent, TaskStatus},
     rules::conversation::{self, SummaryEffect, SummaryEvent, SummaryState},
-    rules::tasks::{task_phases, task_progress},
+    rules::tasks::{TaskProgress, task_phases, task_progress},
     rules::time,
 };
 use zaplaud_store::{LocalStateStore, ReadingState};
@@ -215,6 +215,7 @@ fn info_rows(
     item: &SessionItem,
     entries: &[zaplaud_core::model::TerminalEntry],
     partial: bool,
+    progress: Option<TaskProgress<'_>>,
 ) -> Vec<InfoRow> {
     let mut rows = Vec::new();
     let section = |rows: &mut Vec<InfoRow>, label: &str, mut values: Vec<InfoRow>| {
@@ -319,8 +320,7 @@ fn info_rows(
         vec![info_row(strings::INFO_CONTEXT, context)],
     );
     if !item.tasks.is_empty() {
-        let (done, total) =
-            task_progress(&item.tasks).map_or((0, 0), |progress| (progress.done, progress.total));
+        let (done, total) = progress.map_or((0, 0), |progress| (progress.done, progress.total));
         rows.push(InfoRow {
             section: true,
             fraction: if total == 0 {
@@ -414,8 +414,23 @@ fn publish_info(
     partial: bool,
 ) {
     let state = window.global::<ConversationViewState>();
+    let progress = task_progress(&item.tasks);
+    let progress_label = progress
+        .filter(|progress| progress.done < progress.total)
+        .map(|progress| {
+            let done = progress.done.to_string();
+            let total = progress.total.to_string();
+            match progress.current {
+                Some(current) => {
+                    crate::formatted("tasks_progress_current", &[&done, &total, current])
+                }
+                None => crate::formatted("tasks_progress_count", &[&done, &total]),
+            }
+        })
+        .unwrap_or_default();
+    state.set_task_progress(progress_label.into());
     state.set_info(ModelRc::new(VecModel::from(info_rows(
-        item, entries, partial,
+        item, entries, partial, progress,
     ))));
     let current_model = item.model.as_deref().and_then(|cur| {
         if cur.contains('/') {
@@ -864,6 +879,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                         state.set_info_open(false);
                         state.set_menu_open(false);
                         state.set_model_query("".into());
+                        state.set_task_progress("".into());
                         set_rows(&w, Vec::new(), true);
                     });
                     if let Some(item) = &snapshot.selected && let Some(server) = snapshot.servers.iter().find(|s| s.api.origin() == item.key.origin) {
@@ -992,7 +1008,7 @@ mod tests {
             context_window: Some(100),
             ..Default::default()
         };
-        let rows = info_rows(&item, &[], false);
+        let rows = info_rows(&item, &[], false, None);
         assert_eq!(
             rows.iter()
                 .filter(|row| row.section)
@@ -1031,6 +1047,7 @@ mod tests {
             },
             &[],
             false,
+            None,
         );
         assert!(!missing.iter().any(|row| row.label == strings::INFO_SESSION
             || row.label == strings::INFO_CONTEXT_SECTION

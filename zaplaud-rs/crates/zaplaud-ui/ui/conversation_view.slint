@@ -54,6 +54,7 @@ export global ConversationViewState {
     in-out property <string> menu-page;
     in property <string> back;
     in property <string> info-label;
+    in property <string> task-progress;
     in property <[InfoRow]> info;
     in-out property <bool> info-open;
     in-out property <bool> menu-open;
@@ -595,7 +596,7 @@ export component SessionInfoSheet inherits Sheet {
                         height: 4px; border-radius: 2px; background: Theme.secondary-container;
                         accessible-role: progress-indicator; accessible-label: row.value;
                         Rectangle {
-                            width: parent.width * row.fraction; height: parent.height;
+                            x: 0px; width: parent.width * row.fraction; height: parent.height;
                             border-radius: parent.border-radius; background: Theme.primary;
                         }
                     }

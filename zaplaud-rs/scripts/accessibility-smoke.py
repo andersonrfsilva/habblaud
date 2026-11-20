@@ -121,6 +121,12 @@ def main():
         session.open_omp()
         result['conversation'] = tree.require(lambda nodes: any('Resposta OMP fictícia' in node['name'] for node in nodes) and any(node['role'] == 'entry' and node['name'] == 'Mensagem' for node in nodes) and labels('Enviar', 'Anexar arquivos (até 5)')(nodes), 'Bolhas/compositor sem texto')
         d.click(650, 32)
+        # As tarefas deslocam os identificadores para fora da área visível da folha.
+        d.x.XWarpPointer(d.d, 0, d.mapped()[0], 0, 0, 0, 0, 810, 470)
+        for _ in range(4):
+            for pressed in (1, 0):
+                d.xt.XTestFakeButtonEvent(d.d, 5, pressed, 0)
+        d.x.XSync(d.d, 0)
         result['info'] = tree.require(
             lambda nodes: any(node['role'] == 'panel' and node['name'] == 'Davi Fictício' for node in nodes)
             and labels('Identificadores / Técnico')(nodes)
