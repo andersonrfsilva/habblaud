@@ -17,11 +17,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleStartEffect
 import br.com.xlinx.habblaud.data.HabblaudApi
 import br.com.xlinx.habblaud.data.IMAGE_MAX_BYTES
 import br.com.xlinx.habblaud.data.imageBytes
@@ -55,6 +58,14 @@ private fun cacheImage(key: Pair<HabblaudApi, String>, bytes: ByteArray) {
 }
 
 internal expect fun imageDimensions(bytes: ByteArray): Pair<Int, Int>?
+
+internal val LocalMarkdownGifFactory = staticCompositionLocalOf<((ByteArray) -> MarkdownGifPainter?)?> { null }
+internal val LocalMarkdownGifAutoplay = compositionLocalOf { true }
+
+internal abstract class MarkdownGifPainter : Painter() {
+    abstract fun start()
+    abstract fun stop()
+}
 
 @Composable
 internal fun MarkdownImages(text: String, api: HabblaudApi) {
@@ -99,8 +110,11 @@ private fun MarkdownImage(alt: String, dest: String, kind: ImageKind, api: Habbl
     }
     LaunchedEffect(key) { if (bytes == null && kind != ImageKind.REMOTE) load() }
     val density = LocalDensity.current
-    var decodedPainter by remember(key) { mutableStateOf<Painter?>(null) }
-    LaunchedEffect(key, bytes, density) {
+    val gifFactory = LocalMarkdownGifFactory.current
+    val autoplay = LocalMarkdownGifAutoplay.current
+    // A new drawable starts on the first frame when the system disables animations.
+    var decodedPainter by remember(key, autoplay) { mutableStateOf<Painter?>(null) }
+    LaunchedEffect(key, bytes, density, gifFactory, autoplay) {
         val encoded = bytes ?: return@LaunchedEffect
         decodedPainter = try {
             withContext(Dispatchers.Default) {
@@ -110,7 +124,7 @@ private fun MarkdownImage(alt: String, dest: String, kind: ImageKind, api: Habbl
                     val (width, height) = imageDimensions(encoded) ?: return@withContext null
                     // shortcut: acima de 16 MP a imagem não é desenhada; reduzir na decodificação se usuários reclamarem
                     if (width.toLong() * height > IMAGE_MAX_PIXELS) return@withContext null
-                    BitmapPainter(encoded.decodeToImageBitmap())
+                    gifFactory?.invoke(encoded) ?: BitmapPainter(encoded.decodeToImageBitmap())
                 }
                 decoded.takeIf { painter ->
                     painter.intrinsicSize.width.isFinite() && painter.intrinsicSize.width > 0 &&
@@ -130,9 +144,27 @@ private fun MarkdownImage(alt: String, dest: String, kind: ImageKind, api: Habbl
     val painter = decodedPainter
     if (painter != null) {
         var fullscreen by remember(key) { mutableStateOf(false) }
+        val gif = painter as? MarkdownGifPainter
+        var visible by remember(key) { mutableStateOf(false) }
+        var playOnTap by remember(key, autoplay) { mutableStateOf(false) }
+        if (gif != null && (fullscreen || visible && (autoplay || playOnTap))) {
+            LifecycleStartEffect(gif) {
+                gif.start()
+                onStopOrDispose { gif.stop() }
+            }
+        }
+        val visibility = if (gif == null) Modifier else Modifier.onGloballyPositioned {
+            // Unlike window bounds, these bounds account for the conversation's clipping.
+            visible = !it.boundsInRoot().isEmpty
+        }
         Image(painter, contentDescription = alt, contentScale = ContentScale.Fit,
             modifier = Modifier.widthIn(max = with(density) { painter.intrinsicSize.width.toDp() }).fillMaxWidth()
-                .aspectRatio(painter.intrinsicSize.width / painter.intrinsicSize.height).clickable { fullscreen = true })
+                .aspectRatio(painter.intrinsicSize.width / painter.intrinsicSize.height)
+                .then(visibility)
+                .clickable {
+                    if (gif != null && !autoplay && !playOnTap) playOnTap = true
+                    else fullscreen = true
+                })
         if (fullscreen) MermaidFullscreen(painter, alt) { fullscreen = false }
     } else if (failed || kind == ImageKind.REMOTE) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
