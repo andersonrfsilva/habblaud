@@ -71,7 +71,9 @@ class MainActivity : ComponentActivity() {
                 restart = { NotificationService.start(applicationContext, restart = true) },
                 deliverable = { NotificationService.allowed(applicationContext) },
             )
-            CompositionLocalProvider(LocalNotificationPlatform provides notifications) { ZaplaudApp(store) }
+            CompositionLocalProvider(LocalNotificationPlatform provides notifications) {
+                AndroidMarkdownImages { ZaplaudApp(store) }
+            }
         }
     }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); openFromNotification(intent) }

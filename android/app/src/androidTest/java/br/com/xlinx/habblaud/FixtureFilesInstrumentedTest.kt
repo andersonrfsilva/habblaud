@@ -4,7 +4,13 @@ import android.content.ContentUris
 import android.content.Context
 import android.content.pm.ActivityInfo
 import android.os.Build
+import android.os.ParcelFileDescriptor
+import android.os.SystemClock
 import android.provider.MediaStore
+import android.util.Log
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
 import androidx.test.core.app.ActivityScenario
@@ -13,6 +19,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import br.com.xlinx.habblaud.data.HabblaudApi
 import br.com.xlinx.habblaud.data.LocalStateStore
+import br.com.xlinx.habblaud.data.SessionKey
 import br.com.xlinx.habblaud.data.initializeStorage
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -120,6 +127,80 @@ class FixtureFilesInstrumentedTest {
         assertEquals(1, context.contentResolver.delete(saved.single(), null, null))
         assertEquals(emptyList<android.net.Uri>(), downloads())
     }
+
+    @Test fun gifAnimatesInConversationAndFullscreenAndWaitsForTapWithReducedMotion() {
+        val setting = "global animator_duration_scale"
+        val previousScale = shell("settings get $setting").trim()
+        try {
+            shell("settings put $setting 1")
+            val origin = requireNotNull(arguments.getString("filesOrigin"))
+            compose.withFixture {
+                val store = LocalStateStore(context)
+                HabblaudApi(origin).use { it.login("android-test", "android-test") }
+                store.addServer(origin)
+                store.setLastSession(SessionKey(origin, "claude", ".claude", "00000000-0000-4000-8000-000000000001"))
+            }
+            scenario = ActivityScenario.launch(MainActivity::class.java)
+            val gif = hasContentDescription("GIF animado")
+            val dialog = hasAnyAncestor(isDialog())
+            val inline = compose.onNode(gif and !dialog)
+            val fullscreen = compose.onNode(gif and dialog)
+            awaitTag("conversation-list")
+            compose.waitUntil(15_000) {
+                compose.onAllNodes(gif).fetchSemanticsNodes(atLeastOneRootRequired = false).isNotEmpty()
+            }
+            assertGifChanges("conversa", inline)
+            inline.performClick()
+            fullscreen.assertIsDisplayed()
+            assertGifChanges("tela cheia", fullscreen)
+            compose.onNode(dialog and hasClickAction()).performClick()
+
+            val conversation = compose.onNodeWithTag("conversation-list")
+            conversation.performScrollToIndex(14)
+            inline.assertIsNotDisplayed()
+            conversation.performScrollToIndex(0)
+            assertGifChanges("após rolar de volta", inline)
+
+            shell("settings put $setting 0")
+            compose.waitUntil(10_000) { inline.isDisplayed() && gifPixel(inline) == Color.Red.toArgb() }
+            repeat(3) {
+                val nextSample = SystemClock.uptimeMillis() + 300
+                compose.waitUntil(5_000) { SystemClock.uptimeMillis() >= nextSample }
+                assertEquals("Sem toque deve continuar no primeiro quadro", Color.Red.toArgb(), gifPixel(inline))
+            }
+            inline.performClick()
+            assertGifChanges("após toque", inline)
+        } finally {
+            if (previousScale == "null") shell("settings delete $setting")
+            else shell("settings put $setting $previousScale")
+        }
+    }
+
+    private fun assertGifChanges(label: String, node: SemanticsNodeInteraction) {
+        val palette = listOf(Color.Red, Color.Green, Color.Blue, Color.Yellow).map { it.toArgb() }
+        var first = 0
+        compose.waitUntil(10_000) {
+            if (!node.isDisplayed()) false else {
+                first = gifPixel(node)
+                first in palette
+            }
+        }
+        val started = SystemClock.uptimeMillis()
+        compose.waitUntil(5_000) {
+            SystemClock.uptimeMillis() - started >= 275 && gifPixel(node).let { it in palette && it != first }
+        }
+        Log.i("ZaplaudGifTest", "$label: quadros diferentes em ${SystemClock.uptimeMillis() - started} ms")
+    }
+
+    private fun gifPixel(node: SemanticsNodeInteraction): Int {
+        val pixels = node.captureToImage().toPixelMap()
+        return pixels[pixels.width / 2, pixels.height / 2].toArgb()
+    }
+
+    private fun shell(command: String): String =
+        ParcelFileDescriptor.AutoCloseInputStream(
+            InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(command)
+        ).bufferedReader().use { it.readText() }
 
     @Test fun fixtureWithoutTerminalRejectsFilesWith403() {
         val origin = login("filesDeniedOrigin")
