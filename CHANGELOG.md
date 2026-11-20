@@ -21,6 +21,7 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **omp:** a lista de tarefas do agente (ferramenta `todo`, com fases) aparece na página e no cartão da conversa.
 - **Zaplaud (Android):** os avisos voltam sozinhos depois de reiniciar o aparelho ou atualizar o app, se estavam ligados.
 - **Zaplaud:** o menu da conversa abre as Entregas da sessão, com o pedido, a resposta e os arquivos de cada
   trabalho concluído, e baixa os arquivos.
