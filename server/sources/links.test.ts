@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { tokenizeInline } from '../../client/src/ui/markdown';
 import type { TerminalEntry } from '../../shared/types';
 import { createCodexTerminalParser } from './codex/terminal';
 import { configureLocalLinks, resolveLocalLinks } from './links';
@@ -94,6 +95,83 @@ describe('resolveLocalLinks', () => {
   });
 });
 
+describe('tag img isolada', () => {
+  it.each([
+    ['<img src="sub/a.png" alt="Ânfora">', '![Ânfora]'],
+    ['  <IMG SRC="sub/a.png" alt="Ânfora" width="200" height="100" title="Ignorado" />  ', '![Ânfora]'],
+    ["<img alt='Ânfora' src='sub/a.png'>", '![Ânfora]'],
+    ['<img src=sub/a.png />', '![imagem]'],
+  ])('converte %s', (md, label) => {
+    const path = `${CWD}/sub/a.png`;
+    expect(resolveLocalLinks(md, CWD, (p) => p === path, allowed)).toBe(`${label}(${path})`);
+  });
+
+  it('delimita espaços e parênteses no destino e aceita um absoluto permitido', () => {
+    expect(run('<img src="a(b).png">')).toBe(`![imagem](<${CWD}/a(b).png>)`);
+    expect(run(`<img src="${CWD}/Arte Final/ação.png">`)).toBe(`![imagem](<${CWD}/Arte Final/ação.png>)`);
+  });
+
+  it('normaliza e escapa o alt; o leitor web lê seu conteúdo como um único texto', () => {
+    const md = '<img src="arte.png" alt=" ] &#91; ( ) * _ ` &lt;b&gt; ![x](y) &#10; &quot; &#39; \\ ~~ www.exemplo.com https://exemplo.com a@b.com &amp;#91; ">';
+    const out = run(md);
+    const suffix = `](${CWD}/arte.png)`;
+    expect(out.startsWith('![') && out.endsWith(suffix)).toBe(true);
+    expect(tokenizeInline(out.slice(2, -suffix.length))).toEqual([
+      { type: 'text', text: '] [ ( ) * _ ` <b> ![x](y) " \' \\ ~~ www.exemplo.com https://exemplo.com a@b.com &#91;' },
+    ]);
+    expect(run(`<img src="arte.png" alt="${'🖼'.repeat(201)}">`)).toBe(`![${'🖼'.repeat(200)}](${CWD}/arte.png)`);
+  });
+
+  it.each([
+    'javascript:alert(1)', 'java&#x73;cript:alert(1)', 'file:///tmp/a.png', '//host/a.png', '~arte.png',
+    '../../fora/segredo.png', '/fora/segredo.png', 'ausente.png', '/raiz/projeto/ausente.png', '',
+    '&lt;arte.png&gt;', '\\!arte.png', 'arte%ZZ.png', 'x&amp;y.png', 'arte.png&#10;', 'arte.png&#13;',
+    'https://user:pass@host/x.png', 'https://@host/x.png', 'https:///x.png', 'https://:80/x.png',
+    'https://host:99999/x.png', 'https://host\\x.png', 'https://host/x y.png', 'https://host/x&gt;.png',
+    'data:image/not-known;base64,AA==', 'data:image/png;base64,a===', 'data:image/png;base64,AB==',
+    'data:image/png;base64,', 'data:image/png;base64,AA== lixo',
+  ])('preserva src recusado: %s', (src) => {
+    const md = `<img src="${src}" alt="legenda ![x](arte.png)">`;
+    expect(run(md)).toBe(md);
+  });
+
+  it('aceita HTTP(S) sem credenciais e decodifica entidades uma vez', () => {
+    expect(run('<img src="https://host/x.png" alt="alt">')).toBe('![alt](https://host/x.png)');
+    expect(run('<img src="HTTP://host/x(1).png?x=1&amp;y=2" alt="alt">')).toBe('![alt](<HTTP://host/x(1).png?x=1&y=2>)');
+  });
+
+  it('aceita base64 de imagem até 10 MiB, mas não acima', () => {
+    const dest = `data:image/png;base64,${'AAAA'.repeat(Math.floor((10 * 1024 * 1024) / 3))}`;
+    const convert = (payload: string) => run(`<img src="${dest}${payload}">`);
+    expect(convert('AA==') === `![imagem](${dest}AA==)`).toBe(true);
+    expect(convert('AAA=') === `<img src="${dest}AAA=">`).toBe(true);
+  });
+
+  it.each([
+    '<img src="arte.png"> <img src="arte.png">',
+    'Use <img src="arte.png"> no texto',
+    '<img src="arte.png"><!-- comentário -->',
+    '<iframe src="https://host/x.png">',
+    '<img src="arte.png" SRC="ausente.png">',
+    '<img src="arte.png" title="x" TITLE="y">',
+    '<img src=Arte Final/ação.png>',
+    '<img src="arte.png>',
+    '```html\n<img src="arte.png">\n```',
+    '    <img src="arte.png">',
+    '\n\t<img src="arte.png">',
+    '`<img src="arte.png">`',
+    'Código `aberto\n<img src="arte.png">\nfecha aqui`',
+  ])('preserva HTML fora da gramática ou em código: %s', (md) => {
+    expect(run(md)).toBe(md);
+  });
+
+  it('sem cwd, preserva src relativo e converte HTTPS', () => {
+    const relative = '<img src="arte.png">';
+    expect(resolveLocalLinks(relative, undefined, exists, allowed)).toBe(relative);
+    expect(resolveLocalLinks('<img src="https://host/x.png">', undefined, exists, allowed)).toBe('![imagem](https://host/x.png)');
+  });
+});
+
 describe('links locais nas entradas assistant dos três runtimes', () => {
   let dir: string;
   let proj: string;
@@ -104,6 +182,7 @@ describe('links locais nas entradas assistant dos três runtimes', () => {
     mkdirSync(join(proj, 'sub'), { recursive: true });
     mkdirSync(join(proj, '.oculta'), { recursive: true });
     writeFileSync(join(proj, 'arte.png'), 'x');
+    writeFileSync(join(proj, 'sub', 'a.png'), 'x');
     writeFileSync(join(proj, 'sub', 'fonte.aseprite'), 'x');
     writeFileSync(join(proj, '.oculta', 'x.png'), 'x');
     writeFileSync(join(dir, 'fora.png'), 'x');
@@ -142,6 +221,16 @@ describe('links locais nas entradas assistant dos três runtimes', () => {
   ])('%s: com raízes configuradas, só os arquivos visíveis dentro delas viram absolutos', (_, read) => {
     configureLocalLinks(() => [{ path: proj, label: 'projeto' }]);
     expect(read()).toBe(expected());
+  });
+
+  it('converte só arquivos locais acessíveis ao montar a entrada assistant do omp', () => {
+    configureLocalLinks(() => [{ path: proj, label: 'projeto' }]);
+    const kept = '<img src=".oculta/x.png">\n<img src="../fora.png">';
+    const text = assistantText(createOmpTerminalParser(), [
+      JSON.stringify({ type: 'session', id: 's', timestamp: '2026-11-20T10:00:00Z', cwd: proj }),
+      JSON.stringify({ type: 'message', id: 'm1', timestamp: '2026-11-20T10:00:01Z', message: { role: 'assistant', content: [{ type: 'text', text: `<img src="sub/a.png" alt="Ânfora">\n${kept}` }] } }),
+    ]);
+    expect(text).toBe(`![Ânfora](${proj}/sub/a.png)\n${kept}`);
   });
 
   it.each([
