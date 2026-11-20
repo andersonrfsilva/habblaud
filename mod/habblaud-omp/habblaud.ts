@@ -571,8 +571,9 @@ export function formToQuestions(html: string): { input: AskCard; map: FormField[
       if (control.tag !== 'input' && control.tag !== 'textarea') return false;
       const { name, value, placeholder, maxlength } = control.attrs;
       if (!name?.trim() || /[\x00-\x20\x7f]/.test(name) || Object.hasOwn(Object.prototype, name)) return false;
-      const type = control.tag === 'textarea' ? 'textarea' : (control.attrs.type ?? 'text').toLowerCase();
-      if (type !== 'radio' && type !== 'checkbox' && type !== 'text' && type !== 'textarea') return false;
+      const rawType = control.tag === 'textarea' ? 'textarea' : (control.attrs.type ?? 'text').toLowerCase();
+      const type = (['radio', 'checkbox', 'text', 'textarea'] as const).find((known) => known === rawType);
+      if (!type) return false;
       if (type === 'textarea' && control.tag !== 'textarea') return false;
       const choice = type === 'radio' || type === 'checkbox';
       const required = Object.hasOwn(control.attrs, 'required');
