@@ -65,7 +65,10 @@ mod tests {
                 current: Some("Fazendo a primeira"),
             })
         );
-        assert_eq!(task_progress(&tasks[3..4]).unwrap().current, Some("Segunda"));
+        assert_eq!(
+            task_progress(&tasks[3..4]).unwrap().current,
+            Some("Segunda")
+        );
     }
 
     #[test]
@@ -102,7 +105,10 @@ mod tests {
 
     #[test]
     fn no_phase_is_one_unnamed_group() {
-        let tasks = [task("Tarefa", Pending, None), task("Outra", Completed, None)];
+        let tasks = [
+            task("Tarefa", Pending, None),
+            task("Outra", Completed, None),
+        ];
         let mut phases = task_phases(&tasks);
         assert_eq!(phases.next(), Some((None, tasks.as_slice())));
         assert_eq!(phases.next(), None);

@@ -120,6 +120,10 @@ def main():
         result['unread'] = tree.require(lambda nodes: any(node['role'] == 'list item' and 'parado' in node['name'] and 'não lida' in node['name'] for node in nodes), 'Linha sem título/estado/não lidas')
         session.open_omp()
         result['conversation'] = tree.require(lambda nodes: any('Resposta OMP fictícia' in node['name'] for node in nodes) and any(node['role'] == 'entry' and node['name'] == 'Mensagem' for node in nodes) and labels('Enviar', 'Anexar arquivos (até 5)')(nodes), 'Bolhas/compositor sem texto')
+        result['task-progress'] = tree.require(
+            lambda nodes: any(node['role'] == 'button' and node['name'] == '1/4 · Montar a maquete' for node in nodes),
+            'Progresso das tarefas sem nome ou ação',
+        )
         d.click(650, 32)
         # As tarefas deslocam os identificadores para fora da área visível da folha.
         d.x.XWarpPointer(d.d, 0, d.mapped()[0], 0, 0, 0, 0, 810, 470)
@@ -132,6 +136,16 @@ def main():
             and labels('Identificadores / Técnico')(nodes)
             and any(node['role'] == 'button' and node['name'] == 'Copiar' for node in nodes),
             'Informações sem título/controles',
+        )
+        result['tasks'] = tree.require(
+            lambda nodes: any(node['role'] == 'progress bar' and node['name'] == '1 de 4' for node in nodes)
+            and labels(
+                'Tarefas', 'Preparação', 'Execução',
+                'Conferir materiais, Concluída', 'Recortar molde alternativo, Abandonada',
+                'Montar a maquete, Em andamento', 'Pintar a maquete, Pendente',
+                'Fotografar a maquete, Pendente',
+            )(nodes),
+            'Folha sem progresso, fases ou estados das tarefas',
         )
         d.key('Escape')
         session.open_conversation_menu()

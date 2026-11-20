@@ -591,7 +591,7 @@ export component SessionInfoSheet inherits Sheet {
                 }
                 if row.value != "": VerticalLayout {
                     spacing: 4px;
-                    Text { text: row.value; color: Theme.on-surface; font-size: 14px; }
+                    Text { text: row.value; color: Theme.on-surface; font-size: 14px; accessible-role: none; }
                     Rectangle {
                         height: 4px; border-radius: 2px; background: Theme.secondary-container;
                         accessible-role: progress-indicator; accessible-label: row.value;
@@ -615,7 +615,10 @@ export component SessionInfoSheet inherits Sheet {
                     spacing: 8px;
                     VerticalLayout {
                         alignment: start;
-                        Text { width: 16px; text: row.task-marker; color: task-row.ink; font-size: 14px; horizontal-alignment: center; }
+                        Text {
+                            width: 16px; text: row.task-marker; color: task-row.ink;
+                            font-size: 14px; horizontal-alignment: center; accessible-role: none;
+                        }
                     }
                     if task-row.abandoned: StyledText {
                         text: @markdown("~~\{row.value}~~"); default-color: task-row.ink; default-font-size: 14px;
@@ -623,6 +626,7 @@ export component SessionInfoSheet inherits Sheet {
                     if !task-row.abandoned: Text {
                         text: row.value; color: task-row.ink; font-size: 14px;
                         font-weight: task-row.active ? 600 : 400; wrap: word-wrap;
+                        accessible-role: none;
                     }
                 }
             }
