@@ -320,4 +320,12 @@
     <string name="info_agent">Agente</string>
     <string name="image_load">Carregar imagem</string>
     <string name="image_failed">Não foi possível mostrar a imagem</string>
+    <string name="tasks_title">Tarefas</string>
+    <string name="tasks_progress_summary">%1$d de %2$d</string>
+    <string name="tasks_progress_count">%1$d/%2$d</string>
+    <string name="tasks_progress_current">%1$d/%2$d · %3$s</string>
+    <string name="tasks_state_pending">Pendente</string>
+    <string name="tasks_state_in_progress">Em andamento</string>
+    <string name="tasks_state_completed">Concluída</string>
+    <string name="tasks_state_abandoned">Abandonada</string>
 </resources>

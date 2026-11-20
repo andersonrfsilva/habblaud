@@ -116,7 +116,7 @@ class SessionRepository(private val api: HabblaudApi) {
             replies = (o["replies"] as? kotlinx.serialization.json.JsonArray)?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.longOrNull }.orEmpty(),
             roomId = o.string("roomId"),
             statusSince = o.string("statusSince")?.toLongOrNull()?.takeIf { it > 0 }?.let { localTime(it, serverTime) },
-            role = o.string("role"))
+            role = o.string("role"), tasks = parseAgentTasks(o["tasks"]))
     }
 
 }

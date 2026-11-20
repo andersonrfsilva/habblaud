@@ -12,6 +12,7 @@ import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasAnyAncestor
@@ -852,6 +853,64 @@ class FixtureUiInstrumentedTest {
         }
         shell("wm size $size")
         shell("wm density 160")
+    }
+
+    @Test fun tasksProgressOpensSessionTasks() {
+        resizeDisplay("320x640")
+        val ompKey = SessionKey(origin, "omp", ".omp", "00000000-0000-4000-8000-000000000002")
+        compose.withFixture { LocalStateStore(context).setLastSession(ompKey) }
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        val progress = compose.onNodeWithTag("tasks-progress")
+        val input = compose.onNodeWithTag("message-input")
+        val lastReply = compose.onNodeWithText("Resposta OMP fictícia")
+        await(R.string.message_text)
+        compose.waitUntil(15_000) { compose.onAllNodes(hasText("Resposta OMP fictícia")).fetchSemanticsNodes().isNotEmpty() }
+        progress.assertIsDisplayed().assertTextEquals("1/4 · Montar a maquete")
+
+        input.performTouchInput { click() }
+        compose.waitUntil(15_000) {
+            var visible = false
+            scenario!!.onActivity {
+                visible = ViewCompat.getRootWindowInsets(it.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == true
+            }
+            visible
+        }
+        input.assertIsDisplayed()
+        lastReply.assertIsDisplayed()
+        progress.assertIsDisplayed()
+        assertTrue(progress.fetchSemanticsNode().boundsInWindow.bottom <= input.fetchSemanticsNode().boundsInWindow.top)
+        compose.hideIme(input)
+
+        progress.performClick()
+        compose.onNodeWithTag("tasks-section").assertExists()
+        for (label in listOf("1 de 4", "Preparação", "Execução")) {
+            compose.onNodeWithText(label).performScrollTo().assertIsDisplayed()
+        }
+        val tasks = listOf(
+            "Conferir materiais" to "Concluída",
+            "Recortar molde alternativo" to "Abandonada",
+            "Montar a maquete" to "Em andamento",
+            "Pintar a maquete" to "Pendente",
+            "Fotografar a maquete" to "Pendente",
+        )
+        for ((index, task) in tasks.withIndex()) {
+            val row = compose.onNodeWithTag("task:fixture-todo-${index + 1}")
+            row.performScrollTo().assertIsDisplayed().assertTextEquals(task.first)
+            assertEquals(task.second, row.fetchSemanticsNode().config[SemanticsProperties.StateDescription])
+        }
+
+        InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("input keyevent KEYCODE_BACK").close()
+        compose.onNodeWithContentDescription(text(R.string.back_sessions)).performClick()
+        await(R.string.open_sessions)
+        val rowTag = "session-row:${key.provider}:${key.sessionId}"
+        compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasTestTag(rowTag))
+        compose.onNodeWithTag(rowTag).performClick()
+        await(R.string.message_text)
+        progress.assertDoesNotExist()
+        compose.onNode(SemanticsMatcher("abrir informações da sessão") {
+            it.config.getOrNull(androidx.compose.ui.semantics.SemanticsActions.OnClick)?.label == text(R.string.session_info)
+        }).performClick()
+        compose.onNodeWithTag("tasks-section").assertDoesNotExist()
     }
 
     @Test fun tabletKeepsCastAndUsesFullConversationWidth() {

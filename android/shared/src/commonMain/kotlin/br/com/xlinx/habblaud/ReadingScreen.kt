@@ -70,14 +70,17 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -663,6 +666,8 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                 CharacterAvatar(api, selected, 20.dp)
                 StatusLine(selected, Modifier.weight(1f))
             }
+            val progress = remember(selected.tasks) { taskProgress(selected.tasks) }
+            if (progress != null && progress.done < progress.total) TaskProgressLine(progress) { showInfo = true }
             if (composer.key == selected.key && selected.agentId != null && !selected.sub) {
                 val agentId = selected.agentId
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -901,6 +906,25 @@ internal fun StatusLine(session: SessionItem, modifier: Modifier = Modifier, onT
         Text("$text…", Modifier.weight(1f, fill = false), color = colors.primary, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
         session.statusSince?.let { Text("(${stopwatch(now - it)})", color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum")) }
     }
+}
+
+@Composable
+private fun TaskProgressLine(progress: TaskProgress, onClick: () -> Unit) {
+    val label = if (progress.current == null) {
+        stringResource(Res.string.tasks_progress_count, progress.done, progress.total)
+    } else {
+        stringResource(Res.string.tasks_progress_current, progress.done, progress.total, progress.current)
+    }
+    Text(
+        label,
+        Modifier.fillMaxWidth().testTag("tasks-progress")
+            .clickable(onClickLabel = stringResource(Res.string.session_info), role = Role.Button, onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+        color = MaterialTheme.colorScheme.primary,
+        style = MaterialTheme.typography.bodySmall,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
 }
 
 /** Atividade sem as reticências do fim (a linha põe as dela); vazia vira null. */
@@ -1248,6 +1272,7 @@ private fun SessionInfoSheet(api: HabblaudApi, session: SessionItem, entries: Li
                 InfoLine(Res.string.info_context, "${session.contextTokens} / ${session.contextWindow} · ${(fraction * 100).toInt()}%")
                 LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth(), drawStopIndicator = {})
             }
+            if (session.tasks.isNotEmpty()) SessionTasksSection(session.tasks)
             InfoSection(Res.string.info_technical_section) {
                 session.project?.takeIf { it.isNotBlank() }?.let { InfoLine(Res.string.info_project, it, copyable = true) }
                 InfoLine(Res.string.info_provider, session.key.provider, copyable = true)
@@ -1265,8 +1290,54 @@ private fun SessionInfoSheet(api: HabblaudApi, session: SessionItem, entries: Li
 }
 
 @Composable
-private fun InfoSection(title: StringResource, content: @Composable ColumnScope.() -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+private fun SessionTasksSection(tasks: List<AgentTask>) {
+    val progress = remember(tasks) { taskProgress(tasks) }
+    val phases = remember(tasks) { taskPhases(tasks) }
+    InfoSection(Res.string.tasks_title, Modifier.testTag("tasks-section")) {
+        val done = progress?.done ?: 0
+        val total = progress?.total ?: 0
+        val fraction = if (total == 0) 0f else done.toFloat() / total
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(stringResource(Res.string.tasks_progress_summary, done, total), style = MaterialTheme.typography.bodyMedium)
+            LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth(), drawStopIndicator = {})
+        }
+        for (phase in phases) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                phase.name?.let { Text(it, style = MaterialTheme.typography.labelLarge) }
+                for (task in phase.tasks) SessionTaskRow(task)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SessionTaskRow(task: AgentTask) {
+    val colors = MaterialTheme.colorScheme
+    val marker: String
+    val state: StringResource
+    val color: Color
+    when (task.status) {
+        TaskStatus.PENDING -> { marker = "○"; state = Res.string.tasks_state_pending; color = colors.onSurface }
+        TaskStatus.IN_PROGRESS -> { marker = "◐"; state = Res.string.tasks_state_in_progress; color = colors.primary }
+        TaskStatus.COMPLETED -> { marker = "✓"; state = Res.string.tasks_state_completed; color = colors.onSurfaceVariant }
+        TaskStatus.ABANDONED -> { marker = "–"; state = Res.string.tasks_state_abandoned; color = colors.onSurfaceVariant }
+    }
+    val stateLabel = stringResource(state)
+    Row(
+        Modifier.fillMaxWidth().testTag("task:${task.id}").semantics(mergeDescendants = true) { stateDescription = stateLabel },
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Text(marker, Modifier.width(16.dp).clearAndSetSemantics { }, color = color, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
+        Text(task.displayTitle, Modifier.weight(1f), color = color, style = MaterialTheme.typography.bodyMedium,
+            fontWeight = if (task.status == TaskStatus.IN_PROGRESS) FontWeight.SemiBold else null,
+            textDecoration = if (task.status == TaskStatus.ABANDONED) TextDecoration.LineThrough else null)
+    }
+}
+
+@Composable
+private fun InfoSection(title: StringResource, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(stringResource(title), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
         Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), content = content)
