@@ -75,6 +75,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onLongClick
@@ -665,6 +666,8 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                 CharacterAvatar(api, selected, 20.dp)
                 StatusLine(selected, Modifier.weight(1f))
             }
+            val progress = remember(selected.tasks) { taskProgress(selected.tasks) }
+            if (progress != null && progress.done < progress.total) TaskProgressLine(progress) { showInfo = true }
             if (composer.key == selected.key && selected.agentId != null && !selected.sub) {
                 val agentId = selected.agentId
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -903,6 +906,25 @@ internal fun StatusLine(session: SessionItem, modifier: Modifier = Modifier, onT
         Text("$text…", Modifier.weight(1f, fill = false), color = colors.primary, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
         session.statusSince?.let { Text("(${stopwatch(now - it)})", color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum")) }
     }
+}
+
+@Composable
+private fun TaskProgressLine(progress: TaskProgress, onClick: () -> Unit) {
+    val label = if (progress.current == null) {
+        stringResource(Res.string.tasks_progress_count, progress.done, progress.total)
+    } else {
+        stringResource(Res.string.tasks_progress_current, progress.done, progress.total, progress.current)
+    }
+    Text(
+        label,
+        Modifier.fillMaxWidth().testTag("tasks-progress")
+            .clickable(onClickLabel = stringResource(Res.string.session_info), role = Role.Button, onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+        color = MaterialTheme.colorScheme.primary,
+        style = MaterialTheme.typography.bodySmall,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
 }
 
 /** Atividade sem as reticências do fim (a linha põe as dela); vazia vira null. */
