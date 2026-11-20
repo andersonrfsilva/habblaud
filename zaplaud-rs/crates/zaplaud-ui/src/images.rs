@@ -138,6 +138,11 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                         let bytes = images::raster_bytes(pixels.width(), pixels.height())?;
                         Some((slint::Image::from_rgba8(pixels), bytes))
                     }
+                    Decoded::Animated { frames, .. } => {
+                        let first = frames.into_iter().next()?;
+                        let bytes = images::raster_bytes(first.width(), first.height())?;
+                        Some((slint::Image::from_rgba8(first), bytes))
+                    }
                     Decoded::Svg(svg) => {
                         let image = slint::Image::load_from_svg_data(&svg).ok()?;
                         let size = image.size();
