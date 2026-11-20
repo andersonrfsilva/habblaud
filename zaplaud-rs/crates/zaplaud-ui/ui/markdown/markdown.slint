@@ -232,6 +232,9 @@ export component MarkdownView inherits Rectangle {
                         }
                         Image {
                             source: block.diagram;
+                            // Sem tamanho, a imagem fica no natural e o clip corta o desenho mais largo que o bloco.
+                            width: parent.width;
+                            height: parent.height;
                             image-fit: contain;
                             accessible-role: image;
                             accessible-label: "Diagrama";
