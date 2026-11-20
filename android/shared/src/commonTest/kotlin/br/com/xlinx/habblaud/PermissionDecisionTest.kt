@@ -25,6 +25,17 @@ class PermissionDecisionTest {
         assertEquals(wireJson.parseToJsonElement("""{"behavior":"answer","answers":[{"question":2,"other":"livre"}]}"""), free)
     }
 
+    @Test fun ompFormWithSixQuestionsAnswersEachByPosition() {
+        val label = "x".repeat(300)
+        val six = (0 until 6).map { i ->
+            val options = if (i == 5) "" else (0 until 3).joinToString(",") { """{"index":$it,"label":"$label$it"}""" }
+            wireJson.parseToJsonElement("""{"index":$i,"question":"Q$i","multiSelect":${i == 3},"options":[$options]}""").jsonObject
+        }
+        val decision = permissionDecision("omp", "answer", six, mapOf(0 to setOf(1), 1 to setOf(0), 3 to setOf(2, 0), 4 to setOf(2)), mapOf(2 to " outra ", 5 to "notas"))
+        assertEquals(wireJson.parseToJsonElement("""{"behavior":"answer","answers":[{"question":0,"options":[1]},{"question":1,"options":[0]},{"question":2,"other":"outra"},{"question":3,"options":[0,2]},{"question":4,"options":[2]},{"question":5,"other":"notas"}]}"""), decision)
+        assertFailsWith<IllegalArgumentException> { permissionDecision("omp", "answer", six, mapOf(0 to setOf(1), 1 to setOf(0), 3 to setOf(2), 4 to setOf(2)), mapOf(2 to "outra")) }
+    }
+
     @Test fun rejectsInvalidSingleAndUnsupportedControls() {
         assertFailsWith<IllegalArgumentException> { permissionDecision("claude", "answer", questions.take(1), mapOf(2 to setOf(4, 8)), emptyMap()) }
         for (provider in listOf("omp", "codex")) {
