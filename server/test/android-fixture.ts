@@ -55,6 +55,23 @@ const ZC_CLOSED = '00000000-0000-4000-8000-000000000009';
 const ZC_MODELS = [
   ...['fixture/model-legivel', 'fixture/model-alternativo'].map(model => ({ alias: `m_${createHash('sha256').update(model).digest('hex').slice(0, 12)}`, model })),
 ];
+const FIXTURE_SVG = [
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 220" font-family="sans-serif" font-size="14">',
+  '  <rect x="0" y="0" width="640" height="220" fill="var(--surface)"/>',
+  ...['Pedido', 'Análise', 'Revisão', 'Entrega'].flatMap((label, index) => [
+    `  <rect x="${20 + index * 155}" y="40" width="130" height="56" rx="10" fill="var(--c${index + 1})" stroke="var(--border)"/>`,
+    `  <text x="${85 + index * 155}" y="73" text-anchor="middle" fill="#ffffff" font-weight="bold">${label}</text>`,
+    `  <text x="${85 + index * 155}" y="125" text-anchor="middle" fill="var(--muted)">Etapa fictícia ${index + 1}</text>`,
+    `  <circle cx="${85 + index * 155}" cy="160" r="12" fill="var(--success)" stroke="var(--border)"/>`,
+  ]),
+  ...[0, 1, 2].flatMap(index => [
+    `  <line x1="${150 + index * 155}" y1="68" x2="${172 + index * 155}" y2="68" stroke="var(--fg)" stroke-width="3"/>`,
+    `  <polygon points="${172 + index * 155},62 ${180 + index * 155},68 ${172 + index * 155},74" fill="var(--fg)"/>`,
+  ]),
+  '  <line x1="20" y1="190" x2="620" y2="190" stroke="var(--border)" stroke-width="2"/>',
+  '  <text x="20" y="210" fill="var(--muted)">Diagrama fictício de exemplo; nenhum dado real.</text>',
+  '</svg>',
+].join('\n') + '\n';
 
 export async function startAndroidFixture(root: string, args: string[]): Promise<void> {
   let port = 14748;
@@ -128,6 +145,8 @@ Uma revisão **completa** e *cuidadosa*, com \`código inline\`.
 printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no bloco de código\\n'
 \`\`\`` : `Revisei a etapa ${index + 1}.\n\n- Organização conferida\n- Próximos passos documentados\n\n\`\`\`sh\nprintf 'exemplo fictício\\n'\n\`\`\`` }] } },
       ])).flat(),
+      // Desenho de tamanho real (30 linhas): o desktop o mostra desenhado, não como código partido.
+      ...(sessionId === AGENTS[2].sessionId ? [{ ...base(), type: 'assistant', message: { id: randomUUID(), role: 'assistant', content: [{ type: 'text', text: `Fluxo fictício da revisão:\n\n\`\`\`svg\n${FIXTURE_SVG}\`\`\`\n\nFim do desenho fictício.` }] } }] : []),
       { ...base(), type: 'assistant', message: { id: randomUUID(), role: 'assistant', content: [{ type: 'tool_use', id: 'tool-list', name: 'Bash', input: { command: 'ls -la' } }] } },
       { ...base(), type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tool-list', content: Array.from({ length: 20 }, (_, i) => `arquivo-ficticio-${i + 1}.txt`).join('\n') }] } },
       { ...base(), type: 'assistant', message: { id: randomUUID(), role: 'assistant', content: [{ type: 'tool_use', id: 'tool-read', name: 'Read', input: { file_path: '/fixture/projeto/exemplo.txt' } }] } },
