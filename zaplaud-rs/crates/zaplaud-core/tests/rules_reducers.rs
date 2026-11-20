@@ -1083,6 +1083,41 @@ fn kotlin_permission_original_indices_free_text_and_invalid_single() {
     assert!(p::permission_closed(409));
     assert!(!p::permission_closed(500));
 }
+#[test]
+fn omp_form_with_six_questions_answers_each_by_position() {
+    let label = "x".repeat(300);
+    let questions: Vec<Value> = (0..6)
+        .map(|i| {
+            let options: Vec<Value> = if i == 5 {
+                vec![]
+            } else {
+                (0..3)
+                    .map(|k| json!({"index":k,"label":format!("{label}{k}")}))
+                    .collect()
+            };
+            json!({"index":i,"question":format!("Q{i}"),"multiSelect":i == 3,"options":options})
+        })
+        .collect();
+    let mut decision = p::Decision {
+        selections: HashMap::from([
+            (0, [1].into()),
+            (1, [0].into()),
+            (3, [2, 0].into()),
+            (4, [2].into()),
+        ]),
+        others: HashMap::from([(2, " outra ".into()), (5, "notas".into())]),
+        ..p::Decision::default()
+    };
+    assert_eq!(
+        p::permission_decision("omp", "answer", &questions, &decision).unwrap(),
+        json!({"behavior":"answer","answers":[
+            {"question":0,"options":[1]},{"question":1,"options":[0]},{"question":2,"other":"outra"},
+            {"question":3,"options":[0,2]},{"question":4,"options":[2]},{"question":5,"other":"notas"}
+        ]})
+    );
+    decision.others.remove(&5);
+    assert!(p::permission_decision("omp", "answer", &questions, &decision).is_err());
+}
 fn permission(expires: i64) -> Permission {
     Permission::parse(&json!({"provider":"claude","expiresAt":expires}))
 }

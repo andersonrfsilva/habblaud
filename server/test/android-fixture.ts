@@ -603,9 +603,12 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
       } else if (command === 'permission') {
         const agent = office.get(agentId);
         if (!agent) throw new Error('Unknown agent');
-        if (!['bash', 'question-single', 'question-multi', 'question-omp'].includes(kind)) throw new Error('Unknown permission type');
+        if (!['bash', 'question-single', 'question-multi', 'question-omp', 'question-omp-long'].includes(kind)) throw new Error('Unknown permission type');
         const question = kind !== 'bash';
-        const questions = kind === 'question-omp' ? [
+        // Formulário do omp no limite do cartão: 12 perguntas com a explicação dentro do rótulo da opção.
+        const longLabel = (i: number) => `Opção fictícia ${i + 1}: ${'texto de exemplo que explica a escolha dentro do próprio rótulo, '.repeat(4)}`.slice(0, 150 + 50 * i).trimEnd();
+        const questions = kind === 'question-omp-long' ? Array.from({ length: 12 }, (_, q) => ({ question: `Pergunta fictícia ${q + 1}?`, multiSelect: q === 3, options: [0, 1, 2].map(i => ({ label: longLabel(i) })) }))
+        : kind === 'question-omp' ? [
           { question: 'Escolha uma cor fictícia', options: [{ label: 'Azul' }, { label: 'Laranja' }] },
           { question: 'Escolha os itens fictícios', multiSelect: true, options: [{ label: 'Caderno' }, { label: 'Lápis' }, { label: 'Livro' }] },
           { question: 'Qual observação fictícia?', options: [{ label: 'Nenhuma' }, { label: 'Outra' }] },

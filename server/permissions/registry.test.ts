@@ -89,8 +89,8 @@ describe('PermissionRegistry: registro', () => {
     expect(registry.register(hookInput({ tool_name: 'AskUserQuestion' }))).toEqual({ skip: 'unsupported-tool' });
     expect(registry.register(askInput({ tool_input: { questions: [] } }))).toEqual({ skip: 'unsupported-tool' });
     // Mais perguntas do que o escritório mostra: o hook não conseguiria responder todas.
-    const five = Array.from({ length: 5 }, (_, i) => ({ question: `Pergunta ${i}?`, options: [{ label: 'Sim' }, { label: 'Não' }] }));
-    expect(registry.register(askInput({ tool_input: { questions: five } }))).toEqual({ skip: 'unsupported-tool' });
+    const thirteen = Array.from({ length: 13 }, (_, i) => ({ question: `Pergunta ${i}?`, options: [{ label: 'Sim' }, { label: 'Não' }] }));
+    expect(registry.register(askInput({ tool_input: { questions: thirteen } }))).toEqual({ skip: 'unsupported-tool' });
     expect(registry.size).toBe(0);
   });
 
@@ -262,6 +262,17 @@ describe('PermissionRegistry: perguntas (AskUserQuestion)', () => {
     expect(act).toMatchObject({ icon: '💬', kind: 'other' });
     expect(act.detail).toBe('Banco: SQLite · Testes: Unidade, E2E, “lint”');
     expect(registry.decide(id, d)).toBe('not-found');
+  });
+
+  it('mais de 4 perguntas: a resposta por posição até a 12ª é aceita', async () => {
+    const { registry } = setup();
+    const twelve = Array.from({ length: 12 }, (_, i) => ({ question: `Pergunta ${i}?`, multiSelect: i === 4, options: Array.from({ length: 12 }, (_, k) => ({ label: `Opção ${k}` })) }));
+    const id = registered(registry.register(askInput({ tool_input: { questions: twelve } })));
+    const w = registry.wait(id, 25_000)!;
+    const answers = twelve.map((_, i) => (i === 4 ? { question: i, options: [0, 11] } : i === 5 ? { question: i, other: 'outra' } : { question: i, options: [11] }));
+    expect(registry.decide(id, { behavior: 'answer', answers: [...answers.slice(0, 11), { question: 11, options: [12] }] })).toBe('invalid-answer');
+    expect(registry.decide(id, parseDecision({ behavior: 'answer', answers })!)).toBe('ok');
+    await expect(w.result).resolves.toEqual({ status: 'decided', behavior: 'answer', answers });
   });
 
   it('respostas que não batem com as perguntas, aprovar uma pergunta ou responder uma permissão: inválidas (o pedido segue aberto)', () => {
@@ -479,7 +490,7 @@ describe('peças puras', () => {
     const bad: unknown[] = [
       { behavior: 'answer' },
       { behavior: 'answer', answers: [] },
-      { behavior: 'answer', answers: Array.from({ length: 5 }, (_, i) => ({ question: i, options: [0] })) },
+      { behavior: 'answer', answers: Array.from({ length: 13 }, (_, i) => ({ question: i, options: [0] })) },
       { behavior: 'answer', answers: [{ options: [0] }] },
       { behavior: 'answer', answers: [{ question: -1, options: [0] }] },
       { behavior: 'answer', answers: [{ question: 0.5, options: [0] }] },
@@ -492,6 +503,7 @@ describe('peças puras', () => {
     ];
     for (const b of bad) expect(parseDecision(b), JSON.stringify(b).slice(0, 80)).toBeUndefined();
     expect(parseDecision({ behavior: 'answer', answers: [{ question: 0, other: ` ${'x'.repeat(2_000)} ` }] })).toBeDefined();
+    expect(parseDecision({ behavior: 'answer', answers: Array.from({ length: 12 }, (_, i) => ({ question: i, options: [0] })) })).toBeDefined();
   });
 
   it('callSignature: o argumento principal das ferramentas conhecidas, o resto inteiro', () => {

@@ -27,7 +27,8 @@ import {
   type ToolContext,
   type ToolDefinition,
 } from '../../mod/habblaud-omp/habblaud';
-import { ANSWER_OTHER_MAX, checkAnswers } from '../../shared/answers';
+import { checkAnswers } from '../../shared/answers';
+import { ANSWER_OTHER_MAX } from '../../shared/ask-limits';
 import { describeTool } from '../../shared/activity';
 import { tempDir } from './fixtures';
 
@@ -750,6 +751,18 @@ const boxes = `<p>Checks?</p>
   <label><input type="checkbox" name="checks" value="fmt"> Format</label>
   <label><input type="checkbox" name="checks" value="lint"> Lint</label>`;
 const form = (body: string) => `<form>${body}</form>`;
+// Texto fictício de exatamente n caracteres (os agentes põem a explicação dentro do rótulo da opção).
+const longText = (n: number, seed: string) => `${seed} ${'lorem ipsum dolor sit amet '.repeat(20)}`.slice(0, n - 1) + '.';
+const group = (name: string, legend: string, type: 'radio' | 'checkbox', labels: string[], checked = 0, extra = '') =>
+  `<fieldset><legend>${legend}</legend>${labels.map((l, i) => `<label><input type=${type} name=${name} value=${name}${i}${i === checked ? ' checked' : ''}> ${l}</label>`).join('')}${extra}</fieldset>`;
+const notes = '<label>Anything else?<textarea name=notes placeholder="Optional notes"></textarea></label>';
+// Forma do caso real com textos fictícios: dois parágrafos de contexto, quatro grupos de escolha única e um de
+// várias com legenda curta e rótulos de 150, 83 e 68 caracteres, e uma caixa de texto com placeholder.
+const REAL_LABELS = [longText(150, 'Alpha'), longText(83, 'Beta'), longText(68, 'Gamma')];
+const realShape = (textareaInside = true) =>
+  form(`<p>Context one.</p><p>Context two.</p>
+    ${['a', 'b', 'c', 'd'].map((name) => group(name, `Pick ${name}?`, 'radio', REAL_LABELS)).join('\n')}
+    ${group('e', 'Pick e?', 'checkbox', REAL_LABELS, 1, textareaInside ? notes : '')}${textareaInside ? '' : notes}`);
 
 describe('omp extension: formulários HTML', () => {
   it('mantém contexto, entidades, valores e "Other" nos grupos de rádio e checkbox', () => {
@@ -791,13 +804,52 @@ describe('omp extension: formulários HTML', () => {
     expect(checkAnswers(questions, answers.map((a, i) => (i === 1 ? { question: i, other: 'x'.repeat(ANSWER_OTHER_MAX) } : a)))).toBeDefined();
   });
 
+  it.each([true, false])('forma do caso real (caixa de texto dentro do último grupo: %s): 6 perguntas, rótulo inteiro no cartão e resultado nativo', (inside) => {
+    const parsed = formToQuestions(realShape(inside))!;
+    expect(parsed?.input.questions).toHaveLength(6);
+    expect(parsed.input.questions[0]).toEqual({ question: 'Context one. Context two. — Pick a?', multiSelect: false, options: REAL_LABELS.map((label) => ({ label })) });
+    expect(parsed.input.questions[4]).toMatchObject({ question: 'Pick e?', multiSelect: true });
+    expect(parsed.input.questions[5]).toMatchObject({ question: expect.stringMatching(/Optional notes — Anything else\?$/), options: [] });
+    const answers = [
+      { question: 0, options: [1] }, { question: 1, options: [0] }, { question: 2, other: 'custom' },
+      { question: 3, options: [2] }, { question: 4, options: [0, 2] }, { question: 5, other: 'some notes' },
+    ];
+    expect(answersToFormResult(parsed.map, answers)).toEqual({
+      content: [{ type: 'text', text: `User answers:\n${JSON.stringify({ a: 'a1', b: 'b0', c: 'custom', d: 'd2', e: ['e0', 'e2'], notes: 'some notes' }, null, 2)}` }],
+      details: { answers: [
+        { name: 'a', question: 'Pick a?', answer: REAL_LABELS[1] },
+        { name: 'b', question: 'Pick b?', answer: REAL_LABELS[0] },
+        { name: 'c', question: 'Pick c?', answer: 'Other: custom' },
+        { name: 'd', question: 'Pick d?', answer: REAL_LABELS[2] },
+        { name: 'e', question: 'Pick e?', answer: `${REAL_LABELS[0]}, ${REAL_LABELS[2]}` },
+        { name: 'notes', question: 'Anything else?', answer: 'some notes' },
+      ] },
+    });
+    // O servidor mostra o rótulo inteiro e aceita a resposta por posição para as 6 perguntas.
+    const questions = describeTool(ASK_TOOL, parsed.input).questions!;
+    expect(questions.map((q) => q.options.map((o) => o.label))).toEqual([...Array(5).fill(REAL_LABELS), []]);
+    expect(checkAnswers(questions, answers)).toEqual(answers);
+  });
+
+  it('aceita até 12 perguntas, 12 opções por pergunta e rótulo de opção com 300 caracteres', () => {
+    const twelve = formToQuestions(form(Array.from({ length: 12 }, (_, i) => radio(`q${i}`)).join('')))!;
+    expect(twelve?.map).toHaveLength(12);
+    expect(answersToFormResult(twelve.map, [{ question: 11, options: [0] }])?.content[0].text).toBe('User answers:\n{\n  "q11": "disk&\\""\n}');
+    const options = formToQuestions(form(`<p>Which?</p>${Array.from({ length: 12 }, (_, i) => `<label><input type=radio name=x value=${i}> ${i}</label>`).join('')}`))!;
+    expect(options?.input.questions[0].options).toHaveLength(12);
+    expect(answersToFormResult(options.map, [{ question: 0, options: [11] }])?.content[0].text).toBe('User answers:\n{\n  "x": "11"\n}');
+    const label = longText(300, 'Memory');
+    expect(formToQuestions(form(radio().replace('Memory', label)))?.input.questions[0].options[1]).toEqual({ label });
+  });
+
   it.each([
     ['select', '<p>List?</p><select name="x"><option>A</option><option>B</option></select>'],
     ['select múltiplo', '<p>List?</p><select name="x" multiple><option>A</option><option>B</option></select>'],
     ['opção única', '<p>Check?</p><label><input type=checkbox name=x> One</label>'],
     ['Other explícito', radio().replace('Memory', 'Other choice')],
-    ['cinco perguntas', Array.from({ length: 5 }, (_, i) => radio(`q${i}`)).join('')],
-    ['sete opções', `<p>Which?</p>${Array.from({ length: 7 }, (_, i) => `<label><input type=radio name=x value=${i}> ${i}</label>`).join('')}`],
+    ['treze perguntas', Array.from({ length: 13 }, (_, i) => radio(`q${i}`)).join('')],
+    ['treze opções', `<p>Which?</p>${Array.from({ length: 13 }, (_, i) => `<label><input type=radio name=x value=${i}> ${i}</label>`).join('')}`],
+    ['rótulo com 301 caracteres', radio().replace('Memory', longText(301, 'Memory'))],
     ['nome repetido entre grupos', radio() + radio()],
     ['rótulo repetido', radio().replace('Memory', 'Disk 💾')],
     ['HTML malformado', radio().replace('</label>', '')],

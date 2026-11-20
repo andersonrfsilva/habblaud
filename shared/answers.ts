@@ -2,11 +2,10 @@
 // conferência contra as perguntas do pedido e o resumo para a linha do tempo. Código puro, usado pelo servidor
 // (server/permissions/registry.ts), pelo simulador do demo e pela página (cartão de resposta).
 import { maskSecrets, truncate } from './activity';
+import { ANSWER_OTHER_MAX } from './ask-limits';
 import type { AskQuestion, PermissionAnswer } from './types';
 import { tr } from './i18n';
 
-/** Texto livre ("Outro") mais longo aceito numa resposta. */
-export const ANSWER_OTHER_MAX = 2_000;
 /** Ferramenta das perguntas ao usuário. */
 export const ASK_TOOL = 'AskUserQuestion';
 
