@@ -66,6 +66,8 @@ import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.ui.unit.Velocity
@@ -264,6 +266,17 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
     // Bate-papo paralelo do agente aberto: some ao trocar de conversa (o controlador também fecha).
     var asideOpen by remember(selected?.key) { mutableStateOf(false) }
     var filesOpen by remember(api.origin, selected?.key) { mutableStateOf(false) }
+    // Arquivo do servidor tocado num link da conversa (não imagem): a janela de arquivos abre e baixa.
+    var linkDownload by remember(api.origin, selected?.key) { mutableStateOf<String?>(null) }
+    val appUriHandler = LocalUriHandler.current
+    val conversationUriHandler = remember(appUriHandler, api.origin, selected?.key) {
+        object : UriHandler {
+            override fun openUri(uri: String) {
+                if (markdownLinkAction(uri) == LinkAction.DOWNLOAD) linkDownload = hostFilePath(uri.removeSurrounding("<", ">"))
+                else appUriHandler.openUri(uri)
+            }
+        }
+    }
     var deliveriesOpen by remember(api.origin, selected?.key) { mutableStateOf(false) }
     PlatformBackHandler(enabled = selected == null && searchOpen) { query = ""; searchOpen = false }
     CastActions(api, selected, actionsAvailable(states.getValue(actionOrigin), actionOrigin in needsLogin, selected?.permission == true) && (selected != null || filter != null || apis.size == 1), state.sessions.filter { it.agentId != null && it.key.origin == api.origin }, { onUnauthorized(api.origin) }, { permissionSession = selected }, menu = { close, dismissItem ->
@@ -341,6 +354,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
     }) { showInfo = false }
     if (asideOpen && selected?.agentId != null) AsideSheet(controller.asides, api) { asideOpen = false; controller.asides.close() }
     if (filesOpen) FilesSheet(api, selected, { onUnauthorized(api.origin) }) { filesOpen = false }
+    linkDownload?.let { path -> key(path) { FilesSheet(api, selected, { onUnauthorized(api.origin) }, download = path) { linkDownload = null } } }
     if (deliveriesOpen && selected != null) DeliveriesSheet(api, selected, { onUnauthorized(api.origin) }) { deliveriesOpen = false }
     val listTopBar: @Composable (ReadingState) -> Unit = { state ->
         TopAppBar(
@@ -636,6 +650,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                 unread += if (index >= 0) shown.size - index - 1 else 1
             }
             Box(Modifier.weight(1f).fillMaxWidth()) {
+                CompositionLocalProvider(LocalUriHandler provides conversationUriHandler) {
                 LazyColumn(Modifier.fillMaxSize().nestedScroll(manualScroll).testTag("conversation-list"), state = listState, reverseLayout = true, contentPadding = PaddingValues(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom)) {
                     // Lista invertida: o primeiro item fica no pé da conversa, logo abaixo da última mensagem.
                     items(rows.asReversed(), key = { it.entry.id }) { row ->
@@ -653,6 +668,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                     if (state.truncated) item {
                         Text(stringResource(Res.string.window_truncated), Modifier.fillMaxWidth().padding(8.dp), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                }
                 }
                 if (!following && rows.isNotEmpty()) {
                     val label = stringResource(Res.string.go_to_end)

@@ -59,13 +59,15 @@ internal fun CoroutineScope.startFileDownload(
     }
 }
 
+/** `download`: arquivo do servidor tocado num link da conversa; a janela abre na pasta dele e já baixa. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun FilesSheet(api: HabblaudApi, selected: SessionItem?, onUnauthorized: () -> Unit, onClose: () -> Unit) {
+internal fun FilesSheet(api: HabblaudApi, selected: SessionItem?, onUnauthorized: () -> Unit, download: String? = null, onClose: () -> Unit) {
     val scope = rememberCoroutineScope()
     var roots by remember { mutableStateOf<List<FileRoot>>(emptyList()) }
     var listing by remember { mutableStateOf<FileListing?>(null) }
-    var path by remember { mutableStateOf<String?>(null) }
+    var path by remember { mutableStateOf(download?.substringBeforeLast('/')?.ifEmpty { "/" }) }
+    var pending by remember { mutableStateOf(download) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var forbidden by remember { mutableStateOf(false) }
@@ -92,13 +94,21 @@ internal fun FilesSheet(api: HabblaudApi, selected: SessionItem?, onUnauthorized
         catch (e: CancellationException) { throw e } catch (e: Exception) { failed(e) }
         finally { loading = false }
     }
-    fun download(entry: FileEntry, parent: String) {
-        val item = FileDownload(parent.trimEnd('/') + "/" + entry.name, entry.name)
+    fun downloadPath(key: String, name: String) {
+        val item = FileDownload(key, name)
         downloads.add(0, item)
         scope.startFileDownload(item, onUnauthorized) { write, progress -> api.downloadFile(item.key, write, progress) }
     }
+    fun download(entry: FileEntry, parent: String) = downloadPath(parent.trimEnd('/') + "/" + entry.name, entry.name)
     ModalBottomSheet(onDismissRequest = onClose, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         DownloadPermissionGate { allowed, request ->
+            LaunchedEffect(allowed, pending) {
+                val link = pending
+                if (allowed && link != null) {
+                    pending = null
+                    downloadPath(link, link.substringAfterLast('/'))
+                }
+            }
             Column(Modifier.fillMaxWidth().fillMaxHeight(0.9f).navigationBarsPadding().padding(horizontal = 16.dp).testTag("files-sheet"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(Res.string.files_title), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)

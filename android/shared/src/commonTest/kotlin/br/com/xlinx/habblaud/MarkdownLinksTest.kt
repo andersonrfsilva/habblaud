@@ -44,4 +44,24 @@ class MarkdownLinksTest {
             markdownImages("[foto](/tmp/a.PNG) [site](https://example.test/page) <https://example.test/b.jpg?x=1> https://example.test/c.webp `[x](/d.png)`"),
         )
     }
+    @Test fun tappingAHostFileThatIsNotAnImageDownloadsIt() {
+        listOf("/proj/sub/fonte.aseprite", "</proj/Arte Final/fonte.aseprite>", "file:///proj/notas.txt").forEach {
+            assertEquals(LinkAction.DOWNLOAD, markdownLinkAction(it), it)
+        }
+        assertEquals("/proj/Arte Final/fonte.aseprite", hostFilePath("</proj/Arte Final/fonte.aseprite>".removeSurrounding("<", ">")))
+        assertEquals("/proj/notas.txt", hostFilePath("file:///proj/notas.txt"))
+        listOf("https://example.test/a.zip", "http://localhost:4747/x").forEach { assertEquals(LinkAction.BROWSER, markdownLinkAction(it), it) }
+        // Imagem já aparece desenhada; relativo, // e esquemas de aplicativo não fazem nada.
+        listOf("/proj/arte.png", "/proj/anim.GIF", "sub/fonte.aseprite", "fonte.aseprite", "//host/x.bin", "javascript:alert(1)", "mailto:a@b.c", "").forEach {
+            assertEquals(LinkAction.NONE, markdownLinkAction(it), it)
+        }
+    }
+    @Test fun linksTheServerResolvedAreDrawnAsHostImages() {
+        // Saída do servidor (server/sources/links.ts) para ![…](arte.png), […](sub/anim.gif) e […](sub/fonte.aseprite).
+        val source = "![Quatro vistas](/tmp/proj/arte.png)\n[Caminhada](</tmp/proj/Arte Final/anim.gif>)\n[Aseprite](/tmp/proj/sub/fonte.aseprite)"
+        val images = markdownImages(source)
+        assertEquals(listOf("Quatro vistas" to "/tmp/proj/arte.png", "Caminhada" to "/tmp/proj/Arte Final/anim.gif"), images)
+        images.forEach { (_, dest) -> assertEquals(ImageKind.HOST_FILE, markdownImageKind(dest), dest) }
+        assertEquals(LinkAction.DOWNLOAD, markdownLinkAction("/tmp/proj/sub/fonte.aseprite"))
+    }
 }
