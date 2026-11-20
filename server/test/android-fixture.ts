@@ -24,6 +24,7 @@ import { PermissionRegistry } from '../permissions/registry';
 import { hashPassword, parsePasswordHash } from '../remote/password';
 import { openMainAgent, SessionHistory } from '../sources/history';
 import { OmpHistory } from '../sources/omp/history';
+import { configureLocalLinks } from '../sources/links';
 import { createOmpTerminalParser } from '../sources/omp/terminal';
 import { HistorySet } from '../sources/source';
 import { encodeCwd } from '../sources/watcher';
@@ -163,6 +164,13 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
   for (const [index, agent] of AGENTS.entries()) paths.set(agent.id, seed(agent.sessionId, agent.provider, agent.id === 'fixture:claude', `/fixture/${projects[index]}`));
   seed(CLOSED);
   for (let index = 0; index < 6; index++) seed(`00000000-0000-4000-8000-${String(index + 20).padStart(12, '0')}`, 'claude', false, `/fixture/${projects[index]}`);
+  // Com --files: resposta com links relativos à raiz exposta (arquivo.png, sub/anim.gif, sub/fonte.aseprite), como os
+  // agentes entregam arte. O servidor os troca por caminhos absolutos se quem roda a fixture criou os arquivos lá.
+  configureLocalLinks(filesRoots ? () => filesRoots : undefined);
+  if (filesRoots) {
+    const text = 'Arte fictícia pronta:\n\n![Quatro vistas fictícias](arquivo.png)\n\n[Caminhada fictícia em GIF](sub/anim.gif)\n\n[Aseprite fictício editável](sub/fonte.aseprite)';
+    appendFileSync(paths.get(AGENTS[0].id)!, JSON.stringify({ uuid: randomUUID(), timestamp: new Date().toISOString(), sessionId: AGENTS[0].sessionId, cwd: filesRoots[0].path, isSidechain: false, type: 'assistant', message: { id: randomUUID(), role: 'assistant', content: [{ type: 'text', text }] } }) + '\n');
+  }
   const accounts = new AccountsService({ dirs: [accountDir], home: root, env: {}, onChange: () => {} });
   accounts.setProviderAccounts('omp', [{ dir: ompDir, detected: { id: OMP_ACCOUNT, configDir: ompDir, short: 'OMP', name: 'OMP fixture', color: '#4aa8e8' } }]);
   const late: { messages?: MessageRegistry; permissions?: PermissionRegistry; launcher?: CastLauncher } = {};
