@@ -5,7 +5,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { tokenizeInline } from '../../client/src/ui/markdown';
 import type { TerminalEntry } from '../../shared/types';
 import { createCodexTerminalParser } from './codex/terminal';
-import { configureLocalLinks, resolveLocalLinks } from './links';
+import { configureLocalLinks, localLinks, resolveLocalLinks } from './links';
 import { createOmpTerminalParser } from './omp/terminal';
 import { createTerminalParser, type TerminalParser } from './terminal';
 
@@ -112,13 +112,14 @@ describe('tag img isolada', () => {
   });
 
   it('normaliza e escapa o alt; o leitor web lê seu conteúdo como um único texto', () => {
-    const md = '<img src="arte.png" alt=" ] &#91; ( ) * _ ` &lt;b&gt; ![x](y) &#10; &quot; &#39; \\ ~~ www.exemplo.com https://exemplo.com a@b.com &amp;#91; ">';
+    const md = '<img src="arte.png" alt=" ] &#91; ( ) * _ ` &lt;b&gt; ![x](y) &#10; &quot; &#39; \\ ~~ www.exemplo.com https://exemplo.com a@b.com &amp;#91; $x$ ">';
     const out = run(md);
     const suffix = `](${CWD}/arte.png)`;
     expect(out.startsWith('![') && out.endsWith(suffix)).toBe(true);
     expect(tokenizeInline(out.slice(2, -suffix.length))).toEqual([
-      { type: 'text', text: '] [ ( ) * _ ` <b> ![x](y) " \' \\ ~~ www.exemplo.com https://exemplo.com a@b.com &#91;' },
+      { type: 'text', text: '] [ ( ) * _ ` <b> ![x](y) " \' \\ ~~ www.exemplo.com https://exemplo.com a@b.com &#91; $x$' },
     ]);
+    expect(out).toContain('\\$x\\$');
     expect(run(`<img src="arte.png" alt="${'🖼'.repeat(201)}">`)).toBe(`![${'🖼'.repeat(200)}](${CWD}/arte.png)`);
   });
 
@@ -128,6 +129,7 @@ describe('tag img isolada', () => {
     '&lt;arte.png&gt;', '\\!arte.png', 'arte%ZZ.png', 'x&amp;y.png', 'arte.png&#10;', 'arte.png&#13;',
     'https://user:pass@host/x.png', 'https://@host/x.png', 'https:///x.png', 'https://:80/x.png',
     'https://host:99999/x.png', 'https://host\\x.png', 'https://host/x y.png', 'https://host/x&gt;.png',
+    'https://host/x.png?a=1&amp;copy;', 'https://host/x.png?a=1&amp;#10;',
     'data:image/not-known;base64,AA==', 'data:image/png;base64,a===', 'data:image/png;base64,AB==',
     'data:image/png;base64,', 'data:image/png;base64,AA== lixo',
   ])('preserva src recusado: %s', (src) => {
@@ -138,6 +140,11 @@ describe('tag img isolada', () => {
   it('aceita HTTP(S) sem credenciais e decodifica entidades uma vez', () => {
     expect(run('<img src="https://host/x.png" alt="alt">')).toBe('![alt](https://host/x.png)');
     expect(run('<img src="HTTP://host/x(1).png?x=1&amp;y=2" alt="alt">')).toBe('![alt](<HTTP://host/x(1).png?x=1&y=2>)');
+  });
+
+  it('parênteses na URL não fecham a imagem nem abrem outra', () => {
+    const dest = 'https://host/a.png)![x](https://example.com/y.png)';
+    expect(run(`<img src="${dest}">`)).toBe(`![imagem](<${dest}>)`);
   });
 
   it('aceita base64 de imagem até 10 MiB, mas não acima', () => {
@@ -169,6 +176,9 @@ describe('tag img isolada', () => {
     const relative = '<img src="arte.png">';
     expect(resolveLocalLinks(relative, undefined, exists, allowed)).toBe(relative);
     expect(resolveLocalLinks('<img src="https://host/x.png">', undefined, exists, allowed)).toBe('![imagem](https://host/x.png)');
+    configureLocalLinks(undefined);
+    expect(localLinks(relative, CWD)).toBe(relative);
+    expect(localLinks('<img src="https://host/x.png">', CWD)).toBe('![imagem](https://host/x.png)');
   });
 });
 
