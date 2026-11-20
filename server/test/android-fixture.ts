@@ -169,7 +169,17 @@ printf 'um exemplo fictício de linha longa para testar a rolagem horizontal no 
   configureLocalLinks(filesRoots ? () => filesRoots : undefined);
   if (filesRoots) {
     const text = 'Arte fictícia pronta:\n\n![Quatro vistas fictícias](arquivo.png)\n\n<img src="arquivo.png" alt="Imagem fictícia em HTML">\n\n[Caminhada fictícia em GIF](sub/anim.gif)\n\n[Aseprite fictício editável](sub/fonte.aseprite)';
-    appendFileSync(paths.get(AGENTS[0].id)!, JSON.stringify({ uuid: randomUUID(), timestamp: new Date().toISOString(), sessionId: AGENTS[0].sessionId, cwd: filesRoots[0].path, isSidechain: false, type: 'assistant', message: { id: randomUUID(), role: 'assistant', content: [{ type: 'text', text }] } }) + '\n');
+    const gifPath = join(filesRoots[0].path, 'animated.gif');
+    if (!existsSync(gifPath)) {
+      // GIF89a 64×64: LZW para 4096 pixels de índice zero; cada quadro troca a cor na tabela local.
+      const solidPixels = '848fa9cbed0fa39cb4da8bb3debcfb0f86e24896e689a6eacab6ee0bc7f24cd7f68de7facef7fe0f0c0a87c4a2f1884c2a97cca6f3098d4aa7d4aaf58acd6ab7dcae175000';
+      const frames = ['ff0000', '00ff00', '0000ff', 'ffff00']
+        .map(color => `21f90404190000002c000000004000400080${color}0000000245${solidPixels}00`).join('');
+      writeFileSync(gifPath, Buffer.from(`47494638396140004000000000${frames}3b`, 'hex'), { flag: 'wx' });
+    }
+    for (const message of [text, '![GIF animado](animated.gif)']) {
+      appendFileSync(paths.get(AGENTS[0].id)!, JSON.stringify({ uuid: randomUUID(), timestamp: new Date().toISOString(), sessionId: AGENTS[0].sessionId, cwd: filesRoots[0].path, isSidechain: false, type: 'assistant', message: { id: randomUUID(), role: 'assistant', content: [{ type: 'text', text: message }] } }) + '\n');
+    }
   }
   const accounts = new AccountsService({ dirs: [accountDir], home: root, env: {}, onChange: () => {} });
   accounts.setProviderAccounts('omp', [{ dir: ompDir, detected: { id: OMP_ACCOUNT, configDir: ompDir, short: 'OMP', name: 'OMP fixture', color: '#4aa8e8' } }]);
