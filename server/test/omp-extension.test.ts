@@ -842,11 +842,52 @@ describe('omp extension: formulários HTML', () => {
     expect(formToQuestions(form(radio().replace('Memory', label)))?.input.questions[0].options[1]).toEqual({ label });
   });
 
+  it('forma de cinco rádios e uma lista: seis perguntas e resultado nativo por valor', () => {
+    const names = ['a', 'b', 'c', 'd', 'e'];
+    const html = form(`<p>Contexto fictício.</p>${names.map((name) => group(name, `Escolher ${name}?`, 'radio', ['Primeira', 'Segunda'])).join('')}
+      <label>Destino <select name="target"><option value="local">Local</option><option value="remote" selected>Remoto</option></select></label>`);
+    const parsed = formToQuestions(html)!;
+    expect(parsed.input.questions).toHaveLength(6);
+    expect(parsed.input.questions[5]).toEqual({ question: 'Destino', options: [{ label: 'Local' }, { label: 'Remoto' }], multiSelect: false, noOther: true });
+    const answers = [...names.map((_, question) => ({ question, options: [0] })), { question: 5, options: [1] }];
+    expect(checkAnswers(describeTool(ASK_TOOL, parsed.input).questions!, answers)).toEqual(answers);
+    expect(answersToFormResult(parsed.map, answers)).toEqual({
+      content: [{ type: 'text', text: `User answers:\n${JSON.stringify({ a: 'a0', b: 'b0', c: 'c0', d: 'd0', e: 'e0', target: 'remote' }, null, 2)}` }],
+      details: { answers: [
+        ...names.map((name) => ({ name, question: `Escolher ${name}?`, answer: 'Primeira' })),
+        { name: 'target', question: 'Destino', answer: 'Remoto' },
+      ] },
+    });
+  });
+
+  it('lista múltipla devolve o vetor em ordem HTML; uma única opção nativa devolve só o valor', () => {
+    const parsed = formToQuestions(form(`<p>List?</p><select name="targets" multiple>
+      <option value="b" selected>Beta</option><option>Alpha</option></select>
+      <select name="single" multiple><option value="solo" selected>Only</option></select>`))!;
+    expect(parsed.input.questions).toEqual([
+      { question: 'List?', options: [{ label: 'Beta' }, { label: 'Alpha' }], multiSelect: true, noOther: true },
+      { question: 'Only', options: [{ label: 'Only' }], multiSelect: true, noOther: true },
+    ]);
+    expect(answersToFormResult(parsed.map, [{ question: 0, options: [1, 0] }, { question: 1, options: [0] }])).toEqual({
+      content: [{ type: 'text', text: 'User answers:\n{\n  "targets": [\n    "b",\n    "Alpha"\n  ],\n  "single": "solo"\n}' }],
+      details: { answers: [{ name: 'targets', question: 'List?', answer: 'Beta, Alpha' }, { name: 'single', question: 'Only', answer: 'Only' }] },
+    });
+    expect(answersToFormResult(parsed.map, [{ question: 0, other: 'text' }, { question: 1, options: [0] }])).toBeUndefined();
+  });
+
+  it('opção única e opção escrita como Other não ganham o Outro livre', () => {
+    const parsed = formToQuestions(form(`<p>Check?</p><label><input type=checkbox name=x> One</label>${radio().replace('Memory', 'Other choice')}`))!;
+    expect(parsed.input.questions).toEqual([
+      { question: 'Check?', options: [{ label: 'One' }], multiSelect: true, noOther: true },
+      { question: 'Storage?', options: [{ label: 'Disk 💾' }, { label: 'Other choice' }], multiSelect: false, noOther: true },
+    ]);
+    expect(answersToFormResult(parsed.map, [{ question: 0, options: [0] }, { question: 1, options: [1] }])).toEqual({
+      content: [{ type: 'text', text: 'User answers:\n{\n  "x": "on",\n  "store": "ram"\n}' }],
+      details: { answers: [{ name: 'x', question: 'Check?', answer: 'One' }, { name: 'store', question: 'Storage?', answer: 'Other choice' }] },
+    });
+  });
+
   it.each([
-    ['select', '<p>List?</p><select name="x"><option>A</option><option>B</option></select>'],
-    ['select múltiplo', '<p>List?</p><select name="x" multiple><option>A</option><option>B</option></select>'],
-    ['opção única', '<p>Check?</p><label><input type=checkbox name=x> One</label>'],
-    ['Other explícito', radio().replace('Memory', 'Other choice')],
     ['treze perguntas', Array.from({ length: 13 }, (_, i) => radio(`q${i}`)).join('')],
     ['treze opções', `<p>Which?</p>${Array.from({ length: 13 }, (_, i) => `<label><input type=radio name=x value=${i}> ${i}</label>`).join('')}`],
     ['rótulo com 301 caracteres', radio().replace('Memory', longText(301, 'Memory'))],

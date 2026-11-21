@@ -389,7 +389,7 @@ function askQuestions(params: unknown): AskQuestion[] | undefined {
   return out;
 }
 
-type AskCard = { questions: Array<{ question: string; header?: string; options: AskQuestion['options']; multiSelect: boolean }> };
+type AskCard = { questions: Array<{ question: string; header?: string; options: AskQuestion['options']; multiSelect: boolean; noOther?: true }> };
 
 /** A chamada do `ask` no formato do AskUserQuestion do Claude Code (o que o cartão de pergunta do escritório lê). */
 export function askToHabblaud(params: unknown): AskCard | undefined {
@@ -400,7 +400,9 @@ export function askToHabblaud(params: unknown): AskCard | undefined {
 type FormField = {
   name: string;
   question: string;
-  type: 'radio' | 'checkbox' | 'text' | 'textarea';
+  type: 'radio' | 'checkbox' | 'select' | 'text' | 'textarea';
+  multi: boolean;
+  noOther?: true;
   required: boolean;
   options: Array<{ label: string; value: string }>;
 };
@@ -411,6 +413,8 @@ const FORM_ATTRS: Record<string, readonly string[]> = {
   br: [], span: [], strong: [], b: [], em: [], i: [], code: [],
   input: ['type', 'name', 'value', 'checked', 'required', 'placeholder', 'maxlength'],
   textarea: ['name', 'required', 'placeholder', 'maxlength', 'rows'],
+  select: ['name', 'required', 'multiple'],
+  option: ['value', 'selected'],
 };
 const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: '\u00a0' };
 const oneline = (text: string) => text.replace(/\s+/g, ' ').trim();
@@ -472,7 +476,7 @@ function readAskForm(html: string): FormNode | undefined {
       const value = double ?? single ?? bare;
       if (bare?.endsWith('/') && html[attr.lastIndex] === '>') return undefined;
       if (!FORM_ATTRS[tag].includes(name) || Object.hasOwn(attrs, name)) return undefined;
-      if (value === undefined && name !== 'required' && name !== 'checked') return undefined;
+      if (value === undefined && !['required', 'checked', 'multiple', 'selected'].includes(name)) return undefined;
       attrs[name] = decode(value ?? '');
       at = end.lastIndex = attr.lastIndex;
       tail = end.exec(html);
@@ -516,6 +520,7 @@ export function formToQuestions(html: string): { input: AskCard; map: FormField[
 
   function section(nodes: FormNode['children'], legend = ''): boolean {
     let lastGroup: FormField | undefined;
+    let groupHasHeading = false;
     let caption = '';
     for (const node of nodes) {
       if (typeof node === 'string') {
@@ -560,40 +565,58 @@ export function formToQuestions(html: string): { input: AskCard; map: FormField[
       let control = node;
       let label = '';
       if (node.tag === 'label') {
-        const position = node.children.findIndex((child) => typeof child !== 'string' && (child.tag === 'input' || child.tag === 'textarea'));
+        const position = node.children.findIndex((child) => typeof child !== 'string' && ['input', 'textarea', 'select'].includes(child.tag));
         if (position < 0) return false;
         control = node.children[position] as FormNode;
         const text = formText(node.children.filter((_, i) => i !== position));
         if (text === undefined) return false;
         label = oneline(text);
       }
-      if (control.tag !== 'input' && control.tag !== 'textarea') return false;
+      if (!['input', 'textarea', 'select'].includes(control.tag)) return false;
       const { name, value, placeholder, maxlength } = control.attrs;
       if (!name?.trim() || /[\x00-\x20\x7f]/.test(name) || Object.hasOwn(Object.prototype, name)) return false;
-      const rawType = control.tag === 'textarea' ? 'textarea' : (control.attrs.type ?? 'text').toLowerCase();
-      const type = (['radio', 'checkbox', 'text', 'textarea'] as const).find((known) => known === rawType);
+      const rawType = control.tag === 'input' ? (control.attrs.type ?? 'text').toLowerCase() : control.tag;
+      const type = (['radio', 'checkbox', 'select', 'text', 'textarea'] as const).find((known) => known === rawType);
       if (!type) return false;
-      if (type === 'textarea' && control.tag !== 'textarea') return false;
-      const choice = type === 'radio' || type === 'checkbox';
+      if ((type === 'textarea' || type === 'select') && control.tag !== type) return false;
+      const group = type === 'radio' || type === 'checkbox';
+      const select = type === 'select';
+      const multi = type === 'checkbox' || (select && Object.hasOwn(control.attrs, 'multiple'));
       const required = Object.hasOwn(control.attrs, 'required');
-      if (choice) {
-        if (!label || label.length > ASK_LABEL_MAX || /^\s*other\b/i.test(label) || placeholder !== undefined || maxlength !== undefined) return false;
-      } else if (Object.hasOwn(control.attrs, 'checked') || (maxlength !== undefined && !(/^\d+$/.test(maxlength) && Number.isSafeInteger(Number(maxlength)) && Number(maxlength) >= ANSWER_OTHER_MAX))) return false;
+      if (group) {
+        if (!label || label.length > ASK_LABEL_MAX || placeholder !== undefined || maxlength !== undefined) return false;
+      } else if (!select && (Object.hasOwn(control.attrs, 'checked') || (maxlength !== undefined && !(/^\d+$/.test(maxlength) && Number.isSafeInteger(Number(maxlength)) && Number(maxlength) >= ANSWER_OTHER_MAX)))) return false;
 
       const option = { label, value: value ?? 'on' };
-      if (choice && lastGroup?.name === name && lastGroup.type === type) {
-        if (lastGroup.options.length >= ASK_MAX_OPTIONS || lastGroup.options.some((o) => o.label === label)) return false;
+      if (group && lastGroup?.name === name && lastGroup.type === type) {
+        if (!groupHasHeading || lastGroup.options.length >= ASK_MAX_OPTIONS || lastGroup.options.some((o) => o.label === label)) return false;
         lastGroup.options.push(option);
         lastGroup.required ||= required;
         questions[questions.length - 1].options.push({ label });
         continue;
       }
       if (names.has(name) || map.length >= ASK_MAX_QUESTIONS) return false;
-      const question = choice ? caption || legend : label || oneline(name.replace(/[_-]+/g, ' '));
-      if (!question || (choice && !caption && !legend)) return false;
+      const options = group ? [option] : [];
+      if (select) {
+        for (const child of control.children) {
+          if (typeof child === 'string' && !child.trim()) continue;
+          if (typeof child === 'string' || child.tag !== 'option' || child.children.some((part) => typeof part !== 'string')) return false;
+          const text = oneline(child.children.join(''));
+          const value = child.attrs.value ?? text;
+          const label = text || value;
+          if (!label.trim() || label.length > ASK_LABEL_MAX || options.length >= ASK_MAX_OPTIONS || options.some((o) => o.label === label)) return false;
+          options.push({ label, value });
+        }
+        if (!options.length) return false;
+      }
+      const question = group ? caption || legend || label
+        : select ? label || caption || legend || (options.length === 1 ? options[0].label : name)
+        : label || oneline(name.replace(/[_-]+/g, ' '));
+      if (!question) return false;
+      groupHasHeading = !!(caption || legend);
       if (caption && question === caption) context.pop();
       if (legend && question !== legend && !context.includes(legend)) context.unshift(legend);
-      if (!choice) {
+      if (!group && !select) {
         if (control.children.some((child) => typeof child !== 'string')) return false;
         const preset = type === 'textarea' ? control.children.join('').replace(/^\r?\n/, '') : value;
         if ([placeholder, preset].some((text) => text && (!oneline(text) || /[\r\n]/.test(text)))) return false;
@@ -601,20 +624,25 @@ export function formToQuestions(html: string): { input: AskCard; map: FormField[
         if (preset) context.push(oneline(preset));
       }
       names.add(name);
-      const displayQuestion = !choice && !label && caption && context.at(-1) === caption ? context.pop()! : question;
+      const displayQuestion = !group && !select && !label && caption && context.at(-1) === caption ? context.pop()! : question;
       const cardQuestion = context.length ? `${context.join(' ')} — ${displayQuestion}` : displayQuestion;
       if (cardQuestion.length > ASK_QUESTION_MAX) return false;
       context.length = 0;
       caption = '';
-      const field = { name, question, type, required, options: choice ? [option] : [] };
+      const field = { name, question, type, multi, required, options };
       map.push(field);
-      questions.push({ question: cardQuestion, multiSelect: type === 'checkbox', options: choice ? [{ label }] : [] });
-      lastGroup = choice ? field : undefined;
+      questions.push({ question: cardQuestion, multiSelect: multi, options: options.map(({ label }) => ({ label })) });
+      lastGroup = group ? field : undefined;
     }
     return true;
   }
 
-  if (!section(form.children) || !map.length || map.some((field) => field.options.length === 1)) return undefined;
+  if (!section(form.children) || !map.length) return undefined;
+  for (const [index, field] of map.entries()) {
+    if (field.type === 'select' || field.options.length === 1 || field.options.some(({ label }) => /^\s*other\b/i.test(label))) {
+      field.noOther = questions[index].noOther = true;
+    }
+  }
   if (context.length) {
     const last = questions[questions.length - 1];
     last.question += ` — ${context.join(' ')}`;
@@ -632,16 +660,19 @@ export function answersToFormResult(map: readonly FormField[], answers: readonly
   for (const [index, field] of map.entries()) {
     const submitted = byIndex.get(index);
     const other = submitted?.other?.trim();
+    if (field.noOther && submitted?.other !== undefined) return undefined;
     if (submitted?.other !== undefined && (!other || other.length > ANSWER_OTHER_MAX)) return undefined;
     if (other && (field.type === 'textarea' ? /[\x00-\x08\x0b-\x1f\x7f]/ : /[\x00-\x1f\x7f]/).test(other)) return undefined;
     const picked = submitted?.options ?? [];
     if (new Set(picked).size !== picked.length || picked.some((i) => !field.options[i])) return undefined;
     const values = field.options.flatMap(({ value }, i) => picked.includes(i) ? [value] : []);
     if (other) values.push(other);
-    if ((field.type !== 'checkbox' && values.length > 1) || (field.required && !values.length)) return undefined;
-    const choice = field.type === 'radio' || field.type === 'checkbox';
+    const choice = field.options.length > 0;
+    // O omp só serializa um vetor quando o controle múltiplo tem mais de uma opção.
+    const array = field.multi && field.options.length > 1;
+    if ((!array && values.length > 1) || ((field.required || field.noOther) && !values.length)) return undefined;
     if (!choice && !other) return undefined;
-    if (field.type === 'checkbox') data[field.name] = values;
+    if (array) data[field.name] = values;
     else if (values.length) data[field.name] = values[0];
     const answer = choice ? values.map((v) => field.options.find((o) => o.value === v)?.label ?? `Other: ${v}`).join(', ') : other!;
     details.push({ name: field.name, question: field.question, answer });
