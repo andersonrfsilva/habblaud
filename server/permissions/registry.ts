@@ -330,7 +330,8 @@ function parseAnswers(raw: unknown): PermissionAnswer[] | undefined {
       if (typeof r.other !== 'string') return undefined;
       const other = r.other.trim();
       if (other.length > ANSWER_OTHER_MAX) return undefined;
-      if (other) a.other = other;
+      // O registro precisa distinguir uma resposta sem "other" de uma que envia o campo vazio.
+      a.other = other;
     }
     out.push(a);
   }

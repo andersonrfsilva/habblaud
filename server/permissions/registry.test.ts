@@ -485,7 +485,7 @@ describe('peças puras', () => {
   it('parseDecision: answer (posições inteiras, opções distintas em ordem, texto livre aparado até 2.000)', () => {
     expect(parseDecision({ behavior: 'answer', answers: [{ question: 1, options: [3, 0], other: '  x  ', extra: 1 }, { question: 0, options: [], other: ' ' }], message: 'ignorado' })).toEqual({
       behavior: 'answer',
-      answers: [{ question: 1, options: [0, 3], other: 'x' }, { question: 0 }],
+      answers: [{ question: 1, options: [0, 3], other: 'x' }, { question: 0, other: '' }],
     });
     const bad: unknown[] = [
       { behavior: 'answer' },

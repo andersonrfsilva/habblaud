@@ -1,7 +1,6 @@
 // Extensão do Habblaud para o omp (oh-my-pi): carregada pelo omp 18+ de <pasta do omp>/extensions/habblaud.ts (o
 // instalador, scripts/omp-install.ts, grava lá um arquivo de uma linha que reexporta este). Roda dentro do Bun do omp,
-// fora do projeto: só node:* e fetch, e os únicos imports do Habblaud são de tipos (apagados na carga) e de
-// shared/omp-events.ts, shared/asides.ts (este só depende do primeiro) e shared/ask-limits.ts, sem dependências.
+// fora do projeto: usa node:*, fetch e módulos compartilhados do Habblaud, sem dependências externas.
 //
 // O que faz (design 2, 4 e 5 da mudança suporte-ao-omp):
 //
@@ -55,6 +54,7 @@ import { join } from 'node:path';
 import { OMP_COMMANDS, OMP_HEARTBEAT_MS, OMP_SESSION_ID, type OmpCommand, type OmpEvent, type OmpEventKind } from '../../shared/omp-events';
 import { ASIDE_ANSWER_MAX, ASIDE_HEARTBEAT_MS, ASIDE_PROGRESS_MS, clipAnswer, type AsideProgress, type AsideRequest } from '../../shared/asides';
 import { ANSWER_OTHER_MAX, ASK_LABEL_MAX, ASK_MAX_OPTIONS, ASK_MAX_QUESTIONS, ASK_QUESTION_MAX } from '../../shared/ask-limits';
+import { maskSecrets } from '../../shared/activity';
 import type { OmpDeliverAs } from '../../shared/messages';
 
 export const DEFAULT_PORT = 4747;
@@ -181,6 +181,9 @@ export interface ToolDefinition {
   description: string;
   parameters: unknown;
   approval: 'read';
+  strict: true;
+  lenientArgValidation: true;
+  concurrency: 'exclusive';
   execute(toolCallId: string, params: unknown, signal: AbortSignal | undefined, onUpdate: unknown, ctx: ToolContext): Promise<unknown>;
 }
 
@@ -389,7 +392,7 @@ function askQuestions(params: unknown): AskQuestion[] | undefined {
   return out;
 }
 
-type AskCard = { questions: Array<{ question: string; header?: string; options: AskQuestion['options']; multiSelect: boolean }> };
+type AskCard = { questions: Array<{ question: string; header?: string; options: AskQuestion['options']; multiSelect: boolean; noOther?: true }> };
 
 /** A chamada do `ask` no formato do AskUserQuestion do Claude Code (o que o cartão de pergunta do escritório lê). */
 export function askToHabblaud(params: unknown): AskCard | undefined {
@@ -400,7 +403,9 @@ export function askToHabblaud(params: unknown): AskCard | undefined {
 type FormField = {
   name: string;
   question: string;
-  type: 'radio' | 'checkbox' | 'text' | 'textarea';
+  type: 'radio' | 'checkbox' | 'select' | 'text' | 'textarea';
+  multi: boolean;
+  noOther?: true;
   required: boolean;
   options: Array<{ label: string; value: string }>;
 };
@@ -411,17 +416,19 @@ const FORM_ATTRS: Record<string, readonly string[]> = {
   br: [], span: [], strong: [], b: [], em: [], i: [], code: [],
   input: ['type', 'name', 'value', 'checked', 'required', 'placeholder', 'maxlength'],
   textarea: ['name', 'required', 'placeholder', 'maxlength', 'rows'],
+  select: ['name', 'required', 'multiple'],
+  option: ['value', 'selected'],
 };
+const FORM_HTML_MAX = 32_768;
+const FREE_FORM_ATTRS = { name: true, type: true, value: true, id: true, for: true, multiple: true, disabled: true };
+const VOID_TAGS = { area: true, base: true, br: true, col: true, embed: true, hr: true, img: true, input: true, link: true, meta: true, param: true, source: true, track: true, wbr: true };
+const INVISIBLE_TAGS = { button: true, head: true, iframe: true, link: true, meta: true, noscript: true, script: true, style: true, template: true, title: true };
+const CONTROL_TAGS = { input: true, select: true, textarea: true };
 const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: '\u00a0' };
 const oneline = (text: string) => text.replace(/\s+/g, ' ').trim();
 
-/** Leitor de um subconjunto fechado do HTML do ask. Não resolve referências externas nem executa código. */
-function readAskForm(html: string): FormNode | undefined {
-  if (html.length > 32_768 || /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(html)) return undefined;
-  const root: FormNode = { tag: '', attrs: {}, children: [] };
-  const stack = [root];
-  let unknownEntity = false;
-  const decode = (text: string) => text.replace(/&(#(?:x[0-9a-f]+|\d+)|[a-z][a-z0-9]+);/gi, (raw, entity: string) => {
+function decodeFormText(text: string, onUnknown?: () => void): string {
+  return text.replace(/&(#(?:x[0-9a-f]+|\d+)|[a-z][a-z0-9]+);/gi, (raw, entity: string) => {
     if (entity[0] === '#') {
       const hex = entity[1]?.toLowerCase() === 'x';
       const point = Number.parseInt(entity.slice(hex ? 2 : 1), hex ? 16 : 10);
@@ -429,9 +436,18 @@ function readAskForm(html: string): FormNode | undefined {
     } else if (Object.hasOwn(ENTITIES, entity.toLowerCase())) {
       return ENTITIES[entity.toLowerCase()];
     }
-    unknownEntity = true;
+    onUnknown?.();
     return raw;
   });
+}
+
+/** Leitor inerte e limitado. Em texto livre, ignora atributos sem uso em vez de interpretá-los. */
+function readAskForm(html: string, freeText = false): FormNode | undefined {
+  if (html.length > FORM_HTML_MAX || /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(html)) return undefined;
+  const root: FormNode = { tag: '', attrs: {}, children: [] };
+  const stack = [root];
+  let unknownEntity = false;
+  const unknown = freeText ? undefined : () => { unknownEntity = true; };
   const open = /<([a-z][a-z0-9-]*)/iy;
   const close = /<\/([a-z][a-z0-9-]*)[ \t\r\n\f]*>/iy;
   const end = /[ \t\r\n\f]*(\/?)>/y;
@@ -441,9 +457,14 @@ function readAskForm(html: string): FormNode | undefined {
     const parent = stack[stack.length - 1];
     if (html[at] !== '<') {
       const next = html.indexOf('<', at);
-      const text = decode(html.slice(at, next < 0 ? html.length : next));
+      const text = decodeFormText(html.slice(at, next < 0 ? html.length : next), unknown);
       parent.children.push(text);
       at = next < 0 ? html.length : next;
+      continue;
+    }
+    if (freeText && html.startsWith('<!--', at)) {
+      const end = html.indexOf('-->', at + 4);
+      at = end < 0 ? html.length : end + 3;
       continue;
     }
     close.lastIndex = at;
@@ -458,7 +479,7 @@ function readAskForm(html: string): FormNode | undefined {
     const opening = open.exec(html);
     if (!opening) return undefined;
     const tag = opening[1].toLowerCase();
-    if (!Object.hasOwn(FORM_ATTRS, tag)) return undefined;
+    if (!freeText && !Object.hasOwn(FORM_ATTRS, tag)) return undefined;
     const attrs: FormNode['attrs'] = Object.create(null);
     at = open.lastIndex;
     end.lastIndex = at;
@@ -470,23 +491,26 @@ function readAskForm(html: string): FormNode | undefined {
       const [, raw, double, single, bare] = pair;
       const name = raw.toLowerCase();
       const value = double ?? single ?? bare;
-      if (bare?.endsWith('/') && html[attr.lastIndex] === '>') return undefined;
-      if (!FORM_ATTRS[tag].includes(name) || Object.hasOwn(attrs, name)) return undefined;
-      if (value === undefined && name !== 'required' && name !== 'checked') return undefined;
-      attrs[name] = decode(value ?? '');
+      if (!freeText) {
+        if (bare?.endsWith('/') && html[attr.lastIndex] === '>') return undefined;
+        if (!FORM_ATTRS[tag].includes(name) || Object.hasOwn(attrs, name)) return undefined;
+        if (value === undefined && !['required', 'checked', 'multiple', 'selected'].includes(name)) return undefined;
+      }
+      if ((!freeText || Object.hasOwn(FREE_FORM_ATTRS, name)) && !Object.hasOwn(attrs, name)) attrs[name] = decodeFormText(value ?? '', unknown);
       at = end.lastIndex = attr.lastIndex;
       tail = end.exec(html);
     }
     at = end.lastIndex;
     const node = { tag, attrs, children: [] };
     parent.children.push(node);
-    if (tag !== 'input' && tag !== 'br') {
-      if (tail[1] || stack.length >= 16) return undefined;
-      stack.push(node);
+    if (tag !== 'input' && tag !== 'br' && !(freeText && Object.hasOwn(VOID_TAGS, tag))) {
+      if (stack.length >= 16 || (tail[1] && !freeText)) return undefined;
+      if (!tail[1]) stack.push(node);
     }
   }
   const nodes = root.children.filter((node) => typeof node !== 'string' || node.trim());
   const form = nodes[0];
+  if (freeText) return stack.length === 1 ? (nodes.find((node): node is FormNode => typeof node !== 'string' && node.tag === 'form') ?? root) : undefined;
   return stack.length === 1 && !unknownEntity && nodes.length === 1 && typeof form === 'object' && form.tag === 'form' ? form : undefined;
 }
 
@@ -505,7 +529,7 @@ function formText(nodes: FormNode['children']): string | undefined {
   return text;
 }
 
-/** A projeção é conservadora: se o cartão não puder mostrar o contexto ou aceitar só respostas válidas, fica o nativo. */
+/** Só projeta sem perdas: contexto visível e respostas aceitas pelo formato nativo. */
 export function formToQuestions(html: string): { input: AskCard; map: FormField[] } | undefined {
   const form = readAskForm(html);
   if (!form) return undefined;
@@ -516,6 +540,7 @@ export function formToQuestions(html: string): { input: AskCard; map: FormField[
 
   function section(nodes: FormNode['children'], legend = ''): boolean {
     let lastGroup: FormField | undefined;
+    let groupHasHeading = false;
     let caption = '';
     for (const node of nodes) {
       if (typeof node === 'string') {
@@ -560,40 +585,58 @@ export function formToQuestions(html: string): { input: AskCard; map: FormField[
       let control = node;
       let label = '';
       if (node.tag === 'label') {
-        const position = node.children.findIndex((child) => typeof child !== 'string' && (child.tag === 'input' || child.tag === 'textarea'));
+        const position = node.children.findIndex((child) => typeof child !== 'string' && ['input', 'textarea', 'select'].includes(child.tag));
         if (position < 0) return false;
         control = node.children[position] as FormNode;
         const text = formText(node.children.filter((_, i) => i !== position));
         if (text === undefined) return false;
         label = oneline(text);
       }
-      if (control.tag !== 'input' && control.tag !== 'textarea') return false;
+      if (!['input', 'textarea', 'select'].includes(control.tag)) return false;
       const { name, value, placeholder, maxlength } = control.attrs;
       if (!name?.trim() || /[\x00-\x20\x7f]/.test(name) || Object.hasOwn(Object.prototype, name)) return false;
-      const rawType = control.tag === 'textarea' ? 'textarea' : (control.attrs.type ?? 'text').toLowerCase();
-      const type = (['radio', 'checkbox', 'text', 'textarea'] as const).find((known) => known === rawType);
+      const rawType = control.tag === 'input' ? (control.attrs.type ?? 'text').toLowerCase() : control.tag;
+      const type = (['radio', 'checkbox', 'select', 'text', 'textarea'] as const).find((known) => known === rawType);
       if (!type) return false;
-      if (type === 'textarea' && control.tag !== 'textarea') return false;
-      const choice = type === 'radio' || type === 'checkbox';
+      if ((type === 'textarea' || type === 'select') && control.tag !== type) return false;
+      const group = type === 'radio' || type === 'checkbox';
+      const select = type === 'select';
+      const multi = type === 'checkbox' || (select && Object.hasOwn(control.attrs, 'multiple'));
       const required = Object.hasOwn(control.attrs, 'required');
-      if (choice) {
-        if (!label || label.length > ASK_LABEL_MAX || /^\s*other\b/i.test(label) || placeholder !== undefined || maxlength !== undefined) return false;
-      } else if (Object.hasOwn(control.attrs, 'checked') || (maxlength !== undefined && !(/^\d+$/.test(maxlength) && Number.isSafeInteger(Number(maxlength)) && Number(maxlength) >= ANSWER_OTHER_MAX))) return false;
+      if (group) {
+        if (!label || label.length > ASK_LABEL_MAX || placeholder !== undefined || maxlength !== undefined) return false;
+      } else if (!select && (Object.hasOwn(control.attrs, 'checked') || (maxlength !== undefined && !(/^\d+$/.test(maxlength) && Number.isSafeInteger(Number(maxlength)) && Number(maxlength) >= ANSWER_OTHER_MAX)))) return false;
 
       const option = { label, value: value ?? 'on' };
-      if (choice && lastGroup?.name === name && lastGroup.type === type) {
-        if (lastGroup.options.length >= ASK_MAX_OPTIONS || lastGroup.options.some((o) => o.label === label)) return false;
+      if (group && lastGroup?.name === name && lastGroup.type === type) {
+        if (!groupHasHeading || lastGroup.options.length >= ASK_MAX_OPTIONS || lastGroup.options.some((o) => o.label === label)) return false;
         lastGroup.options.push(option);
         lastGroup.required ||= required;
         questions[questions.length - 1].options.push({ label });
         continue;
       }
       if (names.has(name) || map.length >= ASK_MAX_QUESTIONS) return false;
-      const question = choice ? caption || legend : label || oneline(name.replace(/[_-]+/g, ' '));
-      if (!question || (choice && !caption && !legend)) return false;
+      const options = group ? [option] : [];
+      if (select) {
+        for (const child of control.children) {
+          if (typeof child === 'string' && !child.trim()) continue;
+          if (typeof child === 'string' || child.tag !== 'option' || child.children.some((part) => typeof part !== 'string')) return false;
+          const text = oneline(child.children.join(''));
+          const value = child.attrs.value ?? text;
+          const label = text || value;
+          if (!label.trim() || label.length > ASK_LABEL_MAX || options.length >= ASK_MAX_OPTIONS || options.some((o) => o.label === label)) return false;
+          options.push({ label, value });
+        }
+        if (!options.length) return false;
+      }
+      const question = group ? caption || legend || label
+        : select ? label || caption || legend || (options.length === 1 ? options[0].label : name)
+        : label || oneline(name.replace(/[_-]+/g, ' '));
+      if (!question) return false;
+      groupHasHeading = !!(caption || legend);
       if (caption && question === caption) context.pop();
       if (legend && question !== legend && !context.includes(legend)) context.unshift(legend);
-      if (!choice) {
+      if (!group && !select) {
         if (control.children.some((child) => typeof child !== 'string')) return false;
         const preset = type === 'textarea' ? control.children.join('').replace(/^\r?\n/, '') : value;
         if ([placeholder, preset].some((text) => text && (!oneline(text) || /[\r\n]/.test(text)))) return false;
@@ -601,26 +644,187 @@ export function formToQuestions(html: string): { input: AskCard; map: FormField[
         if (preset) context.push(oneline(preset));
       }
       names.add(name);
-      const displayQuestion = !choice && !label && caption && context.at(-1) === caption ? context.pop()! : question;
+      const displayQuestion = !group && !select && !label && caption && context.at(-1) === caption ? context.pop()! : question;
       const cardQuestion = context.length ? `${context.join(' ')} — ${displayQuestion}` : displayQuestion;
       if (cardQuestion.length > ASK_QUESTION_MAX) return false;
       context.length = 0;
       caption = '';
-      const field = { name, question, type, required, options: choice ? [option] : [] };
+      const field = { name, question, type, multi, required, options };
       map.push(field);
-      questions.push({ question: cardQuestion, multiSelect: type === 'checkbox', options: choice ? [{ label }] : [] });
-      lastGroup = choice ? field : undefined;
+      questions.push({ question: cardQuestion, multiSelect: multi, options: options.map(({ label }) => ({ label })) });
+      lastGroup = group ? field : undefined;
     }
     return true;
   }
 
-  if (!section(form.children) || !map.length || map.some((field) => field.options.length === 1)) return undefined;
+  if (!section(form.children) || !map.length) return undefined;
+  for (const [index, field] of map.entries()) {
+    if (field.type === 'select' || field.options.length === 1 || field.options.some(({ label }) => /^\s*other\b/i.test(label))) {
+      field.noOther = questions[index].noOther = true;
+    }
+  }
   if (context.length) {
     const last = questions[questions.length - 1];
     last.question += ` — ${context.join(' ')}`;
     if (last.question.length > ASK_QUESTION_MAX) return undefined;
   }
   return { input: { questions }, map };
+}
+
+type FreeTextField = Pick<FormField, 'name' | 'question' | 'options' | 'multi'>;
+type FreeTextForm = { input: AskCard; fields?: FreeTextField[] };
+
+/** Texto sem marcas e sem atributos. Nunca publica um formulário com senha ou arquivo, mesmo se a árvore falhar. */
+function freeFormText(html: string): string | undefined {
+  const tags = /<!--[\s\S]*?(?:-->|$)|<!\[CDATA\[[\s\S]*?(?:\]\]>|$)|<[!?][^>]*(?:>|$)|<(?:[^>"']|"[^"]*(?:"|$)|'[^']*(?:'|$))*(?:>|$)/g;
+  const attribute = /\s*([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/y;
+  let at = 0;
+  let text = '';
+  const hidden: string[] = [];
+  for (let token = tags.exec(html); token; token = tags.exec(html)) {
+    if (!hidden.length && at < FORM_HTML_MAX) text += html.slice(at, Math.min(token.index, FORM_HTML_MAX)) + ' ';
+    const element = /^<(\/?)\s*([a-z][a-z0-9-]*)(?=[\s/>]|$)/i.exec(token[0]);
+    const tag = element?.[2].toLowerCase() ?? '';
+    if (element?.[1]) {
+      const open = hidden.lastIndexOf(tag);
+      if (open >= 0) hidden.length = open;
+    } else if (element && (tag === 'input' || tag === 'script' || tag === 'style')) {
+      const source = token[0];
+      let cursor = element[0].length;
+      let selfClosing = false;
+      while (cursor < source.length) {
+        while (/\s/.test(source[cursor] ?? '')) cursor++;
+        if (source[cursor] === '/') { selfClosing = true; break; }
+        if (source[cursor] === '>' || cursor === source.length) break;
+        attribute.lastIndex = cursor;
+        const attr = attribute.exec(source);
+        if (!attr) break;
+        if (tag === 'input' && attr[1].toLowerCase() === 'type') {
+          const value = decodeFormText(attr[2] ?? attr[3] ?? attr[4] ?? '').trim();
+          if (/^(?:password|file)\/?$/i.test(value) || /^["']/.test(value)) return undefined;
+        }
+        cursor = attribute.lastIndex;
+      }
+      if (tag !== 'input' && !selfClosing) {
+        const end = new RegExp(`</${tag}\\s*>`, 'gi');
+        end.lastIndex = tags.lastIndex;
+        tags.lastIndex = end.exec(html) ? end.lastIndex : html.length;
+      }
+    } else if (Object.hasOwn(INVISIBLE_TAGS, tag) && !Object.hasOwn(VOID_TAGS, tag)) {
+      hidden.push(tag);
+    }
+    at = tags.lastIndex;
+  }
+  if (!hidden.length && at < FORM_HTML_MAX) text += html.slice(at, FORM_HTML_MAX);
+  return maskSecrets(oneline(decodeFormText(text).replace(/[\x00-\x1f\x7f]/g, ' ')));
+}
+
+function formLabel(nodes: FormNode['children']): string {
+  let label = '';
+  for (const node of nodes) {
+    if (typeof node === 'string') label += node;
+    else if (node.tag === 'br') label += ' ';
+    else if (!Object.hasOwn(CONTROL_TAGS, node.tag) && !Object.hasOwn(INVISIBLE_TAGS, node.tag)) label += formLabel(node.children);
+  }
+  return label;
+}
+
+function selectOptions(nodes: FormNode['children'], options: FreeTextField['options']): void {
+  for (const node of nodes) {
+    if (typeof node === 'string' || Object.hasOwn(INVISIBLE_TAGS, node.tag)) continue;
+    if (node.tag !== 'option') {
+      selectOptions(node.children, options);
+    } else if (!Object.hasOwn(node.attrs, 'disabled')) {
+      const text = oneline(formLabel(node.children));
+      const value = node.attrs.value ?? text;
+      if (text || value.trim()) options.push({ label: text || value, value });
+    }
+  }
+}
+
+/** Cartão de texto para campos que não podem ser validados pelo Habblaud. Não interpreta `pattern` nem roda HTML. */
+function formToFreeText(html: string): FreeTextForm | undefined {
+  const visible = freeFormText(html);
+  if (visible === undefined) return undefined;
+  const form = readAskForm(html, true);
+  const named = new Map<string, FreeTextField & { type: string; id?: string }>();
+  const labels = new Map<string, string>();
+  function collect(nodes: FormNode['children'], caption = '', wrapped = ''): boolean {
+    for (const node of nodes) {
+      if (typeof node === 'string' || Object.hasOwn(INVISIBLE_TAGS, node.tag)) continue;
+      const { name, value, id } = node.attrs;
+      if (!Object.hasOwn(CONTROL_TAGS, node.tag)) {
+        if (node.tag === 'label') {
+          const label = oneline(formLabel(node.children));
+          if (node.attrs.for && label) labels.set(node.attrs.for, label);
+          if (!collect(node.children, caption, label || wrapped)) return false;
+        } else {
+          if (/^(?:legend|p|h[1-6])$/.test(node.tag)) caption = oneline(formLabel(node.children)) || caption;
+          if (!collect(node.children, caption, wrapped)) return false;
+        }
+        continue;
+      }
+      const type = node.tag === 'input' ? (node.attrs.type ?? 'text').toLowerCase() : node.tag;
+      if (!name?.trim() || /[\x00-\x20\x7f]/.test(name) || Object.hasOwn(Object.prototype, name) || /^(?:hidden|button|submit|reset|image|file|password)$/.test(type)) continue;
+      const group = type === 'radio' || type === 'checkbox';
+      const option = { label: wrapped || value || 'on', value: value ?? 'on' };
+      const previous = named.get(name);
+      if (previous) {
+        if (!group || previous.type !== type) return false;
+        previous.options.push(option);
+        continue;
+      }
+      if (named.size >= ASK_MAX_QUESTIONS) return false;
+      const question = (group ? caption || wrapped : wrapped || caption) || oneline(name.replace(/[_-]+/g, ' ')) || name;
+      const options = group ? [option] : [];
+      if (type === 'select') selectOptions(node.children, options);
+      named.set(name, { id, name, type, question, options, multi: type === 'checkbox' || (type === 'select' && Object.hasOwn(node.attrs, 'multiple')) });
+      caption = '';
+    }
+    return true;
+  }
+  if (form && collect(form.children) && named.size) {
+    const fields: FreeTextField[] = [];
+    const questions: AskCard['questions'] = [];
+    for (const field of named.values()) {
+      const question = (field.id && labels.get(field.id)) || field.question;
+      const options = field.options.length <= ASK_MAX_OPTIONS ? field.options : [];
+      const multiSelect = field.multi && !!options.length;
+      fields.push({ name: field.name, question, options, multi: multiSelect });
+      questions.push({ question: maskSecrets(question).slice(0, ASK_QUESTION_MAX), multiSelect, options: options.map(({ label }) => ({ label: maskSecrets(label).slice(0, ASK_LABEL_MAX) })) });
+    }
+    return { input: { questions }, fields };
+  }
+  const suffix = '… veja o formulário completo no terminal';
+  const text = visible.slice(0, ASK_QUESTION_MAX - suffix.length - 1).trimEnd();
+  const question = !visible ? suffix : visible.length > ASK_QUESTION_MAX || html.length > FORM_HTML_MAX ? `${text} ${suffix}` : visible;
+  return { input: { questions: [{ question, options: [], multiSelect: false }] } };
+}
+
+function answersToFreeTextResult(form: FreeTextForm, answers: readonly AskAnswer[]): AskToolResult | undefined {
+  if (answers.length !== form.input.questions.length) return undefined;
+  const byIndex = new Map(answers.map((answer) => [answer.question, answer]));
+  const data: Record<string, string> = Object.create(null);
+  const details: Array<{ name: string; question: string; answer: string }> = [];
+  for (const [index] of form.input.questions.entries()) {
+    const submitted = byIndex.get(index);
+    if (!submitted) return undefined;
+    const field = form.fields?.[index];
+    const other = submitted.other?.trim();
+    if (other && (other.length > ANSWER_OTHER_MAX || /[\x00-\x08\x0b-\x1f\x7f]/.test(other))) return undefined;
+    const picked = submitted.options ?? [];
+    if (new Set(picked).size !== picked.length || picked.some((i) => !field?.options[i])) return undefined;
+    const count = picked.length + Number(!!other);
+    if (!count || (!field?.multi && count !== 1)) return undefined;
+    if (!field) return { content: [{ type: 'text', text: `User answered in free text (Habblaud): ${other}` }], details: { answers: [] } };
+    const options = field.options.filter((_, i) => picked.includes(i));
+    const values = options.map(({ value }) => value);
+    const labels = options.map(({ label }) => label);
+    if (other) { values.push(other); labels.push(other); }
+    data[field.name] = values.join(', ');
+    details.push({ name: field.name, question: field.question, answer: labels.join(', ') });
+  }
+  return { content: [{ type: 'text', text: `User answers:\n${JSON.stringify(data, null, 2)}\n(Respondido pelo Habblaud em texto livre; o formulário não validou os valores.)` }], details: { answers: details } };
 }
 
 /** Mesmo JSON e resumo de `ask` HTML do omp, sem inventar notas nem marcar prazo esgotado. */
@@ -632,16 +836,19 @@ export function answersToFormResult(map: readonly FormField[], answers: readonly
   for (const [index, field] of map.entries()) {
     const submitted = byIndex.get(index);
     const other = submitted?.other?.trim();
+    if (field.noOther && submitted?.other !== undefined) return undefined;
     if (submitted?.other !== undefined && (!other || other.length > ANSWER_OTHER_MAX)) return undefined;
     if (other && (field.type === 'textarea' ? /[\x00-\x08\x0b-\x1f\x7f]/ : /[\x00-\x1f\x7f]/).test(other)) return undefined;
     const picked = submitted?.options ?? [];
     if (new Set(picked).size !== picked.length || picked.some((i) => !field.options[i])) return undefined;
     const values = field.options.flatMap(({ value }, i) => picked.includes(i) ? [value] : []);
     if (other) values.push(other);
-    if ((field.type !== 'checkbox' && values.length > 1) || (field.required && !values.length)) return undefined;
-    const choice = field.type === 'radio' || field.type === 'checkbox';
+    const choice = field.options.length > 0;
+    // O omp só serializa um vetor quando o controle múltiplo tem mais de uma opção.
+    const array = field.multi && field.options.length > 1;
+    if ((!array && values.length > 1) || ((field.required || field.noOther) && !values.length)) return undefined;
     if (!choice && !other) return undefined;
-    if (field.type === 'checkbox') data[field.name] = values;
+    if (array) data[field.name] = values;
     else if (values.length) data[field.name] = values[0];
     const answer = choice ? values.map((v) => field.options.find((o) => o.value === v)?.label ?? `Other: ${v}`).join(', ') : other!;
     details.push({ name: field.name, question: field.question, answer });
@@ -980,6 +1187,7 @@ export function create(pi: OmpApi, deps: Deps): void {
           pi.sendUserMessage(m.text);
           idle = false;
         } else pi.sendUserMessage(m.text, { deliverAs: mode });
+        if (mode === 'steer') interruptTextHold(session);
         return { id: m.id, ok: true };
       } catch (err) {
         return { id: m.id, ok: false, error: reasonText(err, 'falha ao entregar a mensagem') };
@@ -1331,24 +1539,44 @@ export function create(pi: OmpApi, deps: Deps): void {
 
   // ---- perguntas (ask) pelo escritório --------------------------------------------------------
 
+  // O omp não oferece unsubscribe em pi.on; só as esperas ativas têm uma inscrição neste despachante.
+  const textHolds = new Map<string, { input: EventTarget; count: number }>();
+  function interruptTextHold(id: string): void {
+    try {
+      textHolds.get(id)?.input.dispatchEvent(new Event('input'));
+    } catch {
+      // A observação não muda o envio nem o reconhecimento da mensagem.
+    }
+  }
+  pi.on('input', (event, ctx) => {
+    try {
+      if (!textHolds.size || (event.source !== 'interactive' && event.source !== 'rpc')) return;
+      interruptTextHold(ctx.sessionManager.getSessionId());
+    } catch {
+      // Uma falha de observação não pode impedir a entrega da mensagem.
+    }
+  });
+
   /**
    * A pergunta nos dois lugares ao mesmo tempo: o diálogo nativo no terminal e o cartão no escritório. A primeira
-   * resposta vale e fecha a outra. Sem o cartão (subagente, Habblaud fora do ar, ninguém olhando, pergunta que ele
-   * não mostra inteira), só o nativo.
+   * resposta vale e fecha a outra. Sem cartão (subagente, Habblaud fora do ar, ninguém olhando ou controle
+   * sensível), só o nativo.
    */
   async function ask(params: unknown, signal: AbortSignal | undefined, ctx: ToolContext): Promise<unknown> {
     const native = ctx.invokeTool;
     if (!native) throw new Error('Habblaud: o ask do omp não está disponível');
     let input: AskCard | undefined;
     let formMap: FormField[] | undefined;
+    let freeForm: FreeTextForm | undefined;
     let sid: string | undefined;
     let cwd = '';
     try {
       if (!isSub(ctx)) {
-        const html = params && typeof params === 'object' ? (params as Rec).html : undefined;
+        const html = typeof params === 'string' ? params : params && typeof params === 'object' ? (params as Rec).html : undefined;
         if (typeof html === 'string') {
           const form = formToQuestions(html);
-          input = form?.input;
+          if (!form) freeForm = formToFreeText(html);
+          input = form?.input ?? freeForm?.input;
           formMap = form?.map;
         } else {
           input = askToHabblaud(params);
@@ -1359,34 +1587,66 @@ export function create(pi: OmpApi, deps: Deps): void {
     } catch {
       sid = undefined;
     }
-    const id = sid && input ? (await register(sid, ASK_TOOL, input, cwd, ASK_WAIT_MS))?.id : undefined;
+    if (!sid || !input) return native(params, signal ? { signal } : undefined);
+    const id = (await register(sid, ASK_TOOL, input, cwd, ASK_WAIT_MS))?.id;
     if (!id) return native(params, signal ? { signal } : undefined);
 
     const stop = new AbortController();
     const onAbort = () => stop.abort();
     signal?.addEventListener('abort', onAbort, { once: true });
+    const singleFreeText = !!freeForm && !freeForm.fields;
+    if (singleFreeText && signal?.aborted) onAbort();
     try {
       const local = native(params, { signal: stop.signal }).then(
         (value) => ({ kind: 'local' as const, value }),
         (error: unknown) => ({ kind: 'local-error' as const, error }),
       );
       // Do escritório só valem a resposta e o "Não responder"; o resto (pedido largado, prazo) deixa o terminal.
-      const remote = poll(id, stop.signal).then((outcome) => {
+      const polled = poll(id, stop.signal);
+      function remoteResult(outcome: Outcome | undefined) {
         if (outcome?.kind === 'habblaud' && !outcome.allowed) return outcome;
         if (outcome?.kind === 'answer') {
-          if (!formMap) return outcome;
+          if (!formMap && !freeForm) return outcome;
           try {
-            if (formMap.length === outcome.answers.length) {
-              const result = answersToFormResult(formMap, outcome.answers);
-              if (result) return { kind: 'form-result' as const, result };
-            }
+            const result = freeForm ? answersToFreeTextResult(freeForm, outcome.answers)
+              : formMap?.length === outcome.answers.length ? answersToFormResult(formMap, outcome.answers) : undefined;
+            if (result) return { kind: 'form-result' as const, result };
           } catch {
             // Uma resposta que não dá para converter não fecha o diálogo nativo.
           }
         }
-        return never<never>();
-      });
-      const first = await Promise.race([local, remote]);
+        return undefined;
+      }
+      const remote = polled.then((outcome) => remoteResult(outcome) ?? never<never>());
+      let first = await Promise.race([local, remote]);
+      if (singleFreeText && first.kind === 'local' && first.value && typeof first.value === 'object' && 'details' in first.value) {
+        const { details } = first.value;
+        if (details && typeof details === 'object' && 'answers' in details && Array.isArray(details.answers) && !details.answers.length
+          && !('timedOut' in details && details.timedOut === true) && !('isError' in first.value && first.value.isError === true)) {
+          // O nativo retorna um diagnóstico imediato quando não há campos; não há diálogo para responder lá.
+          let hold = textHolds.get(sid);
+          if (!hold) {
+            hold = { input: new EventTarget(), count: 0 };
+            textHolds.set(sid, hold);
+          }
+          hold.count++;
+          const onMessage = () => stop.abort('user');
+          hold.input.addEventListener('input', onMessage);
+          let outcome;
+          try {
+            outcome = remoteResult(await polled);
+          } finally {
+            hold.input.removeEventListener('input', onMessage);
+            if (!--hold.count) textHolds.delete(sid);
+          }
+          if (stop.signal.aborted) {
+            await withdraw(id);
+            throw new Error(stop.signal.reason === 'user' ? 'Ask interrupted by message' : 'Ask input was cancelled');
+          }
+          if (outcome?.kind !== 'form-result') return first.value;
+          first = outcome;
+        }
+      }
       stop.abort();
       if (first.kind === 'local' || first.kind === 'local-error') {
         await withdraw(id);
@@ -1418,6 +1678,9 @@ export function create(pi: OmpApi, deps: Deps): void {
       description: native.description ?? '',
       parameters: native.parameters,
       approval: 'read',
+      strict: true,
+      lenientArgValidation: true,
+      concurrency: 'exclusive',
       execute: (_id, params, signal, _onUpdate, ctx) => ask(params, signal, ctx),
     });
   }

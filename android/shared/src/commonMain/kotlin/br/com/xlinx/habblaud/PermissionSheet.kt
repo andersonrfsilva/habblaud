@@ -51,6 +51,7 @@ internal fun permissionDecision(provider: String, behavior: String, questions: L
                     val selected = selections[index].orEmpty()
                     val other = others[index].orEmpty().trim()
                     val valid = q.objects("options").mapNotNull { it["index"]?.jsonPrimitive?.intOrNull }.toSet()
+                    require(q["noOther"] != JsonPrimitive(true) || other.isEmpty())
                     require(selected.all { it in valid } && (selected.isNotEmpty() || other.isNotEmpty()))
                     require(q.flag("multiSelect") || selected.size + (if (other.isNotEmpty()) 1 else 0) == 1)
                     add(buildJsonObject {
@@ -166,7 +167,7 @@ internal fun PermissionSheet(api: HabblaudApi, session: SessionItem, allowed: Bo
                             Column { Text(option.string("label").orEmpty()); option.string("description")?.let { Text(it) } }
                         }
                     }
-                    OutlinedTextField(others[index].orEmpty(), { others[index] = it; if (!multi && it.isNotEmpty()) selections[index] = emptySet() }, label = { Text(stringResource(Res.string.permission_other)) })
+                    if (q["noOther"] != JsonPrimitive(true)) OutlinedTextField(others[index].orEmpty(), { others[index] = it; if (!multi && it.isNotEmpty()) selections[index] = emptySet() }, label = { Text(stringResource(Res.string.permission_other)) })
                 }
                 if (provider == "claude" && questions.isEmpty()) {
                     request.objects("suggestions").forEach { s ->

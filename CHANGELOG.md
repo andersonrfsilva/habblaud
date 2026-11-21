@@ -192,7 +192,8 @@ do meio (0.**3**.0).
 - Imagens que o agente mostra com `<img src="…">` aparecem no Zaplaud como imagem.
 - **Zaplaud desktop:** desenhos `svg` e diagramas Mermaid de tamanho real aparecem desenhados; antes, só os muito
   pequenos, e os demais apareciam como código.
-- **omp:** formulários simples de escolha ou texto voltam a aparecer no Zaplaud e na página; formulários que o cartão não consegue representar ficam no terminal.
+- **omp:** toda pergunta em formulário aparece no Zaplaud: listas viram escolha sem "Outro", e o que o cartão não
+  representa vira resposta em texto livre. Formulários com senha ou arquivo continuam só no terminal.
 - **omp:** formulários de pergunta com até 12 perguntas e 12 opções por pergunta aparecem no Zaplaud e na página
   (antes, acima de 4 perguntas ficavam só no terminal). Opções com rótulo de até 300 caracteres (os agentes costumam
   escrever a explicação dentro dele) também passam, e o cartão mostra o rótulo inteiro, com quebra de linha.

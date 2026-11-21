@@ -31,6 +31,7 @@ export function checkAnswers(questions: readonly AskQuestion[], answers: readonl
     const raw = Array.isArray(a.options) ? a.options : [];
     const options = [...new Set(raw)].sort((x, y) => x - y);
     if (options.length !== raw.length || options.some((i) => !q.options.some((o) => o.index === i))) return undefined;
+    if (q.noOther && Object.hasOwn(a, 'other')) return undefined;
     const other = typeof a.other === 'string' ? a.other.trim() : '';
     if (other.length > ANSWER_OTHER_MAX) return undefined;
     const picks = options.length + (other ? 1 : 0);

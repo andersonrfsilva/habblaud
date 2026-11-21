@@ -1019,6 +1019,22 @@ fn questions() -> Vec<Value> {
     serde_json::from_str(r#"[{"index":2,"question":"Uma","options":[{"index":4,"label":"A"},{"index":8,"label":"B"}]},{"index":7,"question":"Várias","multiSelect":true,"options":[{"index":1,"label":"C"},{"index":5,"label":"D"}]}]"#).unwrap()
 }
 #[test]
+fn permission_no_other_requires_a_choice_without_free_text() {
+    let mut question = questions().remove(1);
+    question["noOther"] = json!(true);
+    let questions = [question];
+    let mut decision = p::Decision::default();
+    assert!(p::permission_decision("omp", "answer", &questions, &decision).is_err());
+    decision.selections.insert(7, [5].into());
+    assert_eq!(
+        p::permission_decision("omp", "answer", &questions, &decision).unwrap(),
+        json!({"behavior":"answer","answers":[{"question":7,"options":[5]}]})
+    );
+    decision.others.insert(7, "livre".into());
+    assert!(p::permission_decision("omp", "answer", &questions, &decision).is_err());
+}
+
+#[test]
 fn kotlin_permission_original_indices_free_text_and_invalid_single() {
     let questions = questions();
     let decision = p::Decision {

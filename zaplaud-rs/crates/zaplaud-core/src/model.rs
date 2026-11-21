@@ -1121,6 +1121,7 @@ pub struct PermissionQuestion {
     pub header: Option<String>,
     pub question: String,
     pub multi_select: bool,
+    pub no_other: bool,
     pub options: Vec<PermissionOption>,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1158,6 +1159,7 @@ impl Permission {
                     header: string(q, "header"),
                     question: string(q, "question").unwrap_or_default(),
                     multi_select: flag(q, "multiSelect"),
+                    no_other: q.get("noOther").and_then(Value::as_bool) == Some(true),
                     options: objects(q, "options")
                         .map(|p| PermissionOption {
                             index: index(p),

@@ -25,6 +25,15 @@ class PermissionDecisionTest {
         assertEquals(wireJson.parseToJsonElement("""{"behavior":"answer","answers":[{"question":2,"other":"livre"}]}"""), free)
     }
 
+    @Test fun noOtherRequiresAnOptionAndRejectsFreeText() {
+        val closed = listOf(JsonObject(questions[1] + ("noOther" to JsonPrimitive(true))))
+        val picks = mapOf(7 to setOf(5))
+        val expected = wireJson.parseToJsonElement("""{"behavior":"answer","answers":[{"question":7,"options":[5]}]}""")
+        assertEquals(expected, permissionDecision("omp", "answer", closed, picks, emptyMap()))
+        assertFailsWith<IllegalArgumentException> { permissionDecision("omp", "answer", closed, emptyMap(), emptyMap()) }
+        assertFailsWith<IllegalArgumentException> { permissionDecision("omp", "answer", closed, picks, mapOf(7 to "livre")) }
+    }
+
     @Test fun ompFormWithSixQuestionsAnswersEachByPosition() {
         val label = "x".repeat(300)
         val six = (0 until 6).map { i ->
