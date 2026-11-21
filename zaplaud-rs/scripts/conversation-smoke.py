@@ -107,13 +107,21 @@ def probe_selection(desktop, clipboard, colors, source, url, opened, captures, t
         desktop.xt.XTestFakeButtonEvent(desktop.d, number, pressed, 0)
         desktop.x.XSync(desktop.d, 0)
 
-    def key_copy():
-        desktop.key('c', ('Control_L',))
+    def key_copy(modifier='Control_L'):
+        desktop.key('c', (modifier,))
         return clipboard.text()
 
     def key_copy_all():
         desktop.key('a', ('Control_L',))
         return key_copy()
+
+    def drag(start, end):
+        warp(start, top + 24)
+        button(1, 1)
+        time.sleep(.1)
+        warp(end, top + 24)
+        time.sleep(.1)
+        button(1, 0)
 
     warp(1000, 400)
     time.sleep(.1)
@@ -124,9 +132,16 @@ def probe_selection(desktop, clipboard, colors, source, url, opened, captures, t
     content = (380, top, 810, top + 155)
     first_line = (380, top + 12, 810, top + 33)
     formatted_line = formatted.crop(first_line).tobytes()
+    # O sublinhado tem a cor sólida do tema; sua largura acompanha a fonte do sistema.
+    link_columns = [x for x in range(500, 755) if any(
+        formatted.getpixel((x, y)) == colors['primary'] for y in range(top + 13, top + 32)
+    )]
+    assert link_columns, 'O link formatado não apareceu no parágrafo'
+    link_left, link_right = link_columns[0], link_columns[-1] + 1
+    link_middle = link_left + round((link_right - link_left) * .70)
     formatted = formatted.crop(content).tobytes()
-    expected_drag = 'Começo do parágrafo.\n\n• Item da lista\n\nfim_do_codigo\n'
-    expected_all = expected_drag + '\nLink local'
+    expected_drag = 'Começo do parágrafo. Link local termina aqui.\n\n• Item da lista\n\nfim_do_codigo\n'
+    expected_all = expected_drag + '\nFim da mensagem.'
 
     warp(420, top + 24)
     for _ in range(2):
@@ -135,30 +150,31 @@ def probe_selection(desktop, clipboard, colors, source, url, opened, captures, t
         time.sleep(.075)
     assert key_copy() == 'Começo', 'Duplo clique no texto formatado não selecionou a palavra'
     time.sleep(.6)
-    # As duas famílias têm larguras diferentes; meça a linha em pixels antes de posicionar o arraste.
-    image = desktop.image()
-    right = max(x for x in range(480, 640)
-                if any(image.getpixel((x, y)) != colors['surface'] for y in range(top + 13, top + 31)))
-    warp(389 + round((right - 389) * .12), top + 24)
-    button(1, 1)
-    time.sleep(.1)
-    warp(389 + round((right - 389) * .59), top + 24)
-    time.sleep(.1)
-    button(1, 0)
-    excerpt = key_copy()
-    assert excerpt == 'meço do p', f'O arraste não selecionou o trecho formatado: {excerpt!r}'
-    # O clique em outro bloco não pode contar como duplo clique com o início do arraste.
-    desktop.click(420, top + 48)
-    copied = key_copy()
-    assert copied == source, f'Ctrl+C sem trecho selecionado não copiou o Markdown original: {copied!r}'
-    assert desktop.image().crop(first_line).tobytes() == formatted_line, 'A seleção anterior ficou visível'
+    def assert_excerpt(modifier, start, end, expected, name):
+        drag(start, end)
+        excerpt = key_copy(modifier)
+        assert excerpt == expected, f'{modifier}+C não copiou o trecho formatado: {excerpt!r}'
+        assert not opened.exists(), 'Arrastar abriu o link'
+        desktop.image().save(captures / f'zaplaud-selecao-{name}-{theme}.png')
+        # Outro bloco precisa limpar a seleção e substituir o clipboard pelo Markdown original.
+        desktop.click(420, top + 48)
+        copied = key_copy()
+        assert copied == source, f'Ctrl+C sem trecho selecionado não copiou o Markdown original: {copied!r}'
+        assert desktop.image().crop(first_line).tobytes() == formatted_line, 'A seleção anterior ficou visível'
+
+    assert_excerpt('Control_L', 411, link_middle, 'meço do parágrafo. Link lo', 'ctrl-c')
+    # No Xvfb, Super_L é Mod4; no winit em Linux, Mod4 alimenta event.modifiers.meta.
+    assert_excerpt('Super_L', link_middle, 411, 'meço do parágrafo. Link lo', 'super-c')
+    assert_excerpt('Control_L', 411, link_right + 27, 'meço do parágrafo. Link local ter', 'link-inteiro')
+    time.sleep(.6)
 
     def select_from_context_menu():
         warp(420, top + 24)
         button(3, 1)
         button(3, 0)
         time.sleep(.2)
-        desktop.key('Up')
+        desktop.key('Down')
+        desktop.key('Down')
         desktop.key('Return')
         assert key_copy_all() == expected_all, '"Selecionar a mensagem toda" não abriu o campo pelo menu de contexto'
 
@@ -205,7 +221,7 @@ def probe_selection(desktop, clipboard, colors, source, url, opened, captures, t
                    'Clique fora após entrada pelo menu não restaurou a formatação na mesma posição')
 
     assert not opened.exists(), 'O link abriu sem receber um clique'
-    desktop.click(419, top + 146)
+    desktop.click(link_middle, top + 24)
     smoke.wait_for(opened.is_file, 'Clique simples não abriu o link no manipulador do sistema')
     assert opened.read_text().strip() == url
     assert desktop.image().crop(content).tobytes() == formatted, 'Clique no link entrou em seleção'
@@ -218,7 +234,8 @@ def probe_selection(desktop, clipboard, colors, source, url, opened, captures, t
         button(4, 0)
     smoke.wait_for(lambda: desktop.image().crop(content).tobytes() != before_scroll,
                    'A roda sobre o campo não rolou a lista')
-    return ['duplo-clique', 'ctrl-c-sem-seleção', 'ctrl-a', 'arraste-entre-blocos', 'escape-e-âncora',
+    return ['duplo-clique', 'ctrl-c-trecho-com-link', 'meta-c-trecho-com-link', 'ctrl-c-link-inteiro',
+            'ctrl-c-sem-seleção', 'ctrl-a', 'arraste-entre-blocos', 'escape-e-âncora',
             'clique-fora', 'menu-entrar', 'sem-menu-no-campo', 'menu-sair-por-escape-ou-clique-fora', 'link', 'roda']
 
 
@@ -541,7 +558,7 @@ def main():
                     desktop.image().save(captures / f'zaplaud-rs-fin-conversation-regression-end-{args.theme}.png')
 
                     url = f'http://127.0.0.1:{args.port}/fixture-selection-link'
-                    source = f'**Começo do parágrafo.**\n\n- Item da lista\n\n```text\nfim_do_codigo\n```\n\n[Link local]({url})'
+                    source = f'**Começo do parágrafo.** [Link local]({url}) termina aqui.\n\n- Item da lista\n\n```text\nfim_do_codigo\n```\n\nFim da mensagem.'
                     with transcript.open('a') as stream:
                         write_entry(stream, source, 'assistant')
                     smoke.wait_for(lambda: copy_last() == source, 'Mensagem para seleção não apareceu', 20)
