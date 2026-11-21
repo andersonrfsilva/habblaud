@@ -165,6 +165,28 @@ describe('rotas', () => {
     });
   });
 
+  it('noOther chega ao cliente e o servidor recusa other mesmo com uma opção válida', async () => {
+    srv = await servePermissions();
+    const questions = [
+      { question: 'Qual opção?', multiSelect: true, noOther: true, options: [{ label: 'A' }] },
+      { question: 'Qual teste?', options: [{ label: 'B' }] },
+    ];
+    const reg = await register(srv, { tool_name: 'AskUserQuestion', tool_input: { questions }, permission_suggestions: [] });
+    expect(reg.status).toBe(201);
+    const { id } = reg.json as { id: string };
+    const url = `/api/permissions/${id}`;
+    expect((await request(srv.base, url)).json).toMatchObject({ questions: [{ noOther: true }, { question: 'Qual teste?' }] });
+    const decide = (other?: string) => request(srv!.base, `${url}/decision`, {
+      method: 'POST', body: { behavior: 'answer', answers: [{ question: 0, options: [0], other }, { question: 1, options: [0], other: ' ' }] },
+    });
+    expect((await decide('texto')).status).toBe(400);
+    expect((await decide(' ')).status).toBe(400);
+    expect((await decide()).status).toBe(200);
+    expect((await request(srv.base, `${url}/wait`)).json).toEqual({
+      status: 'decided', behavior: 'answer', answers: [{ question: 0, options: [0] }, { question: 1, options: [0] }],
+    });
+  });
+
   it('demo: a pergunta fictícia responde pela mesma rota (e aprovar não serve)', async () => {
     srv = await servePermissions({ demo: true });
     const sim = (srv.office as unknown as { demo: { forcePermission(now: number, kind?: string): string | undefined } }).demo;

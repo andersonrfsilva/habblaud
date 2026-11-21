@@ -1,7 +1,7 @@
 import { Theme } from "resources.slint";
 import { Sheet, TextButton, FilledButton, TextField, ScrollContainer, Avatar, ProgressRing, CheckBox } from "widgets/kit.slint";
 export struct PermissionChoice { question: int, index: int, multi: bool, label: string, description: string, checked: bool }
-export struct PermissionQuestionRow { index: int, multi: bool, text: string, other: string, options: [PermissionChoice] }
+export struct PermissionQuestionRow { index: int, multi: bool, no-other: bool, text: string, other: string, options: [PermissionChoice] }
 export struct PermissionSuggestionRow { index: int, text: string, checked: bool }
 export global PermissionState {
     in-out property <bool> visible;
@@ -113,7 +113,7 @@ export component PermissionSheet inherits Sheet {
             for question in PermissionState.questions: VerticalLayout { spacing: 6px;
                 Text { text: question.text; color: Theme.on-surface; wrap: word-wrap; }
                 for option in question.options: CheckBox { text: option.label; description: option.description; checked: option.checked; toggled => { PermissionState.select(question.index, option.index, question.multi, self.checked); } }
-                TextField { text: question.other; placeholder: PermissionState.other-label; outlined: true; edited(value) => { PermissionState.other(question.index, question.multi, value); } }
+                if !question.no-other: TextField { text: question.other; placeholder: PermissionState.other-label; outlined: true; edited(value) => { PermissionState.other(question.index, question.multi, value); } }
             }
             for suggestion in PermissionState.suggestions: CheckBox { text: suggestion.text; checked: suggestion.checked; toggled => { PermissionState.suggestion(suggestion.index, self.checked); } }
             if PermissionState.show-deny && PermissionState.questions.length == 0: VerticalLayout {

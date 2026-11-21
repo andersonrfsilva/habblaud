@@ -127,11 +127,12 @@ export interface AskChoice {
  * OU o "Outro"; várias: as opções e o "Outro" juntos. "Outro" marcado sem texto conta como sem resposta.
  */
 export function answerFor(q: AskQuestion, c: AskChoice | undefined): PermissionAnswer | undefined {
-  if (!c) return undefined;
+  if (!c || q.noOther && c.otherOn) return undefined;
   const other = c.otherOn ? c.otherText.trim().slice(0, ANSWER_OTHER_MAX) : '';
   if (c.otherOn && !other) return undefined;
   const options = q.multiSelect || !other ? c.options.filter((i) => q.options.some((o) => o.index === i)) : [];
   if (!options.length && !other) return undefined;
+  if (q.noOther && !q.multiSelect && options.length !== 1) return undefined;
   return { question: q.index, ...(options.length ? { options: [...options] } : {}), ...(other ? { other } : {}) };
 }
 
@@ -563,7 +564,7 @@ export class PermissionCard {
       h('legend', { class: 'ui-perm-ask__legend' }, q.header ? h('span', { class: 'ui-ask__tag', text: q.header }) : null, h('span', { class: 'ui-ask__question', text: q.question })),
       h('p', { class: 'ui-ask__hint', text: q.multiSelect ? tr('Pode escolher mais de uma') : tr('Escolha uma') }),
       ...options.map(({ input: box, o }) => h('label', { class: 'ui-perm-ask__opt' }, box, optionText(o.label, o.description))),
-      h('div', { class: 'ui-perm-ask__other' }, h('label', { class: 'ui-perm-ask__opt' }, other, optionText(tr('Outro'))), text),
+      q.noOther ? null : h('div', { class: 'ui-perm-ask__other' }, h('label', { class: 'ui-perm-ask__opt' }, other, optionText(tr('Outro'))), text),
     );
     return { q, el, options: options.map((x) => x.input), other, text };
   }

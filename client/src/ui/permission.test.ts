@@ -121,6 +121,15 @@ describe('cartão de pergunta (AskUserQuestion)', () => {
     expect(answerFor(single, choice([], true, 'x'.repeat(2_500)))!.other).toHaveLength(2_000);
   });
 
+  it('noOther só aceita uma opção, sem texto livre', () => {
+    const question = { ...single, noOther: true as const };
+    expect(answerFor(question, choice([]))).toBeUndefined();
+    expect(answerFor(question, choice([], true, 'texto'))).toBeUndefined();
+    expect(answerFor(question, choice([2], true, 'texto'))).toBeUndefined();
+    expect(answerFor(question, choice([0, 2]))).toBeUndefined();
+    expect(answerFor(question, choice([2]))).toEqual({ question: 0, options: [2] });
+  });
+
   it('buildAnswers: o corpo só sai com todas as perguntas respondidas (normalizado como o servidor confere)', () => {
     const qs = [single, multi];
     expect(buildAnswers(qs, new Map([[0, choice([0])]]))).toBeUndefined();

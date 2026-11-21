@@ -361,6 +361,7 @@ fn publish(weak: &slint::Weak<AppWindow>, item: SessionItem, state: State) {
                 Some(PermissionQuestionRow {
                     index,
                     multi: q.multi_select,
+                    no_other: q.no_other,
                     text: q.question.clone().into(),
                     other: state
                         .decision

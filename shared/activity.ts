@@ -31,7 +31,7 @@ function askQuestions(raw: unknown): AskQuestion[] {
       return [{ index, label, ...(description ? { description } : {}) }];
     });
     const header = clean(q.header, 30);
-    return [{ index, question, ...(header ? { header } : {}), ...(q.multiSelect === true ? { multiSelect: true } : {}), options }];
+    return [{ index, question, ...(header ? { header } : {}), ...(q.multiSelect === true ? { multiSelect: true } : {}), ...(q.noOther === true ? { noOther: true } : {}), options }];
   });
 }
 

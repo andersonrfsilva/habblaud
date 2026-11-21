@@ -39,6 +39,15 @@ describe('checkAnswers', () => {
     expect(checkAnswers(QS, [{ question: 0, options: [] }, multi])).toBeUndefined();
   });
 
+  it('noOther exige opções e recusa qualquer campo other', () => {
+    const questions = [{ ...QS[1], noOther: true as const }];
+    const answer = { question: 2, options: [1] };
+    expect(checkAnswers(questions, [answer])).toEqual([answer]);
+    expect(checkAnswers(questions, [{ question: 2, other: 'texto' }])).toBeUndefined();
+    expect(checkAnswers(questions, [{ ...answer, other: 'texto' }])).toBeUndefined();
+    expect(checkAnswers(questions, [{ ...answer, other: ' ' }])).toBeUndefined();
+  });
+
   it('várias: ao menos uma escolha; opções que a pergunta não mostra ou repetidas não valem', () => {
     const single = { question: 0, options: [0] };
     expect(checkAnswers(QS, [single, { question: 2 }])).toBeUndefined();

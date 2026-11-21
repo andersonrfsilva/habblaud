@@ -63,6 +63,8 @@ pub fn permission_decision(
             let valid: BTreeSet<_> = objects(question, "options").filter_map(index).collect();
             if !selected.is_subset(&valid)
                 || selected.is_empty() && other.is_empty()
+                || question.get("noOther").and_then(Value::as_bool) == Some(true)
+                    && !other.is_empty()
                 || question.get("multiSelect").and_then(Value::as_bool) != Some(true)
                     && selected.len() + usize::from(!other.is_empty()) != 1
             {

@@ -166,6 +166,7 @@ export interface AskQuestion {
   question: string;
   header?: string;
   multiSelect?: boolean;
+  noOther?: true;
   /** `index` = posição da opção em `options` do original: é ela que volta na resposta (PermissionAnswer). */
   options: Array<{ index: number; label: string; description?: string }>;
 }
