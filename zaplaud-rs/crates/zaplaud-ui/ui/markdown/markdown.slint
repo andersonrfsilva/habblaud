@@ -145,12 +145,6 @@ export component MarkdownView inherits Rectangle {
     in property <int> selection-generation;
     private property <bool> selecting: false;
     private property <string> plain-text;
-    private property <bool> selection-menu;
-    function show-message-menu(position: Point) {
-        // O popup toma o foco até fechar; não trate isso como clique fora.
-        root.selection-menu = root.selecting;
-        message-menu.show(position);
-    }
     function select-text() {
         if !root.selecting {
             root.plain-text = MarkdownSelection.format(root.blocks);
@@ -163,19 +157,16 @@ export component MarkdownView inherits Rectangle {
             root.before-selection-change();
             root.selecting = false;
             root.plain-text = "";
-            root.selection-menu = false;
             if restore-focus { message-focus.focus(); }
         }
     }
     changed selection-generation => {
         root.selecting = false;
         root.plain-text = "";
-        root.selection-menu = false;
     }
     changed row-id => {
         root.selecting = false;
         root.plain-text = "";
-        root.selection-menu = false;
     }
     in property <color> foreground: Theme.on-surface;
     preferred-height: content.preferred-height;
@@ -183,20 +174,14 @@ export component MarkdownView inherits Rectangle {
     horizontal-stretch: 1;
     forward-focus: message-focus;
     message-menu := ContextMenuArea {
+        // O menu nativo tira o foco do campo; durante a seleção, Esc ou clique fora encerra o modo.
+        enabled: !root.selecting;
         Menu {
             MenuItem { title: "Copiar mensagem"; activated => { root.copy(root.source-markdown); } }
-            MenuItem {
-                title: root.selecting ? "Texto formatado" : "Selecionar texto";
-                activated => { if root.selecting { root.stop-selecting(true); } else { root.select-text(); } }
-            }
+            MenuItem { title: "Selecionar texto"; activated => { root.select-text(); } }
         }
         hover := TouchArea {
             clicked => { message-focus.focus(); }
-            pointer-event(event) => {
-                if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
-                    root.show-message-menu({ x: self.mouse-x, y: self.mouse-y });
-                }
-            }
             message-focus := FocusScope {
                 focus-on-click: false;
                 capture-key-pressed(event) => {
@@ -222,15 +207,10 @@ export component MarkdownView inherits Rectangle {
         selection-background-color: Theme.primary;
         selection-foreground-color: Theme.on-primary;
         changed has-focus => {
-            if self.has-focus { root.selection-menu = false; }
-            else if !root.selection-menu { root.stop-selecting(false); }
+            if !self.has-focus { root.stop-selecting(false); }
         }
         key-pressed(event) => {
             if event.text == Key.Escape { return accept; }
-            if event.text == Key.Menu || (event.text == Key.F10 && event.modifiers.shift) {
-                root.show-message-menu({ x: 0px, y: 0px });
-                return accept;
-            }
             if (event.modifiers.control || event.modifiers.meta)
                 && event.text.to-lowercase() == "c"
                 && self.anchor-position-byte-offset == self.cursor-position-byte-offset {
@@ -425,6 +405,7 @@ export component MarkdownView inherits Rectangle {
         }
         IconButton {
             width: 28px; height: 28px; icon: MaterialIcons.more-vert; label: "Ações da mensagem";
+            enabled: !root.selecting;
             clicked => { message-menu.show({x: root.width - 28px, y: root.height}); }
         }
         IconButton { width: 28px; height: 28px; icon: MaterialIcons.content-copy; label: "Copiar mensagem"; clicked => { root.copy(root.source-markdown); message-focus.focus(); } }

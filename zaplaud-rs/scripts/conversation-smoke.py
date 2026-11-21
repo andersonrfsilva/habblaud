@@ -158,21 +158,31 @@ def probe_selection(desktop, clipboard, colors, source, url, opened, captures, t
     desktop.click(950, bottom - 42)
     assert clipboard.text() == source
 
-    warp(420, top + 24)
+    def select_from_context_menu():
+        warp(420, top + 24)
+        button(3, 1)
+        button(3, 0)
+        time.sleep(.2)
+        desktop.key('Up')
+        desktop.key('Return')
+        assert key_copy_all() == expected_all, 'Selecionar texto deixou de funcionar no menu de contexto'
+
+    select_from_context_menu()
+    desktop.key('Left')
+    # Exclui o caret piscante, mas inclui a região onde se abriria o menu.
+    popup_box = (420, top + 24, 810, top + 155)
+    before_right_click = desktop.image().crop(popup_box).tobytes()
     button(3, 1)
     button(3, 0)
     time.sleep(.2)
-    desktop.key('Up')
-    desktop.key('Return')
-    assert key_copy_all() == expected_all, 'Selecionar texto deixou de funcionar no menu de contexto'
-    warp(420, top + 24)
-    button(3, 1)
-    button(3, 0)
-    time.sleep(.2)
-    desktop.key('Up')
-    desktop.key('Return')
+    assert desktop.image().crop(popup_box).tobytes() == before_right_click, 'Clique direito abriu menu sobre a seleção'
+    desktop.key('Escape')
     smoke.wait_for(lambda: desktop.image().crop(content).tobytes() == formatted,
-                   'Texto formatado deixou de funcionar no menu de contexto')
+                   'Esc após entrada pelo menu não restaurou a formatação na mesma posição')
+    select_from_context_menu()
+    desktop.click(1000, top + 24)
+    smoke.wait_for(lambda: desktop.image().crop(content).tobytes() == formatted,
+                   'Clique fora após entrada pelo menu não restaurou a formatação na mesma posição')
 
     assert not opened.exists(), 'O link abriu sem receber um clique'
     desktop.click(419, top + 146)
@@ -190,7 +200,7 @@ def probe_selection(desktop, clipboard, colors, source, url, opened, captures, t
     smoke.wait_for(lambda: desktop.image().crop(content).tobytes() != before_scroll,
                    'A roda sobre o campo não rolou a lista')
     return ['duplo-clique', 'ctrl-c-sem-seleção', 'ctrl-a', 'arraste-entre-blocos', 'escape-e-âncora',
-            'botão', 'clique-fora', 'menu-entrar-e-sair', 'link', 'roda']
+            'botão', 'clique-fora', 'menu-entrar', 'sem-menu-no-campo', 'menu-sair-por-escape-ou-clique-fora', 'link', 'roda']
 
 
 def probe_matrix(binary, display, output=None):
