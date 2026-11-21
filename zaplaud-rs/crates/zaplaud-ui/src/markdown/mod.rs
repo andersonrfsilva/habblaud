@@ -500,6 +500,85 @@ pub fn parse(markdown: &str) -> Vec<MdBlock> {
     state.blocks
 }
 
+/// Texto selecionável dos blocos visíveis de um fragmento, sem a sintaxe Markdown.
+pub(crate) fn selection_text(
+    blocks: &ModelRc<crate::conversation_rows::MdBlock>,
+) -> slint::SharedString {
+    use crate::transcript::{HEIGHT_BUDGET, estimate};
+    use slint::Model;
+
+    let mut text = String::new();
+    let mut rule_lines = 0;
+    for block in blocks.iter() {
+        match block.kind.as_str() {
+            // O texto alternativo ou rótulo da imagem já está no parágrafo.
+            "image" => continue,
+            "rule" => {
+                rule_lines += 1;
+                continue;
+            }
+            _ => {}
+        }
+        if !text.is_empty() {
+            let trailing = text.bytes().rev().take(2).take_while(|&b| b == b'\n').count();
+            for _ in trailing..2 {
+                text.push('\n');
+            }
+        }
+        for _ in 0..std::mem::take(&mut rule_lines) {
+            text.push('\n');
+        }
+        if block.diagram.size().width > 0 {
+            text.push_str(if block.language.trim() == "svg" {
+                "[diagrama SVG]"
+            } else {
+                "[diagrama Mermaid]"
+            });
+        } else if block.kind == "table" {
+            let columns = block.columns as usize;
+            for (index, cell) in block.cells.iter().enumerate() {
+                if index != 0 {
+                    text.push(if index % columns == 0 { '\n' } else { '\t' });
+                }
+                text.push_str(&cell.text);
+            }
+        } else {
+            if !block.marker.is_empty() {
+                for _ in 0..block.depth {
+                    text.push_str("  ");
+                }
+                text.push_str(&block.marker);
+                text.push(' ');
+            }
+            text.push_str(&block.text);
+        }
+    }
+    for _ in 0..rule_lines {
+        text.push('\n');
+    }
+    // A apresentação em texto pode ocupar mais linhas que o Markdown formatado.
+    // Reserve até duas unidades para a reticência, até quando ela iniciar outra linha.
+    if estimate(&text) > HEIGHT_BUDGET {
+        let mut remaining = HEIGHT_BUDGET - 2;
+        let mut end = 0;
+        for line in text.split_inclusive('\n') {
+            let cost = estimate(line);
+            if cost > remaining {
+                end += line
+                    .char_indices()
+                    .nth(remaining.saturating_sub(1) * 4)
+                    .map_or(line.len(), |(i, _)| i);
+                break;
+            }
+            remaining -= cost;
+            end += line.len();
+        }
+        text.truncate(end);
+        text.push('…');
+    }
+    text.into()
+}
+
 /// Cria um modelo Slint de um documento já analisado, sem cópia dos blocos.
 pub fn block_model(blocks: Vec<MdBlock>) -> ModelRc<MdBlock> {
     model(blocks)
@@ -517,6 +596,55 @@ pub fn message_model(sources: Vec<String>) -> ModelRc<MdMessage> {
 mod tests {
     use super::*;
     use slint::Model;
+
+    #[test]
+    fn selection_text_spans_markdown_blocks() {
+        let source = concat!(
+            "# Título\n\nUm **parágrafo**.\n\n> Citação\n\n",
+            "3. Primeiro\n   - Interno\n4. Próximo\n\n",
+            "```rs\n  let x = 1;\n\n```\n\n",
+            "| A | B |\n| - | - |\n| um | dois |\n\n---\n\nFim"
+        );
+        let blocks =
+            crate::conversation_rows::MarkdownSource::new(source).model(source, 0..source.len());
+        assert_eq!(
+            selection_text(&blocks),
+            concat!(
+                "Título\n\nUm parágrafo.\n\nCitação\n\n",
+                "3. Primeiro\n\n  • Interno\n\n4. Próximo\n\n",
+                "  let x = 1;\n\n",
+                "A\tB\num\tdois\n\n\nFim"
+            )
+        );
+    }
+
+    #[test]
+    fn selection_text_replaces_large_drawn_svg_with_label() {
+        let source = format!(
+            "Antes\n\n```svg\n<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"20\" height=\"20\">{}<rect width=\"20\" height=\"20\"/></svg>\n```\n\nDepois",
+            "\n".repeat(199_800),
+        );
+        let pieces = crate::transcript::transcript_pieces(&source);
+        let [piece] = pieces.as_slice() else {
+            panic!("o SVG renderizado deve ficar num só fragmento");
+        };
+        let blocks = crate::conversation_rows::MarkdownSource::new(&source)
+            .model(&piece.display, piece.range.clone());
+        let selected = selection_text(&blocks);
+        assert_eq!(selected, "Antes\n\n[diagrama SVG]\n\nDepois");
+        assert!(crate::transcript::estimate(&selected) <= crate::transcript::HEIGHT_BUDGET);
+    }
+
+    #[test]
+    fn selection_text_caps_excess_lines_without_splitting_utf8() {
+        let source = format!("Antes\n\n{}", "ação ".repeat(200));
+        let blocks =
+            crate::conversation_rows::MarkdownSource::new(&source).model(&source, 0..source.len());
+        let selected = selection_text(&blocks);
+        assert!(selected.starts_with("Antes\n\nação"));
+        assert!(selected.ends_with('…'));
+        assert!(crate::transcript::estimate(&selected) <= crate::transcript::HEIGHT_BUDGET);
+    }
 
     #[test]
     fn headings_paragraphs_and_inline_styles() {
