@@ -17,8 +17,8 @@ tokio = { version = "1", features = ["rt", "sync", "time", "macros", "net", "pro
 futures-util = "0.3"
 thiserror = "2"
 url = "2"
-slint = { version = "=1.18.1", default-features = false, features = ["std", "renderer-software", "compat-1-2", "unstable-fontique-011"] }
-slint-build = "=1.18.1"
+slint = { version = "=1.19.0", default-features = false, features = ["std", "renderer-software", "compat-1-2", "unstable-fontique-012"] }
+slint-build = "=1.19.0"
 roxmltree = "0.21"
 
 [workspace.lints.rust]

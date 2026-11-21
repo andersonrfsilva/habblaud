@@ -107,13 +107,21 @@ def probe_selection(desktop, clipboard, colors, source, url, opened, captures, t
         desktop.xt.XTestFakeButtonEvent(desktop.d, number, pressed, 0)
         desktop.x.XSync(desktop.d, 0)
 
-    def key_copy():
-        desktop.key('c', ('Control_L',))
+    def key_copy(modifier='Control_L'):
+        desktop.key('c', (modifier,))
         return clipboard.text()
 
     def key_copy_all():
         desktop.key('a', ('Control_L',))
         return key_copy()
+
+    def drag(start, end):
+        warp(start, top + 24)
+        button(1, 1)
+        time.sleep(.1)
+        warp(end, top + 24)
+        time.sleep(.1)
+        button(1, 0)
 
     warp(1000, 400)
     time.sleep(.1)
@@ -122,19 +130,57 @@ def probe_selection(desktop, clipboard, colors, source, url, opened, captures, t
     assert bounds, 'Balão do teste de seleção ausente'
     top, bottom = bounds
     content = (380, top, 810, top + 155)
+    first_line = (380, top + 12, 810, top + 33)
+    formatted_line = formatted.crop(first_line).tobytes()
+    # O sublinhado tem a cor sólida do tema; sua largura acompanha a fonte do sistema.
+    link_columns = [x for x in range(500, 755) if any(
+        formatted.getpixel((x, y)) == colors['primary'] for y in range(top + 13, top + 32)
+    )]
+    assert link_columns, 'O link formatado não apareceu no parágrafo'
+    link_left, link_right = link_columns[0], link_columns[-1] + 1
+    link_middle = link_left + round((link_right - link_left) * .70)
     formatted = formatted.crop(content).tobytes()
-    expected_drag = 'Começo do parágrafo.\n\n• Item da lista\n\nfim_do_codigo\n'
-    expected_all = expected_drag + '\nLink local'
+    expected_drag = 'Começo do parágrafo. Link local termina aqui.\n\n• Item da lista\n\nfim_do_codigo\n'
+    expected_all = expected_drag + '\nFim da mensagem.'
 
     warp(420, top + 24)
     for _ in range(2):
         button(1, 1)
         button(1, 0)
         time.sleep(.075)
-    assert desktop.image().crop(content).tobytes() != formatted, 'Duplo clique não mudou a apresentação'
-    assert key_copy_all() == expected_all, 'Ctrl+A não selecionou todo o fragmento após duplo clique'
+    assert key_copy() == 'Começo', 'Duplo clique no texto formatado não selecionou a palavra'
+    time.sleep(.6)
+    def assert_excerpt(modifier, start, end, expected, name):
+        drag(start, end)
+        excerpt = key_copy(modifier)
+        assert excerpt == expected, f'{modifier}+C não copiou o trecho formatado: {excerpt!r}'
+        assert not opened.exists(), 'Arrastar abriu o link'
+        desktop.image().save(captures / f'zaplaud-selecao-{name}-{theme}.png')
+        # Outro bloco precisa limpar a seleção e substituir o clipboard pelo Markdown original.
+        desktop.click(420, top + 48)
+        copied = key_copy()
+        assert copied == source, f'Ctrl+C sem trecho selecionado não copiou o Markdown original: {copied!r}'
+        assert desktop.image().crop(first_line).tobytes() == formatted_line, 'A seleção anterior ficou visível'
+
+    assert_excerpt('Control_L', 411, link_middle, 'meço do parágrafo. Link lo', 'ctrl-c')
+    # No Xvfb, Super_L é Mod4; no winit em Linux, Mod4 alimenta event.modifiers.meta.
+    assert_excerpt('Super_L', link_middle, 411, 'meço do parágrafo. Link lo', 'super-c')
+    assert_excerpt('Control_L', 411, link_right + 27, 'meço do parágrafo. Link local ter', 'link-inteiro')
+    time.sleep(.6)
+
+    def select_from_context_menu():
+        warp(420, top + 24)
+        button(3, 1)
+        button(3, 0)
+        time.sleep(.2)
+        desktop.key('Down')
+        desktop.key('Down')
+        desktop.key('Return')
+        assert key_copy_all() == expected_all, '"Selecionar a mensagem toda" não abriu o campo pelo menu de contexto'
+
+    select_from_context_menu()
     desktop.key('Left')
-    assert key_copy() == source, 'Ctrl+C sem trecho selecionado não copiou o Markdown original'
+    assert key_copy() == source, 'Ctrl+C sem seleção no campo não copiou o Markdown original'
 
     warp(389, top + 23)
     button(1, 1)
@@ -150,38 +196,37 @@ def probe_selection(desktop, clipboard, colors, source, url, opened, captures, t
                    'Esc não restaurou o texto formatado na mesma posição')
     desktop.image().save(captures / f'zaplaud-selecao-escape-{theme}.png')
 
-    desktop.click(860, bottom - 42)
-    assert key_copy_all() == expected_all, 'Botão Selecionar não abriu o campo'
+    select_from_context_menu()
     desktop.click(1000, top + 24)
     smoke.wait_for(lambda: desktop.image().crop(content).tobytes() == formatted,
                    'O clique fora não saiu do modo de seleção')
     desktop.click(950, bottom - 42)
     assert clipboard.text() == source
 
-    warp(420, top + 24)
+    select_from_context_menu()
+    desktop.key('Left')
+    # Exclui o caret piscante, mas inclui a região onde se abriria o menu.
+    popup_box = (420, top + 24, 810, top + 155)
+    before_right_click = desktop.image().crop(popup_box).tobytes()
     button(3, 1)
     button(3, 0)
     time.sleep(.2)
-    desktop.key('Up')
-    desktop.key('Return')
-    assert key_copy_all() == expected_all, 'Selecionar texto deixou de funcionar no menu de contexto'
-    warp(420, top + 24)
-    button(3, 1)
-    button(3, 0)
-    time.sleep(.2)
-    desktop.key('Up')
-    desktop.key('Return')
+    assert desktop.image().crop(popup_box).tobytes() == before_right_click, 'Clique direito abriu menu sobre a seleção'
+    desktop.key('Escape')
     smoke.wait_for(lambda: desktop.image().crop(content).tobytes() == formatted,
-                   'Texto formatado deixou de funcionar no menu de contexto')
+                   'Esc após entrada pelo menu não restaurou a formatação na mesma posição')
+    select_from_context_menu()
+    desktop.click(1000, top + 24)
+    smoke.wait_for(lambda: desktop.image().crop(content).tobytes() == formatted,
+                   'Clique fora após entrada pelo menu não restaurou a formatação na mesma posição')
 
     assert not opened.exists(), 'O link abriu sem receber um clique'
-    desktop.click(419, top + 146)
+    desktop.click(link_middle, top + 24)
     smoke.wait_for(opened.is_file, 'Clique simples não abriu o link no manipulador do sistema')
     assert opened.read_text().strip() == url
     assert desktop.image().crop(content).tobytes() == formatted, 'Clique no link entrou em seleção'
 
-    desktop.click(860, bottom - 42)
-    assert key_copy_all() == expected_all, 'A roda precisa começar sobre o campo ativo'
+    select_from_context_menu()
     before_scroll = desktop.image().crop(content).tobytes()
     warp(420, top + 24)
     for _ in range(6):
@@ -189,8 +234,9 @@ def probe_selection(desktop, clipboard, colors, source, url, opened, captures, t
         button(4, 0)
     smoke.wait_for(lambda: desktop.image().crop(content).tobytes() != before_scroll,
                    'A roda sobre o campo não rolou a lista')
-    return ['duplo-clique', 'ctrl-c-sem-seleção', 'ctrl-a', 'arraste-entre-blocos', 'escape-e-âncora',
-            'botão', 'clique-fora', 'menu-entrar-e-sair', 'link', 'roda']
+    return ['duplo-clique', 'ctrl-c-trecho-com-link', 'meta-c-trecho-com-link', 'ctrl-c-link-inteiro',
+            'ctrl-c-sem-seleção', 'ctrl-a', 'arraste-entre-blocos', 'escape-e-âncora',
+            'clique-fora', 'menu-entrar', 'sem-menu-no-campo', 'menu-sair-por-escape-ou-clique-fora', 'link', 'roda']
 
 
 def probe_matrix(binary, display, output=None):
@@ -512,7 +558,7 @@ def main():
                     desktop.image().save(captures / f'zaplaud-rs-fin-conversation-regression-end-{args.theme}.png')
 
                     url = f'http://127.0.0.1:{args.port}/fixture-selection-link'
-                    source = f'**Começo do parágrafo.**\n\n- Item da lista\n\n```text\nfim_do_codigo\n```\n\n[Link local]({url})'
+                    source = f'**Começo do parágrafo.** [Link local]({url}) termina aqui.\n\n- Item da lista\n\n```text\nfim_do_codigo\n```\n\nFim da mensagem.'
                     with transcript.open('a') as stream:
                         write_entry(stream, source, 'assistant')
                     smoke.wait_for(lambda: copy_last() == source, 'Mensagem para seleção não apareceu', 20)

@@ -1,5 +1,5 @@
 //! Mostra as famílias genéricas resolvidas pelo mesmo catálogo usado pelo Slint.
-use slint::fontique_011::{
+use slint::fontique_012::{
     fontique::{FontStyle, FontWeight, FontWidth, GenericFamily},
     shared_collection,
 };

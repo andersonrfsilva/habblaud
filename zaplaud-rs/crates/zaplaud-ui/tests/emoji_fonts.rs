@@ -1,5 +1,5 @@
 use parley::{LayoutContext, PositionedLayoutItem};
-use slint::fontique_011::shared_collection;
+use slint::fontique_012::shared_collection;
 
 struct FontOnlyPlatform;
 
@@ -19,7 +19,7 @@ fn probe_has_no_notdef_and_paints_with_the_app_font_stack() -> Result<(), Box<dy
         zaplaud_ui::emoji::setup(software)?;
         #[cfg(target_os = "macos")]
         {
-            use slint::fontique_011::fontique::GenericFamily;
+            use slint::fontique_012::fontique::GenericFamily;
             let mut collection = shared_collection();
             let sans = collection.generic_families(GenericFamily::SansSerif).next();
             let system = collection.generic_families(GenericFamily::SystemUi).next();

@@ -74,7 +74,7 @@ tempfile = "3"
 serde_json.workspace = true
 roxmltree.workspace = true
 usvg = "0.45"
-parley = "0.11.1"
+parley = "0.12"
 swash = "0.2.10"
 resvg = { version = "0.45", default-features = false }
 

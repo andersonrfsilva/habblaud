@@ -1,6 +1,6 @@
 //! Fallback emoji compartilhado por Text, TextInput e StyledText.
 
-use slint::fontique_011::{fontique, shared_collection};
+use slint::fontique_012::{fontique, shared_collection};
 use std::sync::Arc;
 
 pub const PROBE: &str = "🚀 👩🏽‍💻 ✅ ⚠️ 🇧🇷 🇺🇸 👨‍👩‍👧 1️⃣ çãé";
