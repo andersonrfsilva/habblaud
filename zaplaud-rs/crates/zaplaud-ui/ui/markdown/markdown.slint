@@ -32,17 +32,53 @@ export global MarkdownSelection {
     callback format([MdBlock]) -> string;
 }
 
-component MeasuredText inherits StyledText {
+component MeasuredText inherits FocusScope {
+    in property <string> row-id;
+    in property <styled-text> text <=> body.text;
+    in property <brush> default-color <=> body.default-color;
+    in property <length> default-font-size <=> body.default-font-size;
+    in property <color> link-color <=> body.link-color;
+    in property <TextHorizontalAlignment> horizontal-alignment <=> body.horizontal-alignment;
+    callback link-clicked(string);
+    callback copy-message();
+    focus-on-click: false;
+    min-width: body.min-width;
+    preferred-width: body.preferred-width;
+    preferred-height: body.preferred-height;
     // A altura explícita preserva a medida na largura renderizada ao agregar os layouts ancestrais.
     height: self.preferred-height;
-    in property <string> row-id;
-    property <int> request: MarkdownGeometry.request;
-    changed request => {
-        MarkdownGeometry.measured(root.row-id, self.absolute-position.y / 1px, self.height / 1px, self.preferred-height / 1px, self.width / 1px);
+    capture-key-pressed(event) => {
+        if (event.modifiers.control || event.modifiers.meta) && event.text.to-lowercase() == "c" {
+            if !body.has-selection { root.copy-message(); return accept; }
+            // Ctrl (Cmd no macOS) sem Shift segue para o atalho nativo do StyledText.
+            if !event.modifiers.control || event.modifiers.shift { body.copy(); return accept; }
+        }
+        return reject;
+    }
+    body := StyledText {
+        width: parent.width;
+        height: parent.height;
+        selectable: true;
+        selection-background-color: Theme.primary;
+        selection-foreground-color: Theme.on-primary;
+        link-clicked(url) => { root.link-clicked(url); }
+        property <int> request: MarkdownGeometry.request;
+        changed request => {
+            MarkdownGeometry.measured(root.row-id, self.absolute-position.y / 1px, self.height / 1px, self.preferred-height / 1px, self.width / 1px);
+        }
+        @children
     }
 }
 
 export component MeasuredInput inherits TextInput {
+    callback copy-message();
+    public function copy-shortcut(event: KeyEvent) -> EventResult {
+        if (event.modifiers.control || event.modifiers.meta) && event.text.to-lowercase() == "c" {
+            if !root.has-selection { root.copy-message(); return accept; }
+            if !event.modifiers.control || event.modifiers.shift { root.copy(); return accept; }
+        }
+        return reject;
+    }
     in property <string> row-id;
     property <int> request: MarkdownGeometry.request;
     changed request => {
@@ -98,7 +134,6 @@ component FormattedBlock inherits VerticalLayout {
     in property <string> row-id;
     callback link-clicked(string);
     callback copy(string);
-    callback focus-message();
     callback select-text();
     in property <string> source-markdown;
     in property <color> foreground: Theme.on-surface;
@@ -113,11 +148,7 @@ component FormattedBlock inherits VerticalLayout {
                 default-font-size: root.block.level == 1 ? 24px : root.block.level == 2 ? 22px : root.block.level == 3 ? 16px : root.block.level == 4 ? 14px : root.block.level == 5 ? 16px : root.block.level == 6 || root.block.kind == "quote" ? 14px : 16px;
                 link-color: Theme.primary;
                 link-clicked(url) => { root.link-clicked(url); }
-                // StyledText consome o clique mesmo fora do link; a área não cobre blocos com links.
-                if root.block.links.length == 0: TouchArea {
-                    clicked => { root.focus-message(); }
-                    double-clicked => { root.select-text(); }
-                }
+                copy-message => { root.copy(root.source-markdown); }
                 ContextMenuArea {
                     Menu {
                         MenuItem { title: "Copiar mensagem"; activated => { root.copy(root.source-markdown); } }
@@ -184,7 +215,7 @@ export component MarkdownView inherits Rectangle {
             clicked => { message-focus.focus(); }
             message-focus := FocusScope {
                 focus-on-click: false;
-                capture-key-pressed(event) => {
+                key-pressed(event) => {
                     if !root.selecting && (event.modifiers.control || event.modifiers.meta) && event.text.to-lowercase() == "c" {
                         root.copy(root.source-markdown); return accept;
                     }
@@ -211,14 +242,9 @@ export component MarkdownView inherits Rectangle {
         }
         key-pressed(event) => {
             if event.text == Key.Escape { return accept; }
-            if (event.modifiers.control || event.modifiers.meta)
-                && event.text.to-lowercase() == "c"
-                && self.anchor-position-byte-offset == self.cursor-position-byte-offset {
-                root.copy(root.source-markdown);
-                return accept;
-            }
-            return reject;
+            return self.copy-shortcut(event);
         }
+        copy-message => { root.copy(root.source-markdown); }
         key-released(event) => {
             if event.text == Key.Escape { root.stop-selecting(true); return accept; }
             return reject;
@@ -235,14 +261,13 @@ export component MarkdownView inherits Rectangle {
             foreground: root.foreground;
             source-markdown: root.source-markdown;
             copy(text) => { root.copy(text); }
-            focus-message => { message-focus.focus(); }
             select-text => { root.select-text(); }
             link-clicked(url) => { message-focus.focus(); root.link-clicked(url); }
         }
         if block.kind == "quote": HorizontalLayout {
             spacing: 8px;
             Rectangle { width: 3px; background: Theme.outline-variant; }
-            FormattedBlock { row-id: root.row-id; block: block; foreground: root.foreground; source-markdown: root.source-markdown; copy(text) => { root.copy(text); } focus-message => { message-focus.focus(); } select-text => { root.select-text(); } link-clicked(url) => { message-focus.focus(); root.link-clicked(url); } }
+            FormattedBlock { row-id: root.row-id; block: block; foreground: root.foreground; source-markdown: root.source-markdown; copy(text) => { root.copy(text); } select-text => { root.select-text(); } link-clicked(url) => { message-focus.focus(); root.link-clicked(url); } }
         }
         if block.kind == "code": code-box := Rectangle {
             background: Theme.on-background.with-alpha(0.1);
@@ -318,6 +343,8 @@ export component MarkdownView inherits Rectangle {
                         color: root.foreground;
                         selection-background-color: Theme.primary;
                         selection-foreground-color: Theme.on-primary;
+                        key-pressed(event) => { return self.copy-shortcut(event); }
+                        copy-message => { root.copy(root.source-markdown); }
                     }
                 }
             }
@@ -387,6 +414,7 @@ export component MarkdownView inherits Rectangle {
                                 link-color: Theme.primary;
                                 horizontal-alignment: cell-box.cell.alignment == 1 ? center : cell-box.cell.alignment == 2 ? right : left;
                                 link-clicked(url) => { message-focus.focus(); root.link-clicked(url); }
+                                copy-message => { root.copy(root.source-markdown); }
                             }
                         }
                     }

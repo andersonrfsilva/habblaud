@@ -122,6 +122,8 @@ def probe_selection(desktop, clipboard, colors, source, url, opened, captures, t
     assert bounds, 'Balão do teste de seleção ausente'
     top, bottom = bounds
     content = (380, top, 810, top + 155)
+    first_line = (380, top + 12, 810, top + 33)
+    formatted_line = formatted.crop(first_line).tobytes()
     formatted = formatted.crop(content).tobytes()
     expected_drag = 'Começo do parágrafo.\n\n• Item da lista\n\nfim_do_codigo\n'
     expected_all = expected_drag + '\nLink local'
@@ -131,10 +133,30 @@ def probe_selection(desktop, clipboard, colors, source, url, opened, captures, t
         button(1, 1)
         button(1, 0)
         time.sleep(.075)
-    assert desktop.image().crop(content).tobytes() != formatted, 'Duplo clique não mudou a apresentação'
-    assert key_copy_all() == expected_all, 'Ctrl+A não selecionou todo o fragmento após duplo clique'
+    assert key_copy() == 'Começo', 'Duplo clique no texto formatado não selecionou a palavra'
+    time.sleep(.6)
+    # As duas famílias têm larguras diferentes; meça a linha em pixels antes de posicionar o arraste.
+    image = desktop.image()
+    right = max(x for x in range(480, 640)
+                if any(image.getpixel((x, y)) != colors['surface'] for y in range(top + 13, top + 31)))
+    warp(389 + round((right - 389) * .12), top + 24)
+    button(1, 1)
+    time.sleep(.1)
+    warp(389 + round((right - 389) * .59), top + 24)
+    time.sleep(.1)
+    button(1, 0)
+    excerpt = key_copy()
+    assert excerpt == 'meço do p', f'O arraste não selecionou o trecho formatado: {excerpt!r}'
+    # O clique em outro bloco não pode contar como duplo clique com o início do arraste.
+    desktop.click(420, top + 48)
+    copied = key_copy()
+    assert copied == source, f'Ctrl+C sem trecho selecionado não copiou o Markdown original: {copied!r}'
+    assert desktop.image().crop(first_line).tobytes() == formatted_line, 'A seleção anterior ficou visível'
+
+    desktop.click(860, bottom - 42)
+    assert key_copy_all() == expected_all, 'Ctrl+A não selecionou todo o fragmento no campo'
     desktop.key('Left')
-    assert key_copy() == source, 'Ctrl+C sem trecho selecionado não copiou o Markdown original'
+    assert key_copy() == source, 'Ctrl+C sem seleção no campo não copiou o Markdown original'
 
     warp(389, top + 23)
     button(1, 1)
