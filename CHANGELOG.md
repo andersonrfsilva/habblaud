@@ -202,6 +202,8 @@ do meio (0.**3**.0).
 - **Zaplaud desktop:** o cliente preserva o erro HTTP (acesso bloqueado, sessão inexistente ou erro interno) quando a conexão cai durante a leitura do corpo, em vez de classificar a resposta como falha de rede.
 - **Zaplaud (Android e iOS):** uma queda durante a resposta do stream não oculta o erro do servidor nem impede o pedido de novo login quando a sessão vence.
 - **Zaplaud desktop:** trocar de conversa logo depois de rolar não altera mais o ponto de leitura da outra conversa.
+- **Zaplaud desktop:** ao reabrir uma conversa com mensagens de alturas diferentes, a lista para de oscilar e
+  recupera o ponto de leitura salvo.
 - **Zaplaud desktop:** conversas longas abrem na última mensagem mesmo quando a fonte do sistema muda.
 - **Zaplaud desktop:** o bate-papo paralelo só apaga a pergunta quando o servidor aceita o envio.
 - **Zaplaud desktop:** o bate-papo paralelo volta a atualizar a resposta após uma falha de rede.

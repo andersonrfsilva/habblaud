@@ -86,6 +86,91 @@ fn visible_gif_layout_does_not_reenter_the_frame_binding() {
 }
 
 #[test]
+fn reopening_uneven_history_restores_the_saved_row_without_scrolling() {
+    let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
+    slint::platform::set_platform(Box::new(Headless(window.clone()))).unwrap();
+    let probe = TranscriptProbe::new().unwrap();
+    probe.set_requested_width(800.);
+    probe.set_requested_height(600.);
+    probe.show().unwrap();
+    window.set_size(slint::PhysicalSize::new(800, 600));
+    let state = probe.global::<ConversationViewState>();
+    let measured = Rc::new(Cell::new(None));
+    let anchor_y = measured.clone();
+    state.on_geometry(move |id, y, _, _| {
+        if id == "reading-anchor" {
+            anchor_y.set(Some(y));
+        }
+    });
+    for anchor in [27, 28, 29, 30, 31, 32, 60, 103, 171, 208] {
+        state.set_reset_request(state.get_reset_request() + 1);
+        state.set_rows(ModelRc::default());
+        frame(&window);
+        let rows = (0..220)
+            .map(|index| {
+                let lines = [2, 19, 25, 24, 18, 2, 7, 4, 8][index % 9];
+                let id = if index == anchor {
+                    "reading-anchor".into()
+                } else {
+                    format!("entry-{index}")
+                };
+                ConversationRow {
+                    entry_id: id.clone().into(),
+                    id: id.into(),
+                    kind: "system".into(),
+                    fragment: "Linha fictícia de uma mensagem\n".repeat(lines).into(),
+                    first: true,
+                    last: true,
+                    ..Default::default()
+                }
+            })
+            .collect::<Vec<_>>();
+        state.set_rows(ModelRc::new(VecModel::from(rows)));
+        state.set_following(false);
+        state.set_anchor_index(anchor as i32);
+        state.set_anchor_offset(-27.);
+        state.set_anchor_ticks(46);
+        state.set_stable_ticks(0);
+        state.set_measured_height(-1.);
+        state.set_scan_index(-1);
+        state.set_restore_pending(true);
+        frame(&window);
+        for _ in 0..46 {
+            if !state.get_restore_pending() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(35));
+            frame(&window);
+        }
+        assert!(
+            !state.get_restore_pending(),
+            "anchor {anchor} did not settle within 46 frames: scan={}, y={}, ticks={}",
+            state.get_scan_index(),
+            state.get_scroll_y(),
+            state.get_anchor_ticks()
+        );
+        let settled_y = state.get_scroll_y();
+        for _ in 0..5 {
+            std::thread::sleep(Duration::from_millis(35));
+            frame(&window);
+            assert_eq!(state.get_scroll_y(), settled_y, "anchor {anchor} moved");
+        }
+        measured.set(None);
+        state.set_geometry_request(state.get_geometry_request() + 1);
+        frame(&window);
+        let y = measured.get().unwrap_or_else(|| {
+            panic!(
+                "anchor {anchor} is not visible: scan={}, y={}, ticks={}",
+                state.get_scan_index(),
+                state.get_scroll_y(),
+                state.get_anchor_ticks(),
+            )
+        });
+        assert!((y + 27.).abs() < 2., "anchor {anchor} offset: {y}");
+    }
+}
+
+#[test]
 fn restore_settles_once_cancels_on_navigation_and_pins_expire() {
     let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
     slint::platform::set_platform(Box::new(Headless(window.clone()))).unwrap();
