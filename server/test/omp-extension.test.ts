@@ -2,6 +2,7 @@
 // registrados, o corpo enviado, as mensagens (livre/ocupado), o modo de decisão (recusa, corrida terminal×escritório,
 // prazo, Habblaud fora do ar). A prova contra um omp de verdade (os nomes de evento errados não dão erro lá) foi feita
 // à parte, rodando `omp --mode rpc`/`rpc-ui` com a extensão (tarefas 5.1 a 5.4).
+import { getEventListeners } from 'node:events';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -28,7 +29,7 @@ import {
   type ToolDefinition,
 } from '../../mod/habblaud-omp/habblaud';
 import { checkAnswers } from '../../shared/answers';
-import { ANSWER_OTHER_MAX } from '../../shared/ask-limits';
+import { ANSWER_OTHER_MAX, ASK_QUESTION_MAX } from '../../shared/ask-limits';
 import { describeTool } from '../../shared/activity';
 import { tempDir } from './fixtures';
 
@@ -189,7 +190,7 @@ describe('omp extension: eventos', () => {
   it('registra exatamente os nomes de evento do omp (sem tool_call fora do modo de decisão)', () => {
     const { handlers } = setup({ home: tmp.dir });
     expect([...handlers.keys()].sort()).toEqual(
-      ['agent_end', 'agent_start', 'session_shutdown', 'session_start', 'session_switch', 'tool_approval_requested', 'tool_approval_resolved', 'tool_execution_end', 'tool_execution_start'].sort(),
+      ['agent_end', 'agent_start', 'input', 'session_shutdown', 'session_start', 'session_switch', 'tool_approval_requested', 'tool_approval_resolved', 'tool_execution_end', 'tool_execution_start'].sort(),
     );
     expect([...setup({ home: tmp.dir, env: { HABBLAUD_OMP_PERMISSOES: '1' } }).handlers.keys()]).toContain('tool_call');
   });
@@ -902,7 +903,7 @@ describe('omp extension: formulários HTML', () => {
     ['grupo sem pergunta', boxes.replace('<p>Checks?</p>', '')],
     ...['number', 'date', 'email', 'url'].map((type) => [type, `${radio()}<label>Field <input type=${type} name=x></label>`]),
     ...['pattern=".*"', 'min="5"', 'max="5"', 'minlength="2"', 'maxlength="1999"'].map((attrs) => [attrs, `<label>Field <input name=x ${attrs}></label>`]),
-  ])('mantém só no terminal: %s', (_name, body) => {
+  ])('recusa na projeção estrita: %s', (_name, body) => {
     expect(formToQuestions(form(body))).toBeUndefined();
   });
 });
@@ -951,9 +952,10 @@ describe('omp extension: ask pelo escritório', () => {
     const tools: ToolDefinition[] = [];
     const handlers = new Map<string, Handler>();
     const NATIVE_SCHEMA = { kind: 'schema-do-omp' };
+    const send = vi.fn<OmpApi['sendUserMessage']>();
     const pi: OmpApi = {
       on: (event, h) => void handlers.set(event, h),
-      sendUserMessage: () => undefined,
+      sendUserMessage: send,
       getAllTools: () => [{ name: 'ask', description: 'descrição nativa', parameters: NATIVE_SCHEMA }, ...tools.map((t) => ({ name: t.name, description: t.description, parameters: t.parameters }))],
       registerTool: (t) => void tools.push(t),
     };
@@ -962,7 +964,7 @@ describe('omp extension: ask pelo escritório', () => {
     const local = Promise.withResolvers<unknown>();
     let nativeSignal: AbortSignal | undefined;
     const ctx: ToolContext = {
-      ...makeCtx({ hasUI: true }),
+      ...makeCtx({ hasUI: true, idle: false }),
       invokeTool: (_params, options) => {
         nativeSignal = options?.signal;
         options?.signal?.addEventListener('abort', () => local.reject(new Error('Ask input was cancelled')), { once: true });
@@ -971,8 +973,9 @@ describe('omp extension: ask pelo escritório', () => {
     };
     handlers.get('session_start')?.({}, ctx);
     handlers.get('session_start')?.({}, ctx);
-    const run = (params: unknown = PARAMS) => tools[0].execute('call-1', params, undefined, undefined, ctx);
-    return { tools, habblaud, run, local, nativeAborted: () => nativeSignal?.aborted === true, schema: NATIVE_SCHEMA };
+    const run = (params: unknown = PARAMS, signal?: AbortSignal) => tools[0].execute('call-1', params, signal, undefined, ctx);
+    const input = (source: 'interactive' | 'rpc' | 'extension') => handlers.get('input')?.({ source, text: 'Mensagem fictícia' }, ctx);
+    return { tools, habblaud, run, local, input, send, nativeAborted: () => nativeSignal?.aborted === true, schema: NATIVE_SCHEMA };
   }
 
   type Answer = ReturnType<Parameters<typeof fakeHabblaud>[0]>;
@@ -981,7 +984,10 @@ describe('omp extension: ask pelo escritório', () => {
   it('troca o ask uma vez só, com a descrição e o schema do nativo e aprovação de leitura', () => {
     const t = askSetup(() => undefined);
     expect(t.tools).toHaveLength(1);
-    expect(t.tools[0]).toMatchObject({ name: 'ask', description: 'descrição nativa', parameters: t.schema, approval: 'read' });
+    expect(t.tools[0]).toMatchObject({
+      name: 'ask', description: 'descrição nativa', parameters: t.schema, approval: 'read',
+      strict: true, lenientArgValidation: true, concurrency: 'exclusive',
+    });
   });
 
   it('respondido no escritório: fecha o diálogo do terminal e devolve o texto do ask; o pedido vai como AskUserQuestion', async () => {
@@ -1009,13 +1015,189 @@ describe('omp extension: ask pelo escritório', () => {
     });
   });
 
-  it('formulário HTML não conversível vai direto ao diálogo, sem registrar cartão', async () => {
+  it.each([
+    '<input type=password name=x>',
+    '<INPUT name=x TYPE="FiLe">',
+    '<input name=x type="&#112;assword">',
+    '<input name=x data-extra="a > b" type="f&#105;le">',
+    '< input name=x type=password>',
+    '<!ignored "><input type=password name=x>',
+    '<input name="x"type="file">',
+    `<script>const s = "<img '";</script><input type=password name=x>`,
+  ])('nunca publica formulário com controle sensível: %s', async (control) => {
     const t = askSetup(() => undefined);
-    const pending = t.run({ html: form('<label>Count <input type=number name=n></label>') });
+    const pending = t.run({ html: form(`<p>Pergunta fictícia</p><div>${control}</div>`) });
     t.local.resolve('nativo');
     expect(await pending).toBe('nativo');
     expect(t.habblaud.of('/api/permissions')).toHaveLength(0);
     expect(t.nativeAborted()).toBe(false);
+  });
+
+  it('campos com validação viram texto, conservam os nomes e não executam a validação', async () => {
+    const answers = [
+      { question: 0, other: '  fora do intervalo ' }, { question: 1, other: 'sem arroba' },
+      { question: 2, other: 'amanhã' }, { question: 3, other: 'não condiz' }, { question: 4, options: [1] },
+    ];
+    const t = askSetup((c) => registerOk(c, { status: 200, json: { status: 'decided', behavior: 'answer', answers } }));
+    const html = form(`<fieldset><legend>Idade?</legend><input name=age type=number min=1 max=120></fieldset>
+      <input name=email id=email type=email><label for=email>Contato?</label>
+      <label>Data? <input type=date name=date></label>
+      <label>Código? <input pattern="[0-9]{2}" name=code></label>
+      <label>Cor? <select name=color><option value=blue>Azul</option><option value=green>Verde</option></select></label>`);
+    const values = { age: 'fora do intervalo', email: 'sem arroba', date: 'amanhã', code: 'não condiz', color: 'green' };
+    expect(await t.run({ html })).toMatchObject({
+      content: [{ type: 'text', text: `User answers:\n${JSON.stringify(values, null, 2)}\n(Respondido pelo Habblaud em texto livre; o formulário não validou os valores.)` }],
+    });
+    const card = t.habblaud.of('/api/permissions')[0].body?.tool_input;
+    expect(describeTool(ASK_TOOL, card as Record<string, unknown>).questions?.map((q) => [q.question, q.options.map((o) => o.label)])).toEqual([
+      ['Idade?', []], ['Contato?', []], ['Data?', []], ['Código?', []], ['Cor?', ['Azul', 'Verde']],
+    ]);
+    expect(t.nativeAborted()).toBe(true);
+  });
+
+  const NO_NAMED = {
+    content: [{ type: 'text', text: 'Error: the form has no named controls. Put at least one <input>, <select> or <textarea> with a `name` attribute inside the <form>.' }],
+    details: { answers: [] },
+  };
+
+  it('HTML sem nomes: publica texto visível, mascarado e cortado; resposta vence diagnóstico nativo imediato', async () => {
+    const t = askSetup((c) => registerOk(c, { status: 200, json: { status: 'decided', behavior: 'answer', answers: [{ question: 0, other: 'Minha resposta.' }] } }));
+    const html = form(`<p>Escolha &amp; explique ghp_abcdefghijklmnopqrstuvwxyz0123456789. ${'texto fictício '.repeat(28)}</p>
+      <!-- <input type=password name=comment> --><script>texto invisível</script><label><input type=text></label>`);
+    t.local.resolve(NO_NAMED);
+    expect(await t.run({ html })).toMatchObject({ content: [{ type: 'text', text: 'User answered in free text (Habblaud): Minha resposta.' }] });
+    const card = t.habblaud.of('/api/permissions')[0].body?.tool_input;
+    const qs = describeTool(ASK_TOOL, card as Record<string, unknown>).questions!;
+    expect(qs).toHaveLength(1);
+    expect(qs[0].question).toMatch(/^Escolha & explique /);
+    expect(qs[0].question).toMatch(/… veja o formulário completo no terminal$/);
+    expect(qs[0].question.length).toBeLessThanOrEqual(ASK_QUESTION_MAX);
+    expect(qs[0].question).not.toMatch(/abcdefghijklmnop|texto invisível|type=password/);
+    expect(t.habblaud.of('/api/permissions/p1/decision')).toHaveLength(0);
+  });
+
+  it.each([
+    { status: 'released', reason: 'expired' },
+    { status: 'released', reason: 'terminal' },
+    { status: 'decided', behavior: 'deny' },
+  ])('HTML sem nomes: devolve o diagnóstico nativo intacto se o cartão fechar: %j', async (json) => {
+    const t = askSetup((c) => registerOk(c, { status: 200, json }));
+    t.local.resolve(NO_NAMED);
+    expect(await t.run({ html: form('<p>Explique sua escolha.</p>') })).toBe(NO_NAMED);
+    expect(t.habblaud.of('/api/permissions/p1/wait')).toHaveLength(1);
+    expect(t.habblaud.of('/api/permissions/p1/decision')).toHaveLength(0);
+  });
+
+  it('HTML sem nomes: sem espectador devolve o diagnóstico nativo sem iniciar a corrida', async () => {
+    const t = askSetup((c) => c.path === '/api/permissions' ? { status: 200, json: { skip: 'no-viewers' } } : undefined);
+    t.local.resolve(NO_NAMED);
+    expect(await t.run({ html: form('<p>Explique sua escolha.</p>') })).toBe(NO_NAMED);
+    expect(t.habblaud.of('/api/permissions/p1/wait')).toHaveLength(0);
+    expect(t.nativeAborted()).toBe(false);
+  });
+
+  it('HTML sem nomes: sinal de cancelamento retira o cartão e mantém a mensagem de cancelamento nativa', async () => {
+    const t = askSetup((c) => registerOk(c, 'hang'));
+    const abort = new AbortController();
+    t.local.resolve(NO_NAMED);
+    const pending = t.run({ html: form('<p>Explique sua escolha.</p>') }, abort.signal);
+    const result = expect(pending).rejects.toThrow('Ask input was cancelled');
+    await vi.waitFor(() => expect(t.habblaud.of('/api/permissions/p1/wait')).toHaveLength(1));
+    abort.abort();
+    await result;
+    expect(t.habblaud.of('/api/permissions/p1/decision')[0].body).toEqual({ behavior: 'terminal' });
+  });
+
+  it.each(['interactive', 'rpc'] as const)('mensagem %s cancela só a espera ativa e remove a inscrição', async (source) => {
+    const add = vi.spyOn(EventTarget.prototype, 'addEventListener');
+    try {
+      const t = askSetup((c) => registerOk(c, 'hang'));
+      t.local.resolve(NO_NAMED);
+      const result = expect(t.run({ html: form('<p>Explique sua escolha.</p>') })).rejects.toThrow('Ask interrupted by message');
+      const subscription = () => add.mock.calls.findIndex(([event]) => event === 'input');
+      await vi.waitFor(() => expect(subscription()).toBeGreaterThanOrEqual(0));
+      const dispatcher = add.mock.contexts[subscription()];
+      if (!(dispatcher instanceof EventTarget)) throw new Error('Inscrição do cartão não encontrada');
+      expect(getEventListeners(dispatcher, 'input')).toHaveLength(1);
+      expect(t.input('extension')).toBeUndefined();
+      expect(getEventListeners(dispatcher, 'input')).toHaveLength(1);
+      expect(t.input(source)).toBeUndefined();
+      await result;
+      expect(t.habblaud.of('/api/permissions/p1/decision')[0].body).toEqual({ behavior: 'terminal' });
+      expect(getEventListeners(dispatcher, 'input')).toHaveLength(0);
+      expect(t.input(source)).toBeUndefined();
+      expect(t.habblaud.of('/api/permissions/p1/decision')).toHaveLength(1);
+    } finally {
+      add.mockRestore();
+    }
+  });
+
+  it('HTML irreconhecível vira um cartão com texto visível, sem atributos ou conteúdo invisível', async () => {
+    const t = askSetup((c) => registerOk(c, { status: 200, json: { status: 'decided', behavior: 'answer', answers: [{ question: 0, other: 'Sim.' }] } }));
+    const html = '<form><p>Explique &amp; confirme.</p><template>Não exibir.</template><div data-extra="Não exibir.">';
+    t.local.resolve(NO_NAMED);
+    expect(await t.run({ html })).toMatchObject({ content: [{ type: 'text', text: 'User answered in free text (Habblaud): Sim.' }] });
+    expect(t.habblaud.of('/api/permissions')[0].body).toMatchObject({
+      tool_input: { questions: [{ question: 'Explique & confirme.', options: [] }] },
+    });
+  });
+
+  it('encaminha a mensagem do Zaplaud sem alteração; só steer cancela a espera de texto', async () => {
+    let inbox: Array<{ id: string; text: string; deliverAs: string }> = [];
+    const t = askSetup((c) => {
+      if (c.path === '/api/mod/inbox') {
+        const messages = inbox;
+        inbox = [];
+        return { status: 200, json: { messages } };
+      }
+      return registerOk(c, 'hang');
+    });
+    t.local.resolve(NO_NAMED);
+    const result = expect(t.run({ html: form('<p>Explique sua escolha.</p>') })).rejects.toThrow('Ask interrupted by message');
+    await vi.waitFor(() => expect(t.habblaud.of('/api/permissions/p1/wait')).toHaveLength(1));
+    inbox = [{ id: 'm1', text: '  Mensagem em fila.  ', deliverAs: 'followUp' }, { id: 'm2', text: 'Nota paralela.', deliverAs: 'aside' }];
+    await vi.waitFor(() => expect(t.send).toHaveBeenCalledTimes(2), { timeout: 5_000 });
+    expect(t.habblaud.of('/api/permissions/p1/decision')).toHaveLength(0);
+    inbox = [{ id: 'm3', text: '  Seguir por mensagem.  ', deliverAs: 'steer' }];
+    await result;
+    expect(t.send.mock.calls).toEqual([
+      ['  Mensagem em fila.  ', { deliverAs: 'followUp' }], ['Nota paralela.', { deliverAs: 'aside' }], ['  Seguir por mensagem.  ', { deliverAs: 'steer' }],
+    ]);
+    await vi.waitFor(() => expect(t.habblaud.of('/api/mod/inbox/ack').at(-1)?.body?.results).toEqual([{ id: 'm3', ok: true }]));
+    expect(t.habblaud.of('/api/permissions/p1/decision')[0].body).toEqual({ behavior: 'terminal' });
+  }, 12_000);
+
+  it('omp 19: repassa a interrupção nativa com respostas parciais se chega antes do cartão', async () => {
+    const t = askSetup((c) => registerOk(c, 'hang'));
+    const pending = t.run({ html: form('<label>Quem? <input type=text name=who></label>') });
+    const nativeError = new Error('Ask interrupted by message. Answers the user gave before it:\n{\n  "who": "Ada"\n}');
+    const result = expect(pending).rejects.toBe(nativeError);
+    await vi.waitFor(() => expect(t.habblaud.of('/api/permissions/p1/wait')).toHaveLength(1));
+    t.local.reject(nativeError);
+    await result;
+    expect(t.habblaud.of('/api/permissions/p1/decision')[0].body).toEqual({ behavior: 'terminal' });
+  });
+
+  it('omp 19: expiração nativa sem resposta não é o diagnóstico de HTML sem campo', async () => {
+    const t = askSetup((c) => registerOk(c, 'hang'));
+    const html = '<form><p>Qual nome?<input name=name required>';
+    const timedOut = {
+      content: [{ type: 'text', text: 'The ask timed out before the user answered its required fields; no answer was given.' }],
+      details: { answers: [], timedOut: true },
+    };
+    t.local.resolve(timedOut);
+    expect(await t.run({ html })).toBe(timedOut);
+    expect(t.habblaud.of('/api/permissions/p1/decision')[0].body).toEqual({ behavior: 'terminal' });
+  });
+
+  it('omp 19: aceita HTML como string recuperada, com resultado completo quando o cartão vence', async () => {
+    const t = askSetup((c) => registerOk(c, { status: 200, json: { status: 'decided', behavior: 'answer', answers: [{ question: 0, options: [1] }] } }));
+    const html = form('<label>Onde? <select name=target><option value=local>Local</option><option value=remote>Remoto</option></select></label>');
+    expect(await t.run(html)).toEqual({
+      content: [{ type: 'text', text: 'User answers:\n{\n  "target": "remote"\n}' }],
+      details: { answers: [{ name: 'target', question: 'Onde?', answer: 'Remoto' }] },
+    });
+    expect(t.nativeAborted()).toBe(true);
   });
 
   it('texto com quebra de linha em campo de uma linha não troca o diálogo nativo por resultado inválido', async () => {
