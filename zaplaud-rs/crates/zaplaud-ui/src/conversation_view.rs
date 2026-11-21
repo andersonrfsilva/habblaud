@@ -744,6 +744,9 @@ async fn stop_session(task: &mut Option<tokio::task::JoinHandle<()>>) {
 }
 pub fn setup(window: &AppWindow, context: &FeatureContext) {
     let state = window.global::<ConversationViewState>();
+    let selection = window.global::<crate::MarkdownSelection>();
+    selection.set_select_label(strings::SELECT_MESSAGE_TEXT.into());
+    selection.on_format(|blocks| zaplaud_ui::markdown::selection_text(&blocks));
     state.set_go_to_end(strings::GO_TO_END.into());
     state.set_view_label(strings::VIEW_MENU.into());
     let weak = window.as_weak();

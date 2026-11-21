@@ -25,6 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let messages = message_model(documents);
     let window = MarkdownDemo::new()?;
+    zaplaud_ui::markdown::setup_demo_selection(&window);
     window
         .global::<Theme>()
         .set_dark(std::env::args().any(|arg| arg == "--dark"));

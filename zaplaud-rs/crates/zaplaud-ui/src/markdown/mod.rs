@@ -2,10 +2,9 @@
 //!
 //! `MarkdownView` recebe `blocks`, `source-markdown` e emite `link-clicked(string)`
 //! e `copy(string)`. O aplicativo deve copiar no clipboard e validar/abrir links.
-//! Slint 1.18.1 não seleciona `StyledText`: Selecionar texto troca os blocos da
-//! mensagem por `TextInput` somente leitura, com seleção nativa e Ctrl+C.
-//! Código já usa esse controle. Não existe seleção entre blocos; copiar mensagem preserva
-//! o Markdown original. A lista externa deve virtualizar mensagens e chamar
+//! Slint 1.18.1 não seleciona `StyledText`: Selecionar troca a apresentação de um
+//! fragmento por um só `TextInput` somente leitura. Copiar mensagem preserva o
+//! Markdown original. A lista externa deve virtualizar mensagens e chamar
 //! `parse` sob demanda; este módulo não retém mensagens nem cria runtimes.
 //!
 //! `MdBlock.kind` é `text`, `quote`, `code`, `table` ou `rule`. Blocos ```` ```mermaid ```` e
@@ -14,7 +13,7 @@
 //! de zero, e `marker` conserva a numeração ou o estado da tarefa. `spans` expõe
 //! texto, bold, italic, strike, code e link; `rich` mantém o fluxo inline nativo.
 //! `links` contém destinos únicos do bloco para o menu contextual. Ações de mensagem
-//! aparecem sobre o conteúdo no hover, sem reservar uma linha no layout.
+//! ficam no rodapé da apresentação.
 //! Tabelas usam `cells` em ordem de linhas e `columns` colunas. `MdCell.alignment`
 //! é 0 (esquerda/padrão), 1 (centro) ou 2 (direita); `header` distingue o cabeçalho.
 //! `MdMessage` contém `source` e `blocks`. `message_model` analisa linhas pedidas
@@ -500,16 +499,60 @@ pub fn parse(markdown: &str) -> Vec<MdBlock> {
     state.blocks
 }
 
+struct SelectionBlock<C> {
+    kind: slint::SharedString,
+    text: slint::SharedString,
+    marker: slint::SharedString,
+    depth: i32,
+    language: slint::SharedString,
+    rendered_diagram: bool,
+    cells: ModelRc<C>,
+    columns: i32,
+}
+
+// Slint gera tipos distintos para a janela completa e o demonstrador de Markdown.
+macro_rules! selection_block {
+    ($block:ident) => {
+        SelectionBlock {
+            kind: $block.kind,
+            text: $block.text,
+            marker: $block.marker,
+            depth: $block.depth,
+            language: $block.language,
+            rendered_diagram: $block.diagram.size().width > 0,
+            cells: $block.cells,
+            columns: $block.columns,
+        }
+    };
+}
+
 /// Texto selecionável dos blocos visíveis de um fragmento, sem a sintaxe Markdown.
-pub(crate) fn selection_text(
-    blocks: &ModelRc<crate::conversation_rows::MdBlock>,
+pub fn selection_text(blocks: &ModelRc<crate::conversation_rows::MdBlock>) -> slint::SharedString {
+    use slint::Model;
+    format_selection(blocks.iter().map(|block| selection_block!(block)), |cell| {
+        cell.text
+    })
+}
+
+pub fn setup_demo_selection(window: &MarkdownDemo) {
+    use slint::{ComponentHandle, Model};
+    window.global::<MarkdownSelection>().on_format(|blocks| {
+        format_selection(blocks.iter().map(|block| selection_block!(block)), |cell| {
+            cell.text
+        })
+    });
+}
+
+fn format_selection<C: Clone + 'static>(
+    blocks: impl Iterator<Item = SelectionBlock<C>>,
+    cell_text: impl Fn(C) -> slint::SharedString,
 ) -> slint::SharedString {
     use crate::transcript::{HEIGHT_BUDGET, estimate};
     use slint::Model;
 
     let mut text = String::new();
     let mut rule_lines = 0;
-    for block in blocks.iter() {
+    for block in blocks {
         match block.kind.as_str() {
             // O texto alternativo ou rótulo da imagem já está no parágrafo.
             "image" => continue,
@@ -520,7 +563,12 @@ pub(crate) fn selection_text(
             _ => {}
         }
         if !text.is_empty() {
-            let trailing = text.bytes().rev().take(2).take_while(|&b| b == b'\n').count();
+            let trailing = text
+                .bytes()
+                .rev()
+                .take(2)
+                .take_while(|&b| b == b'\n')
+                .count();
             for _ in trailing..2 {
                 text.push('\n');
             }
@@ -528,7 +576,7 @@ pub(crate) fn selection_text(
         for _ in 0..std::mem::take(&mut rule_lines) {
             text.push('\n');
         }
-        if block.diagram.size().width > 0 {
+        if block.rendered_diagram {
             text.push_str(if block.language.trim() == "svg" {
                 "[diagrama SVG]"
             } else {
@@ -540,7 +588,7 @@ pub(crate) fn selection_text(
                 if index != 0 {
                     text.push(if index % columns == 0 { '\n' } else { '\t' });
                 }
-                text.push_str(&cell.text);
+                text.push_str(&cell_text(cell));
             }
         } else {
             if !block.marker.is_empty() {
