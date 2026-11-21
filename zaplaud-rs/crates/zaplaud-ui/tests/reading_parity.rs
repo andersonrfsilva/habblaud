@@ -171,6 +171,91 @@ fn reopening_uneven_history_restores_the_saved_row_without_scrolling() {
 }
 
 #[test]
+fn fractional_scrolling_keeps_its_position_after_the_gesture() {
+    struct ScrollClock(Rc<MinimalSoftwareWindow>, Rc<Cell<u64>>);
+    impl Platform for ScrollClock {
+        fn create_window_adapter(&self) -> Result<Rc<dyn WindowAdapter>, slint::PlatformError> {
+            Ok(self.0.clone())
+        }
+
+        fn duration_since_start(&self) -> Duration {
+            Duration::from_millis(self.1.get())
+        }
+    }
+
+    let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
+    let clock = Rc::new(Cell::new(0));
+    slint::platform::set_platform(Box::new(ScrollClock(window.clone(), clock.clone()))).unwrap();
+    let probe = TranscriptProbe::new().unwrap();
+    probe.set_requested_width(800.);
+    probe.set_requested_height(600.);
+    probe.show().unwrap();
+    window.set_size(slint::PhysicalSize::new(800, 600));
+    let state = probe.global::<ConversationViewState>();
+    let row = |index| {
+        let id: slint::SharedString = format!("fictitious-{index}").into();
+        ConversationRow {
+            entry_id: id.clone(),
+            id,
+            kind: "system".into(),
+            fragment: "Histórico fictício\n".repeat(4).into(),
+            first: true,
+            last: true,
+            ..Default::default()
+        }
+    };
+    let mut pixels = vec![Rgb8Pixel::default(); 800 * 600];
+    let mut tick = || {
+        clock.set(clock.get() + 10);
+        slint::platform::update_timers_and_animations();
+        window.draw_if_needed(|renderer| {
+            renderer.render(&mut pixels, 800);
+        });
+    };
+    for fraction in [1., 0.5] {
+        let rows = Rc::new(VecModel::from((0..120).map(row).collect::<Vec<_>>()));
+        state.set_rows(ModelRc::new(rows.clone()));
+        tick();
+        probe.invoke_scroll_to(fraction);
+        for _ in 0..10 {
+            tick();
+        }
+
+        let start = state.get_scroll_y();
+        for elapsed in 0..=50 {
+            if elapsed % 5 == 0 {
+                probe.window().dispatch_event(WindowEvent::PointerScrolled {
+                    position: slint::LogicalPosition::new(650., 300.),
+                    delta_x: 0.,
+                    delta_y: 0.125,
+                });
+            }
+            tick();
+        }
+        let released = state.get_scroll_y();
+        assert!((released - start - 1.375).abs() < 0.01);
+        for _ in 0..200 {
+            tick();
+            assert_eq!(
+                state.get_scroll_y(),
+                released,
+                "jump after scrolling from {fraction}"
+            );
+        }
+        assert!(!state.get_following());
+        rows.push(row(120));
+        for _ in 0..10 {
+            tick();
+        }
+        assert_eq!(
+            state.get_scroll_y(),
+            released,
+            "new message moved the history"
+        );
+    }
+}
+
+#[test]
 fn restore_settles_once_cancels_on_navigation_and_pins_expire() {
     let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
     slint::platform::set_platform(Box::new(Headless(window.clone()))).unwrap();

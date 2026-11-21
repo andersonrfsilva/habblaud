@@ -270,10 +270,6 @@ export component ConversationView inherits Rectangle {
     function cancel-restore() {
         ConversationViewState.restore-pending = false;
         ConversationViewState.anchor-ticks = 0;
-        root.cancel-scroll-settle();
-    }
-    function cancel-scroll-settle() {
-        messages.scroll-from-end = false;
         scroll-settle.stop();
     }
     function request-capture(generation: int) {
@@ -308,7 +304,7 @@ export component ConversationView inherits Rectangle {
     property <int> reset-request: ConversationViewState.reset-request;
     property <bool> restore-estimated;
     changed reset-request => {
-        root.cancel-scroll-settle();
+        scroll-settle.stop();
         root.restore-estimated = false;
     }
     property <int> scroll-request: ConversationViewState.scroll-request;
@@ -326,18 +322,24 @@ export component ConversationView inherits Rectangle {
         }
     }
     scroll-settle := Timer {
-        // A roda do Slint anima por 180 ms e não sinaliza a chegada ao destino.
+        // O Slint sinaliza o início da inércia, mas não a chegada ao destino.
         interval: 220ms;
         running: false;
         triggered => {
-            self.stop();
-            messages.scroll-from-end = false;
-            if messages.scroll-generation == ConversationViewState.reading-generation
-                && ConversationViewState.rows.length > 0 && !ConversationViewState.restore-pending && ConversationViewState.anchor-ticks == 0
-                && (ConversationViewState.following || messages.content-y <= messages.end-y + 2px) {
-                ConversationViewState.following = true;
-                messages.content-y = messages.end-y;
-                ConversationViewState.position(messages.scroll-generation, true);
+            let generation = messages.scroll-generation;
+            // O timer pode disparar antes de changed content-y no mesmo quadro.
+            if generation == ConversationViewState.reading-generation && messages.content-y != ConversationViewState.scroll-y {
+                self.restart();
+            } else {
+                self.stop();
+                if generation == ConversationViewState.reading-generation
+                    && ConversationViewState.rows.length > 0 && !ConversationViewState.restore-pending && ConversationViewState.anchor-ticks == 0 {
+                    let follow = ConversationViewState.following || messages.at-end;
+                    ConversationViewState.following = follow;
+                    if follow { messages.content-y = messages.end-y; }
+                    ConversationViewState.position(generation, follow);
+                    root.request-capture(generation);
+                }
             }
         }
     }
@@ -419,17 +421,18 @@ export component ConversationView inherits Rectangle {
             messages := ScrollList {
                 width: parent.width; height: parent.height;
                 property <length> end-y: min(0px, self.visible-height - self.content-height);
-                property <bool> scroll-from-end;
+                // Tolera arredondamento do layout sem engolir deslocamentos fracionários acumulados.
+                property <bool> at-end: self.content-y <= self.end-y + 0.25px;
                 property <int> scroll-generation;
-                changed end-y => { if ConversationViewState.following && !self.scroll-from-end { self.content-y = self.end-y; } }
+                changed end-y => { if ConversationViewState.following && !scroll-settle.running { self.content-y = self.end-y; } }
                 changed content-y => {
-                    if self.scroll-from-end && self.scroll-generation != ConversationViewState.reading-generation {
-                        self.scroll-from-end = false;
+                    if scroll-settle.running && self.scroll-generation != ConversationViewState.reading-generation {
+                        scroll-settle.stop();
                     } else {
                         ConversationViewState.scroll-y = self.content-y;
-                        if self.scroll-from-end {
-                            if self.content-y > self.end-y + 2px {
-                                self.scroll-from-end = false;
+                        if scroll-settle.running {
+                            scroll-settle.restart();
+                            if ConversationViewState.following && !self.at-end {
                                 ConversationViewState.following = false;
                                 ConversationViewState.position(self.scroll-generation, false);
                                 root.request-capture(self.scroll-generation);
@@ -443,15 +446,13 @@ export component ConversationView inherits Rectangle {
                 scrolled => {
                     ConversationViewState.restore-pending = false;
                     ConversationViewState.anchor-ticks = 0;
-                    // A roda sinaliza o gesto antes de a animação alterar content-y.
-                    let at-end = self.content-y <= self.end-y + 2px;
                     self.scroll-generation = ConversationViewState.reading-generation;
-                    self.scroll-from-end = self.end-y < 0px && ConversationViewState.following && at-end;
-                    ConversationViewState.following = at-end;
-                    ConversationViewState.position(self.scroll-generation, ConversationViewState.following);
-                    root.request-capture(self.scroll-generation);
+                    // A roda pode avisar antes de mover content-y. Só retome o fim em repouso.
                     if scroll-settle.running { scroll-settle.restart(); }
                     else { scroll-settle.start(); }
+                    if !self.at-end { ConversationViewState.following = false; }
+                    ConversationViewState.position(self.scroll-generation, ConversationViewState.following);
+                    root.request-capture(self.scroll-generation);
                 }
                 for row[index] in ConversationViewState.rows: EntryBubble {
                     width: messages.width; entry: row; row-index: index;
