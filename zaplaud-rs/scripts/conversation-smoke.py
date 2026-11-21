@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercita clipboard, reabertura no fim, SSE único e rolagem longa na UI real por XTest."""
+"""Exercita seleção, clipboard, reabertura no fim, SSE único e rolagem longa por XTest."""
 import argparse
 import ctypes as C
 import importlib.util
@@ -64,6 +64,133 @@ class Clipboard:
         finally:
             if data:
                 x.XFree(data)
+
+
+def last_assistant_bubble(image, surface):
+    # O segundo ponto passa fora de cartões de código e tabelas.
+    def inside(y):
+        return any(image.getpixel((x, y)) == surface for x in (700, 970))
+
+    top = bottom = 620
+    if not inside(top):
+        return None
+    while top > 64 and inside(top - 1):
+        top -= 1
+    while bottom + 1 < image.height and inside(bottom + 1):
+        bottom += 1
+    return top, bottom
+
+
+def link_probe_env(data, url_file):
+    # O xdg-open real usa o manipulador local da fixture, sem tocar no perfil do navegador.
+    browser = data / 'fixture-browser'
+    browser.write_text('#!/bin/sh\nprintf "%s\\n" "$1" > "$ZAPLAUD_FIXTURE_LINK"\n')
+    browser.chmod(0o700)
+    applications = data / 'applications'
+    applications.mkdir()
+    (applications / 'zaplaud-fixture-browser.desktop').write_text(
+        f'[Desktop Entry]\nType=Application\nName=Fixture\nExec={browser} %u\nMimeType=x-scheme-handler/http;\n'
+    )
+    (data / 'mimeapps.list').write_text(
+        '[Default Applications]\nx-scheme-handler/http=zaplaud-fixture-browser.desktop;\n'
+    )
+    return dict(XDG_CURRENT_DESKTOP='X-Generic', XDG_CONFIG_HOME=str(data), XDG_DATA_HOME=str(data),
+                BROWSER=str(browser), ZAPLAUD_FIXTURE_LINK=str(url_file))
+
+
+def probe_selection(desktop, clipboard, colors, source, url, opened, captures, theme):
+    def warp(x, y):
+        desktop.x.XWarpPointer(desktop.d, 0, desktop.mapped()[0], 0, 0, 0, 0, x, y)
+        desktop.x.XSync(desktop.d, 0)
+
+    def button(number, pressed):
+        desktop.xt.XTestFakeButtonEvent(desktop.d, number, pressed, 0)
+        desktop.x.XSync(desktop.d, 0)
+
+    def key_copy():
+        desktop.key('c', ('Control_L',))
+        return clipboard.text()
+
+    def key_copy_all():
+        desktop.key('a', ('Control_L',))
+        return key_copy()
+
+    warp(1000, 400)
+    time.sleep(.1)
+    formatted = desktop.image()
+    bounds = last_assistant_bubble(formatted, colors['surface'])
+    assert bounds, 'Balão do teste de seleção ausente'
+    top, bottom = bounds
+    content = (380, top, 810, top + 155)
+    formatted = formatted.crop(content).tobytes()
+    expected_drag = 'Começo do parágrafo.\n\n• Item da lista\n\nfim_do_codigo\n'
+    expected_all = expected_drag + '\nLink local'
+
+    warp(420, top + 24)
+    for _ in range(2):
+        button(1, 1)
+        button(1, 0)
+        time.sleep(.075)
+    assert desktop.image().crop(content).tobytes() != formatted, 'Duplo clique não mudou a apresentação'
+    assert key_copy_all() == expected_all, 'Ctrl+A não selecionou todo o fragmento após duplo clique'
+    desktop.key('Left')
+    assert key_copy() == source, 'Ctrl+C sem trecho selecionado não copiou o Markdown original'
+
+    warp(389, top + 23)
+    button(1, 1)
+    time.sleep(.1)
+    warp(535, top + 125)
+    time.sleep(.1)
+    button(1, 0)
+    assert key_copy() == expected_drag, 'O arraste não selecionou parágrafo, lista e código'
+    desktop.image().save(captures / f'zaplaud-selecao-arraste-{theme}.png')
+    warp(1000, 400)
+    desktop.key('Escape')
+    smoke.wait_for(lambda: desktop.image().crop(content).tobytes() == formatted,
+                   'Esc não restaurou o texto formatado na mesma posição')
+    desktop.image().save(captures / f'zaplaud-selecao-escape-{theme}.png')
+
+    desktop.click(860, bottom - 42)
+    assert key_copy_all() == expected_all, 'Botão Selecionar não abriu o campo'
+    desktop.click(1000, top + 24)
+    smoke.wait_for(lambda: desktop.image().crop(content).tobytes() == formatted,
+                   'O clique fora não saiu do modo de seleção')
+    desktop.click(950, bottom - 42)
+    assert clipboard.text() == source
+
+    warp(420, top + 24)
+    button(3, 1)
+    button(3, 0)
+    time.sleep(.2)
+    desktop.key('Up')
+    desktop.key('Return')
+    assert key_copy_all() == expected_all, 'Selecionar texto deixou de funcionar no menu de contexto'
+    warp(420, top + 24)
+    button(3, 1)
+    button(3, 0)
+    time.sleep(.2)
+    desktop.key('Up')
+    desktop.key('Return')
+    smoke.wait_for(lambda: desktop.image().crop(content).tobytes() == formatted,
+                   'Texto formatado deixou de funcionar no menu de contexto')
+
+    assert not opened.exists(), 'O link abriu sem receber um clique'
+    desktop.click(419, top + 146)
+    smoke.wait_for(opened.is_file, 'Clique simples não abriu o link no manipulador do sistema')
+    assert opened.read_text().strip() == url
+    assert desktop.image().crop(content).tobytes() == formatted, 'Clique no link entrou em seleção'
+
+    desktop.click(860, bottom - 42)
+    assert key_copy_all() == expected_all, 'A roda precisa começar sobre o campo ativo'
+    before_scroll = desktop.image().crop(content).tobytes()
+    warp(420, top + 24)
+    for _ in range(6):
+        button(4, 1)
+        button(4, 0)
+    smoke.wait_for(lambda: desktop.image().crop(content).tobytes() != before_scroll,
+                   'A roda sobre o campo não rolou a lista')
+    return ['duplo-clique', 'ctrl-c-sem-seleção', 'ctrl-a', 'arraste-entre-blocos', 'escape-e-âncora',
+            'botão', 'clique-fora', 'menu-entrar-e-sair', 'link', 'roda']
 
 
 def probe_matrix(binary, display, output=None):
@@ -137,6 +264,7 @@ def main():
     parser.add_argument('--port', type=int, default=14787)
     parser.add_argument('--theme', choices=['light', 'dark'], default='light')
     parser.add_argument('--switches', type=int, default=20)
+    parser.add_argument('--output-dir', type=Path, default=Path('/tmp'))
     args = parser.parse_args()
     if args.probe:
         probe_matrix(args.probe, args.display, args.probe_output)
@@ -147,6 +275,8 @@ def main():
     if not args.binary:
         parser.error('--binary é obrigatório sem --probe-only')
     desktop = comparison.Desktop(args.display)
+    captures = args.output_dir
+    captures.mkdir(parents=True, exist_ok=True)
     assert not desktop.mapped(), 'Display ocupado por outro Zaplaud'
     clipboard = Clipboard(desktop)
     fixture = smoke.Fixture(args.port)
@@ -156,6 +286,8 @@ def main():
             data = Path(directory)
             (data / 'runtime').mkdir(mode=0o700)
             env = dict(os.environ, DISPLAY=args.display, WINIT_UNIX_BACKEND='x11', ZAPLAUD_THEME=args.theme, ZAPLAUD_KEYRING='memory', ZAPLAUD_DATA_DIR=str(data / 'state'), XDG_RUNTIME_DIR=str(data / 'runtime'))
+            opened = data / 'opened-link'
+            env.update(link_probe_env(data, opened))
             with open(f'/tmp/zaplaud-rs-fin-conversation-regression-{args.theme}.log', 'w') as log:
                 app = subprocess.Popen([args.binary], env=env, stdout=log, stderr=log)
                 try:
@@ -212,21 +344,14 @@ def main():
                         time.sleep(.5)
 
                     def copy_last():
-                        # A ação está 18 px abaixo do topo do balão, não a um y fixo da janela.
-                        image = desktop.image()
-                        top = 620
-                        if image.getpixel((700, top)) != colors['surface']:
+                        bounds = last_assistant_bubble(desktop.image(), colors['surface'])
+                        if bounds is None:
                             return ''
-                        while top > 64 and image.getpixel((700, top - 1)) == colors['surface']:
-                            top -= 1
-                        y = top + 18
-                        desktop.x.XWarpPointer(desktop.d, 0, desktop.mapped()[0], 0, 0, 0, 0, 700, y)
-                        desktop.x.XSync(desktop.d, 0)
-                        time.sleep(.15)
-                        desktop.click(950, y)
+                        # Rodapé antes do horário (16 px) e do padding inferior (12 px).
+                        desktop.click(950, bounds[1] - 42)
                         return clipboard.text()
 
-                    desktop.image().save(f'/tmp/zaplaud-rs-fin-conversation-regression-initial-{args.theme}.png')
+                    desktop.image().save(captures / f'zaplaud-rs-fin-conversation-regression-initial-{args.theme}.png')
                     # Runner lento (build debug, 2 núcleos): a lista segue o fim, mas pode levar alguns segundos.
                     copied = ''
                     deadline = time.monotonic() + 20
@@ -288,6 +413,12 @@ def main():
                         reading = load_state().get(omp_reading_key)
                         return reading and reading.get('entry') and not reading['following']
 
+                    def claude_at_end():
+                        # O botão pode aparecer durante a espera pela posição restaurada.
+                        if at_history(638):
+                            desktop.click(1060, 638)
+                        return not at_history(638)
+
                     # Salva o histórico OMP e troca de volta antes de terminar a rolagem do Claude.
                     desktop.key('Home')
                     smoke.wait_for(saved_history, 'Posição no histórico OMP não foi salva')
@@ -300,9 +431,7 @@ def main():
                     for attempt in range(1, 6):
                         desktop.click(150, claude_row)
                         smoke.wait_for(showing_claude, f'Troca {attempt}: conversa Claude não abriu')
-                        if at_history(638):
-                            desktop.click(1060, 638)
-                        smoke.wait_for(lambda: not at_history(638), f'Troca {attempt}: conversa Claude não chegou ao fim')
+                        smoke.wait_for(claude_at_end, f'Troca {attempt}: conversa Claude não chegou ao fim')
                         before = load_state()[omp_reading_key]
                         assert before.get('entry') and not before['following'], f'Troca {attempt}: OMP não estava no histórico'
                         started = time.monotonic()
@@ -322,7 +451,7 @@ def main():
                         assert desktop.image().crop(anchor_box).tobytes() == anchor.tobytes(), (
                             f'Troca {attempt}: o OMP não voltou à âncora visível')
                     result['wheel_switches'] = 5
-                    desktop.image().save(f'/tmp/zaplaud-rs-fin-conversation-regression-restored-{args.theme}.png')
+                    desktop.image().save(captures / f'zaplaud-rs-fin-conversation-regression-restored-{args.theme}.png')
                     desktop.click(1060, omp_end_button_y)
                     smoke.wait_for(lambda: copy_last() == latest, 'Ir para o fim não voltou à última mensagem do OMP', 20)
 
@@ -370,7 +499,7 @@ def main():
                         smoke.wait_for(lambda: copy_last() == latest, 'Ir para o fim não chegou à mensagem nova', 20)
                     wheel(4, 400)
                     time.sleep(.5)
-                    desktop.image().save(f'/tmp/zaplaud-rs-fin-conversation-regression-start-{args.theme}.png')
+                    desktop.image().save(captures / f'zaplaud-rs-fin-conversation-regression-start-{args.theme}.png')
                     before = smoke.ticks(app.pid)
                     start = time.monotonic()
                     for _ in range(80):
@@ -380,17 +509,25 @@ def main():
                     result['scroll_cpu_percent'] = (smoke.ticks(app.pid) - before) / os.sysconf('SC_CLK_TCK') / result['scroll_seconds'] * 100
                     assert copy_last() == latest, 'Rolagem não chegou à última entrada'
                     result['scroll_memory'] = smoke.memory(app.pid)
-                    desktop.image().save(f'/tmp/zaplaud-rs-fin-conversation-regression-end-{args.theme}.png')
+                    desktop.image().save(captures / f'zaplaud-rs-fin-conversation-regression-end-{args.theme}.png')
+
+                    url = f'http://127.0.0.1:{args.port}/fixture-selection-link'
+                    source = f'**Começo do parágrafo.**\n\n- Item da lista\n\n```text\nfim_do_codigo\n```\n\n[Link local]({url})'
+                    with transcript.open('a') as stream:
+                        write_entry(stream, source, 'assistant')
+                    smoke.wait_for(lambda: copy_last() == source, 'Mensagem para seleção não apareceu', 20)
+                    result['selection'] = probe_selection(
+                        desktop, clipboard, colors, source, url, opened, captures, args.theme)
                 except Exception:
                     if desktop.mapped():
-                        desktop.image().save(f'/tmp/zaplaud-rs-fin-conversation-regression-failure-{args.theme}.png')
+                        desktop.image().save(captures / f'zaplaud-rs-fin-conversation-regression-failure-{args.theme}.png')
                     raise
                 finally:
                     app.terminate()
                     app.wait(timeout=10)
     finally:
         fixture.stop()
-    Path(f'/tmp/zaplaud-rs-fin-conversation-regression-{args.theme}.json').write_text(json.dumps(result, indent=2) + '\n')
+    (captures / f'zaplaud-rs-fin-conversation-regression-{args.theme}.json').write_text(json.dumps(result, indent=2) + '\n')
     print(json.dumps(result, indent=2))
 
 

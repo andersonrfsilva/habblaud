@@ -142,6 +142,14 @@ component EntryBubble inherits Rectangle {
     changed geometry-request => {
         ConversationViewState.geometry(root.entry.id, root.absolute-position.y / 1px, root.height / 1px, max(content.height, content.preferred-height) / 1px + (root.entry.last ? 8 : 0));
     }
+    function keep-reading-during-selection() {
+        if ConversationViewState.following || ConversationViewState.anchor-row == "" {
+            ConversationViewState.following = false;
+            root.capture-anchor(ConversationViewState.reading-generation);
+        }
+        ConversationViewState.restore-pending = false;
+        ConversationViewState.anchor-ticks = 46;
+    }
     property <bool> group: entry.kind == "thinking" || entry.kind == "tool";
     function toggle-expanded() {
         ConversationViewState.following = false;
@@ -236,6 +244,8 @@ component EntryBubble inherits Rectangle {
                 }
                 if !root.entry.summarized || root.entry.expanded: MarkdownView {
                     row-id: root.entry.id;
+                    selection-generation: ConversationViewState.reading-generation;
+                    before-selection-change => { root.keep-reading-during-selection(); }
                     viewport-top: root.viewport-top;
                     viewport-bottom: root.viewport-bottom;
                     accessible-role: text; accessible-label: root.entry.source;
@@ -385,6 +395,7 @@ export component ConversationView inherits Rectangle {
         if ConversationViewState.reduced != "": Banner { text: ConversationViewState.reduced; }
         scroll-keys := FocusScope {
             vertical-stretch: 1;
+            focus-on-click: true;
             key-pressed(event) => {
                 if event.text == Key.Home || event.text == Key.PageUp || event.text == Key.PageDown { root.cancel-restore(); }
                 if event.text == Key.End { root.jump-to-end(); return accept; }

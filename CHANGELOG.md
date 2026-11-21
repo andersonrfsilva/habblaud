@@ -24,6 +24,9 @@ do meio (0.**3**.0).
 - **omp:** a lista de tarefas do agente (ferramenta `todo`, com fases) aparece na página e no cartão da conversa.
 - **Zaplaud (Android/iPad):** a lista de tarefas do agente aparece nas informações da sessão, com o progresso acima do campo de mensagem.
 - **Zaplaud desktop:** a lista de tarefas do agente aparece nas informações da sessão, com o progresso acima do campo de mensagem.
+- **Zaplaud desktop:** o botão "Selecionar" permite copiar trechos que atravessam parágrafos, listas e código
+  no mesmo fragmento da mensagem. Em parágrafos, títulos, citações e listas sem links, o duplo clique também
+  abre a seleção.
 - **Zaplaud (Android):** os avisos voltam sozinhos depois de reiniciar o aparelho ou atualizar o app, se estavam ligados.
 - **Zaplaud (Android):** GIF animado toca na conversa (Android 9 ou superior).
 - **Zaplaud:** o menu da conversa abre as Entregas da sessão, com o pedido, a resposta e os arquivos de cada

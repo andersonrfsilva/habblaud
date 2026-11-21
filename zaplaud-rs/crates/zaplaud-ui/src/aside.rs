@@ -292,6 +292,23 @@ mod tests {
     }
 
     #[test]
+    fn aside_selection_uses_the_displayed_markdown_blocks() {
+        let turn = zaplaud_core::model::AsideTurn {
+            id: "selection".into(),
+            question: "Pergunta".into(),
+            answer: "**Parágrafo**\n\n- Item\n\n```text\nscript()\n```".into(),
+            status: "done".into(),
+            error: None,
+        };
+        let rows = turn_rows(&turn);
+        let answer_row = rows.iter().find(|row| !row.answer.is_empty()).unwrap();
+        assert_eq!(
+            zaplaud_ui::markdown::selection_text(&answer_row.blocks),
+            "Parágrafo\n\n• Item\n\nscript()\n"
+        );
+    }
+
+    #[test]
     fn aside_transcript_rows_bound_large_questions_answers_and_errors() {
         use slint::Model;
         use zaplaud_core::model::AsideTurn;

@@ -27,6 +27,11 @@ export global MarkdownGeometry {
     callback measured(string, float, float, float, float);
 }
 
+export global MarkdownSelection {
+    in property <string> select-label: "Selecionar";
+    callback format([MdBlock]) -> string;
+}
+
 component MeasuredText inherits StyledText {
     // A altura explícita preserva a medida na largura renderizada ao agregar os layouts ancestrais.
     height: self.preferred-height;
@@ -88,26 +93,31 @@ component MdButton inherits Rectangle {
     }
 }
 
-component SelectableBlock inherits VerticalLayout {
+component FormattedBlock inherits VerticalLayout {
     in property <MdBlock> block;
     in property <string> row-id;
     callback link-clicked(string);
     callback copy(string);
+    callback focus-message();
     callback select-text();
     in property <string> source-markdown;
-    in property <bool> selecting;
     in property <color> foreground: Theme.on-surface;
     spacing: 3px;
     HorizontalLayout {
         Text { text: root.block.marker; color: root.foreground; width: root.block.marker == "" ? 0px : self.preferred-width + 6px; }
         VerticalLayout {
-            if !root.selecting: MeasuredText {
+            MeasuredText {
                 row-id: root.row-id;
                 text: root.block.rich;
                 default-color: root.foreground;
                 default-font-size: root.block.level == 1 ? 24px : root.block.level == 2 ? 22px : root.block.level == 3 ? 16px : root.block.level == 4 ? 14px : root.block.level == 5 ? 16px : root.block.level == 6 || root.block.kind == "quote" ? 14px : 16px;
                 link-color: Theme.primary;
                 link-clicked(url) => { root.link-clicked(url); }
+                // StyledText consome o clique mesmo fora do link; a área não cobre blocos com links.
+                if root.block.links.length == 0: TouchArea {
+                    clicked => { root.focus-message(); }
+                    double-clicked => { root.select-text(); }
+                }
                 ContextMenuArea {
                     Menu {
                         MenuItem { title: "Copiar mensagem"; activated => { root.copy(root.source-markdown); } }
@@ -118,17 +128,6 @@ component SelectableBlock inherits VerticalLayout {
                         }
                     }
                 }
-            }
-            if root.selecting: MeasuredInput {
-                row-id: root.row-id;
-                text: root.block.text;
-                accessible-role: text; accessible-label: root.block.text;
-                read-only: true;
-                wrap: word-wrap;
-                color: root.foreground;
-                font-size: 16px;
-                selection-background-color: Theme.primary;
-                selection-foreground-color: Theme.on-primary;
             }
         }
     }
@@ -142,7 +141,42 @@ export component MarkdownView inherits Rectangle {
     in property <length> viewport-bottom;
     callback link-clicked(string);
     callback copy(string);
-    in-out property <bool> selecting: false;
+    callback before-selection-change();
+    in property <int> selection-generation;
+    private property <bool> selecting: false;
+    private property <string> plain-text;
+    private property <bool> selection-menu;
+    function show-message-menu(position: Point) {
+        // O popup toma o foco até fechar; não trate isso como clique fora.
+        root.selection-menu = root.selecting;
+        message-menu.show(position);
+    }
+    function select-text() {
+        if !root.selecting {
+            root.plain-text = MarkdownSelection.format(root.blocks);
+            root.before-selection-change();
+            root.selecting = true;
+        }
+    }
+    function stop-selecting(restore-focus: bool) {
+        if root.selecting {
+            root.before-selection-change();
+            root.selecting = false;
+            root.plain-text = "";
+            root.selection-menu = false;
+            if restore-focus { message-focus.focus(); }
+        }
+    }
+    changed selection-generation => {
+        root.selecting = false;
+        root.plain-text = "";
+        root.selection-menu = false;
+    }
+    changed row-id => {
+        root.selecting = false;
+        root.plain-text = "";
+        root.selection-menu = false;
+    }
     in property <color> foreground: Theme.on-surface;
     preferred-height: content.preferred-height;
     vertical-stretch: 0;
@@ -151,36 +185,84 @@ export component MarkdownView inherits Rectangle {
     message-menu := ContextMenuArea {
         Menu {
             MenuItem { title: "Copiar mensagem"; activated => { root.copy(root.source-markdown); } }
-            MenuItem { title: root.selecting ? "Texto formatado" : "Selecionar texto"; activated => { root.selecting = !root.selecting; } }
+            MenuItem {
+                title: root.selecting ? "Texto formatado" : "Selecionar texto";
+                activated => { if root.selecting { root.stop-selecting(true); } else { root.select-text(); } }
+            }
         }
         hover := TouchArea {
             clicked => { message-focus.focus(); }
+            pointer-event(event) => {
+                if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                    root.show-message-menu({ x: self.mouse-x, y: self.mouse-y });
+                }
+            }
             message-focus := FocusScope {
+                focus-on-click: false;
                 capture-key-pressed(event) => {
-                    if !root.selecting && event.modifiers.control && event.text.to-lowercase() == "c" {
+                    if !root.selecting && (event.modifiers.control || event.modifiers.meta) && event.text.to-lowercase() == "c" {
                         root.copy(root.source-markdown); return accept;
                     }
                     return reject;
                 }
     content := VerticalLayout {
     spacing: 8px;
+    if root.selecting: MeasuredInput {
+        init => { self.focus(); }
+        row-id: root.row-id;
+        height: self.preferred-height;
+        vertical-stretch: 0;
+        text: root.plain-text;
+        accessible-label: "Selecionar texto";
+        read-only: true;
+        single-line: false;
+        wrap: word-wrap;
+        color: root.foreground;
+        font-size: 16px;
+        selection-background-color: Theme.primary;
+        selection-foreground-color: Theme.on-primary;
+        changed has-focus => {
+            if self.has-focus { root.selection-menu = false; }
+            else if !root.selection-menu { root.stop-selecting(false); }
+        }
+        key-pressed(event) => {
+            if event.text == Key.Escape { return accept; }
+            if event.text == Key.Menu || (event.text == Key.F10 && event.modifiers.shift) {
+                root.show-message-menu({ x: 0px, y: 0px });
+                return accept;
+            }
+            if (event.modifiers.control || event.modifiers.meta)
+                && event.text.to-lowercase() == "c"
+                && self.anchor-position-byte-offset == self.cursor-position-byte-offset {
+                root.copy(root.source-markdown);
+                return accept;
+            }
+            return reject;
+        }
+        key-released(event) => {
+            if event.text == Key.Escape { root.stop-selecting(true); return accept; }
+            return reject;
+        }
+    }
+    if !root.selecting: VerticalLayout {
+    spacing: 8px;
     for block in root.blocks: VerticalLayout {
         padding-left: min(block.depth, 4) * 20px;
         if block.kind == "rule": Rectangle { height: 1px; background: Theme.outline-variant; }
-        if block.kind == "text": SelectableBlock {
+        if block.kind == "text": FormattedBlock {
             block: block;
             row-id: root.row-id;
             foreground: root.foreground;
-            selecting: root.selecting;
             source-markdown: root.source-markdown;
             copy(text) => { root.copy(text); }
-            select-text => { root.selecting = true; }
-            link-clicked(url) => { root.link-clicked(url); }
+            focus-message => { message-focus.focus(); }
+            select-text => { root.select-text(); }
+            link-clicked(url) => { message-focus.focus(); root.link-clicked(url); }
         }
         if block.kind == "quote": HorizontalLayout {
             spacing: 8px;
             Rectangle { width: 3px; background: Theme.outline-variant; }
-            SelectableBlock { row-id: root.row-id; block: block; foreground: root.foreground; selecting: root.selecting; source-markdown: root.source-markdown; copy(text) => { root.copy(text); } select-text => { root.selecting = true; } link-clicked(url) => { root.link-clicked(url); } }
+            FormattedBlock { row-id: root.row-id; block: block; foreground: root.foreground; source-markdown: root.source-markdown; copy(text) => { root.copy(text); } focus-message => { message-focus.focus(); } select-text => { root.select-text(); } link-clicked(url) => { message-focus.focus(); root.link-clicked(url); } }
         }
         if block.kind == "code": code-box := Rectangle {
             background: Theme.on-background.with-alpha(0.1);
@@ -193,7 +275,7 @@ export component MarkdownView inherits Rectangle {
             ContextMenuArea {
                 Menu {
                     MenuItem { title: "Copiar mensagem"; activated => { root.copy(root.source-markdown); } }
-                    MenuItem { title: "Selecionar texto"; activated => { root.selecting = true; } }
+                    MenuItem { title: "Selecionar texto"; activated => { root.select-text(); } }
                     MenuItem { title: "Copiar código"; activated => { root.copy(block.copy-text == "" ? block.text : block.copy-text); } }
                 }
             code-content := VerticalLayout {
@@ -249,6 +331,7 @@ export component MarkdownView inherits Rectangle {
                         text: block.text;
                         accessible-role: text; accessible-label: block.text;
                         read-only: true;
+                        single-line: false;
                         wrap: no-wrap;
                         font-family: "Noto Sans Mono";
                         font-size: 14px;
@@ -316,24 +399,14 @@ export component MarkdownView inherits Rectangle {
                         background: Theme.on-background.with-alpha(self.cell.header ? 0.06 : 0.02);
                         VerticalLayout {
                             padding: 8px;
-                            if !root.selecting: MeasuredText {
+                            MeasuredText {
                                 row-id: root.row-id;
                                 text: cell-box.cell.rich;
                                 default-color: root.foreground;
                                 default-font-size: 16px;
                                 link-color: Theme.primary;
                                 horizontal-alignment: cell-box.cell.alignment == 1 ? center : cell-box.cell.alignment == 2 ? right : left;
-                                link-clicked(url) => { root.link-clicked(url); }
-                            }
-                            if root.selecting: MeasuredInput {
-                                row-id: root.row-id;
-                                text: cell-box.cell.text;
-                                read-only: true;
-                                wrap: word-wrap;
-                                font-size: 16px;
-                                color: root.foreground;
-                                selection-background-color: Theme.primary;
-                                selection-foreground-color: Theme.on-primary;
+                                link-clicked(url) => { message-focus.focus(); root.link-clicked(url); }
                             }
                         }
                     }
@@ -342,16 +415,21 @@ export component MarkdownView inherits Rectangle {
         }
     }
     }
-            }
-            actions := TouchArea {
-                visible: hover.has-hover || self.has-hover;
-                x: parent.width - 60px; y: -8px;
-                width: 60px; height: 28px;
-                HorizontalLayout {
-                    spacing: 0px;
-                    IconButton { width: 28px; height: 28px; icon: MaterialIcons.more-vert; label: "Ações da mensagem"; clicked => { message-focus.focus(); message-menu.show({x: root.width - 60px, y: 20px}); } }
-                    IconButton { width: 28px; height: 28px; icon: MaterialIcons.content-copy; label: "Copiar mensagem"; clicked => { root.copy(root.source-markdown); message-focus.focus(); } }
-                }
+    HorizontalLayout {
+        alignment: end;
+        spacing: 4px;
+        MdButton {
+            text: root.selecting ? "Texto formatado" : MarkdownSelection.select-label;
+            min-height: 28px;
+            clicked => { if root.selecting { root.stop-selecting(true); } else { root.select-text(); } }
+        }
+        IconButton {
+            width: 28px; height: 28px; icon: MaterialIcons.more-vert; label: "Ações da mensagem";
+            clicked => { message-menu.show({x: root.width - 28px, y: root.height}); }
+        }
+        IconButton { width: 28px; height: 28px; icon: MaterialIcons.content-copy; label: "Copiar mensagem"; clicked => { root.copy(root.source-markdown); message-focus.focus(); } }
+    }
+    }
             }
         }
     }

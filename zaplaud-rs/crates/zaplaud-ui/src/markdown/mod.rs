@@ -2,10 +2,9 @@
 //!
 //! `MarkdownView` recebe `blocks`, `source-markdown` e emite `link-clicked(string)`
 //! e `copy(string)`. O aplicativo deve copiar no clipboard e validar/abrir links.
-//! Slint 1.18.1 não seleciona `StyledText`: Selecionar texto troca os blocos da
-//! mensagem por `TextInput` somente leitura, com seleção nativa e Ctrl+C.
-//! Código já usa esse controle. Não existe seleção entre blocos; copiar mensagem preserva
-//! o Markdown original. A lista externa deve virtualizar mensagens e chamar
+//! Slint 1.18.1 não seleciona `StyledText`: Selecionar troca a apresentação de um
+//! fragmento por um só `TextInput` somente leitura. Copiar mensagem preserva o
+//! Markdown original. A lista externa deve virtualizar mensagens e chamar
 //! `parse` sob demanda; este módulo não retém mensagens nem cria runtimes.
 //!
 //! `MdBlock.kind` é `text`, `quote`, `code`, `table` ou `rule`. Blocos ```` ```mermaid ```` e
@@ -14,7 +13,7 @@
 //! de zero, e `marker` conserva a numeração ou o estado da tarefa. `spans` expõe
 //! texto, bold, italic, strike, code e link; `rich` mantém o fluxo inline nativo.
 //! `links` contém destinos únicos do bloco para o menu contextual. Ações de mensagem
-//! aparecem sobre o conteúdo no hover, sem reservar uma linha no layout.
+//! ficam no rodapé da apresentação.
 //! Tabelas usam `cells` em ordem de linhas e `columns` colunas. `MdCell.alignment`
 //! é 0 (esquerda/padrão), 1 (centro) ou 2 (direita); `header` distingue o cabeçalho.
 //! `MdMessage` contém `source` e `blocks`. `message_model` analisa linhas pedidas
@@ -500,6 +499,134 @@ pub fn parse(markdown: &str) -> Vec<MdBlock> {
     state.blocks
 }
 
+struct SelectionBlock<C> {
+    kind: slint::SharedString,
+    text: slint::SharedString,
+    marker: slint::SharedString,
+    depth: i32,
+    language: slint::SharedString,
+    rendered_diagram: bool,
+    cells: ModelRc<C>,
+    columns: i32,
+}
+
+// Slint gera tipos distintos para a janela completa e o demonstrador de Markdown.
+macro_rules! selection_block {
+    ($block:ident) => {
+        SelectionBlock {
+            kind: $block.kind,
+            text: $block.text,
+            marker: $block.marker,
+            depth: $block.depth,
+            language: $block.language,
+            rendered_diagram: $block.diagram.size().width > 0,
+            cells: $block.cells,
+            columns: $block.columns,
+        }
+    };
+}
+
+/// Texto selecionável dos blocos visíveis de um fragmento, sem a sintaxe Markdown.
+pub fn selection_text(blocks: &ModelRc<crate::conversation_rows::MdBlock>) -> slint::SharedString {
+    use slint::Model;
+    format_selection(blocks.iter().map(|block| selection_block!(block)), |cell| {
+        cell.text
+    })
+}
+
+pub fn setup_demo_selection(window: &MarkdownDemo) {
+    use slint::{ComponentHandle, Model};
+    window.global::<MarkdownSelection>().on_format(|blocks| {
+        format_selection(blocks.iter().map(|block| selection_block!(block)), |cell| {
+            cell.text
+        })
+    });
+}
+
+fn format_selection<C: Clone + 'static>(
+    blocks: impl Iterator<Item = SelectionBlock<C>>,
+    cell_text: impl Fn(C) -> slint::SharedString,
+) -> slint::SharedString {
+    use crate::transcript::{HEIGHT_BUDGET, estimate};
+    use slint::Model;
+
+    let mut text = String::new();
+    let mut rule_lines = 0;
+    for block in blocks {
+        match block.kind.as_str() {
+            // O texto alternativo ou rótulo da imagem já está no parágrafo.
+            "image" => continue,
+            "rule" => {
+                rule_lines += 1;
+                continue;
+            }
+            _ => {}
+        }
+        if !text.is_empty() {
+            let trailing = text
+                .bytes()
+                .rev()
+                .take(2)
+                .take_while(|&b| b == b'\n')
+                .count();
+            for _ in trailing..2 {
+                text.push('\n');
+            }
+        }
+        for _ in 0..std::mem::take(&mut rule_lines) {
+            text.push('\n');
+        }
+        if block.rendered_diagram {
+            text.push_str(if block.language.trim() == "svg" {
+                "[diagrama SVG]"
+            } else {
+                "[diagrama Mermaid]"
+            });
+        } else if block.kind == "table" {
+            let columns = block.columns as usize;
+            for (index, cell) in block.cells.iter().enumerate() {
+                if index != 0 {
+                    text.push(if index % columns == 0 { '\n' } else { '\t' });
+                }
+                text.push_str(&cell_text(cell));
+            }
+        } else {
+            if !block.marker.is_empty() {
+                for _ in 0..block.depth {
+                    text.push_str("  ");
+                }
+                text.push_str(&block.marker);
+                text.push(' ');
+            }
+            text.push_str(&block.text);
+        }
+    }
+    for _ in 0..rule_lines {
+        text.push('\n');
+    }
+    // A apresentação em texto pode ocupar mais linhas que o Markdown formatado.
+    // Reserve até duas unidades para a reticência, até quando ela iniciar outra linha.
+    if estimate(&text) > HEIGHT_BUDGET {
+        let mut remaining = HEIGHT_BUDGET - 2;
+        let mut end = 0;
+        for line in text.split_inclusive('\n') {
+            let cost = estimate(line);
+            if cost > remaining {
+                end += line
+                    .char_indices()
+                    .nth(remaining.saturating_sub(1) * 4)
+                    .map_or(line.len(), |(i, _)| i);
+                break;
+            }
+            remaining -= cost;
+            end += line.len();
+        }
+        text.truncate(end);
+        text.push('…');
+    }
+    text.into()
+}
+
 /// Cria um modelo Slint de um documento já analisado, sem cópia dos blocos.
 pub fn block_model(blocks: Vec<MdBlock>) -> ModelRc<MdBlock> {
     model(blocks)
@@ -517,6 +644,55 @@ pub fn message_model(sources: Vec<String>) -> ModelRc<MdMessage> {
 mod tests {
     use super::*;
     use slint::Model;
+
+    #[test]
+    fn selection_text_spans_markdown_blocks() {
+        let source = concat!(
+            "# Título\n\nUm **parágrafo**.\n\n> Citação\n\n",
+            "3. Primeiro\n   - Interno\n4. Próximo\n\n",
+            "```rs\n  let x = 1;\n\n```\n\n",
+            "| A | B |\n| - | - |\n| um | dois |\n\n---\n\nFim"
+        );
+        let blocks =
+            crate::conversation_rows::MarkdownSource::new(source).model(source, 0..source.len());
+        assert_eq!(
+            selection_text(&blocks),
+            concat!(
+                "Título\n\nUm parágrafo.\n\nCitação\n\n",
+                "3. Primeiro\n\n  • Interno\n\n4. Próximo\n\n",
+                "  let x = 1;\n\n",
+                "A\tB\num\tdois\n\n\nFim"
+            )
+        );
+    }
+
+    #[test]
+    fn selection_text_replaces_large_drawn_svg_with_label() {
+        let source = format!(
+            "Antes\n\n```svg\n<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"20\" height=\"20\">{}<rect width=\"20\" height=\"20\"/></svg>\n```\n\nDepois",
+            "\n".repeat(199_800),
+        );
+        let pieces = crate::transcript::transcript_pieces(&source);
+        let [piece] = pieces.as_slice() else {
+            panic!("o SVG renderizado deve ficar num só fragmento");
+        };
+        let blocks = crate::conversation_rows::MarkdownSource::new(&source)
+            .model(&piece.display, piece.range.clone());
+        let selected = selection_text(&blocks);
+        assert_eq!(selected, "Antes\n\n[diagrama SVG]\n\nDepois");
+        assert!(crate::transcript::estimate(&selected) <= crate::transcript::HEIGHT_BUDGET);
+    }
+
+    #[test]
+    fn selection_text_caps_excess_lines_without_splitting_utf8() {
+        let source = format!("Antes\n\n{}", "ação ".repeat(200));
+        let blocks =
+            crate::conversation_rows::MarkdownSource::new(&source).model(&source, 0..source.len());
+        let selected = selection_text(&blocks);
+        assert!(selected.starts_with("Antes\n\nação"));
+        assert!(selected.ends_with('…'));
+        assert!(crate::transcript::estimate(&selected) <= crate::transcript::HEIGHT_BUDGET);
+    }
 
     #[test]
     fn headings_paragraphs_and_inline_styles() {
