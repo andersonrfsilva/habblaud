@@ -296,7 +296,11 @@ export component ConversationView inherits Rectangle {
     property <int> end-request: ConversationViewState.end-request;
     changed end-request => { root.jump-to-end(); }
     property <int> reset-request: ConversationViewState.reset-request;
-    changed reset-request => { root.cancel-scroll-settle(); }
+    property <bool> restore-estimated;
+    changed reset-request => {
+        root.cancel-scroll-settle();
+        root.restore-estimated = false;
+    }
     property <int> scroll-request: ConversationViewState.scroll-request;
     changed scroll-request => { messages.content-y = min(0px, max(messages.height - messages.content-height, ConversationViewState.scroll-target)); }
     Timer {
@@ -331,9 +335,10 @@ export component ConversationView inherits Rectangle {
     // O deslocamento salvo só entra depois de estabilizar a altura do markdown.
     Timer {
         interval: 32ms;
-        running: (ConversationViewState.restore-pending || ConversationViewState.anchor-ticks > 0) && !ConversationViewState.following;
+        running: ConversationViewState.anchor-ticks > 0 && !ConversationViewState.following
+            && (!ConversationViewState.restore-pending || ConversationViewState.anchor-index >= 0);
         triggered => {
-            if ConversationViewState.anchor-ticks > 0 && (!ConversationViewState.restore-pending || (ConversationViewState.scan-index == ConversationViewState.anchor-index && ConversationViewState.scan-index >= 0)) { ConversationViewState.anchor-ticks -= 1; }
+            ConversationViewState.anchor-ticks -= 1;
             if ConversationViewState.restore-pending && ConversationViewState.anchor-index >= 0 {
                 if ConversationViewState.scan-index >= 0 {
                     if ConversationViewState.scan-index == ConversationViewState.anchor-index {
@@ -347,15 +352,28 @@ export component ConversationView inherits Rectangle {
                         } else {
                             messages.content-y = min(0px, max(messages.height - messages.content-height, -ConversationViewState.scan-y));
                         }
-                    } else {
+                    } else if ConversationViewState.anchor-ticks > 0 {
                         ConversationViewState.stable-ticks = 0;
                         ConversationViewState.measured-height = -1px;
-                        messages.content-y = min(0px, max(messages.height - messages.content-height,
-                            -ConversationViewState.scan-y - (ConversationViewState.anchor-index - ConversationViewState.scan-index) * max(1px, ConversationViewState.scan-height)));
+                        // Use uma vez a média que a lista usa para saltos distantes.
+                        // Depois use páginas sobrepostas; a média muda conforme as linhas aparecem.
+                        let estimate = root.restore-estimated ? messages.content-y
+                            : -(ConversationViewState.anchor-index + 0.5) * messages.content-height / ConversationViewState.rows.length;
+                        let step = messages.visible-height * 0.8;
+                        let direction = ConversationViewState.anchor-index < ConversationViewState.scan-index ? 1 : -1;
+                        let target = (estimate - messages.content-y) * direction > 2 * messages.visible-height
+                            ? estimate : messages.content-y + direction * step;
+                        root.restore-estimated = true;
+                        messages.content-y = min(0px, max(messages.height - messages.content-height, target));
                     }
+                    // Meça no próximo disparo, depois que a lista aplicar content-y no layout.
+                    ConversationViewState.scan-index = -1;
+                } else if ConversationViewState.anchor-ticks > 0 {
+                    ConversationViewState.scan-request += 1;
                 }
-                ConversationViewState.scan-index = -1;
-                ConversationViewState.scan-request += 1;
+                if ConversationViewState.anchor-ticks == 0 {
+                    ConversationViewState.restore-pending = false;
+                }
             }
         }
     }
