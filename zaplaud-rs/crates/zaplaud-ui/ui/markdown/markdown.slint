@@ -28,7 +28,7 @@ export global MarkdownGeometry {
 }
 
 export global MarkdownSelection {
-    in property <string> select-label: "Selecionar";
+    out property <string> select-message-label: "Selecionar a mensagem toda";
     callback format([MdBlock]) -> string;
 }
 
@@ -152,7 +152,7 @@ component FormattedBlock inherits VerticalLayout {
                 ContextMenuArea {
                     Menu {
                         MenuItem { title: "Copiar mensagem"; activated => { root.copy(root.source-markdown); } }
-                        MenuItem { title: "Selecionar texto"; activated => { root.select-text(); } }
+                        MenuItem { title: MarkdownSelection.select-message-label; activated => { root.select-text(); } }
                         for link[index] in root.block.links: MenuItem {
                             title: "Copiar link: " + root.block.link-labels[index];
                             activated => { root.copy(link); }
@@ -209,7 +209,7 @@ export component MarkdownView inherits Rectangle {
         enabled: !root.selecting;
         Menu {
             MenuItem { title: "Copiar mensagem"; activated => { root.copy(root.source-markdown); } }
-            MenuItem { title: "Selecionar texto"; activated => { root.select-text(); } }
+            MenuItem { title: MarkdownSelection.select-message-label; activated => { root.select-text(); } }
         }
         hover := TouchArea {
             clicked => { message-focus.focus(); }
@@ -229,7 +229,7 @@ export component MarkdownView inherits Rectangle {
         height: self.preferred-height;
         vertical-stretch: 0;
         text: root.plain-text;
-        accessible-label: "Selecionar texto";
+        accessible-label: MarkdownSelection.select-message-label;
         read-only: true;
         single-line: false;
         wrap: word-wrap;
@@ -280,7 +280,7 @@ export component MarkdownView inherits Rectangle {
             ContextMenuArea {
                 Menu {
                     MenuItem { title: "Copiar mensagem"; activated => { root.copy(root.source-markdown); } }
-                    MenuItem { title: "Selecionar texto"; activated => { root.select-text(); } }
+                    MenuItem { title: MarkdownSelection.select-message-label; activated => { root.select-text(); } }
                     MenuItem { title: "Copiar código"; activated => { root.copy(block.copy-text == "" ? block.text : block.copy-text); } }
                 }
             code-content := VerticalLayout {
@@ -426,11 +426,6 @@ export component MarkdownView inherits Rectangle {
     HorizontalLayout {
         alignment: end;
         spacing: 4px;
-        MdButton {
-            text: root.selecting ? "Texto formatado" : MarkdownSelection.select-label;
-            min-height: 28px;
-            clicked => { if root.selecting { root.stop-selecting(true); } else { root.select-text(); } }
-        }
         IconButton {
             width: 28px; height: 28px; icon: MaterialIcons.more-vert; label: "Ações da mensagem";
             enabled: !root.selecting;

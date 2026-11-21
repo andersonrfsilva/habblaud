@@ -153,8 +153,16 @@ def probe_selection(desktop, clipboard, colors, source, url, opened, captures, t
     assert copied == source, f'Ctrl+C sem trecho selecionado não copiou o Markdown original: {copied!r}'
     assert desktop.image().crop(first_line).tobytes() == formatted_line, 'A seleção anterior ficou visível'
 
-    desktop.click(860, bottom - 42)
-    assert key_copy_all() == expected_all, 'Ctrl+A não selecionou todo o fragmento no campo'
+    def select_from_context_menu():
+        warp(420, top + 24)
+        button(3, 1)
+        button(3, 0)
+        time.sleep(.2)
+        desktop.key('Up')
+        desktop.key('Return')
+        assert key_copy_all() == expected_all, '"Selecionar a mensagem toda" não abriu o campo pelo menu de contexto'
+
+    select_from_context_menu()
     desktop.key('Left')
     assert key_copy() == source, 'Ctrl+C sem seleção no campo não copiou o Markdown original'
 
@@ -172,22 +180,12 @@ def probe_selection(desktop, clipboard, colors, source, url, opened, captures, t
                    'Esc não restaurou o texto formatado na mesma posição')
     desktop.image().save(captures / f'zaplaud-selecao-escape-{theme}.png')
 
-    desktop.click(860, bottom - 42)
-    assert key_copy_all() == expected_all, 'Botão Selecionar não abriu o campo'
+    select_from_context_menu()
     desktop.click(1000, top + 24)
     smoke.wait_for(lambda: desktop.image().crop(content).tobytes() == formatted,
                    'O clique fora não saiu do modo de seleção')
     desktop.click(950, bottom - 42)
     assert clipboard.text() == source
-
-    def select_from_context_menu():
-        warp(420, top + 24)
-        button(3, 1)
-        button(3, 0)
-        time.sleep(.2)
-        desktop.key('Up')
-        desktop.key('Return')
-        assert key_copy_all() == expected_all, 'Selecionar texto deixou de funcionar no menu de contexto'
 
     select_from_context_menu()
     desktop.key('Left')
@@ -212,8 +210,7 @@ def probe_selection(desktop, clipboard, colors, source, url, opened, captures, t
     assert opened.read_text().strip() == url
     assert desktop.image().crop(content).tobytes() == formatted, 'Clique no link entrou em seleção'
 
-    desktop.click(860, bottom - 42)
-    assert key_copy_all() == expected_all, 'A roda precisa começar sobre o campo ativo'
+    select_from_context_menu()
     before_scroll = desktop.image().crop(content).tobytes()
     warp(420, top + 24)
     for _ in range(6):
@@ -222,7 +219,7 @@ def probe_selection(desktop, clipboard, colors, source, url, opened, captures, t
     smoke.wait_for(lambda: desktop.image().crop(content).tobytes() != before_scroll,
                    'A roda sobre o campo não rolou a lista')
     return ['duplo-clique', 'ctrl-c-sem-seleção', 'ctrl-a', 'arraste-entre-blocos', 'escape-e-âncora',
-            'botão', 'clique-fora', 'menu-entrar', 'sem-menu-no-campo', 'menu-sair-por-escape-ou-clique-fora', 'link', 'roda']
+            'clique-fora', 'menu-entrar', 'sem-menu-no-campo', 'menu-sair-por-escape-ou-clique-fora', 'link', 'roda']
 
 
 def probe_matrix(binary, display, output=None):
