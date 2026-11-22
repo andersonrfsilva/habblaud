@@ -3,7 +3,7 @@ import { Theme } from "resources.slint";
 import { Labels } from "labels.slint";
 import { ConversationState } from "conversation.slint";
 import { MarkdownView, MdBlock, MeasuredInput } from "markdown/markdown.slint";
-import { ScrollList, ScrollContainer, TextButton, TextField, Banner, Sheet, Avatar, Pill, Divider } from "widgets/kit.slint";
+import { ScrollList, ScrollContainer, TextButton, IconButton, TextField, Banner, Sheet, Avatar, Pill, Divider } from "widgets/kit.slint";
 import { ComposerState } from "composer.slint";
 import { CastState } from "cast.slint";
 import { AsideState } from "aside.slint";
@@ -21,8 +21,9 @@ export struct ConversationRow {
 }
 export struct InfoRow {
     label: string, value: string, section: bool, copyable: bool, parent-key: string, elapsed: bool,
-    fraction: float, task-phase: bool, task-marker: string, task-state: string,
+    fraction: float, tasks-section: bool,
 }
+export struct TaskRow { label: string, marker: string, state: string }
 export struct ModelChoice { value: string, label: string, header: bool }
 export global ConversationViewState {
     in property <[ConversationRow]> rows;
@@ -55,6 +56,10 @@ export global ConversationViewState {
     in property <string> back;
     in property <string> info-label;
     in property <string> task-progress;
+    in property <string> tasks-title;
+    in property <[TaskRow]> tasks;
+    in-out property <bool> tasks-open;
+    out property <bool> tasks-visible: tasks-open && ConversationState.selected && tasks.length > 0;
     in property <[InfoRow]> info;
     in-out property <bool> info-open;
     in-out property <bool> menu-open;
@@ -259,6 +264,70 @@ component EntryBubble inherits Rectangle {
                 }
                 if root.entry.last: Text { height: 16px; text: root.entry.time; horizontal-alignment: right; color: (root.entry.kind == "user" ? Theme.on-primary-container : Theme.on-surface-variant).with-alpha(0.7); font-size: 11px; letter-spacing: 0.5px; }
             }
+        }
+    }
+}
+
+component TaskListRow inherits Rectangle {
+    in property <TaskRow> task;
+    in property <length> phase-size: 14px;
+    VerticalLayout {
+        if root.task.marker == "": Text {
+            text: root.task.label; color: Theme.on-surface; font-size: root.phase-size; font-weight: 600; wrap: word-wrap;
+            accessible-role: text; accessible-label: self.text;
+        }
+        if root.task.marker != "": task-row := Rectangle {
+            accessible-role: text; accessible-label: root.task.label + ", " + root.task.state;
+            property <bool> active: root.task.marker == "◐";
+            property <bool> abandoned: root.task.marker == "–";
+            property <color> ink: active ? Theme.primary : root.task.marker == "○" ? Theme.on-surface : Theme.on-surface-variant;
+            HorizontalLayout {
+                spacing: 8px;
+                VerticalLayout {
+                    alignment: start;
+                    Text {
+                        width: 16px; text: root.task.marker; color: task-row.ink;
+                        font-size: 14px; horizontal-alignment: center; accessible-role: none;
+                    }
+                }
+                if task-row.abandoned: StyledText {
+                    text: @markdown("~~\{root.task.label}~~"); default-color: task-row.ink; default-font-size: 14px;
+                }
+                if !task-row.abandoned: Text {
+                    text: root.task.label; color: task-row.ink; font-size: 14px;
+                    font-weight: task-row.active ? 600 : 400; wrap: word-wrap;
+                    accessible-role: none;
+                }
+            }
+        }
+    }
+}
+
+component TasksPanel inherits Rectangle {
+    background: Theme.surface-container-high; border-radius: 16px;
+    drop-shadow-blur: 6px; drop-shadow-offset-y: 3px; drop-shadow-color: Theme.scrim.with-alpha(0.25);
+    preferred-height: header.height + task-list.preferred-height + 12px;
+    accessible-role: groupbox; accessible-label: ConversationViewState.tasks-title;
+    TouchArea {}
+    header := HorizontalLayout {
+        height: 40px; padding-left: 12px; spacing: 4px;
+        Text {
+            text: ConversationViewState.tasks-title; color: Theme.primary;
+            font-size: 14px; font-weight: 500; vertical-alignment: center; overflow: elide;
+            accessible-role: none;
+        }
+        IconButton {
+            icon: MaterialIcons.close; label: FilesState.close-label;
+            clicked => { ConversationViewState.tasks-open = false; }
+        }
+    }
+    ScrollContainer {
+        y: header.height; width: parent.width; height: max(0px, parent.height - self.y - 12px);
+        content-width: self.visible-width; content-height: task-list.preferred-height;
+        task-list := VerticalLayout {
+            width: parent.width; height: self.preferred-height;
+            padding-left: 12px; padding-right: 12px; spacing: 6px;
+            for row in ConversationViewState.tasks: TaskListRow { task: row; phase-size: 12px; }
         }
     }
 }
@@ -469,6 +538,11 @@ export component ConversationView inherits Rectangle {
         accessible-label: ConversationViewState.go-to-end;
         clicked => { scroll-keys.focus(); root.jump-to-end(); }
     }
+    if ConversationViewState.tasks-visible: TasksPanel {
+        x: parent.width - self.width; y: 8px;
+        width: min(280px, parent.width * 0.7);
+        height: min(parent.height * 0.6, self.preferred-height);
+    }
 }
 
 
@@ -640,35 +714,11 @@ export component SessionInfoSheet inherits Sheet {
                     }
                 }
             }
-            if row.task-phase: Text {
-                text: row.label; color: Theme.on-surface; font-size: 14px; font-weight: 600; wrap: word-wrap;
-                accessible-role: text; accessible-label: self.text;
+            if row.tasks-section: VerticalLayout {
+                padding-top: 10px; spacing: 16px;
+                for row in ConversationViewState.tasks: TaskListRow { task: row; }
             }
-            if row.task-marker != "": task-row := Rectangle {
-                accessible-role: text; accessible-label: row.value + ", " + row.task-state;
-                property <bool> active: row.task-marker == "◐";
-                property <bool> abandoned: row.task-marker == "–";
-                property <color> ink: active ? Theme.primary : row.task-marker == "○" ? Theme.on-surface : Theme.on-surface-variant;
-                HorizontalLayout {
-                    spacing: 8px;
-                    VerticalLayout {
-                        alignment: start;
-                        Text {
-                            width: 16px; text: row.task-marker; color: task-row.ink;
-                            font-size: 14px; horizontal-alignment: center; accessible-role: none;
-                        }
-                    }
-                    if task-row.abandoned: StyledText {
-                        text: @markdown("~~\{row.value}~~"); default-color: task-row.ink; default-font-size: 14px;
-                    }
-                    if !task-row.abandoned: Text {
-                        text: row.value; color: task-row.ink; font-size: 14px;
-                        font-weight: task-row.active ? 600 : 400; wrap: word-wrap;
-                        accessible-role: none;
-                    }
-                }
-            }
-            if !row.section && !row.task-phase && row.task-marker == "": VerticalLayout {
+            if !row.section: VerticalLayout {
                 spacing: 4px;
                 Text { text: row.label; color: Theme.on-surface-variant; font-size: 12px; }
                 HorizontalLayout {

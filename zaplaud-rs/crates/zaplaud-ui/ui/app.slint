@@ -9,7 +9,7 @@ import { LoginPane, LoginState } from "login.slint";
 import { ListPane, ListState } from "list.slint";
 import { ConversationPane, ConversationState } from "conversation.slint";
 import { ConversationView, ConversationStatus, ConversationViewState, ConversationMenu, SessionInfoSheet } from "conversation_view.slint";
-export { ConversationViewState, ConversationRow, ToolDetail, InfoRow, ModelChoice, MdBlock, MdCell, MdSpan } from "conversation_view.slint";
+export { ConversationViewState, ConversationRow, ToolDetail, InfoRow, TaskRow, ModelChoice, MdBlock, MdCell, MdSpan } from "conversation_view.slint";
 export { TranscriptProbe, MarkdownGeometry } from "conversation_view.slint";
 export { MarkdownSelection } from "markdown/markdown.slint";
 export { ComposerState, ComposerAttachment } from "composer.slint";
@@ -86,6 +86,7 @@ export component AppWindow inherits Window {
                 if LoginState.confirm-http { LoginState.cancel-http(); }
                 else if LoginState.visible && LoginState.can-cancel { LoginState.cancel(); }
                 else if SettingsState.visible { SettingsState.close(); }
+                else if ConversationViewState.tasks-visible { ConversationViewState.tasks-open = false; }
                 else if ConversationState.selected { ConversationState.close(); ListState.focus-request += 1; }
                 else if ListState.search-open { ListState.query = ""; ListState.search-open = false; ListState.changed(); }
                 return accept;
@@ -108,8 +109,8 @@ export component AppWindow inherits Window {
                         enabled: !root.overlay-open;
                         min-height: 24px; preferred-height: 24px; border-radius: 4px;
                         accessible-label: ConversationViewState.task-progress;
-                        accessible-description: ConversationViewState.info-label;
-                        clicked => { ConversationViewState.info-open = true; }
+                        accessible-expanded: ConversationViewState.tasks-visible;
+                        clicked => { ConversationViewState.tasks-open = !ConversationViewState.tasks-open; }
                         Text {
                             x: 16px; width: parent.width - 32px; height: parent.height;
                             text: ConversationViewState.task-progress; color: Theme.primary;

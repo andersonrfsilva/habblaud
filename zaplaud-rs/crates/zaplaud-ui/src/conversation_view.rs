@@ -1,5 +1,5 @@
 use crate::{
-    AppWindow, ConversationState, ConversationViewState, InfoRow,
+    AppWindow, ConversationState, ConversationViewState, InfoRow, TaskRow,
     feature::FeatureContext,
     state::{Event, now_millis},
     strings, update_ui,
@@ -15,7 +15,7 @@ use tokio::sync::mpsc;
 use zaplaud_core::{
     api::{HabblaudApi, retry_after},
     controller::conversation::{ConversationController, snapshot_matches_session},
-    model::{SessionItem, StreamEvent, TaskStatus},
+    model::{AgentTask, SessionItem, StreamEvent, TaskStatus},
     rules::conversation::{self, SummaryEffect, SummaryEvent, SummaryState},
     rules::tasks::{TaskProgress, task_phases, task_progress},
     rules::time,
@@ -211,6 +211,51 @@ fn info_row(label: &str, value: String) -> InfoRow {
         ..Default::default()
     }
 }
+
+fn task_rows(tasks: &[AgentTask]) -> Vec<TaskRow> {
+    let mut rows = Vec::with_capacity(tasks.len());
+    for (phase, tasks) in task_phases(tasks) {
+        if let Some(phase) = phase {
+            rows.push(TaskRow {
+                label: phase.into(),
+                ..Default::default()
+            });
+        }
+        rows.extend(tasks.iter().map(|task| {
+            let (marker, state) = match task.status {
+                TaskStatus::Pending => ("○", strings::TASKS_STATE_PENDING),
+                TaskStatus::InProgress => ("◐", strings::TASKS_STATE_IN_PROGRESS),
+                TaskStatus::Completed => ("✓", strings::TASKS_STATE_COMPLETED),
+                TaskStatus::Abandoned => ("–", strings::TASKS_STATE_ABANDONED),
+            };
+            TaskRow {
+                label: task.display_title().into(),
+                marker: marker.into(),
+                state: state.into(),
+            }
+        }));
+    }
+    rows
+}
+
+fn task_labels(progress: Option<TaskProgress<'_>>) -> (slint::SharedString, slint::SharedString) {
+    let Some(progress) = progress else {
+        return (strings::TASKS_TITLE.into(), "".into());
+    };
+    let done = progress.done.to_string();
+    let total = progress.total.to_string();
+    let count = crate::formatted("tasks_progress_count", &[&done, &total]);
+    let title = format!("{} · {count}", strings::TASKS_TITLE);
+    let line = if progress.done == progress.total {
+        String::new()
+    } else if let Some(current) = progress.current {
+        crate::formatted("tasks_progress_current", &[&done, &total, current])
+    } else {
+        count
+    };
+    (title.into(), line.into())
+}
+
 fn info_rows(
     item: &SessionItem,
     entries: &[zaplaud_core::model::TerminalEntry],
@@ -323,6 +368,7 @@ fn info_rows(
         let (done, total) = progress.map_or((0, 0), |progress| (progress.done, progress.total));
         rows.push(InfoRow {
             section: true,
+            tasks_section: true,
             fraction: if total == 0 {
                 0.
             } else {
@@ -336,29 +382,6 @@ fn info_rows(
                 ),
             )
         });
-        for (phase, tasks) in task_phases(&item.tasks) {
-            if let Some(phase) = phase {
-                rows.push(InfoRow {
-                    label: phase.into(),
-                    task_phase: true,
-                    ..Default::default()
-                });
-            }
-            for task in tasks {
-                let (marker, state) = match task.status {
-                    TaskStatus::Pending => ("○", strings::TASKS_STATE_PENDING),
-                    TaskStatus::InProgress => ("◐", strings::TASKS_STATE_IN_PROGRESS),
-                    TaskStatus::Completed => ("✓", strings::TASKS_STATE_COMPLETED),
-                    TaskStatus::Abandoned => ("–", strings::TASKS_STATE_ABANDONED),
-                };
-                rows.push(InfoRow {
-                    value: task.display_title().into(),
-                    task_marker: marker.into(),
-                    task_state: state.into(),
-                    ..Default::default()
-                });
-            }
-        }
     }
     let technical = |label, value| InfoRow {
         copyable: true,
@@ -415,20 +438,10 @@ fn publish_info(
 ) {
     let state = window.global::<ConversationViewState>();
     let progress = task_progress(&item.tasks);
-    let progress_label = progress
-        .filter(|progress| progress.done < progress.total)
-        .map(|progress| {
-            let done = progress.done.to_string();
-            let total = progress.total.to_string();
-            match progress.current {
-                Some(current) => {
-                    crate::formatted("tasks_progress_current", &[&done, &total, current])
-                }
-                None => crate::formatted("tasks_progress_count", &[&done, &total]),
-            }
-        })
-        .unwrap_or_default();
-    state.set_task_progress(progress_label.into());
+    let (tasks_title, progress_label) = task_labels(progress);
+    state.set_tasks_title(tasks_title);
+    state.set_task_progress(progress_label);
+    state.set_tasks(ModelRc::new(VecModel::from(task_rows(&item.tasks))));
     state.set_info(ModelRc::new(VecModel::from(info_rows(
         item, entries, partial, progress,
     ))));
@@ -919,6 +932,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                         state.set_menu_open(false);
                         state.set_model_query("".into());
                         state.set_task_progress("".into());
+                        state.set_tasks(ModelRc::default());
                         set_rows(&w, Vec::new(), true);
                     });
                     if let Some(item) = &snapshot.selected && let Some(server) = snapshot.servers.iter().find(|s| s.api.origin() == item.key.origin) {
@@ -1020,6 +1034,36 @@ mod tests {
             assert!(!command.matches_reading_generation(reopened_a));
         }
         assert!(Command::Position(reopened_a, true).matches_reading_generation(reopened_a));
+    }
+
+    #[test]
+    fn completed_tasks_hide_the_progress_line_but_keep_panel_rows() {
+        let tasks = [
+            AgentTask {
+                id: "done".into(),
+                title: "Completed work".into(),
+                status: TaskStatus::Completed,
+                active_form: None,
+                phase: Some("First phase".into()),
+            },
+            AgentTask {
+                id: "abandoned".into(),
+                title: "Abandoned work".into(),
+                status: TaskStatus::Abandoned,
+                active_form: None,
+                phase: None,
+            },
+        ];
+        let (title, line) = task_labels(task_progress(&tasks));
+        let count = crate::formatted("tasks_progress_count", &["1", "1"]);
+        assert_eq!(title, format!("{} · {count}", strings::TASKS_TITLE));
+        assert!(line.is_empty());
+        let rows = task_rows(&tasks);
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].label, "First phase");
+        assert!(rows[0].marker.is_empty());
+        assert_eq!(rows[1].marker, "✓");
+        assert_eq!(rows[2].marker, "–");
     }
 
     #[test]
