@@ -98,32 +98,55 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
     });
 }
 
+/// Personagem, pasta, modelo sem provedor nem fornecedor, nível de raciocínio e, com vários servidores, o servidor.
+/// O estado fica na linha de atividade.
 pub fn subtitle(item: &SessionItem, multiple: bool) -> String {
-    let status = match item.status.as_deref().or(item.activity.as_deref()) {
-        Some("idle") => strings::STATUS_IDLE,
-        Some("working" | "busy" | "running") => strings::STATUS_WORKING,
-        Some("waiting") => strings::STATUS_WAITING,
-        Some("offline" | "closed" | "stopped") => strings::STATUS_CLOSED,
-        _ => "",
-    };
-    let mut parts = Vec::new();
-    if let Some(name) = item
+    let name = item
         .character_name
         .as_deref()
-        .filter(|name| *name != item.title)
-    {
-        parts.push(name.to_owned());
-    }
-    if let Some(project) = &item.project {
-        parts.push(project.rsplit('/').next().unwrap_or(project).into());
-    }
-    if !status.is_empty() {
-        parts.push(status.into());
-    }
-    if multiple {
-        parts.push(server_label(&item.key.origin));
-    }
-    parts.join(" · ")
+        .filter(|name| *name != item.title);
+    let project = item
+        .project
+        .as_deref()
+        .map(|p| p.rsplit('/').next().unwrap_or(p));
+    let model = item
+        .model
+        .as_deref()
+        .filter(|m| !m.is_empty())
+        .map(short_model);
+    let thinking = item
+        .thinking
+        .as_deref()
+        .filter(|t| !t.is_empty())
+        .map(crate::settings::thinking_label);
+    [
+        name.map(str::to_owned),
+        project.map(str::to_owned),
+        model,
+        thinking,
+        multiple.then(|| server_label(&item.key.origin)),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(" · ")
+}
+/// "anthropic/claude-opus-5-5" vira "opus-5-5"; mesma lista de fornecedores do `shortModel` do Kotlin.
+fn short_model(model: &str) -> String {
+    let model = model.rsplit('/').next().unwrap_or(model);
+    const VENDORS: [&str; 10] = [
+        "claude", "gpt", "gemini", "grok", "glm", "kimi", "qwen", "deepseek", "mistral", "llama",
+    ];
+    VENDORS
+        .iter()
+        .find_map(|v| {
+            model
+                .get(..v.len() + 1)
+                .filter(|p| p.eq_ignore_ascii_case(&format!("{v}-")))
+                .map(|_| &model[v.len() + 1..])
+        })
+        .unwrap_or(model)
+        .to_owned()
 }
 fn relative_time(at: i64, now: i64) -> String {
     let value = zaplaud_core::rules::time::relative_time(at, now);
@@ -444,6 +467,12 @@ mod tests {
     use super::activity_text;
     use super::order_marked_sessions;
     use zaplaud_core::{model::SessionItem, rules::list::visible_sessions};
+    #[test]
+    fn short_model_drops_provider_and_vendor() {
+        assert_eq!(super::short_model("anthropic/claude-opus-5-5"), "opus-5-5");
+        assert_eq!(super::short_model("openai/GPT-5.5"), "5.5");
+        assert_eq!(super::short_model("x/sonnet"), "sonnet");
+    }
     use zaplaud_store::SessionMarks;
 
     #[test]

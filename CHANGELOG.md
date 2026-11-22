@@ -24,6 +24,8 @@ do meio (0.**3**.0).
 - **omp:** a lista de tarefas do agente (ferramenta `todo`, com fases) aparece na página e no cartão da conversa.
 - **Zaplaud (Android/iPad):** a lista de tarefas do agente aparece nas informações da sessão, com o progresso acima do campo de mensagem.
 - **Zaplaud desktop:** a lista de tarefas do agente aparece nas informações da sessão, com o progresso acima do campo de mensagem.
+- **Zaplaud (Android/iPad e desktop):** a linha abaixo do título, na lista e na conversa, mostra personagem, pasta,
+  modelo sem o nome do fornecedor (`opus-5-5`) e nível de raciocínio; o estado sai dela (a linha de atividade já o mostra).
 - **Zaplaud desktop:** o texto das mensagens se seleciona arrastando, como em qualquer programa; Ctrl+C copia a seleção.
   Atualizado para Slint 1.19.
 - **Zaplaud (Android):** os avisos voltam sozinhos depois de reiniciar o aparelho ou atualizar o app, se estavam ligados.

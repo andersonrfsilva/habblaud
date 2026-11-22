@@ -126,7 +126,7 @@ fn role_label(role: &str) -> &'static str {
         _ => strings::ROLE_ADVISOR,
     }
 }
-fn thinking_label(level: &str) -> String {
+pub(crate) fn thinking_label(level: &str) -> String {
     strings::lookup(&format!("thinking_{level}"))
         .unwrap_or(strings::ROLE_DEFAULT)
         .into()

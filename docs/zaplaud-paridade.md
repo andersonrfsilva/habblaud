@@ -50,6 +50,8 @@ vai para a tabela abaixo, com o motivo. Textos ficam em `android/shared/src/comm
 | Diagrama Mermaid em tela cheia, com zoom e arrasto | sim | sim | Kotlin: pinça; desktop: botões +/− e teclado +/−, até 8×; arrasto move, duplo clique/toque restaura, Esc ou Fechar sai |
 | Detalhes da sessão e do subagente: seções Estado, Modelo, Contexto e Identificadores; campos vazios ocultos | sim | sim | subagente mostra papel, tarefa, modelo e contexto próprios e leva à sessão principal; identificadores copiáveis |
 | Lista de tarefas do agente | sim | sim | A folha mostra as fases e os estados; a conversa mostra o progresso acima do compositor. |
+| Painel flutuante de tarefas sobre a conversa | sim | **pendente** | Kotlin: o toque no progresso abre e fecha o painel, que fica aberto ao trocar de conversa. Rust: o progresso ainda abre a folha. |
+| Subtítulo da conversa: personagem, pasta, modelo sem provedor nem fornecedor, raciocínio | sim | sim | O estado fica na linha de atividade. Mesma lista de fornecedores (`shortModel` / `short_model`). |
 | Copiar bloco de código, código do Mermaid e mensagem inteira | sim | sim | |
 | Tentar de novo após erro de envio | sim | sim | Envio ambíguo continua pedindo confirmação. Conflito de envio ou comando só fecha a conversa de origem. Uma consulta de status antiga não altera a operação seguinte. |
 | Blocos `svg` desenhados na conversa, com a mesma tela cheia | sim | sim | desenho local nos dois; `var(--fg)`, `--accent` etc. viram cores fixas sobre fundo branco; só blocos fechados; Kotlin aceita até 200.000 caracteres e Rust até 200.000 bytes e 6.000 px de altura natural |

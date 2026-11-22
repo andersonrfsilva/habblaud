@@ -388,8 +388,8 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                         Row {
                             Text(selected.title, Modifier.weight(1f, fill = false), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
-                        val projectStatus = listOfNotNull(selected.project?.substringAfterLast('/'), statusLabel(selected.status ?: selected.activity)).joinToString(" · ")
-                        val subtitle = listOfNotNull(selected.characterName.takeIf { it != null && it != selected.title }, projectStatus.takeIf { it.isNotEmpty() }).joinToString(" · ")
+                        val subtitle = listOfNotNull(selected.characterName?.takeIf { it != selected.title }, selected.project?.substringAfterLast('/'),
+                            selected.model?.takeIf { it.isNotBlank() }?.let(::shortModel), selected.thinking?.takeIf { it.isNotBlank() }?.let { thinkingLabel(it) }).joinToString(" · ")
                         Text(subtitle, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
@@ -515,7 +515,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                             Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                                 if (marks.pinned) Icon(Icons.Default.PushPin, contentDescription = stringResource(Res.string.pinned_sessions), modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
                                 if (marks.favorite) Icon(Icons.Default.Star, contentDescription = stringResource(Res.string.favorite_sessions), modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
-                                Text(listOfNotNull(session.characterName?.takeIf { it != session.title }, session.project?.substringAfterLast('/'), statusLabel(session.status ?: session.activity), serverLabel(session.key.origin).takeIf { apis.size > 1 && filter == null }).joinToString(" · "), modifier = Modifier.weight(1f).then(if (apis.size > 1 && filter == null) Modifier.testTag("session-server:${serverLabel(session.key.origin)}") else Modifier), style = MaterialTheme.typography.bodyMedium, fontWeight = weight, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(listOfNotNull(session.characterName?.takeIf { it != session.title }, session.project?.substringAfterLast('/'), session.model?.takeIf { it.isNotBlank() }?.let(::shortModel), session.thinking?.takeIf { it.isNotBlank() }?.let { thinkingLabel(it) }, serverLabel(session.key.origin).takeIf { apis.size > 1 && filter == null }).joinToString(" · "), modifier = Modifier.weight(1f).then(if (apis.size > 1 && filter == null) Modifier.testTag("session-server:${serverLabel(session.key.origin)}") else Modifier), style = MaterialTheme.typography.bodyMedium, fontWeight = weight, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 unread?.let { count ->
                                     val label = pluralStringResource(Res.plurals.unread_replies, count, count)
                                     Badge(Modifier.semantics { contentDescription = label }, containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary) {
@@ -649,6 +649,8 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                 val index = shown.indexOfLast { it.id == before }
                 unread += if (index >= 0) shown.size - index - 1 else 1
             }
+            // Painel de tarefas flutuante: abre e fecha pela linha de progresso e fica aberto ao trocar de conversa.
+            var tasksPanel by rememberSaveable { mutableStateOf(false) }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 CompositionLocalProvider(LocalUriHandler provides conversationUriHandler) {
                 LazyColumn(Modifier.fillMaxSize().nestedScroll(manualScroll).testTag("conversation-list"), state = listState, reverseLayout = true, contentPadding = PaddingValues(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom)) {
@@ -676,6 +678,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                         BadgedBox(badge = { if (unread > 0) Badge { Text(unread.toString()) } }) { Icon(Icons.Default.KeyboardArrowDown, contentDescription = null) }
                     }
                 }
+                if (tasksPanel && selected.tasks.isNotEmpty()) TasksPanel(selected.tasks, Modifier.align(Alignment.TopEnd).padding(top = 8.dp)) { tasksPanel = false }
             }
             // Avatar parado na linha de estado: animar o "digitando" no pé redesenhava a tela a 60 qps enquanto o agente trabalhava.
             if (working) Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -683,7 +686,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                 StatusLine(selected, Modifier.weight(1f))
             }
             val progress = remember(selected.tasks) { taskProgress(selected.tasks) }
-            if (progress != null && progress.done < progress.total) TaskProgressLine(progress) { showInfo = true }
+            if (progress != null && progress.done < progress.total) TaskProgressLine(progress) { tasksPanel = !tasksPanel }
             if (composer.key == selected.key && selected.agentId != null && !selected.sub) {
                 val agentId = selected.agentId
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -1326,6 +1329,31 @@ private fun SessionTasksSection(tasks: List<AgentTask>) {
     }
 }
 
+/** Lista de tarefas flutuando à direita da conversa, para acompanhar sem abrir as informações da sessão. */
+@Composable
+private fun TasksPanel(tasks: List<AgentTask>, modifier: Modifier, onClose: () -> Unit) {
+    val progress = remember(tasks) { taskProgress(tasks) }
+    val phases = remember(tasks) { taskPhases(tasks) }
+    BoxWithConstraints(modifier) {
+        Surface(Modifier.widthIn(max = minOf(280.dp, maxWidth * 0.7f)).heightIn(max = maxHeight * 0.6f).testTag("tasks-panel"),
+            shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 3.dp, shadowElevation = 6.dp) {
+            Column(Modifier.padding(start = 12.dp, bottom = 12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(Res.string.tasks_title) + (progress?.let { " · " + stringResource(Res.string.tasks_progress_count, it.done, it.total) } ?: ""),
+                        Modifier.weight(1f, fill = false), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                    IconButton(onClick = onClose) { Icon(Icons.Default.Close, contentDescription = stringResource(Res.string.files_close), modifier = Modifier.size(18.dp)) }
+                }
+                Column(Modifier.verticalScroll(rememberScrollState()).padding(end = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    for (phase in phases) {
+                        phase.name?.let { Text(it, style = MaterialTheme.typography.labelMedium) }
+                        for (task in phase.tasks) SessionTaskRow(task)
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun SessionTaskRow(task: AgentTask) {
     val colors = MaterialTheme.colorScheme
@@ -1381,6 +1409,10 @@ private fun InfoLine(label: StringResource, value: String, copyable: Boolean = f
 
 /** Cópia de OMP_THINKING_LEVELS em shared/messages.ts: o servidor recusa qualquer outro valor. */
 internal val THINKING_LEVELS = listOf("off", "minimal", "low", "medium", "high", "xhigh", "max")
+
+/** Modelo sem provedor nem fornecedor: "anthropic/claude-opus-5-5" vira "opus-5-5"; "openai/gpt-5.5" vira "5.5". */
+internal fun shortModel(model: String): String =
+    model.substringAfterLast('/').replace(Regex("^(claude|gpt|gemini|grok|glm|kimi|qwen|deepseek|mistral|llama)-", RegexOption.IGNORE_CASE), "")
 
 @Composable
 internal fun thinkingLabel(level: String): String = when (level) {
