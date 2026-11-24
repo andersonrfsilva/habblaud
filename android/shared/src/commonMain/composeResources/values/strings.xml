@@ -262,6 +262,8 @@
     <string name="quota_seven_day_sonnet">Semanal (Sonnet)</string>
     <string name="quota_resets">Renova %1$s</string>
     <string name="quota_fetched">Atualizado às %1$s</string>
+    <string name="quota_weekly_title">Cota semanal (7 dias)</string>
+    <string name="quota_used">%1$s%% usado</string>
     <string name="response_interrupted">Resposta interrompida pelo provedor; o agente continuou abaixo</string>
     <string name="settings_summaries">Resumos</string>
     <string name="settings_summarize">Resumir as respostas do agente</string>

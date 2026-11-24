@@ -1,4 +1,4 @@
-use crate::model::{ReadingState, SessionItem};
+use crate::model::{AccountQuota, ReadingState, SEVEN_DAYS_MS, SessionItem};
 use std::collections::HashMap;
 
 /// A última resposta prevalece sobre o evento; empates mantêm a ordem original.
@@ -101,6 +101,47 @@ pub fn combined_connection<'a>(
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct WeeklyQuota {
+    pub label: String,
+    pub utilization: f64,
+    pub resets_at: Option<i64>,
+    pub exhausted: bool,
+}
+
+/// Uma linha por provedor com a janela de 7 dias mais gasta: é ela que bloqueia primeiro.
+/// Provedores repetidos (várias contas ou servidores lendo o mesmo omp) entram uma vez.
+pub fn weekly_quotas<'a>(accounts: impl IntoIterator<Item = &'a AccountQuota>) -> Vec<WeeklyQuota> {
+    let mut out: Vec<WeeklyQuota> = Vec::new();
+    for account in accounts {
+        for group in &account.groups {
+            let label = group
+                .provider
+                .as_deref()
+                .map_or_else(|| account.name.clone(), super::composer::provider_label);
+            let worst = group
+                .limits
+                .iter()
+                .filter(|limit| limit.window_ms == Some(SEVEN_DAYS_MS))
+                .filter_map(|limit| Some((limit, limit.utilization?)))
+                .max_by(|a, b| a.1.total_cmp(&b.1));
+            let Some((limit, utilization)) = worst else { continue };
+            let quota = WeeklyQuota {
+                label,
+                utilization,
+                resets_at: limit.resets_at,
+                exhausted: limit.exhausted,
+            };
+            match out.iter_mut().find(|q| q.label == quota.label) {
+                Some(old) if old.utilization < quota.utilization => *old = quota,
+                Some(_) => {}
+                None => out.push(quota),
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,5 +227,31 @@ mod tests {
         assert_eq!(visible_sessions(&all, true, "").len(), 2);
         assert_eq!(visible_sessions(&all, true, "PROJECT").len(), 1);
         assert!(visible_sessions(&all, true, " Title").is_empty());
+    }
+
+    #[test]
+    fn weekly_quota_keeps_the_most_used_seven_day_window_per_provider() {
+        let week = SEVEN_DAYS_MS;
+        let omp = |id: &str, used: f64| {
+            AccountQuota::parse(&serde_json::json!({"id": id, "usage": {"ompProviders": [
+                {"provider": "anthropic", "limits": [
+                    {"label": "5h", "windowMs": 18_000_000, "utilization": 99},
+                    {"label": "Semana", "windowMs": week, "utilization": used, "resetsAt": 1_000},
+                    {"label": "Opus", "windowMs": week, "utilization": used / 2.0}
+                ]},
+                {"provider": "ollama", "limits": [], "note": "local"}
+            ]}}))
+            .unwrap()
+        };
+        let claude = AccountQuota::parse(&serde_json::json!({"id": "c", "name": "Claude Max",
+            "usage": {"fiveHour": {"utilization": 10}, "sevenDay": {"utilization": 42}}}))
+        .unwrap();
+        let accounts = [omp("a", 30.0), omp("b", 80.0), claude];
+        let quotas = weekly_quotas(&accounts);
+        assert_eq!(
+            quotas.iter().map(|q| (q.label.as_str(), q.utilization)).collect::<Vec<_>>(),
+            [("Anthropic", 80.0), ("Claude Max", 42.0)]
+        );
+        assert_eq!(quotas[0].resets_at, Some(1_000));
     }
 }

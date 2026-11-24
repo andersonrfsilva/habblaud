@@ -563,6 +563,8 @@ pub struct SessionCollection {
     pub cast: Vec<Value>,
     pub server_time: i64,
     pub recent_stale: bool,
+    /// Contas e cotas do último snapshot.
+    pub accounts: Vec<AccountQuota>,
 }
 impl SessionCollection {
     pub fn parse_snapshot(
@@ -590,6 +592,7 @@ impl SessionCollection {
     }
     pub fn snapshot(&mut self, snapshot: Snapshot) -> Vec<SessionItem> {
         self.server_time = integer(&snapshot.raw, "serverTime").unwrap_or(self.server_time);
+        self.accounts = snapshot.accounts;
         let previous = std::mem::replace(&mut self.open, snapshot.sessions);
         let (sessions, stale) =
             self.merge_sessions(if self.recent_stale { &[] } else { &previous });
@@ -1242,6 +1245,8 @@ impl ModelRoles {
     }
 }
 
+pub const FIVE_HOURS_MS: i64 = 5 * 3_600_000;
+pub const SEVEN_DAYS_MS: i64 = 7 * 86_400_000;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageLimit {
@@ -1249,6 +1254,9 @@ pub struct UsageLimit {
     pub utilization: Option<f64>,
     pub resets_at: Option<i64>,
     pub exhausted: bool,
+    /// Duração da janela em ms; `None` quando o servidor não informa.
+    #[serde(default)]
+    pub window_ms: Option<i64>,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct UsageGroup {
@@ -1289,6 +1297,11 @@ impl AccountQuota {
                                 utilization: string(w, "utilization").and_then(|n| n.parse().ok()),
                                 resets_at: integer(w, "resetsAt"),
                                 exhausted: false,
+                                window_ms: Some(if name == "fiveHour" {
+                                    FIVE_HOURS_MS
+                                } else {
+                                    SEVEN_DAYS_MS
+                                }),
                             })
                         })
                         .collect::<Vec<_>>();
@@ -1319,6 +1332,7 @@ impl AccountQuota {
                                 utilization: string(l, "utilization").and_then(|n| n.parse().ok()),
                                 resets_at: integer(l, "resetsAt"),
                                 exhausted: flag(l, "exhausted"),
+                                window_ms: integer(l, "windowMs"),
                             })
                         })
                         .collect(),

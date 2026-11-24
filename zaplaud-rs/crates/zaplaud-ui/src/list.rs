@@ -1,6 +1,6 @@
 use crate::{
     AppEvents, AppWindow, AvatarColors, ConversationState, Icons, Labels, ListState, LoginState,
-    ServerRow, SessionRow, Theme, avatars, formatted,
+    QuotaRow, ServerRow, SessionRow, Theme, avatars, formatted,
     state::{AppState, Event, now_millis},
     strings, update_ui,
 };
@@ -10,6 +10,7 @@ use zaplaud_core::{
     rules::composer::model_brand,
     rules::list::{
         combined_connection, is_loading, merge_sessions, server_label, visible_sessions,
+        weekly_quotas,
     },
 };
 
@@ -26,6 +27,9 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
     labels.set_unfavorite_session(strings::UNFAVORITE_SESSION.into());
     labels.set_favorite_sessions(strings::FAVORITE_SESSIONS.into());
     labels.set_pinned_sessions(strings::PINNED_SESSIONS.into());
+    window
+        .global::<ListState>()
+        .set_quota_title(strings::QUOTA_WEEKLY_TITLE.into());
     let sender = &context.commands;
     let send = sender.clone();
     window.global::<ListState>().on_open(move |key| {
@@ -299,11 +303,38 @@ pub fn publish(state: &AppState, weak: &slint::Weak<AppWindow>) {
     let server_notices = servers
         .iter()
         .any(|(_, _, needs_login, error)| *needs_login || error.is_some());
+    let quotas: Vec<_> = weekly_quotas(
+        state
+            .servers
+            .iter()
+            .flat_map(|s| &s.reading.repository.accounts),
+    )
+    .into_iter()
+    .map(|quota| QuotaRow {
+        label: quota.label.into(),
+        percent: formatted("quota_used", &[&(quota.utilization.round() as i64).to_string()]).into(),
+        fraction: (quota.utilization / 100.0).clamp(0.0, 1.0) as f32,
+        severity: if quota.exhausted || quota.utilization >= 90.0 {
+            2
+        } else if quota.utilization >= 70.0 {
+            1
+        } else {
+            0
+        },
+        resets: quota
+            .resets_at
+            .and_then(|at| zaplaud_core::rules::time::entry_time(at, now))
+            .map(|at| formatted("quota_resets", &[&at]))
+            .unwrap_or_default()
+            .into(),
+    })
+    .collect();
     update_ui(weak, move |window| {
         let list = window.global::<ListState>();
         list.set_connection(connection.into());
         list.set_loading(loading);
         list.set_server_notices(server_notices);
+        list.set_quotas(ModelRc::new(VecModel::from(quotas)));
         list.set_terminal_allowed(terminal_allowed);
         list.set_terminal_blocked_label(strings::TERMINAL_BLOCKED.into());
         let models = rows

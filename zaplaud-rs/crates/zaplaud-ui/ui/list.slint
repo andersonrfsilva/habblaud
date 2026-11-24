@@ -13,9 +13,13 @@ export struct SessionRow {
     pinned: bool, favorite: bool,
 }
 export struct ServerRow { origin: string, label: string, connection: string, needs-login: bool, error: string }
+// Cota de 7 dias de um provedor; severity 0 ok, 1 atenção (≥70%), 2 crítica (≥90% ou esgotada).
+export struct QuotaRow { label: string, percent: string, fraction: float, severity: int, resets: string }
 export global ListState {
     in property <[SessionRow]> rows;
     in property <[ServerRow]> servers;
+    in property <[QuotaRow]> quotas;
+    in property <string> quota-title;
     in property <string> connection: "connecting";
     in-out property <string> filter;
     in-out property <string> query;
@@ -186,6 +190,24 @@ export component ListPane inherits Rectangle {
                         if row.permission != "": TextButton { text: row.permission; foreground: Theme.error; clicked => { ListState.permission(row.key); } }
                     }
                 }
+            }
+        }
+        if ListState.quotas.length > 0: VerticalLayout {
+            vertical-stretch: 0; alignment: start;
+            // O FAB de elenco ocupa o canto inferior direito.
+            padding-top: 4px; padding-bottom: ListState.cast-visible ? 80px : 12px; spacing: 10px;
+            Rectangle { height: 1px; background: Theme.outline-variant; }
+            Text { text: ListState.quota-title; color: Theme.on-surface-variant; font-size: 12px; font-weight: 600; letter-spacing: 0.5px; }
+            for quota in ListState.quotas: VerticalLayout { spacing: 4px; vertical-stretch: 0;
+                accessible-role: text; accessible-label: quota.label + ", " + quota.percent + (quota.resets == "" ? "" : ", " + quota.resets);
+                HorizontalLayout { spacing: 8px;
+                    Text { text: quota.label; color: Theme.on-surface; font-size: 13px; overflow: elide; horizontal-stretch: 1; }
+                    Text { text: quota.percent; color: quota.severity == 2 ? Theme.error : quota.severity == 1 ? StatusColors.warning : Theme.on-surface; font-size: 13px; font-weight: 600; horizontal-stretch: 0; }
+                }
+                Rectangle { height: 6px; border-radius: 3px; background: Theme.surface-container-highest;
+                    Rectangle { x: 0px; width: parent.width * quota.fraction; height: parent.height; border-radius: 3px; background: quota.severity == 2 ? Theme.error : quota.severity == 1 ? StatusColors.warning : Theme.primary; }
+                }
+                if quota.resets != "": Text { text: quota.resets; color: Theme.on-surface-variant; font-size: 11px; overflow: elide; }
             }
         }
         }
