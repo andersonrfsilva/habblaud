@@ -18,6 +18,8 @@ import androidx.compose.runtime.*
 import androidx.lifecycle.lifecycleScope
 import br.com.xlinx.habblaud.data.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -29,6 +31,9 @@ class MainActivity : ComponentActivity() {
         openFromNotification(intent)
         enableEdgeToEdge()
         store = LocalStateStore()
+        lifecycleScope.launch {
+            visibleSession.collect { key -> key?.let { NotificationService.cancelAlert(applicationContext, it) } }
+        }
         setContent {
             val theme by store.theme.collectAsState(initial = "system")
             val dark = when (theme) { "light" -> false; "dark" -> true; else -> isSystemInDarkTheme() }
@@ -79,26 +84,40 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); openFromNotification(intent) }
     override fun onStart() {
         super.onStart()
-        visible = true
+        visible.value = true
         lifecycleScope.launch {
             try {
-                NotificationService.startIfConfigured(applicationContext, store) { visible }
+                NotificationService.startIfConfigured(applicationContext, store) { visible.value }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 Log.w(TAG, "Could not read notification settings on start", e)
             }
         }
     }
-    override fun onStop() { visible = false; super.onStop() }
+    override fun onStop() { visible.value = false; super.onStop() }
     private fun openFromNotification(intent: Intent?) {
-        intent?.getStringExtra(EXTRA_SESSION)?.let { value -> runCatching { SessionKey.deserialize(value) }.getOrNull()?.let { pendingSession.value = it } }
+        if (intent?.getBooleanExtra(EXTRA_NOTIFICATION_LIST, false) == true) {
+            pendingNotificationList.value = true
+            pendingSession.value = null
+            pendingNotificationPermission.value = null
+            intent.removeExtra(EXTRA_NOTIFICATION_LIST)
+        }
+        intent?.getStringExtra(EXTRA_SESSION)?.let { value -> runCatching { SessionKey.deserialize(value) }.getOrNull()?.let {
+            pendingNotificationList.value = false
+            pendingNotificationPermission.value = intent.getStringExtra(EXTRA_NOTIFICATION_REQUEST)?.let { id -> it to id }
+            pendingSession.value = it
+        } }
         intent?.removeExtra(EXTRA_SESSION)
+        intent?.removeExtra(EXTRA_NOTIFICATION_REQUEST)
     }
     companion object {
         private const val TAG = "MainActivity"
         const val EXTRA_SESSION = "session"
-        /** Com o app à vista, o próprio app mostra o pedido: o serviço não notifica. */
-        @Volatile var visible = false
+        const val EXTRA_NOTIFICATION_LIST = "notification_list"
+        const val EXTRA_NOTIFICATION_REQUEST = "notification_request"
+        private val visible = MutableStateFlow(false)
+        internal val visibleSession = combine(visible, notificationSession) { shown, key -> if (shown) key else null }
+        internal fun isShowing(key: SessionKey) = suppressNotification(key, visible.value, notificationSession.value)
         /** Sessão tocada numa notificação, à espera de a lista carregar para abrir. */
         val pendingSession get() = br.com.xlinx.habblaud.pendingSession
     }

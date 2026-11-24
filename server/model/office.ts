@@ -22,6 +22,7 @@ import type {
   SourceInfo,
   TaskItem,
   UpdateStatus,
+  NoticeKind,
 } from '../../shared/types';
 import { NEW_CAST_PREFIX } from '../../shared/types';
 import { SHELL_WAIT_TOOL, SPECIAL, type ShellOutcome } from '../../shared/activity';
@@ -163,8 +164,6 @@ export interface CommitResult {
   feed: FeedItem[];
   notices: Notice[];
 }
-
-type NoticeKind = 'arrive' | 'room' | 'wait' | 'deliver' | 'done' | 'leave' | 'shell' | 'shellDone' | 'github' | 'character';
 
 /**
  * Chamado como "Novo" (fora do elenco): sem membro, o visual e o nome são sorteados, mas o id `novo-…` fica no agente
@@ -441,7 +440,13 @@ export class Office {
         this.addActivity(id, act, true);
         rec.synthWait = prevActivity ? { id: act.id, prev: prevActivity } : { id: act.id };
       }
-      this.notice('wait', id, 'alert', tr('✋ {0} precisa de você em {1}: {2}', [info.name, room, reason]), info.roomId);
+      // Um pedido de permissão ou pergunta recente do mesmo agente já avisou com mais detalhe.
+      const typed = this.noticeAt.get(`${id}|typedWait`);
+      if (typed === undefined || now - typed >= NOTICE_DEDUPE_MS) {
+        this.notice('wait', id, 'alert', tr('✋ {0} precisa de você em {1}: {2}', [info.name, room, reason]), info.roomId, {
+          extra: { wait: 'terminal', reason },
+        });
+      }
     }
     if (prev === 'waiting' && status !== 'waiting' && rec.synthWait) {
       // Saiu da espera sem nada novo no transcript: volta a mostrar o que estava fazendo.
@@ -457,7 +462,9 @@ export class Office {
         this.addActivity(id, act, true);
         rec.synthDone = { id: act.id, at: now };
       }
-      this.notice('done', id, 'success', tr('✅ {0} concluiu em {1}', [info.name, room]), info.roomId);
+      this.notice('done', id, 'success', tr('✅ {0} concluiu em {1}', [info.name, room]), info.roomId, {
+        extra: { ...(rec.turnStart ? { durationMs: now - rec.turnStart } : {}), ...(interrupted ? { interrupted: true } : {}) },
+      });
     }
     this.markDirty();
   }
@@ -796,15 +803,20 @@ export class Office {
   // ---------------------------------------------------------------- pedidos de permissão (server/permissions)
 
   /**
-   * Aviso de pedido de permissão (ou de pergunta do AskUserQuestion) vindo do hook; usa o dedupe do "precisa de
-   * você" (o mesmo pedido, outro caminho).
+   * Aviso de pedido de permissão (ou de pergunta do AskUserQuestion) vindo do hook. O dedupe é por pedido
+   * (`requestId`): dois pedidos seguidos avisam os dois, e um "precisa de você" genérico logo antes não engole este.
+   * Depois dele, o "precisa de você" genérico do status fica calado por 10 s (é o mesmo pedido, outro caminho).
    */
-  noticePermission(id: string, what: string, kind: 'permission' | 'question' = 'permission'): void {
+  noticePermission(id: string, what: string, kind: 'permission' | 'question' = 'permission', requestId?: string): void {
     const info = this.agents.get(id)?.info;
     if (!info) return;
     const room = this.roomName(info.roomId);
     const text = kind === 'question' ? tr('❓ {0} tem uma pergunta em {1}: {2}', [info.name, room, what]) : tr('🔐 {0} pede permissão em {1}: {2}', [info.name, room, what]);
-    this.notice('wait', id, 'alert', text, info.roomId);
+    this.notice('wait', id, 'alert', text, info.roomId, {
+      dedupeKey: `${id}|${kind}|${requestId ?? what}`,
+      extra: { wait: kind, reason: what, ...(requestId ? { requestId } : {}) },
+    });
+    if (!this.booting) this.noticeAt.set(`${id}|typedWait`, this.now());
     this.markDirty();
   }
 
@@ -1150,7 +1162,7 @@ export class Office {
     level: NoticeLevel,
     text: string,
     roomId?: string,
-    opts: { dedupeKey?: string; dedupeMs?: number } = {},
+    opts: { dedupeKey?: string; dedupeMs?: number; extra?: Pick<Notice, 'wait' | 'reason' | 'requestId' | 'durationMs' | 'interrupted'> } = {},
   ): void {
     if (this.booting) return;
     const now = this.now();
@@ -1163,7 +1175,7 @@ export class Office {
       // Só esquece o que já passou da janela mais longa (a do aviso de shell).
       for (const [nk, t] of this.noticeAt) if (now - t > Math.max(NOTICE_DEDUPE_MS, SHELL_NOTICE_DEDUPE_MS)) this.noticeAt.delete(nk);
     }
-    const n: Notice = { id: `n-${now.toString(36)}-${++this.seq}`, level, text, at: now };
+    const n: Notice = { id: `n-${now.toString(36)}-${++this.seq}`, level, text, at: now, kind, ...opts.extra };
     if (kind !== 'room') n.agentId = key;
     if (roomId) n.roomId = roomId;
     this.pendingNotices.push(n);

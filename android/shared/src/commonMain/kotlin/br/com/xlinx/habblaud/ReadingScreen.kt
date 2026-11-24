@@ -54,6 +54,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -80,6 +81,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -98,6 +100,12 @@ import com.mikepenz.markdown.m3.markdownTypography
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.takeWhile
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlin.math.roundToInt
+
+val notificationSession = MutableStateFlow<SessionKey?>(null)
+val pendingNotificationList = MutableStateFlow(false)
+val pendingNotificationPermission = MutableStateFlow<Pair<SessionKey, String>?>(null)
 
 internal fun readingErrorResource(error: String): StringResource = when (error) {
     "changed" -> Res.string.session_changed
@@ -156,8 +164,28 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
         controllers.filterKeys { it != item.key.origin }.values.forEach { if (it.state.value.selected != null) it.close() }
         controllers.getValue(item.key.origin).open(item)
     }
+    var settingsOpen by rememberSaveable { mutableStateOf(false) }
+    var permissionSession by remember { mutableStateOf<SessionItem?>(null) }
+    var notificationRequest by remember { mutableStateOf<Pair<SessionKey, String>?>(null) }
+    val openList by pendingNotificationList.collectAsStateWithLifecycle()
+    LaunchedEffect(openList) {
+        if (openList) {
+            controllers.values.forEach {
+                it.cancelRestore()
+                if (it.state.value.selected != null) it.close()
+            }
+            settingsOpen = false
+            notificationRequest = null
+            permissionSession = null
+            pendingNotificationList.value = false
+        }
+    }
     val pending by pendingSession.collectAsStateWithLifecycle()
     LaunchedEffect(pending) { pending?.let { target ->
+        settingsOpen = false
+        notificationRequest = pendingNotificationPermission.value?.takeIf { it.first == target }
+        pendingNotificationPermission.value = null
+        permissionSession = null
         controllers[target.origin]?.let { controller ->
             controllers.filterKeys { it != target.origin }.values.forEach {
                 it.cancelRestore()
@@ -188,7 +216,15 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
     val state = conversationState ?: mergedFrom(actionOrigin)
     val sessionsStateWide = mergedFrom(filter ?: apis.keys.first())
     val composer by controller.messages.state.collectAsStateWithLifecycle()
-    var permissionSession by remember { mutableStateOf<SessionItem?>(null) }
+    val requestState = notificationRequest?.let { states[it.first.origin] }
+    LaunchedEffect(notificationRequest, requestState?.snapshotReady, requestState?.selected, needsLogin) {
+        val (key, requestId) = notificationRequest ?: return@LaunchedEffect
+        if (requestState == null || key.origin in needsLogin) notificationRequest = null
+        else if (requestState.snapshotReady) {
+            permissionSession = notificationPermission(requestState.selected, key, requestId)
+            notificationRequest = null
+        }
+    }
     val permissionState = permissionSession?.let { states[it.key.origin] } ?: state
     val permissionLive = permissionSession?.let { requested -> permissionState.sessions.find { it.key == requested.key && it.permissionId == requested.permissionId } }
     LaunchedEffect(permissionSession, permissionLive, permissionState.connection) {
@@ -257,7 +293,8 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
         if (viewFor?.first != key) viewFor = key to savedView
         if (deliverFor?.first != key) deliverFor = key to savedDeliver
     }
-    var settingsOpen by rememberSaveable { mutableStateOf(false) }
+    SideEffect { notificationSession.value = selected?.key?.takeUnless { settingsOpen } }
+    DisposableEffect(Unit) { onDispose { notificationSession.value = null } }
     if (settingsOpen) {
         SettingsScreen(apis, store, onClose = { settingsOpen = false }, onLogin = { settingsOpen = false; onLogin(it) }, onLogout = { settingsOpen = false; onLogout(it) })
         return
@@ -403,6 +440,8 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
             actions = { castActions() }
         )
     }
+    val accounts = states.values.map { it.accounts }
+    val weeklyQuotas = remember(accounts) { weeklyQuotas(accounts.flatten()) }
     val listContent: @Composable ColumnScope.(ReadingState, Boolean) -> Unit = { state, highlight ->
             needsLogin.forEach { origin ->
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -545,6 +584,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                     session.subagents.forEachIndexed { i, sub -> SubagentBranch(apis.getValue(session.key.origin), sub, last = i == session.subagents.lastIndex) { open(subSession(session, sub)) } }
                     }
                 }
+                if (weeklyQuotas.isNotEmpty()) item(key = "weekly-quotas") { WeeklyQuotaPanel(weeklyQuotas) }
             }
     }
     val conversationContent: @Composable ColumnScope.(SessionItem, ReadingState) -> Unit = { selected, state ->
@@ -1436,3 +1476,36 @@ internal fun pillFieldColors() = TextFieldDefaults.colors(
     unfocusedIndicatorColor = Color.Transparent,
     disabledIndicatorColor = Color.Transparent,
 )
+
+@Composable
+private fun WeeklyQuotaPanel(quotas: List<WeeklyQuota>) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(stringResource(Res.string.quota_weekly_title), Modifier.semantics { heading() }, style = MaterialTheme.typography.titleSmall)
+        quotas.forEach { quota ->
+            val color = when {
+                quota.exhausted || quota.utilization >= 90 -> MaterialTheme.colorScheme.error
+                quota.utilization >= 70 -> warningColor()
+                else -> MaterialTheme.colorScheme.primary
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(quota.label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                    // O Compose não desescapa %% no recurso compartilhado com o Rust.
+                    Text(stringResource(Res.string.quota_used, quota.utilization.roundToInt().toString()).replace("%%", "%"),
+                        color = color, style = MaterialTheme.typography.bodyMedium)
+                }
+                LinearProgressIndicator(
+                    progress = { (quota.utilization / 100).toFloat().coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth().height(6.dp),
+                    color = color,
+                    strokeCap = StrokeCap.Round,
+                    gapSize = 0.dp,
+                    drawStopIndicator = {},
+                )
+                quota.resetsAt?.let {
+                    Text(stringResource(Res.string.quota_resets, entryTime(it)), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+    }
+}

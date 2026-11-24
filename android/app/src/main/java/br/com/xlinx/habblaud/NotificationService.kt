@@ -10,6 +10,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
@@ -25,9 +26,15 @@ import kotlinx.coroutines.*
  * Roda como serviço em primeiro plano (ícone fixo na barra), enquanto houver login e as notificações estiverem ligadas.
  */
 class NotificationService : Service() {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var job: Job? = null
     private var multipleServers = false
+    private val pending = linkedMapOf<SessionKey, AgentEvent>()
+    private val summarized = linkedSetOf<SessionKey>()
+    private var batchJob: Job? = null
+    private var summaryJob: Job? = null
+    private var summaryPublished = false
+    private val manager by lazy { NotificationManagerCompat.from(this) }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -42,6 +49,7 @@ class NotificationService : Service() {
             .setContentIntent(open).setOngoing(true).setSilent(true).build()
         val type = if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
         ServiceCompat.startForeground(this, ONGOING_ID, ongoing, type)
+        scope.launch { MainActivity.visibleSession.collect { it?.let(::discard) } }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -54,7 +62,7 @@ class NotificationService : Service() {
 
     private suspend fun watch() {
         try {
-            watchAlerts(LocalStateStore(applicationContext), onServers = { multipleServers = it > 1 }, notify = ::notify)
+            watchAlerts(LocalStateStore(applicationContext), onServers = { multipleServers = it > 1 }, notify = ::enqueue, withdraw = ::withdraw)
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             Log.w(TAG, "Could not watch notifications", e)
@@ -62,11 +70,84 @@ class NotificationService : Service() {
         withContext(Dispatchers.Main.immediate) { stopSelf() }
     }
 
-    private fun notify(event: AgentEvent) {
-        if (MainActivity.visible) return
+    private fun enqueue(event: AgentEvent) {
+        val key = event.session.key
+        if (MainActivity.isShowing(key) || !allowed(this)) return
+        pending[key] = event
+        scheduleBatch()
+    }
+
+    private fun scheduleBatch() {
+        if (batchJob != null || pending.isEmpty()) return
+        batchJob = scope.launch {
+            delay(ALERT_BATCH_WINDOW_MS)
+            val ready = pending.filterKeys { !MainActivity.isShowing(it) }
+            pending.keys.retainAll(ready.keys)
+            if (batchAlertCount(ready.size) != null) {
+                summarized.clear()
+                summarized.addAll(ready.keys)
+                ready.keys.forEach { cancelAlert(this@NotificationService, it); pending.remove(it) }
+                updateSummary()
+            } else {
+                for ((key, event) in ready) {
+                    val (id, notification) = alertNotification(this@NotificationService, event, multipleServers)
+                    if (pending[key] != event) continue
+                    pending.remove(key)
+                    if (!MainActivity.isShowing(key)) {
+                        removeFromSummary(key)
+                        post(id, notification)
+                    }
+                }
+            }
+            batchJob = null
+            scheduleBatch()
+        }
+    }
+
+    private fun withdraw(key: SessionKey) {
+        cancelAlert(this, key)
+        discard(key)
+    }
+
+    private fun discard(key: SessionKey) {
+        pending.remove(key)
+        removeFromSummary(key)
+    }
+
+    private fun removeFromSummary(key: SessionKey) {
+        if (!summarized.remove(key)) return
+        // Um resumo dispensado pelo usuário não volta quando a situação de um agente muda.
+        if (summaryPublished && manager.activeNotifications.none { it.tag == SUMMARY_TAG && it.id == SUMMARY_ID }) summarized.clear()
+        updateSummary()
+    }
+
+    private fun updateSummary() {
+        summaryJob?.cancel()
+        val count = summarized.size
+        if (count == 0) {
+            manager.cancel(SUMMARY_TAG, SUMMARY_ID)
+            summaryPublished = false
+            return
+        }
+        summaryJob = scope.launch {
+            val text = batchAlertText(count)
+            val tap = Intent(this@NotificationService, MainActivity::class.java)
+                .putExtra(MainActivity.EXTRA_NOTIFICATION_LIST, true)
+                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            val notification = privateAlert(this@NotificationService)
+                .setContentTitle(getString(R.string.app_name))
+                .setContentText(text)
+                .setContentIntent(PendingIntent.getActivity(this@NotificationService, SUMMARY_ID, tap, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
+                .setOnlyAlertOnce(true)
+                .build()
+            post(SUMMARY_ID, notification, SUMMARY_TAG)
+            summaryPublished = true
+        }
+    }
+
+    private fun post(id: Int, notification: Notification, tag: String? = null) {
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
-        val (id, notification) = alertNotification(this, event, multipleServers)
-        try { NotificationManagerCompat.from(this).notify(id, notification) } catch (_: SecurityException) { }
+        try { manager.notify(tag, id, notification) } catch (_: SecurityException) { }
     }
 
     override fun onDestroy() {
@@ -79,6 +160,10 @@ class NotificationService : Service() {
         private const val CHANNEL_CONNECTION = "connection"
         private const val ONGOING_ID = 1
         private const val EXTRA_RESTART = "restart"
+        private const val SUMMARY_TAG = "agent-alerts"
+        private const val SUMMARY_ID = -1
+        internal fun cancelAlert(context: Context, key: SessionKey) =
+            NotificationManagerCompat.from(context).cancel(alertId(key))
         private const val TAG = "NotificationService"
 
         private fun channels(context: Context) {
@@ -123,31 +208,40 @@ class NotificationService : Service() {
     }
 }
 
-internal fun alertNotification(context: Context, event: AgentEvent, multipleServers: Boolean = false): Pair<Int, Notification> {
-    val session = event.session
-    val tap = Intent(context, MainActivity::class.java).putExtra(MainActivity.EXTRA_SESSION, session.key.serialize())
-        .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-    val id = session.key.serialize().hashCode()
-    val text = context.getString(when (event) {
-        is AgentEvent.Permission -> if (session.permissionQuestion) R.string.notify_question else R.string.notify_permission
-        is AgentEvent.TurnDone -> R.string.notify_done
-    })
+private fun alertId(key: SessionKey) = key.serialize().hashCode()
+
+private suspend fun privateAlert(context: Context): NotificationCompat.Builder {
     val publicVersion = NotificationCompat.Builder(context, NotificationService.CHANNEL_ALERTS)
         .setSmallIcon(android.R.drawable.stat_notify_chat)
         .setContentTitle(context.getString(R.string.app_name))
-        .setContentText(context.getString(R.string.notify_public))
+        .setContentText(publicAlertText())
         .build()
-    val notification = NotificationCompat.Builder(context, NotificationService.CHANNEL_ALERTS)
+    return NotificationCompat.Builder(context, NotificationService.CHANNEL_ALERTS)
         .setSmallIcon(android.R.drawable.stat_notify_chat)
-        .setContentTitle(session.characterName ?: session.title)
-        .setContentText(text)
-        .setSubText(listOfNotNull(session.project?.substringAfterLast('/'), serverLabel(session.key.origin).takeIf { multipleServers }).joinToString(" · ").ifEmpty { null })
-        .setContentIntent(PendingIntent.getActivity(context, id, tap, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
         .setAutoCancel(true)
         .setPriority(NotificationCompat.PRIORITY_HIGH)
         .setCategory(NotificationCompat.CATEGORY_MESSAGE)
         .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
         .setPublicVersion(publicVersion)
+}
+
+internal suspend fun alertNotification(context: Context, event: AgentEvent, multipleServers: Boolean = false): Pair<Int, Notification> {
+    val session = event.session
+    val requestId = (event as? AgentEvent.Permission)?.requestId
+    val tap = Intent(context, MainActivity::class.java)
+        .setData(Uri.Builder().scheme("zaplaud").authority("alert").appendPath(session.key.serialize()).apply {
+            requestId?.let { appendPath(it) }
+        }.build())
+        .putExtra(MainActivity.EXTRA_SESSION, session.key.serialize())
+        .putExtra(MainActivity.EXTRA_NOTIFICATION_REQUEST, requestId)
+        .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+    val id = alertId(session.key)
+    val text = alertBody(event)
+    return id to privateAlert(context)
+        .setContentTitle(session.characterName ?: session.title)
+        .setContentText(text)
+        .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+        .setSubText(alertSubtitle(event, multipleServers))
+        .setContentIntent(PendingIntent.getActivity(context, id, tap, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
         .build()
-    return id to notification
 }

@@ -3,8 +3,10 @@ package br.com.xlinx.habblaud
 import br.com.xlinx.habblaud.data.*
 import br.com.xlinx.habblaud.resources.Res
 import br.com.xlinx.habblaud.resources.notify_done
+import br.com.xlinx.habblaud.resources.notify_interrupted
 import br.com.xlinx.habblaud.resources.notify_permission
 import br.com.xlinx.habblaud.resources.notify_question
+import br.com.xlinx.habblaud.resources.notify_waiting
 import kotlin.test.*
 
 class NotificationTextTest {
@@ -14,6 +16,14 @@ class NotificationTextTest {
         assertEquals(Res.string.notify_permission, alertText(AgentEvent.Permission(session)))
         assertEquals(Res.string.notify_question, alertText(AgentEvent.Permission(session.copy(permissionQuestion = true))))
         assertEquals(Res.string.notify_done, alertText(AgentEvent.TurnDone(session)))
+        assertEquals(Res.string.notify_waiting, alertText(AgentEvent.Permission(session, WaitKind.Terminal)))
+        assertEquals(Res.string.notify_interrupted, alertText(AgentEvent.TurnDone(session, interrupted = true)))
+    }
+
+    @Test fun appendsWaitReasonAndLimitsItTo120Characters() {
+        assertEquals("Aviso: teste", alertBody("Aviso", AgentEvent.Permission(session, reason = " teste ")))
+        assertEquals("Aviso", alertBody("Aviso", AgentEvent.Permission(session, reason = " ")))
+        assertEquals("Aviso: " + "x".repeat(119) + "…", alertBody("Aviso", AgentEvent.Permission(session, reason = "x".repeat(121))))
     }
 
     @Test fun subtitleIncludesServerOnlyWithMultipleServers() {

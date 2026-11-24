@@ -570,6 +570,7 @@ export interface FeedItem {
 }
 
 export type NoticeLevel = 'info' | 'success' | 'warn' | 'alert';
+export type NoticeKind = 'arrive' | 'room' | 'wait' | 'deliver' | 'done' | 'leave' | 'shell' | 'shellDone' | 'github' | 'character';
 
 export interface Notice {
   id: string;
@@ -578,6 +579,18 @@ export interface Notice {
   agentId?: string;
   roomId?: string;
   at: number;
+  /** O que aconteceu, para clientes que montam o próprio texto (o Zaplaud). */
+  kind?: NoticeKind;
+  /** `wait`: por que o agente parou ("permission" pede aprovação, "question" pergunta, "terminal" espera no terminal). */
+  wait?: 'permission' | 'question' | 'terminal';
+  /** `wait`: o pedido em si (comando, pergunta ou motivo), sem nome nem sala. */
+  reason?: string;
+  /** `wait` de permissão ou pergunta: id do pedido pendente (o mesmo `permission.id` do agente no snapshot). */
+  requestId?: string;
+  /** `done`: duração do turno, quando conhecida. */
+  durationMs?: number;
+  /** `done`: o provedor interrompeu o turno; não terminou de verdade. */
+  interrupted?: boolean;
 }
 
 /**

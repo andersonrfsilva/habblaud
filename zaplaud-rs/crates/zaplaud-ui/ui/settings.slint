@@ -35,6 +35,10 @@ export global SettingsState {
     in-out property <string> typed;
     in property <bool> typed-valid;
     in property <bool> choosing-model;
+    in property <bool> notification-prompt;
+    in property <string> notification-prompt-text;
+    in property <string> notification-yes;
+    in property <string> notification-no;
     callback close();
     callback preferences-changed();
     callback notification-preferences-changed();

@@ -54,6 +54,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
 
 internal fun catalogRuntime(body: String): String? =
@@ -108,7 +109,7 @@ fun SettingsScreen(apis: Map<String, HabblaudApi>, store: LocalStateStore, onClo
     var notificationsDeliverable by remember { mutableStateOf(false) }
     var notificationsPending by remember { mutableStateOf(false) }
     var notificationStorageError by remember { mutableStateOf(false) }
-    var events by remember { mutableStateOf<Pair<Boolean, Boolean>?>(null) }
+    val notificationRules by remember(store) { store.notificationRules.catch { notificationStorageError = true } }.collectAsState(initial = null)
     suspend fun saveNotificationPreference(enabled: Boolean): Boolean = try {
         store.setNotificationsEnabled(enabled)
         notificationStorageError = false
@@ -122,7 +123,6 @@ fun SettingsScreen(apis: Map<String, HabblaudApi>, store: LocalStateStore, onClo
         view = store.defaultView(); deliver = store.deliverAs()
         try {
             notifications = store.notificationsEnabled()
-            events = store.notifyEvents()
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             notificationStorageError = true
@@ -293,7 +293,7 @@ fun SettingsScreen(apis: Map<String, HabblaudApi>, store: LocalStateStore, onClo
             Section(Res.string.notifications)
             notifications?.let { saved ->
                 val on = saved && notificationsDeliverable
-                SwitchRow(stringResource(if (notificationsPlatform.whileOpenOnly) Res.string.settings_notifications_open else Res.string.settings_notifications_on), on, enabled = !notificationsPending) {
+                SwitchRow(stringResource(Res.string.settings_notify_agents), on, enabled = !notificationsPending) {
                     notificationsPending = true
                     scope.launch {
                         // A vigilância lê a preferência ao iniciar, então a gravação precisa terminar primeiro.
@@ -314,9 +314,10 @@ fun SettingsScreen(apis: Map<String, HabblaudApi>, store: LocalStateStore, onClo
                     }
                 }
                 if (saved && !notificationsDeliverable) Hint(Res.string.settings_notifications_blocked)
-                events?.let { (permission, done) ->
-                    SwitchRow(stringResource(Res.string.settings_notify_permission), permission, enabled = on) { events = !permission to done; scope.launch { store.setNotifyEvents(!permission, done) } }
-                    SwitchRow(stringResource(Res.string.settings_notify_done), done, enabled = on) { events = permission to !done; scope.launch { store.setNotifyEvents(permission, !done) } }
+                notificationRules?.let { (permission, done, minTurn) ->
+                    SwitchRow(stringResource(Res.string.settings_notify_permission), permission, enabled = on) { scope.launch { store.setNotifyEvents(!permission, done) } }
+                    SwitchRow(stringResource(Res.string.settings_notify_done), done, enabled = on) { scope.launch { store.setNotifyEvents(permission, !done) } }
+                    SwitchRow(stringResource(Res.string.settings_notify_min_turn), minTurn, enabled = on && done) { scope.launch { store.setNotifyMinTurn(!minTurn) } }
                 }
             }
             if (notificationStorageError) Hint(Res.string.storage_error)

@@ -619,6 +619,17 @@ impl LocalStateStore {
     pub fn notifications_enabled(&self) -> Result<bool> {
         Ok(boolean(&self.setting("notifications", json!(false))?).unwrap_or(false))
     }
+    pub fn notifications_choice(&self) -> Result<Option<bool>> {
+        self.settings(|d| Ok(d.get("notifications").map(|v| boolean(v).unwrap_or(false))), false)
+    }
+
+    pub fn notify_min_turn(&self) -> Result<bool> {
+        Ok(boolean(&self.setting("notify_min_turn", json!(true))?).unwrap_or(true))
+    }
+
+    pub fn set_notify_min_turn(&self, on: bool) -> Result<()> {
+        self.set_setting("notify_min_turn", json!(on))
+    }
     pub fn set_notifications_enabled(&self, on: bool) -> Result<()> {
         self.set_setting("notifications", json!(on))
     }

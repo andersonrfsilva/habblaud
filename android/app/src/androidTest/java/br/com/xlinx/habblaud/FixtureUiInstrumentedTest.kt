@@ -159,6 +159,7 @@ class FixtureUiInstrumentedTest {
         runBlocking {
             val store = LocalStateStore(context)
             store.clear()
+            store.setNotificationsEnabled(false)
             store.addServer(origin)
             store.setLastSession(key)
             try {

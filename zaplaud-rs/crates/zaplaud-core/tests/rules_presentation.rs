@@ -363,7 +363,15 @@ fn kotlin_notification_cases_and_priority() {
         .as_slice(),
         [AgentEvent::TurnDone(_)]
     ));
-    for status in ["shell", "busy", "running", "waiting", "closed"] {
+    assert!(matches!(
+        agent_events(
+            &watch_of(std::slice::from_ref(&working)),
+            &[session("waiting", None)]
+        )
+        .as_slice(),
+        [AgentEvent::TerminalWait(_)]
+    ));
+    for status in ["shell", "busy", "running", "closed"] {
         assert!(
             agent_events(
                 &watch_of(std::slice::from_ref(&working)),
@@ -946,6 +954,8 @@ fn kotlin_fixture_notification_golden() {
             let (kind, s) = match event {
                 AgentEvent::Permission(s) => ("permission", s),
                 AgentEvent::TurnDone(s) => ("done", s),
+                AgentEvent::TerminalWait(s) => ("waiting", s),
+                AgentEvent::NoticeWait(..) | AgentEvent::NoticeDone(..) => unreachable!("diff sem notice"),
             };
             json!({"kind":kind,"key":s.key.serialize().unwrap(),"permissionId":s.permission_id})
         })

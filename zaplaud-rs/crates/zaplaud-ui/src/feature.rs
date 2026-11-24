@@ -3,8 +3,17 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
 use zaplaud_core::{
     api::HabblaudApi,
-    model::{ReadingState, SessionItem},
+    controller::alerts::AlertUpdate,
+    model::{ReadingState, SessionItem, SessionKey},
 };
+
+pub enum AlertInput {
+    Context {
+        selected: Option<SessionKey>,
+        origins: Vec<String>,
+    },
+    Update(AlertUpdate),
+}
 
 /// Cada recurso assina seu próprio receptor; um consumidor lento não bloqueia rede nem UI.
 #[derive(Clone)]
@@ -18,7 +27,6 @@ pub struct ServerSnapshot {
     pub api: HabblaudApi,
     pub reading: ReadingState,
     pub needs_login: bool,
-    pub snapshot_revision: u64,
 }
 #[derive(Clone)]
 pub struct AppSnapshot {
@@ -37,7 +45,6 @@ impl AppSnapshot {
                     api: server.api.clone(),
                     reading: server.reading.state.clone(),
                     needs_login: server.reading.needs_login,
-                    snapshot_revision: server.reading.snapshot_revision,
                 })
                 .collect(),
             selected: state

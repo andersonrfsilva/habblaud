@@ -46,7 +46,7 @@ export global PermissionState {
     in-out property <string> other-label;
     in-out property <string> reason-label;
     in-out property <string> interrupt-label;
-    callback open-session(string);
+    callback open-session(string, string);
     callback open-selected();
     callback close();
     callback decide(string, string);

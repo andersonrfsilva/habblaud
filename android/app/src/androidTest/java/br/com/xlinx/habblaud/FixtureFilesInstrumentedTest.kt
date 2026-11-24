@@ -66,6 +66,17 @@ class FixtureFilesInstrumentedTest {
         compose.onAllNodesWithTag(tag).fetchSemanticsNodes(atLeastOneRootRequired = false).isNotEmpty()
     }
 
+    private fun declineNotificationPromptIfNeeded() {
+        if (runBlocking { LocalStateStore(context).notificationPreference() } != null) return
+        compose.waitUntil(30_000) {
+            compose.onAllNodesWithText("Agora não").fetchSemanticsNodes(atLeastOneRootRequired = false).isNotEmpty()
+        }
+        compose.onNodeWithText("Agora não").performClick()
+        compose.waitUntil(30_000) {
+            compose.onAllNodesWithText("Agora não").fetchSemanticsNodes(atLeastOneRootRequired = false).isEmpty()
+        }
+    }
+
     private fun login(argument: String): String {
         val origin = requireNotNull(arguments.getString(argument))
         scenario = ActivityScenario.launch(MainActivity::class.java)
@@ -83,6 +94,7 @@ class FixtureFilesInstrumentedTest {
             compose.onAllNodesWithText(context.getString(R.string.http_login_title)).fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithTag("http-confirm", useUnmergedTree = true).performClick()
+        declineNotificationPromptIfNeeded()
         compose.waitUntil(30_000) {
             compose.onAllNodesWithContentDescription(context.getString(R.string.menu)).fetchSemanticsNodes().isNotEmpty()
         }
@@ -141,6 +153,7 @@ class FixtureFilesInstrumentedTest {
                 store.setLastSession(SessionKey(origin, "claude", ".claude", "00000000-0000-4000-8000-000000000001"))
             }
             scenario = ActivityScenario.launch(MainActivity::class.java)
+            declineNotificationPromptIfNeeded()
             val gif = hasContentDescription("GIF animado")
             val dialog = hasAnyAncestor(isDialog())
             val inline = compose.onNode(gif and !dialog)

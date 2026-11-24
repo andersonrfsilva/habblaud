@@ -141,6 +141,11 @@ pub enum Event {
         generation: u64,
         data: String,
     },
+    NoticeData {
+        origin: String,
+        generation: u64,
+        event: zaplaud_core::model::StreamEvent,
+    },
     Connection {
         origin: String,
         generation: u64,

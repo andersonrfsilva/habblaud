@@ -64,8 +64,8 @@ export interface OfficeLike {
   list(): AgentInfo[];
   markDirty(): void;
   addActivity(id: string, activity: Activity, current: boolean, opts?: { feed?: boolean }): void;
-  /** Aviso "pede permissão" ou "tem uma pergunta" (mesmo dedupe do aviso "precisa de você" do status). */
-  noticePermission(id: string, what: string, kind?: 'permission' | 'question'): void;
+  /** Aviso "pede permissão" ou "tem uma pergunta"; `requestId` separa pedidos distintos no dedupe. */
+  noticePermission(id: string, what: string, kind?: 'permission' | 'question', requestId?: string): void;
 }
 
 export interface RegistryOptions {
@@ -458,10 +458,10 @@ export class PermissionRegistry {
     if (first) {
       const all = info.questions!.map((q) => q.question).join(' · ');
       this.opts.office.addActivity(target.id, { id: `${target.id}#perm:${id}`, at: now, kind: 'wait', icon: '❓', text: truncate(tr('Pergunta: {0}', [first]), 46), detail: truncate(all, 300), tool: 'PermissionRequest' }, false);
-      this.opts.office.noticePermission(target.id, `${truncate(first, 120)}${by}`, 'question');
+      this.opts.office.noticePermission(target.id, `${truncate(first, 120)}${by}`, 'question', id);
     } else {
       this.opts.office.addActivity(target.id, { id: `${target.id}#perm:${id}`, at: now, kind: 'wait', icon: '🔐', text: truncate(tr('Pede permissão: {0}', [desc.text]), 46), detail: view.title, tool: 'PermissionRequest' }, false);
-      this.opts.office.noticePermission(target.id, `${desc.text}${by}`);
+      this.opts.office.noticePermission(target.id, `${desc.text}${by}`, 'permission', id);
     }
     this.opts.office.markDirty();
     return { id, expiresAt: info.expiresAt + EXPIRY_GRACE_MS };

@@ -108,6 +108,7 @@ expect class LocalStateStore() : MessageStore {
     suspend fun addServer(origin: String)
     suspend fun removeServer(origin: String)
     suspend fun notificationsEnabled(): Boolean
+    suspend fun notificationPreference(): Boolean?
     suspend fun setNotificationsEnabled(enabled: Boolean)
     suspend fun deliverAs(): String
     suspend fun setDeliverAs(mode: String)
@@ -119,6 +120,8 @@ expect class LocalStateStore() : MessageStore {
     suspend fun setSummarize(on: Boolean)
     suspend fun notifyEvents(): Pair<Boolean, Boolean>
     suspend fun setNotifyEvents(permission: Boolean, done: Boolean)
+    val notificationRules: Flow<NotificationRules>
+    suspend fun setNotifyMinTurn(enabled: Boolean)
     suspend fun sessionView(key: SessionKey): String
     suspend fun setSessionView(key: SessionKey, view: String)
     suspend fun sessionDeliverAs(key: SessionKey): String

@@ -1044,6 +1044,52 @@ pub struct AgentWatch {
 pub enum AgentEvent {
     Permission(SessionItem),
     TurnDone(SessionItem),
+    NoticeWait(SessionItem, WaitKind, Option<String>),
+    NoticeDone(SessionItem, Option<i64>, bool),
+    TerminalWait(SessionItem),
+}
+impl AgentEvent {
+    pub fn session(&self) -> &SessionItem {
+        match self {
+            Self::Permission(session)
+            | Self::TurnDone(session)
+            | Self::NoticeWait(session, ..)
+            | Self::NoticeDone(session, ..)
+            | Self::TerminalWait(session) => session,
+        }
+    }
+
+    pub fn is_wait(&self) -> bool {
+        matches!(self, Self::Permission(_) | Self::NoticeWait(..) | Self::TerminalWait(_))
+    }
+
+    pub fn permission_id(&self) -> Option<&str> {
+        match self {
+            Self::Permission(session) | Self::NoticeWait(session, WaitKind::Permission | WaitKind::Question, _) => session.permission_id.as_deref(),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WaitKind {
+    Permission,
+    Question,
+    Terminal,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Notice {
+    pub agent_id: Option<String>,
+    pub kind: Option<String>,
+    pub wait: Option<WaitKind>,
+    pub reason: Option<String>,
+    pub request_id: Option<String>,
+    pub duration_ms: Option<i64>,
+    #[serde(default)]
+    pub interrupted: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -43,7 +43,8 @@ vai para a tabela abaixo, com o motivo. Textos ficam em `android/shared/src/comm
 | Espera de `Retry-After` no login limitada a 24 h | sim | sim | |
 | Status HTTP preservado quando o corpo de erro é truncado | sim (streams: 401, 403, 404 e 500) | sim | No Rust, vale para chamadas HTTP e para a abertura de streams SSE; no Kotlin, para a abertura de streams. |
 | Notificação prioriza a conversa do aviso sobre a última conversa de outro servidor | sim (Android) | sim | «Abrir» cancela a restauração dos outros servidores e abre a sessão do aviso assim que estiver na lista. |
-| Avisos de aprovação, pergunta e fim de turno | sim | sim | Android: se ativos, retomam após atualização do app ou primeiro desbloqueio depois do reinício; restrições do fabricante podem impedir a retomada. **iPad: sem avisos**; desktop: só com o app aberto. |
+| Avisos de aprovação, pergunta, espera no terminal e fim de turno | Android: sim; iPad: sem avisos | sim | SSE com fallback por snapshot, aviso por sessão, agrupamento, filtro de turnos curtos e convite inicial. Android retoma após atualização ou primeiro desbloqueio depois do reinício, sujeito às restrições do aparelho; desktop só avisa com o app aberto. |
+| Cota semanal no fim da lista | sim | sim | Uma linha por provedor, com a janela de 7 dias mais usada entre as contas dos servidores. |
 | Ícone na bandeja | não se aplica | sim | |
 | Chaveiro destrancado quando o padrão está trancado (Linux) | não se aplica | sim | |
 | Diagramas Mermaid desenhados na conversa | sim | sim | Kotlin pede o SVG ao servidor (`POST /api/mermaid`); Rust desenha localmente (`mermaid-rs-renderer`). Nos dois, só blocos fechados e até 20.000 caracteres; Rust também recusa desenho com mais de 6.000 px de altura natural, que fica como código |

@@ -1,10 +1,7 @@
 package br.com.xlinx.habblaud
 
-import br.com.xlinx.habblaud.data.AgentEvent
-import br.com.xlinx.habblaud.data.SessionItem
-import br.com.xlinx.habblaud.data.SessionKey
-import br.com.xlinx.habblaud.data.agentEvents
-import br.com.xlinx.habblaud.data.watchOf
+import br.com.xlinx.habblaud.data.*
+import kotlinx.serialization.json.jsonObject
 import kotlin.test.*
 
 class NotificationRulesTest {
@@ -40,5 +37,105 @@ class NotificationRulesTest {
         val events = agentEvents(before, listOf(session("idle"), session("waiting", "p1").copy(key = other)))
         assertEquals(listOf(key), events.map { it.session.key })
         assertTrue(events.single() is AgentEvent.TurnDone)
+    }
+
+    @Test fun selectsTypedNoticesOnlyForMainSessions() {
+        val main = session("waiting")
+        val sub = main.copy(agentId = "sub", sub = true)
+        fun event(fields: String) = noticeEvent(wireJson.parseToJsonElement("{$fields}").jsonObject, listOf(main, sub))
+
+        for ((kind, wait) in listOf("permission" to WaitKind.Permission, "question" to WaitKind.Question, "terminal" to WaitKind.Terminal)) {
+            assertEquals(AgentEvent.Permission(main, wait, "teste"),
+                event(""""kind":"wait","agentId":"agente","wait":"$kind","reason":"teste""""))
+        }
+        assertEquals(AgentEvent.TurnDone(main, 77_000, interrupted = true),
+            event(""""kind":"done","agentId":"agente","durationMs":77000,"interrupted":true"""))
+        assertNull(event(""""kind":"done","agentId":"sub""""))
+        assertNull(event(""""kind":"done","agentId":"fora""""))
+        assertNull(event(""""agentId":"agente","text":"Aviso antigo""""))
+        assertNull(event(""""kind":"room","agentId":"agente""""))
+    }
+
+    @Test fun permissionNoticesAndClicksUseTheExactPendingRequest() {
+        val active = session("waiting", "p2")
+        val other = key.copy(sessionId = "different")
+        val json = wireJson.parseToJsonElement("""{"kind":"wait","agentId":"agente","wait":"permission","requestId":"p2"}""").jsonObject
+        assertEquals("p2", assertIs<AgentEvent.Permission>(noticeEvent(json, listOf(active))).requestId)
+        assertNull(noticeEvent(json, listOf(active.copy(permissionId = "p1"))))
+        assertEquals(active, notificationPermission(active, key, "p2"))
+        assertNull(notificationPermission(active, key, "p1"))
+        assertNull(notificationPermission(active, other, "p2"))
+        assertNull(notificationPermission(active.copy(permissionId = null), key, "p2"))
+        assertEquals(listOf(key), withdrawnSessions(watchOf(listOf(session("waiting", "p1"))), watchOf(listOf(active))))
+    }
+
+    @Test fun legacyAndReconnectUseDiffWithTerminalWaitAndWithdrawal() {
+        assertTrue(useSnapshotDiff(firstSnapshot = false, typedNoticeSeen = false))
+        assertFalse(useSnapshotDiff(firstSnapshot = false, typedNoticeSeen = true))
+        assertTrue(useSnapshotDiff(firstSnapshot = true, typedNoticeSeen = true))
+
+        val before = watchOf(listOf(session("working")))
+        val waiting = session("waiting")
+        assertEquals(AgentEvent.Permission(waiting, WaitKind.Terminal), agentEvents(before, listOf(waiting)).single())
+        assertTrue(agentEvents(watchOf(listOf(waiting)), listOf(waiting)).isEmpty())
+        assertEquals(listOf(key), withdrawnSessions(watchOf(listOf(waiting)), before))
+        assertEquals(listOf(key), withdrawnSessions(watchOf(listOf(session("waiting", "p1"))), watchOf(listOf(waiting))))
+        assertTrue(withdrawnSessions(watchOf(listOf(waiting)), watchOf(listOf(waiting))).isEmpty())
+    }
+
+    @Test fun shortTurnLimitKeepsUnknownAndAllowsBoundary() {
+        val complete = session("done")
+        val rules = NotificationRules()
+        val short = AgentEvent.TurnDone(complete, 29_999)
+        assertFalse(rules.allows(short))
+        assertTrue(rules.allows(AgentEvent.TurnDone(complete, 30_000)))
+        assertTrue(rules.allows(AgentEvent.TurnDone(complete)))
+        assertTrue(rules.copy(minTurn = false).allows(short))
+        assertFalse(rules.copy(done = false).allows(AgentEvent.TurnDone(complete)))
+        assertFalse(rules.copy(permission = false).allows(AgentEvent.Permission(session("waiting"), WaitKind.Terminal)))
+    }
+
+    @Test fun suppressesOnlyTheVisibleSessionAndSummarizesThreeOrMore() {
+        val other = key.copy(origin = "http://outro:4747")
+        assertTrue(suppressNotification(key, visible = true, open = key))
+        assertFalse(suppressNotification(key, visible = true, open = other))
+        assertFalse(suppressNotification(key, visible = true, open = null))
+        assertFalse(suppressNotification(key, visible = false, open = key))
+        assertNull(batchAlertCount(2))
+        assertEquals(3, batchAlertCount(3))
+        assertEquals(4, batchAlertCount(4))
+    }
+
+    @Test fun weeklyQuotaChoosesMostUsedSevenDayWindowAcrossServers() {
+        val first = parseAccounts("""
+            {"accounts":[
+              {"id":"one","usage":{"ompProviders":[
+                {"provider":"openai","limits":[
+                  {"label":"short","windowMs":18000000,"utilization":100},
+                  {"label":"weekly","windowMs":604800000,"utilization":70},
+                  {"label":"other weekly","windowMs":604800000,"utilization":80,"resetsAt":1}
+                ]}
+              ]}},
+              {"id":"legacy","name":"Minha conta","usage":{
+                "fiveHour":{"utilization":100},
+                "sevenDay":{"utilization":38},
+                "sevenDayOpus":{"utilization":65,"resetsAt":2}
+              }}
+            ]}
+        """)
+        val second = parseAccounts("""
+            {"accounts":[{"id":"two","usage":{"ompProviders":[
+              {"provider":"openai","limits":[
+                {"label":"weekly","windowMs":604800000,"utilization":95,"resetsAt":3,"exhausted":true}
+              ]},
+              {"provider":"another","limits":[{"label":"no duration","utilization":50}]}
+            ]}}]}
+        """)
+        assertEquals(
+            listOf(WeeklyQuota(providerLabel("openai"), 95.0, 3, true), WeeklyQuota("Minha conta", 65.0, 2, false)),
+            weeklyQuotas(first + second),
+        )
+        assertEquals(listOf(80.0, 65.0), weeklyQuotas(first).map { it.utilization })
+        assertTrue(weeklyQuotas(emptyList()).isEmpty())
     }
 }

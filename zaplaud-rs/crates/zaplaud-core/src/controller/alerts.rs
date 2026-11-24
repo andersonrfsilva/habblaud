@@ -1,44 +1,61 @@
 use crate::{
-    model::{AgentEvent, AgentWatch, SessionItem, SessionKey},
-    rules::alerts::{agent_events, watch_of},
+    model::{AgentEvent, AgentWatch, Notice, SessionItem, SessionKey},
+    rules::alerts::{agent_events, notice_event, watch_of},
 };
 use std::collections::HashMap;
 
+#[derive(Clone, Debug)]
+pub enum AlertUpdate {
+    Fallback(AgentEvent),
+    Notice(AgentEvent),
+    Withdraw(SessionKey),
+}
+
 /// Baseline conservada nas quedas; foco e preferências nunca atrasam eventos antigos.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct AlertController {
-    previous: HashMap<String, HashMap<SessionKey, AgentWatch>>,
+    previous: Option<HashMap<SessionKey, AgentWatch>>,
+    seen_kind: bool,
+    first_snapshot: bool,
+    updates: Vec<AlertUpdate>,
 }
 impl AlertController {
-    pub fn snapshot(
-        &mut self,
-        origin: &str,
-        sessions: &[SessionItem],
-        focused: bool,
-        enabled: bool,
-        permission: bool,
-        done: bool,
-    ) -> Vec<AgentEvent> {
-        let events = if enabled && !focused {
-            self.previous
-                .get(origin)
-                .map(|previous| agent_events(previous, sessions))
-                .unwrap_or_default()
-        } else {
-            Vec::new()
-        };
-        self.previous.insert(origin.to_owned(), watch_of(sessions));
-        events
-            .into_iter()
-            .filter(|event| match event {
-                AgentEvent::Permission(_) => permission,
-                AgentEvent::TurnDone(_) => done,
-            })
-            .collect()
+    pub fn connected(&mut self) {
+        self.seen_kind = false;
+        self.first_snapshot = true;
     }
-    pub fn retain_origins(&mut self, origins: &[&str]) {
-        self.previous
-            .retain(|origin, _| origins.contains(&origin.as_str()));
+
+    pub fn notice(&mut self, notice: Notice, sessions: &[SessionItem]) {
+        self.seen_kind |= notice.kind.is_some();
+        if let Some(event) = notice_event(notice, sessions) {
+            self.updates.push(AlertUpdate::Notice(event));
+        }
+    }
+
+    pub fn snapshot(&mut self, sessions: &[SessionItem]) {
+        let current = watch_of(sessions);
+        if let Some(previous) = &self.previous {
+            for (key, before) in previous {
+                if current.get(key).is_none_or(|after| {
+                    (after.status.as_deref() == Some("working")
+                        && before.status.as_deref() != Some("working"))
+                        || (before.permission_id.is_some() && before.permission_id != after.permission_id)
+                }) {
+                    self.updates.push(AlertUpdate::Withdraw(key.clone()));
+                }
+            }
+            if !self.seen_kind || self.first_snapshot {
+                self.updates.extend(
+                    agent_events(previous, sessions).into_iter().map(AlertUpdate::Fallback),
+                );
+            }
+        }
+        self.previous = Some(current);
+        self.first_snapshot = false;
+    }
+
+    pub fn take_updates(&mut self) -> Vec<AlertUpdate> {
+        std::mem::take(&mut self.updates)
     }
 }
 #[cfg(test)]
@@ -52,43 +69,91 @@ mod tests {
         item
     }
     #[test]
-    fn baseline_reconnect_focus_and_preferences() {
+    fn snapshot_fallback_waits_and_stops_after_typed_notices() {
         let mut c = AlertController::default();
-        assert!(
-            c.snapshot("o", &[item("working", None)], false, true, true, true)
-                .is_empty()
-        );
-        // Nenhum reset entre desconexão e novo snapshot.
+        c.snapshot(&[item("working", None)]);
+        assert!(c.take_updates().is_empty());
+        c.snapshot(&[item("waiting", None)]);
         assert!(matches!(
-            c.snapshot("o", &[item("idle", None)], false, true, true, true)
-                .as_slice(),
-            [AgentEvent::TurnDone(_)]
+            c.take_updates().as_slice(),
+            [AlertUpdate::Fallback(AgentEvent::TerminalWait(_))]
         ));
-        assert!(
-            c.snapshot("o", &[item("idle", Some("p"))], true, true, true, true)
-                .is_empty()
-        );
-        assert!(
-            c.snapshot("o", &[item("idle", Some("p"))], false, true, true, true)
-                .is_empty()
-        );
-        assert!(
-            c.snapshot("o", &[item("idle", Some("q"))], false, false, true, true)
-                .is_empty()
-        );
-        assert!(
-            c.snapshot("o", &[item("idle", Some("r"))], false, true, false, true)
-                .is_empty()
-        );
-        c.snapshot("o", &[item("working", None)], false, true, true, true);
-        assert!(
-            c.snapshot("o", &[item("idle", None)], false, true, true, false)
-                .is_empty()
-        );
+        let working = item("working", None);
+        c.snapshot(std::slice::from_ref(&working));
+        assert!(matches!(c.take_updates().as_slice(), [AlertUpdate::Withdraw(_)]));
+        let notice = |json| serde_json::from_str(json).unwrap();
+        c.notice(notice(r#"{"kind":"arrive"}"#), std::slice::from_ref(&working));
+        c.snapshot(&[item("idle", None)]);
+        assert!(c.take_updates().is_empty());
+        c.snapshot(std::slice::from_ref(&working));
+        c.take_updates();
+        c.connected();
+        // Nenhum reset da baseline entre desconexão e novo snapshot.
+        c.notice(notice(r#"{"kind":"arrive"}"#), std::slice::from_ref(&working));
+        c.snapshot(&[item("idle", None)]);
         assert!(matches!(
-            c.snapshot("o", &[item("idle", Some("s"))], false, true, true, true)
-                .as_slice(),
-            [AgentEvent::Permission(_)]
+            c.take_updates().as_slice(),
+            [AlertUpdate::Fallback(AgentEvent::TurnDone(_))]
         ));
+        c.snapshot(&[item("idle", Some("p"))]);
+        assert!(c.take_updates().is_empty());
+        c.snapshot(&[item("idle", None)]);
+        assert!(matches!(c.take_updates().as_slice(), [AlertUpdate::Withdraw(_)]));
+    }
+
+    #[test]
+    fn permission_notice_follows_exact_pending_request() {
+        let mut c = AlertController::default();
+        let first = item("waiting", Some("first"));
+        let second = item("waiting", Some("second"));
+        c.snapshot(std::slice::from_ref(&first));
+        let notice = || serde_json::from_str(
+            r#"{"kind":"wait","wait":"permission","agentId":"agent","requestId":"first"}"#,
+        ).unwrap();
+        c.notice(notice(), std::slice::from_ref(&first));
+        let updates = c.take_updates();
+        let [AlertUpdate::Notice(event)] = updates.as_slice() else { panic!("{updates:?}") };
+        assert_eq!(event.permission_id(), Some("first"));
+        c.snapshot(std::slice::from_ref(&second));
+        c.notice(notice(), &[second]);
+        assert!(matches!(c.take_updates().as_slice(), [AlertUpdate::Withdraw(_)]));
+    }
+
+    #[test]
+    fn typed_notices_target_main_sessions_and_apply_preferences() {
+        use crate::rules::alerts::{AlertPreferences, alert_reason, alert_text, batch_summary};
+        let parse = |json| serde_json::from_str(json).unwrap();
+        let item = item("waiting", None);
+        let sessions = std::slice::from_ref(&item);
+        let wait = notice_event(
+            parse(r#"{"kind":"wait","agentId":"agent","wait":"question","reason":"Pode?"}"#),
+            sessions,
+        ).unwrap();
+        assert_eq!(alert_text(&wait), "notify_question");
+        assert_eq!(alert_reason(&wait).as_deref(), Some("Pode?"));
+        let mut sub = item.clone();
+        sub.sub = true;
+        assert!(notice_event(parse(r#"{"kind":"done","agentId":"agent"}"#), &[sub]).is_none());
+        assert!(notice_event(parse(r#"{"kind":"done","agentId":"other"}"#), sessions).is_none());
+        assert!(notice_event(parse(r#"{"agentId":"agent"}"#), sessions).is_none());
+        let prefs = AlertPreferences { enabled: true, wait: true, done: true, min_turn: true };
+        assert!(prefs.allows(&wait, None));
+        assert!(!prefs.allows(&wait, Some(&item.key)));
+        let mut other = item.key.clone();
+        other.origin = "http://other".into();
+        assert!(prefs.allows(&wait, Some(&other)));
+        for (duration, allowed) in [(None, true), (Some(29_999), false), (Some(30_000), true)] {
+            let done = notice_event(
+                serde_json::from_value(serde_json::json!({
+                    "kind":"done", "agentId":"agent", "interrupted":true, "durationMs":duration
+                })).unwrap(),
+                sessions,
+            ).unwrap();
+            assert_eq!(alert_text(&done), "notify_interrupted");
+            assert_eq!(prefs.allows(&done, None), allowed);
+            assert!((AlertPreferences { min_turn: false, ..prefs }).allows(&done, None));
+        }
+        assert!(!batch_summary(2));
+        assert!(batch_summary(3));
     }
 }

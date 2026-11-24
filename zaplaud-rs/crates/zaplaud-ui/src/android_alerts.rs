@@ -1,6 +1,5 @@
-use crate::{AppWindow, feature::FeatureContext};
+use crate::{AppWindow, feature::{AlertInput, FeatureContext}};
 
-pub fn setup(_: &AppWindow, _: &FeatureContext) {}
-pub fn focused(_: bool) {}
-pub fn on_permission_open(_: impl Fn(String) + 'static) {}
+pub fn setup(_: &AppWindow, _: &FeatureContext, _: tokio::sync::mpsc::UnboundedReceiver<AlertInput>) {}
+pub fn on_permission_open(_: impl Fn(String, String) + 'static) {}
 pub fn raise(_: &AppWindow) {}

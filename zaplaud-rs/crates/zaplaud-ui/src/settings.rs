@@ -28,20 +28,25 @@ struct Preferences {
     deliver: String,
     summarize: bool,
     notifications: bool,
+    notifications_unset: bool,
     permission: bool,
     done: bool,
+    min_turn: bool,
 }
 impl Preferences {
     fn load(store: &LocalStateStore) -> Result<Self, zaplaud_store::StoreError> {
         let (permission, done) = store.notify_events()?;
+        let notifications = store.notifications_choice()?;
         Ok(Self {
             theme: store.theme()?,
             view: store.default_view()?,
             deliver: store.deliver_as()?,
             summarize: store.summarize()?,
-            notifications: store.notifications_enabled()?,
+            notifications: notifications == Some(true),
+            notifications_unset: notifications.is_none(),
             permission,
             done,
+            min_turn: store.notify_min_turn()?,
         })
     }
     fn save(
@@ -59,6 +64,7 @@ impl Preferences {
             "notifications" => store.set_notifications_enabled(on)?,
             "permission" => store.set_notify_events(on, self.done)?,
             "done" => store.set_notify_events(self.permission, on)?,
+            "min-turn" => store.set_notify_min_turn(on)?,
             _ => return Ok(()),
         }
         *self = Self::load(store)?;
@@ -334,7 +340,7 @@ impl State {
         for (key, label, on, enabled) in [
             (
                 "notifications",
-                strings::SETTINGS_NOTIFICATIONS_OPEN,
+                strings::SETTINGS_NOTIFY_AGENTS,
                 self.preferences.notifications,
                 true,
             ),
@@ -349,6 +355,12 @@ impl State {
                 strings::SETTINGS_NOTIFY_DONE,
                 self.preferences.done,
                 self.preferences.notifications,
+            ),
+            (
+                "min-turn",
+                strings::SETTINGS_NOTIFY_MIN_TURN,
+                self.preferences.min_turn,
+                self.preferences.notifications && self.preferences.done,
             ),
         ] {
             let mut r = row("switch", key, label);
@@ -644,6 +656,9 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
     ui.set_model_placeholder(strings::ROLE_TYPE_MODEL.into());
     ui.set_filter_placeholder(strings::FILTER_MODELS.into());
     ui.set_models_less(strings::MODELS_LESS.into());
+    ui.set_notification_prompt_text(strings::NOTIFY_ENABLE_PROMPT.into());
+    ui.set_notification_yes(strings::NOTIFY_ENABLE_YES.into());
+    ui.set_notification_no(strings::NOTIFY_ENABLE_NO.into());
     let (send, mut receive) = mpsc::unbounded_channel();
     let s = send.clone();
     window.global::<AppEvents>().on_settings(move || {
@@ -732,15 +747,23 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
             settings.set_theme_mode(initial_theme.into());
             w.global::<crate::Theme>().set_dark(settings.get_resolved_dark());
         });
+        let mut configured = store.servers().is_ok_and(|servers| !servers.is_empty());
+        let mut prompt_visible = false;
         let mut request: Option<tokio::task::JoinHandle<()>> = None;
         let mut deadline = tokio::time::Instant::now() + Duration::from_secs(10);
         loop {
+            let show_prompt = !cfg!(target_os = "android") && configured && state.preferences.notifications_unset;
+            if show_prompt != prompt_visible {
+                prompt_visible = show_prompt;
+                update_ui(&weak, move |w| w.global::<SettingsState>().set_notification_prompt(show_prompt));
+            }
             let was_visible = state.visible;
             let mut reload = false;
             tokio::select! {
                 snapshot = snapshots.recv() => {
                     match snapshot {
                         Ok(snapshot) => {
+                            configured = !snapshot.servers.is_empty();
                             if state.servers.len() == snapshot.servers.len() && state.servers.iter().zip(&snapshot.servers).all(|((api, login), server)| api.origin() == server.api.origin() && *login == server.needs_login) { continue; }
                             let was_logged_out = state.servers.iter().any(|(api, login)| api.origin() == state.origin && *login);
                             state.servers = snapshot.servers.iter().map(|s| (s.api.clone(), s.needs_login)).collect();
@@ -814,12 +837,15 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
                         Some(Command::Activate(key, value, on)) => {
                             if state.preferences.save(&store, &key, &value, on).is_err() {
                                 state.error = Some(strings::STORAGE_ERROR);
+                                if key == "notifications" && prompt_visible {
+                                    update_ui(&weak, |w| w.global::<crate::ShellState>().set_message(strings::STORAGE_ERROR.into()));
+                                }
                             } else {
                                 update_ui(&weak, move |w| {
                                     let settings = w.global::<SettingsState>();
                                     if key == "theme" { settings.set_theme_mode(value.into()); }
                                     settings.invoke_preferences_changed();
-                                    if matches!(key.as_str(), "notifications" | "permission" | "done") { settings.invoke_notification_preferences_changed(); }
+                                    if matches!(key.as_str(), "notifications" | "permission" | "done" | "min-turn") { settings.invoke_notification_preferences_changed(); }
                                 });
                             }
                         }
@@ -1020,6 +1046,7 @@ mod tests {
                 summarize: true,
                 permission: true,
                 done: true,
+                min_turn: true,
                 ..Default::default()
             },
             ..Default::default()
@@ -1036,7 +1063,7 @@ mod tests {
         let rows = state.rows();
         let summary = rows.iter().find(|r| r.key == "summarize").unwrap();
         assert!(summary.enabled && summary.checked);
-        for key in ["permission", "done"] {
+        for key in ["permission", "done", "min-turn"] {
             let event = rows.iter().find(|r| r.key == key).unwrap();
             assert!(event.checked);
             assert!(!event.enabled);
@@ -1046,7 +1073,7 @@ mod tests {
             state
                 .rows()
                 .into_iter()
-                .filter(|r| r.key == "permission" || r.key == "done")
+                .filter(|r| matches!(r.key.as_str(), "permission" | "done" | "min-turn"))
                 .all(|r| r.enabled)
         );
         state.runtime = Some("zeroclaw".into());

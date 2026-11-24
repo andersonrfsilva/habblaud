@@ -78,8 +78,9 @@ class SessionRepository(private val api: HabblaudApi) {
         recentStale = false
     }
 
-    fun snapshot(data: String): List<SessionItem> {
-        val root = wireJson.parseToJsonElement(data).jsonObject
+    fun snapshot(data: String): List<SessionItem> = snapshot(wireJson.parseToJsonElement(data).jsonObject)
+
+    internal fun snapshot(root: JsonObject): List<SessionItem> {
         serverTime = root.string("serverTime")?.toLongOrNull() ?: serverTime
         val rooms = root.objects("rooms").associate { it.string("id") to (it.string("path") ?: it.string("name")) }
         val agents = root.objects("agents")

@@ -181,7 +181,9 @@ actual class LocalStateStore actual constructor() : MessageStore {
             files.filterIsInstance<String>().filter { it.startsWith("conversation-") || it.startsWith("attachment-") }.forEach { check(NSFileManager.defaultManager.removeItemAtPath("$privateDirectory/$it", null)) { "Could not remove old account files" } }
         }
     }
-    actual suspend fun notificationsEnabled(): Boolean = StateDisk.settings.objectForKey("notifications") != null && StateDisk.settings.boolForKey("notifications")
+    actual suspend fun notificationsEnabled(): Boolean = notificationPreference() == true
+    actual suspend fun notificationPreference(): Boolean? =
+        StateDisk.settings.objectForKey("notifications")?.let { StateDisk.settings.boolForKey("notifications") }
     actual suspend fun setNotificationsEnabled(enabled: Boolean) { StateDisk.settings.setBool(enabled, "notifications") }
     actual suspend fun deliverAs(): String = StateDisk.settings.stringForKey("deliver_as")?.takeIf { it in DELIVER_MODES } ?: "aside"
     actual suspend fun setDeliverAs(mode: String) { if (mode in DELIVER_MODES) StateDisk.settings.setObject(mode, "deliver_as") }
@@ -191,8 +193,17 @@ actual class LocalStateStore actual constructor() : MessageStore {
     actual suspend fun setTheme(theme: String) { if (theme in THEMES) { StateDisk.settings.setObject(theme, "theme"); StateDisk.theme.value = theme } }
     actual val summarize: Flow<Boolean> = StateDisk.summarize
     actual suspend fun setSummarize(on: Boolean) { StateDisk.settings.setBool(on, "summarize_replies"); StateDisk.summarize.value = on }
-    actual suspend fun notifyEvents(): Pair<Boolean, Boolean> = (StateDisk.settings.objectForKey("notify_permission") == null || StateDisk.settings.boolForKey("notify_permission")) to (StateDisk.settings.objectForKey("notify_done") == null || StateDisk.settings.boolForKey("notify_done"))
-    actual suspend fun setNotifyEvents(permission: Boolean, done: Boolean) { StateDisk.settings.setBool(permission, "notify_permission"); StateDisk.settings.setBool(done, "notify_done") }
+    actual val notificationRules: Flow<NotificationRules> get() = iosNotificationRules
+    actual suspend fun notifyEvents(): Pair<Boolean, Boolean> = iosNotificationRules.value.let { it.permission to it.done }
+    actual suspend fun setNotifyEvents(permission: Boolean, done: Boolean) {
+        StateDisk.settings.setBool(permission, "notify_permission")
+        StateDisk.settings.setBool(done, "notify_done")
+        iosNotificationRules.update { it.copy(permission = permission, done = done) }
+    }
+    actual suspend fun setNotifyMinTurn(enabled: Boolean) {
+        StateDisk.settings.setBool(enabled, "notify_min_turn")
+        iosNotificationRules.update { it.copy(minTurn = enabled) }
+    }
     actual suspend fun sessionView(key: SessionKey): String = read { it.string(hash("view_", key)) }?.takeIf { it in VIEWS } ?: defaultView()
     actual suspend fun setSessionView(key: SessionKey, view: String) { if (view in VIEWS) change { check(key.origin in origins(it)) { "Connection changed" }; it[hash("view_", key)] = JsonPrimitive(view) } }
     actual suspend fun sessionDeliverAs(key: SessionKey): String = read { it.string(hash("deliver_", key)) }?.takeIf { it in DELIVER_MODES } ?: deliverAs()
@@ -218,4 +229,9 @@ actual class LocalStateStore actual constructor() : MessageStore {
         data["seen_replies_${tag(origin)}"] = JsonObject(seen.mapValues { JsonPrimitive(it.value) })
         StateDisk.save(data)
     }
+}
+
+private val iosNotificationRules by lazy {
+    fun enabled(key: String) = StateDisk.settings.objectForKey(key) == null || StateDisk.settings.boolForKey(key)
+    MutableStateFlow(NotificationRules(enabled("notify_permission"), enabled("notify_done"), enabled("notify_min_turn")))
 }

@@ -79,6 +79,34 @@ fun ZaplaudApp(store: LocalStateStore = remember { LocalStateStore() }) {
                 var busy by remember { mutableStateOf(false) }
                 var message by remember { mutableStateOf("") }
                 val scope = rememberCoroutineScope()
+                var askNotifications by remember { mutableStateOf(false) }
+                var savingNotificationChoice by remember { mutableStateOf(false) }
+                LaunchedEffect(loaded, servers.isNotEmpty(), notificationsPlatform.available) {
+                    if (!loaded || servers.isEmpty() || !notificationsPlatform.available) {
+                        askNotifications = false
+                        return@LaunchedEffect
+                    }
+                    try {
+                        askNotifications = store.notificationPreference() == null
+                    } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                        message = strings(Res.string.storage_error)
+                    }
+                }
+                fun answerNotifications(enabled: Boolean) {
+                    if (savingNotificationChoice) return
+                    savingNotificationChoice = true
+                    scope.launch {
+                        try {
+                            store.setNotificationsEnabled(enabled)
+                            askNotifications = false
+                            if (enabled) notificationsPlatform.setEnabled(true)
+                        } catch (e: Exception) {
+                            if (e is kotlinx.coroutines.CancellationException) throw e
+                            message = strings(Res.string.storage_error)
+                        } finally { savingNotificationChoice = false }
+                    }
+                }
                 suspend fun notificationsEnabled(): Boolean = try {
                     store.notificationsEnabled()
                 } catch (e: Exception) {
@@ -90,7 +118,6 @@ fun ZaplaudApp(store: LocalStateStore = remember { LocalStateStore() }) {
                     onDispose { apis.values.forEach { it.close() } }
                 }
                 LaunchedEffect(Unit) {
-                    var shouldStartNotifications = false
                     try {
                         servers = store.servers()
                         for (origin in servers) {
@@ -100,12 +127,10 @@ fun ZaplaudApp(store: LocalStateStore = remember { LocalStateStore() }) {
                                 needsLogin = needsLogin + origin
                             }
                         }
-                        shouldStartNotifications = servers.isNotEmpty() && store.notificationsEnabled()
                     } catch (e: Exception) {
                         if (e is kotlinx.coroutines.CancellationException) throw e
                         message = strings(Res.string.storage_error)
                     } finally { loaded = true }
-                    if (shouldStartNotifications) notificationsPlatform.setEnabled(true)
                     coroutineScope {
                         servers.forEach { origin ->
                             val api = apis[origin] ?: return@forEach
@@ -188,6 +213,20 @@ fun ZaplaudApp(store: LocalStateStore = remember { LocalStateStore() }) {
                         onLogout = { origin -> if (!busy) confirmLogout = origin }
                     )
                 }
+                if (askNotifications && message.isEmpty()) AlertDialog(
+                    onDismissRequest = { answerNotifications(false) },
+                    title = { Text(stringResource(Res.string.notify_enable_prompt)) },
+                    confirmButton = {
+                        TextButton(enabled = !savingNotificationChoice, onClick = { answerNotifications(true) }) {
+                            Text(stringResource(Res.string.notify_enable_yes))
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(enabled = !savingNotificationChoice, onClick = { answerNotifications(false) }) {
+                            Text(stringResource(Res.string.notify_enable_no))
+                        }
+                    },
+                )
                 if (message.isNotEmpty()) AlertDialog(
                     onDismissRequest = { message = "" },
                     text = { Text(message) },

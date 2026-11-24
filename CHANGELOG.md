@@ -21,6 +21,14 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Zaplaud (Android e desktop):** os avisos vêm do evento exato do servidor: avisa também quando o agente espera
+  resposta no terminal e quando o turno é interrompido. Uma notificação por conversa, que some ao abrir ou responder;
+  três ou mais de uma vez viram uma só; turnos com menos de 30 s não avisam (dá para mudar em Configurações). Com o
+  app aberto, só a conversa na tela fica sem aviso. Na primeira abertura o app pergunta se deve avisar.
+- **Zaplaud (Android e desktop):** a lista de conversas mostra no fim a cota semanal (7 dias) de cada provedor, com
+  barra, percentual usado e quando renova.
+- **Servidor:** os avisos (`notice`) levam tipo, motivo da espera, id do pedido de permissão e duração do turno.
+  Pedidos de permissão distintos do mesmo agente avisam cada um.
 - **omp:** a lista de tarefas do agente (ferramenta `todo`, com fases) aparece na página e no cartão da conversa.
 - **Zaplaud (Android/iPad):** a lista de tarefas do agente aparece nas informações da sessão, com o progresso acima do campo de mensagem.
 - **Zaplaud desktop:** a lista de tarefas do agente aparece nas informações da sessão, com o progresso acima do campo de mensagem.

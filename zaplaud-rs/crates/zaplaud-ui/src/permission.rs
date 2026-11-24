@@ -15,7 +15,7 @@ use zaplaud_core::{
 };
 
 enum Command {
-    Open(String),
+    Open(String, Option<String>),
     Selected,
     Event(Event),
 }
@@ -38,12 +38,12 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
     });
     let (sender, mut commands) = mpsc::unbounded_channel();
     let tx = sender.clone();
-    global.on_open_session(move |key| {
-        let _ = tx.send(Command::Open(key.to_string()));
+    global.on_open_session(move |key, request_id| {
+        let _ = tx.send(Command::Open(key.into(), Some(request_id.into())));
     });
     let tx = sender.clone();
     window.global::<ListState>().on_permission(move |key| {
-        let _ = tx.send(Command::Open(key.to_string()));
+        let _ = tx.send(Command::Open(key.into(), None));
     });
     let tx = sender.clone();
     global.on_open_selected(move || {
@@ -108,6 +108,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
         let (updates, mut results) = mpsc::unbounded_channel();
         loop {
             tokio::select! {
+                biased;
                 result = snapshots.recv() => match result {
                     Ok(next) => {
                         let pending = next.selected.as_ref().is_some_and(|s| s.permission);
@@ -129,7 +130,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                         snapshot = Some(next);
                         if pending_open.as_ref().is_some_and(|key| snapshot.as_ref().is_some_and(|s| s.servers.iter().any(|server| server.reading.sessions.iter().any(|item| item.key.serialize().ok().as_ref() == Some(key)))))
                             && let Some(key) = pending_open.take()
-                        { let _ = retry.send(Command::Open(key)); }
+                        { let _ = retry.send(Command::Open(key, None)); }
                     },
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                     Err(_) => break,
@@ -139,15 +140,25 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                     match command {
                         Command::Event(event) => { if let Some((_, tx)) = &active { let _ = tx.send(event); } },
                         command => {
-                            let key = match command {
-                                Command::Open(key) => key,
-                                _ => snapshot.as_ref().and_then(|s| s.selected.as_ref()).and_then(|s| s.key.serialize().ok()).unwrap_or_default(),
+                            let (key, expected) = match command {
+                                Command::Open(key, expected) => (key, expected),
+                                _ => (snapshot.as_ref().and_then(|s| s.selected.as_ref()).and_then(|s| s.key.serialize().ok()).unwrap_or_default(), None),
                             };
-                            let _ = context.commands.send(AppEvent::Open(key.clone()));
-                            let Some(snapshot) = &snapshot else { pending_open = Some(key); continue };
+                            if expected.is_none() { let _ = context.commands.send(AppEvent::Open(key.clone())); }
+                            let Some(snapshot) = &snapshot else {
+                                if expected.is_none() { pending_open = Some(key); }
+                                continue;
+                            };
                             let found = snapshot.servers.iter().find_map(|server| server.reading.sessions.iter().find(|s| s.key.serialize().ok().as_deref() == Some(&key)).map(|item| (server, item)));
-                            let Some((server, item)) = found else { pending_open = Some(key); continue };
-                            if item.permission_id.is_none() { continue; }
+                            let Some((server, item)) = found else {
+                                if expected.is_none() { pending_open = Some(key); }
+                                continue;
+                            };
+                            if item.permission_id.is_none()
+                                || expected.as_ref().is_some_and(|id| item.permission_id.as_ref() != Some(id))
+                            {
+                                continue;
+                            }
                             if let Some(task) = runner.take() { let task: tokio::task::JoinHandle<()> = task; task.abort(); let _ = task.await; }
                             while results.try_recv().is_ok() {}
                             let (tx, rx) = mpsc::unbounded_channel();

@@ -175,6 +175,32 @@ describe('Office', () => {
     office.setStatus('acc:1', 'working');
     office.setStatus('acc:1', 'waiting', 'aprovar uma permissão');
     expect(office.commit().notices.filter((n) => n.level === 'alert')).toHaveLength(1);
+    advance(5_000);
+    office.setStatus('acc:1', 'working');
+    advance(42_000);
+    office.setStatus('acc:1', 'idle');
+    const done = office.commit().notices.find((n) => n.kind === 'done');
+    // O turno conta desde o primeiro "working"; esperar por você faz parte dele.
+    expect(done).toMatchObject({ agentId: 'acc:1', kind: 'done', durationMs: 58_000 });
+    expect(done?.interrupted).toBeUndefined();
+    office.noticePermission('acc:1', 'rm -rf build', 'permission', 'p1');
+    expect(office.commit().notices).toEqual([expect.objectContaining({ kind: 'wait', wait: 'permission', reason: 'rm -rf build', requestId: 'p1' })]);
+  });
+
+  it('pedido de permissão não some atrás do "precisa de você" e pedidos distintos avisam os dois', () => {
+    const { office, advance, now } = makeOffice();
+    office.addMain({ id: 'acc:1', account: 'acc', sessionId: 's1', cwd: '/p/loja/', role: 'Agente principal', startedAt: now(), status: 'working' });
+    office.commit();
+    advance(1_000);
+    office.setStatus('acc:1', 'waiting', 'responder no terminal');
+    office.noticePermission('acc:1', 'npm publish', 'permission', 'p1');
+    office.noticePermission('acc:1', 'git push', 'permission', 'p2');
+    office.noticePermission('acc:1', 'git push', 'permission', 'p2');
+    expect(office.commit().notices.map((n) => n.wait)).toEqual(['terminal', 'permission', 'permission']);
+    // Depois do pedido tipado, o "precisa de você" genérico do mesmo agente fica calado.
+    office.setStatus('acc:1', 'working');
+    office.setStatus('acc:1', 'waiting', 'responder no terminal');
+    expect(office.commit().notices).toEqual([]);
   });
 
   it('feed traz a conta do agente; snapshot leva só as últimas atividades (histórico completo no detalhe)', () => {

@@ -9,6 +9,8 @@ import androidx.test.platform.app.InstrumentationRegistry
 import br.com.xlinx.habblaud.data.AgentEvent
 import br.com.xlinx.habblaud.data.SessionItem
 import br.com.xlinx.habblaud.data.SessionKey
+import br.com.xlinx.habblaud.data.WaitKind
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -17,18 +19,21 @@ import org.junit.runner.RunWith
 class NotificationPrivacyInstrumentedTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
 
-    @Test fun publicVersionIsGenericAndPrivateClickOpensSession() {
+    @Test fun publicVersionIsGenericAndPrivateClickOpensSession() = runBlocking {
         fun session(number: Int, question: Boolean = false) = SessionItem(
             key = SessionKey("http://127.0.0.1:14748", "claude", ".claude", "session-$number"),
             agentId = "agent-$number", title = "Título secreto $number", project = "/secret/Projeto$number",
             status = "idle", activity = null, permissionQuestion = question, characterName = "Contato secreto $number",
+            permissionId = if (number <= 2) "pedido-secreto-$number" else null,
         )
         val events = listOf(
             AgentEvent.Permission(session(1)),
             AgentEvent.Permission(session(2, question = true)),
             AgentEvent.TurnDone(session(3)),
+            AgentEvent.Permission(session(4), WaitKind.Terminal, "Comando secreto"),
+            AgentEvent.TurnDone(session(5), interrupted = true),
         )
-        val texts = listOf(R.string.notify_permission, R.string.notify_question, R.string.notify_done)
+        val texts = listOf("Pede sua aprovação", "Tem uma pergunta para você", "Terminou o turno", "Espera sua resposta no terminal: Comando secreto", "Turno interrompido")
         val notifications = events.mapIndexed { index, event ->
             val (id, notification) = alertNotification(context, event)
             val item = event.session
@@ -36,27 +41,29 @@ class NotificationPrivacyInstrumentedTest {
             assertEquals(Notification.VISIBILITY_PRIVATE, notification.visibility)
             assertEquals("alerts", notification.channelId)
             assertEquals(item.characterName, notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
-            assertEquals(context.getString(texts[index]), notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString())
+            assertEquals(texts[index], notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString())
             assertEquals(item.project!!.substringAfterLast('/'), notification.extras.getCharSequence(Notification.EXTRA_SUB_TEXT).toString())
             assertNotNull(notification.contentIntent)
             val public = notification.publicVersion
             assertNotNull(public)
             assertEquals(context.getString(R.string.app_name), public.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
-            assertEquals(context.getString(R.string.notify_public), public.extras.getCharSequence(Notification.EXTRA_TEXT).toString())
+            assertEquals("Nova atividade no Zaplaud", public.extras.getCharSequence(Notification.EXTRA_TEXT).toString())
             assertNull(public.extras.getCharSequence(Notification.EXTRA_SUB_TEXT))
             assertNull(public.contentIntent)
             val publicText = public.extras.keySet().joinToString(" ") { public.extras.get(it).toString() }
-            listOf(item.characterName!!, item.title, item.project!!, item.project!!.substringAfterLast('/'))
-                .plus(texts.map(context::getString)).forEach { assertFalse(publicText.contains(it)) }
+            listOfNotNull(item.characterName, item.title, item.project, item.project?.substringAfterLast('/'), item.permissionId, "Comando secreto", "Espera sua resposta no terminal")
+                .plus(texts).forEach { assertFalse(publicText.contains(it)) }
             id to notification
         }
         assertNotEquals(notifications[0].first, notifications[1].first)
 
         val previous = MainActivity.pendingSession.value
+        val previousRequest = pendingNotificationPermission.value
         var scenario: ActivityScenario<MainActivity>? = null
         try {
             scenario = ActivityScenario.launch(MainActivity::class.java)
             MainActivity.pendingSession.value = null
+            pendingNotificationPermission.value = null
             notifications[0].second.contentIntent.send()
             // O PendingIntent passa pelo sistema antes de chegar à atividade: o idle do processo pode vir antes da entrega.
             val deadline = System.currentTimeMillis() + 5_000
@@ -65,9 +72,11 @@ class NotificationPrivacyInstrumentedTest {
                 Thread.sleep(50)
             }
             assertEquals(events[0].session.key, MainActivity.pendingSession.value)
+            assertEquals(events[0].session.key to events[0].session.permissionId, pendingNotificationPermission.value)
         } finally {
             scenario?.close()
             MainActivity.pendingSession.value = previous
+            pendingNotificationPermission.value = previousRequest
         }
     }
 }

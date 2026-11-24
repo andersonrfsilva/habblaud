@@ -1,3 +1,4 @@
+use crate::controller::alerts::AlertController;
 use crate::model::{ReadingState, SessionCollection, SessionItem, SessionKey, Snapshot};
 use crate::rules::list::{unread_count, updated_seen};
 use std::collections::HashMap;
@@ -10,8 +11,8 @@ pub struct ReadingController {
     pub repository: SessionCollection,
     pub seen: HashMap<String, i64>,
     pub needs_login: bool,
-    pub snapshot_revision: u64,
     pub seen_revision: u64,
+    pub alerts: AlertController,
     restore: Option<SessionKey>,
     reading_visible: bool,
 }
@@ -23,8 +24,8 @@ impl ReadingController {
             repository: SessionCollection::default(),
             seen,
             needs_login: false,
-            snapshot_revision: 0,
             seen_revision: 0,
+            alerts: AlertController::default(),
             restore,
             reading_visible: true,
         }
@@ -41,12 +42,18 @@ impl ReadingController {
             StreamEvent::Data {
                 event_type, data, ..
             } if event_type == "snapshot" => self.snapshot_data(&data, now)?,
-            // Feed, notice e notificações de backoff não alteram ReadingState no Kotlin.
+            StreamEvent::Data {
+                event_type, data, ..
+            } if event_type == "notice" => {
+                self.alerts.notice(serde_json::from_str(&data)?, &self.state.sessions);
+            }
+            // Feed e notificações de backoff não alteram ReadingState no Kotlin.
             _ => {}
         }
         Ok(())
     }
     pub fn connected(&mut self) {
+        self.alerts.connected();
         self.state.connection = "connected".into();
         if self.state.error.as_deref() == Some("network") {
             self.state.error = None;
@@ -61,10 +68,12 @@ impl ReadingController {
     }
     pub fn snapshot(&mut self, snapshot: Snapshot) {
         let sessions = self.repository.snapshot(snapshot);
+        self.alerts.snapshot(&sessions);
         self.update_sessions(sessions);
     }
     pub fn snapshot_data(&mut self, data: &str, now: i64) -> Result<(), serde_json::Error> {
         let sessions = self.repository.parse_snapshot(&self.origin, data, now)?;
+        self.alerts.snapshot(&sessions);
         self.update_sessions(sessions);
         Ok(())
     }
@@ -81,7 +90,6 @@ impl ReadingController {
         Ok(())
     }
     fn update_sessions(&mut self, sessions: Vec<SessionItem>) {
-        self.snapshot_revision = self.snapshot_revision.wrapping_add(1).max(1);
         if let Some(selected) = &self.state.selected
             && selected.agent_id.is_some()
             && sessions

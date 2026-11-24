@@ -1,5 +1,6 @@
 use crate::{
     AppWindow, LoginState, error_message, formatted, list,
+    feature::AlertInput,
     state::{AppState, Event, ServerState, now_millis},
     strings, update_ui,
 };
@@ -54,6 +55,22 @@ impl LatestSnapshots {
         if let Ok(mut pending) = self.pending.lock() {
             pending.insert(origin, (generation, data));
             self.ready.notify_one();
+        }
+    }
+    fn take(&self, origin: &str, generation: u64) -> Option<Event> {
+        let mut pending = self.pending.lock().ok()?;
+        if pending.get(origin)?.0 != generation {
+            return None;
+        }
+        let (origin, (_, data)) = pending.remove_entry(origin)?;
+        Some(Event::SnapshotData { origin, generation, data })
+    }
+
+    async fn next_after_commands(&self, receiver: &mut UnboundedReceiver<Event>) -> Option<Event> {
+        tokio::select! {
+            biased;
+            event = receiver.recv() => event,
+            snapshot = self.next() => Some(snapshot),
         }
     }
     async fn next(&self) -> Event {
@@ -126,13 +143,17 @@ async fn stream(
             return;
         }
     };
+    let mut first_snapshot = true;
     while let Some(event) = stream.next_event().await {
         let event = match event {
-            StreamEvent::Connected => Some(Event::Connection {
-                origin: origin.clone(),
-                generation,
-                status: Some(200),
-            }),
+            StreamEvent::Connected => {
+                first_snapshot = true;
+                Some(Event::Connection {
+                    origin: origin.clone(),
+                    generation,
+                    status: Some(200),
+                })
+            }
             StreamEvent::Failure { status, .. } => Some(Event::Connection {
                 origin: origin.clone(),
                 generation,
@@ -141,11 +162,31 @@ async fn stream(
             StreamEvent::Data {
                 event_type, data, ..
             } if event_type == "snapshot" => {
+                if std::mem::take(&mut first_snapshot) {
+                    if sender.send(Event::SnapshotData { origin: origin.clone(), generation, data }).is_err() {
+                        return;
+                    }
+                    continue;
+                }
                 latest.replace(origin.clone(), generation, data);
                 None
             }
+            StreamEvent::Data { event_type, data, first_connection } if event_type == "notice" => {
+                Some(Event::NoticeData {
+                    origin: origin.clone(),
+                    generation,
+                    event: StreamEvent::Data { event_type, data, first_connection },
+                })
+            }
             _ => None,
         };
+        // O servidor publica o snapshot que identifica a sessão antes dos notices.
+        if event.is_some()
+            && let Some(snapshot) = latest.take(&origin, generation)
+            && sender.send(snapshot).is_err()
+        {
+            return;
+        }
         if let Some(event) = event
             && sender.send(event).is_err()
         {
@@ -161,6 +202,7 @@ pub async fn run(
     weak: slint::Weak<AppWindow>,
     avatar_storage: Arc<dyn crate::avatars::AvatarStorage>,
     snapshots: tokio::sync::broadcast::Sender<Arc<crate::feature::AppSnapshot>>,
+    alerts: UnboundedSender<AlertInput>,
 ) {
     let mut login_task: Option<tokio::task::JoinHandle<()>> = None;
     let mut avatar_tasks = tokio::task::JoinSet::new();
@@ -168,6 +210,8 @@ pub async fn run(
     let mut attempted = crate::avatars::Requests::default();
     let latest = Arc::new(LatestSnapshots::default());
     let mut seen_writes = HashMap::new();
+    let mut alert_selected = None;
+    let mut alert_origins = Vec::<String>::new();
     match state.persistence.call(|store| store.servers()).await {
         Ok(servers) => {
             #[cfg(target_os = "android")]
@@ -206,9 +250,8 @@ pub async fn run(
     }
     loop {
         let event = tokio::select! {
-            event=receiver.recv()=>event,
+            event=latest.next_after_commands(&mut receiver)=>event,
             Some(_)=avatar_tasks.join_next(),if !avatar_tasks.is_empty()=>continue,
-            event=latest.next()=>Some(event),
             _=tokio::time::sleep_until(next_seen_write(&seen_writes)), if !seen_writes.is_empty()=>{
                 flush_seen(&mut state, &mut seen_writes, false).await;
                 continue;
@@ -433,6 +476,19 @@ pub async fn run(
                         }));
                     }
                 }
+            }
+            Event::NoticeData { origin, generation, event } => {
+                if let Some(server) = state
+                    .servers
+                    .iter_mut()
+                    .find(|s| s.api.origin() == origin && s.generation == generation && !s.reading.needs_login)
+                {
+                    let _ = server.reading.apply_stream_event(event, now_millis());
+                    for update in server.reading.alerts.take_updates() {
+                        let _ = alerts.send(AlertInput::Update(update));
+                    }
+                }
+                continue;
             }
             Event::RecentRefreshed {
                 origin,
@@ -680,6 +736,31 @@ pub async fn run(
         }
         schedule_seen(&state, &mut seen_writes);
         list::publish(&state, &weak);
+        let selected = state
+            .servers
+            .iter()
+            .find_map(|server| server.reading.state.selected.as_ref().map(|item| &item.key));
+        let origins = || {
+            state.servers.iter()
+                .filter(|server| !server.reading.needs_login)
+                .map(|server| server.api.origin())
+        };
+        if alert_selected.as_ref() != selected
+            || alert_origins.iter().map(String::as_str).ne(origins())
+        {
+            alert_selected = selected.cloned();
+            alert_origins = origins().map(str::to_owned).collect();
+            let _ = alerts.send(AlertInput::Context {
+                selected: alert_selected.clone(),
+                origins: alert_origins.clone(),
+            });
+        }
+        for update in state.servers.iter_mut().flat_map(|server| {
+            let updates = server.reading.alerts.take_updates();
+            (!server.reading.needs_login).then_some(updates).into_iter().flatten()
+        }) {
+            let _ = alerts.send(AlertInput::Update(update));
+        }
         let _ = snapshots.send(Arc::new(crate::feature::AppSnapshot::from_state(&state)));
     }
     if let Some(task) = login_task {

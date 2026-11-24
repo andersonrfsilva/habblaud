@@ -166,6 +166,15 @@
     <string name="notify_permission">Pede sua aprovação</string>
     <string name="notify_question">Tem uma pergunta para você</string>
     <string name="notify_done">Terminou o turno</string>
+    <string name="notify_waiting">Espera sua resposta no terminal</string>
+    <string name="notify_interrupted">Turno interrompido</string>
+    <plurals name="notify_batch">
+        <item quantity="one">%1$d agente precisa de atenção</item>
+        <item quantity="other">%1$d agentes precisam de atenção</item>
+    </plurals>
+    <string name="notify_enable_prompt">Avisar quando um agente precisar de você?</string>
+    <string name="notify_enable_yes">Avisar</string>
+    <string name="notify_enable_no">Agora não</string>
     <string name="notify_public">Nova atividade no Zaplaud</string>
     <string name="session_info">Informações da sessão</string>
     <string name="info_open">Aberta</string>
@@ -235,6 +244,8 @@
     <string name="tray_quit">Fechar o Zaplaud</string>
     <string name="settings_notify_permission">Pedidos de aprovação e perguntas</string>
     <string name="settings_notify_done">Turno concluído</string>
+    <string name="settings_notify_min_turn">Só avisar turnos com mais de 30 s</string>
+    <string name="settings_notify_agents">Avisar sobre seus agentes</string>
     <string name="settings_server">Servidores</string>
     <string name="access_title">Acesso neste servidor</string>
     <string name="access_reading">Conversas e recentes</string>

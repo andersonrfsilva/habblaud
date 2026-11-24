@@ -44,10 +44,6 @@
     <string name="notifications_running">Zaplaud conectado</string>
     <string name="channel_alerts">Pedidos e turnos concluídos</string>
     <string name="channel_connection">Conexão em segundo plano</string>
-    <string name="notify_permission">Pede sua aprovação</string>
-    <string name="notify_question">Tem uma pergunta para você</string>
-    <string name="notify_done">Terminou o turno</string>
-    <string name="notify_public">Nova atividade no Zaplaud</string>
     <string name="session_info">Informações da sessão</string>
     <string name="info_context">Contexto</string>
     <string name="info_hide_details">Ocultar detalhes técnicos</string>

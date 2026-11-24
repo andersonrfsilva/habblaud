@@ -55,7 +55,6 @@ const FEATURES: &[Feature] = &[
     images::setup,
     composer::setup,
     permission::setup,
-    alerts::setup,
     tray::setup,
     window_state::setup,
     settings::setup,
@@ -202,6 +201,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
     let (sender, receiver) = mpsc::unbounded_channel();
     let (snapshots, _) = tokio::sync::broadcast::channel(16);
+    let (alert_sender, alert_receiver) = mpsc::unbounded_channel();
     let theme_sender = sender.clone();
     window.global::<AppEvents>().on_theme(move |dark| {
         let _ = theme_sender.send(state::Event::Theme(dark));
@@ -232,6 +232,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for setup in FEATURES {
         setup(&window, &context);
     }
+    alerts::setup(&window, &context, alert_receiver);
     let weak = window.as_weak();
     window_state::on_visibility(move |visible| {
         if let Some(window) = weak.upgrade() {
@@ -246,11 +247,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
     let weak = window.as_weak();
-    alerts::on_permission_open(move |key| {
+    alerts::on_permission_open(move |key, request_id| {
         if let Some(window) = weak.upgrade() {
             window
                 .global::<PermissionState>()
-                .invoke_open_session(key.into());
+                .invoke_open_session(key.into(), request_id.into());
         }
     });
     let weak = window.as_weak();
@@ -302,6 +303,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     weak,
                     std::sync::Arc::new(avatar_storage),
                     snapshots,
+                    alert_sender,
                 ));
                 Ok(())
             })();

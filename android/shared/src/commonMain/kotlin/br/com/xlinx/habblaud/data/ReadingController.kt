@@ -67,6 +67,8 @@ internal class ConversationCacheSchedule(private val scope: CoroutineScope, priv
     val marks: Map<SessionKey, SessionMarks> = emptyMap(),
     val reading: ConversationReading = ConversationReading(),
     val readingLoaded: Boolean = false,
+    val accounts: List<AccountQuota> = emptyList(),
+    val snapshotReady: Boolean = false,
 )
 
 internal inline fun MutableStateFlow<ReadingState>.publishUnread(
@@ -81,7 +83,7 @@ internal inline fun MutableStateFlow<ReadingState>.publishUnread(
 
 internal fun ReadingState.streamFailure(status: Int?, conversation: Boolean): ReadingState {
     val reason = when (status) { -1 -> "oversize"; 403 -> "forbidden"; 404 -> "missing"; else -> "network" }
-    return if (conversation) copy(readingError = reason) else copy(connection = "offline", error = reason)
+    return if (conversation) copy(readingError = reason) else copy(connection = "offline", error = reason, snapshotReady = false)
 }
 
 internal fun ReadingState.conversationConnected(): ReadingState =
@@ -204,17 +206,19 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                 streams.stream("/api/stream").collect { event ->
                     when (event) {
                         is StreamEvent.Connected -> mutable.update {
-                            it.copy(connection = "connected", error = it.error.takeUnless { error -> error == "network" })
+                            it.copy(connection = "connected", error = it.error.takeUnless { error -> error == "network" }, snapshotReady = false)
                         }
                         is StreamEvent.Failure -> failure(event, conversation = false)
                         is StreamEvent.Data -> if (event.type == "snapshot") {
-                            val sessions = repository.snapshot(event.data)
+                            val snapshot = wireJson.parseToJsonElement(event.data).jsonObject
+                            val sessions = repository.snapshot(snapshot)
+                            val accounts = parseAccounts(snapshot)
                             val firstSnapshot = !accessReady
                             val selected = mutable.value.selected
                             if (selected?.agentId != null && sessions.any { it.agentId == selected.agentId && it.key != selected.key }) changed()
                             // A conversa de um subagente não está na lista: segue aberta como está até o leitor fechar.
                             mutable.update { state ->
-                                state.copy(sessions = sessions, selected = state.selected?.let { selectedItem ->
+                                state.copy(sessions = sessions, accounts = accounts, snapshotReady = true, selected = state.selected?.let { selectedItem ->
                                     if (selectedItem.sub) sessions.firstNotNullOfOrNull { parent ->
                                         parent.subagents.find { it.id == selectedItem.agentId }?.let { subSession(parent, it) }
                                     } ?: selectedItem.copy(status = "done")
@@ -249,7 +253,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         pendingSummaries.values.toList().forEach { it.cancel() }; pendingSummaries.clear()
         messages.stop(); asides.pause(); api.cancelCalls()
         mutable.update {
-            it.copy(connection = "offline", readingError = if (it.selected != null && it.readingError == null) "network" else it.readingError)
+            it.copy(connection = "offline", snapshotReady = false, readingError = if (it.selected != null && it.readingError == null) "network" else it.readingError)
         }
     }
     fun close() { cacheSave.flush(); cachedKey = null; dropSummaries(); generation++; conversationJob?.cancel(); messages.close(); asides.close(); restore = null; val write = store.conversationWrite(api.origin, conversationEpoch); launchPersist(scope) { store.setLastSession(null, write) }; mutable.update { it.copy(selected = null, entries = emptyList(), error = null, readingError = null) }; refreshUnread() }

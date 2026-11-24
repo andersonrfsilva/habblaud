@@ -280,8 +280,10 @@ actual class LocalStateStore(private val context: Context) : MessageStore {
 
     // Configurações (tela Configurações). As duas primeiras ficavam em local_state: lidas de lá até serem salvas de novo.
     private val notificationsKey = booleanPreferencesKey("notifications")
-    /** Notificações com o app fechado (serviço em primeiro plano); ligadas por padrão. */
-    actual suspend fun notificationsEnabled(): Boolean = (context.appSettings.data.first()[notificationsKey] ?: context.localState.data.first()[notificationsKey]) != false
+    /** Notificações com o app fechado só começam após a escolha do usuário. */
+    actual suspend fun notificationsEnabled(): Boolean = notificationPreference() == true
+    actual suspend fun notificationPreference(): Boolean? =
+        context.appSettings.data.first()[notificationsKey] ?: context.localState.data.first()[notificationsKey]
     actual suspend fun setNotificationsEnabled(enabled: Boolean) { context.appSettings.edit { it[notificationsKey] = enabled } }
 
     private val deliverAsKey = stringPreferencesKey("deliver_as")
@@ -305,8 +307,13 @@ actual class LocalStateStore(private val context: Context) : MessageStore {
 
     private val notifyPermissionKey = booleanPreferencesKey("notify_permission")
     private val notifyDoneKey = booleanPreferencesKey("notify_done")
+    private val notifyMinTurnKey = booleanPreferencesKey("notify_min_turn")
+    actual val notificationRules: Flow<NotificationRules> = context.appSettings.data.map {
+        NotificationRules(it[notifyPermissionKey] != false, it[notifyDoneKey] != false, it[notifyMinTurnKey] != false)
+    }
+    actual suspend fun setNotifyMinTurn(enabled: Boolean) { context.appSettings.edit { it[notifyMinTurnKey] = enabled } }
     /** Quais eventos viram notificação: pedido/pergunta e turno concluído (os dois ligados por padrão). */
-    actual suspend fun notifyEvents(): Pair<Boolean, Boolean> = context.appSettings.data.first().let { (it[notifyPermissionKey] != false) to (it[notifyDoneKey] != false) }
+    actual suspend fun notifyEvents(): Pair<Boolean, Boolean> = notificationRules.first().let { it.permission to it.done }
     actual suspend fun setNotifyEvents(permission: Boolean, done: Boolean) { context.appSettings.edit { it[notifyPermissionKey] = permission; it[notifyDoneKey] = done } }
 
     // Escolhas por sessão: ficam em local_state (pertencem ao servidor atual) e caem no padrão quando ausentes.
