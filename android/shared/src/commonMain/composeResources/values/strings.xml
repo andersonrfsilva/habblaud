@@ -12,6 +12,8 @@
     <string name="role_pick_thinking">Raciocínio</string>
     <string name="filter_models">Filtrar modelos</string>
     <string name="models_no_results">Nenhum modelo encontrado.</string>
+    <string name="models_more">Ver mais</string>
+    <string name="models_less">Ver menos</string>
     <string name="role_no_models">Nenhum agente omp aberto anunciou modelos agora.</string>
     <string name="roles_saving">Gravando no computador…</string>
     <string name="roles_error">Não foi possível gravar o papel.</string>

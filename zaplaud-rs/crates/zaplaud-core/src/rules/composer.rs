@@ -434,6 +434,38 @@ pub fn role_model_groups_filtered(
 pub fn role_model_groups(models: &[String], keep: Option<&str>) -> Vec<(String, Vec<String>)> {
     role_model_groups_filtered(models, keep, "")
 }
+/// Separa a lista de um provedor em (versão mais nova de cada família, demais versões),
+/// preservando a ordem. Família é o nome sem os números: `claude-opus-4-5` e
+/// `claude-opus-4-1` são a família `claude-opus`. `keep` fica sempre na primeira lista.
+pub fn latest_model_versions(models: &[String], keep: Option<&str>) -> (Vec<String>, Vec<String>) {
+    let family = |model: &str| {
+        let name = model_sort_name(model).to_lowercase();
+        let (mut words, mut versions) = (Vec::new(), Vec::new());
+        for token in undated(&name).split(|c: char| !c.is_ascii_alphanumeric()) {
+            match token.parse::<i64>() {
+                // Datas (20250929) identificam o snapshot, não a versão.
+                Ok(number) if number < 10_000_000 => versions.push(number),
+                Ok(_) => {}
+                Err(_) if !token.is_empty() => words.push(token.to_owned()),
+                Err(_) => {}
+            }
+        }
+        (words, versions)
+    };
+    let keyed: Vec<_> = models.iter().map(|model| family(model)).collect();
+    let newest = |index: usize| {
+        let (words, versions) = &keyed[index];
+        !keyed.iter().enumerate().any(|(other, (w, v))| {
+            w == words && (v > versions || (v == versions && other < index))
+        })
+    };
+    let (latest, older): (Vec<_>, Vec<_>) = models
+        .iter()
+        .enumerate()
+        .partition(|(index, model)| Some(model.as_str()) == keep || newest(*index));
+    let strip = |list: Vec<(usize, &String)>| list.into_iter().map(|(_, m)| m.clone()).collect();
+    (strip(latest), strip(older))
+}
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Failure {

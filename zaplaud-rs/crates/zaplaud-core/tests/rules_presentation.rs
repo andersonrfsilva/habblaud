@@ -995,3 +995,48 @@ fn model_numeric_versions_and_alphanumeric_suffixes_have_consistent_order() {
         }
     }
 }
+#[test]
+fn model_picker_shows_the_newest_version_of_each_family() {
+    let models = [
+        "anthropic/claude-opus-4-5",
+        "anthropic/claude-opus-4-1",
+        "anthropic/claude-opus-4-20250514",
+        "anthropic/claude-sonnet-4-5",
+        "anthropic/claude-3-5-sonnet-20241022",
+        "anthropic/claude-sonnet-4-5:thinking",
+        "openai/gpt-5.1",
+        "openai/gpt-5",
+        "openai/gpt-5-mini",
+        "openai/gpt-4.1-mini",
+        "google/gemini-2.5-pro",
+        "google/gemini-3-pro",
+    ]
+    .map(str::to_owned);
+    let (latest, older) = latest_model_versions(&models, None);
+    assert_eq!(
+        latest,
+        [
+            "anthropic/claude-opus-4-5",
+            "anthropic/claude-sonnet-4-5",
+            "anthropic/claude-sonnet-4-5:thinking",
+            "openai/gpt-5.1",
+            "openai/gpt-5-mini",
+            "google/gemini-3-pro",
+        ]
+    );
+    assert_eq!(
+        older,
+        [
+            "anthropic/claude-opus-4-1",
+            "anthropic/claude-opus-4-20250514",
+            "anthropic/claude-3-5-sonnet-20241022",
+            "openai/gpt-5",
+            "openai/gpt-4.1-mini",
+            "google/gemini-2.5-pro",
+        ]
+    );
+    // O modelo em uso continua visível mesmo sendo versão antiga.
+    let (latest, _) = latest_model_versions(&models, Some("openai/gpt-5"));
+    assert!(latest.iter().any(|m| m == "openai/gpt-5"));
+    assert!(latest.iter().any(|m| m == "openai/gpt-5.1"));
+}

@@ -469,15 +469,33 @@ fn publish_info(
     let mut choices = Vec::new();
     for (provider, models) in groups {
         choices.push(crate::ModelChoice {
-            value: slint::SharedString::default(),
             label: zaplaud_core::rules::composer::provider_label(&provider).into(),
             header: true,
+            ..Default::default()
         });
-        choices.extend(models.into_iter().map(|value| crate::ModelChoice {
+        // Com filtro, mostre todas as versões que casam.
+        let (latest, older) = if query.is_empty() {
+            zaplaud_core::rules::composer::latest_model_versions(&models, current_model)
+        } else {
+            (models, Vec::new())
+        };
+        let option = |value: String, older: bool| crate::ModelChoice {
             label: zaplaud_core::rules::composer::model_option_label(&value).into(),
             value: value.into(),
-            header: false,
-        }));
+            group: provider.as_str().into(),
+            older,
+            ..Default::default()
+        };
+        choices.extend(latest.into_iter().map(|value| option(value, false)));
+        if !older.is_empty() {
+            choices.push(crate::ModelChoice {
+                label: format!("{} ({})", strings::MODELS_MORE, older.len()).into(),
+                group: provider.as_str().into(),
+                more: true,
+                ..Default::default()
+            });
+        }
+        choices.extend(older.into_iter().map(|value| option(value, true)));
     }
     state.set_model_filter_visible(total_models > 15);
     state.set_models(ModelRc::new(VecModel::from(choices)));
@@ -782,6 +800,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
     state.set_thinking_label(strings::THINKING_MENU.into());
     state.set_model_filter_placeholder(strings::FILTER_MODELS.into());
     state.set_models_no_results(strings::MODELS_NO_RESULTS.into());
+    state.set_models_less(strings::MODELS_LESS.into());
     state.set_shake_label(strings::SHAKE.into());
     state.set_aside_label(strings::ASIDE_MENU.into());
     state.set_thinking_labels(ModelRc::new(VecModel::from(

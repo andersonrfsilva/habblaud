@@ -12,8 +12,8 @@ use zaplaud_core::{
     },
     rules::{
         composer::{
-            join_role, model_label, model_option_label, provider_label, role_model_groups,
-            role_model_groups_filtered, snapshot_models, split_role,
+            join_role, latest_model_versions, model_label, model_option_label, provider_label,
+            role_model_groups, role_model_groups_filtered, snapshot_models, split_role,
         },
         list::server_label,
         time::entry_time,
@@ -521,12 +521,24 @@ impl State {
             };
             for (provider, models) in groups {
                 choices.push(row("section", "", &provider_label(&provider)));
-                for model in models {
-                    let mut r = row("radio", "", &model_option_label(&model));
+                // Com filtro, mostre todas as versões que casam.
+                let (latest, older) = if self.filter.is_empty() {
+                    latest_model_versions(&models, Some(current_model))
+                } else {
+                    (models, Vec::new())
+                };
+                let radio = |model: String, kind: &str| {
+                    let mut r = row(kind, &provider, &model_option_label(&model));
                     r.checked = model == current_model;
                     r.value = model.into();
-                    choices.push(r);
+                    r
+                };
+                choices.extend(latest.into_iter().map(|model| radio(model, "radio")));
+                if !older.is_empty() {
+                    let text = format!("{} ({})", strings::MODELS_MORE, older.len());
+                    choices.push(row("more", &provider, &text));
                 }
+                choices.extend(older.into_iter().map(|model| radio(model, "older")));
             }
             if self.models.is_empty() {
                 choices.push(row("hint", "", strings::ROLE_NO_MODELS));
@@ -631,6 +643,7 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
     ui.set_use_label(strings::ROLE_USE.into());
     ui.set_model_placeholder(strings::ROLE_TYPE_MODEL.into());
     ui.set_filter_placeholder(strings::FILTER_MODELS.into());
+    ui.set_models_less(strings::MODELS_LESS.into());
     let (send, mut receive) = mpsc::unbounded_channel();
     let s = send.clone();
     window.global::<AppEvents>().on_settings(move || {

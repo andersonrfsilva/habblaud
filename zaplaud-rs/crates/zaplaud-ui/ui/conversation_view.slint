@@ -24,7 +24,7 @@ export struct InfoRow {
     fraction: float, tasks-section: bool,
 }
 export struct TaskRow { label: string, marker: string, state: string }
-export struct ModelChoice { value: string, label: string, header: bool }
+export struct ModelChoice { value: string, label: string, header: bool, group: string, more: bool, older: bool }
 export global ConversationViewState {
     in property <[ConversationRow]> rows;
     in property <string> notice;
@@ -48,6 +48,9 @@ export global ConversationViewState {
     in property <string> model-detail;
     in property <string> model-filter-placeholder;
     in property <string> models-no-results;
+    in property <string> models-less;
+    // Provedor cujo "Ver mais" está aberto; um por vez.
+    in-out property <string> model-more-group;
     in-out property <string> model-query;
     in property <bool> model-filter-visible;
     in property <string> thinking;
@@ -665,8 +668,12 @@ export component ConversationMenu inherits Rectangle {
             }
             for choice in ConversationViewState.models: VerticalLayout {
                 if choice.header: Text { text: "   " + choice.label; color: Theme.primary; font-size: 14px; }
-                if !choice.header: MenuAction {
-                    label: (choice.value == ConversationViewState.model ? "◉  " : "○  ") + choice.label;
+                if choice.more: MenuAction {
+                    label: (ConversationViewState.model-more-group == choice.group ? "▾  " + ConversationViewState.models-less : "▸  " + choice.label);
+                    clicked => { ConversationViewState.model-more-group = ConversationViewState.model-more-group == choice.group ? "" : choice.group; }
+                }
+                if !choice.header && !choice.more && (!choice.older || ConversationViewState.model-more-group == choice.group): MenuAction {
+                    label: (choice.older ? "      " : "") + (choice.value == ConversationViewState.model ? "◉  " : "○  ") + choice.label;
                     clicked => { if ConversationViewState.model-query != "" { ConversationViewState.model-query = ""; ConversationViewState.model-query-changed(""); } ComposerState.command("model", choice.value); ConversationViewState.menu-open = false; ConversationViewState.menu-page = ""; }
                 }
             }

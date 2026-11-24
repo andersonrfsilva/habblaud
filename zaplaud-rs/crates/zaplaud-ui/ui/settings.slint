@@ -20,6 +20,9 @@ export global SettingsState {
     in property <string> use-label;
     in property <string> model-placeholder;
     in property <string> filter-placeholder;
+    in property <string> models-less;
+    // Provedor cujo "Ver mais" está aberto; um por vez.
+    in-out property <string> more-group;
     in-out property <string> filter;
     in property <bool> filter-visible;
     in property <[SettingsRow]> rows;
@@ -130,10 +133,14 @@ export component SettingsPane inherits Rectangle {
                         edited(value) => { SettingsState.filter-changed(value); }
                     }
                 }
-                for row in SettingsState.choices: Rectangle { height: row.kind == "hint" ? max(20px, role-hint.preferred-height) : row.kind == "section" ? 32px : 44px;
+                for row in SettingsState.choices: Rectangle { height: row.kind == "hint" ? max(20px, role-hint.preferred-height) : row.kind == "section" ? 32px : row.kind == "older" && SettingsState.more-group != row.key ? 0px : 44px;
                     role-hint := Text { visible: row.kind == "hint"; width: parent.width; text: row.text; color: Theme.on-surface-variant; font-size: 12px; wrap: word-wrap; }
                     if row.kind == "section": Text { text: row.text; color: Theme.primary; font-size: 14px; vertical-alignment: center; }
-                    if row.kind == "radio": RadioButton { text: row.text; checked: row.checked; toggled => { if SettingsState.choosing-model { SettingsState.model(row.value); } else { SettingsState.thinking(row.value); } } }
+                    if row.kind == "radio" || (row.kind == "older" && SettingsState.more-group == row.key): RadioButton { x: row.kind == "older" ? 24px : 0px; text: row.text; checked: row.checked; toggled => { if SettingsState.choosing-model { SettingsState.model(row.value); } else { SettingsState.thinking(row.value); } } }
+                    if row.kind == "more": TextButton {
+                        text: SettingsState.more-group == row.key ? "▾  " + SettingsState.models-less : "▸  " + row.text;
+                        clicked => { SettingsState.more-group = SettingsState.more-group == row.key ? "" : row.key; }
+                    }
                 }
                 if SettingsState.choosing-model: Rectangle { height: 64px;
                     TextField {
