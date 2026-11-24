@@ -83,9 +83,7 @@ class NotificationService : Service() {
             delay(ALERT_BATCH_WINDOW_MS)
             val ready = pending.filterKeys { !MainActivity.isShowing(it) }
             pending.keys.retainAll(ready.keys)
-            if (batchAlertCount(ready.size) != null) {
-                summarized.clear()
-                summarized.addAll(ready.keys)
+            if (mergeAlertBatch(summarized, ready.keys)) {
                 ready.keys.forEach { cancelAlert(this@NotificationService, it); pending.remove(it) }
                 updateSummary()
             } else {
@@ -152,6 +150,9 @@ class NotificationService : Service() {
 
     override fun onDestroy() {
         scope.cancel()
+        manager.activeNotifications.forEach { alert ->
+            if (alert.notification.channelId == CHANNEL_ALERTS) manager.cancel(alert.tag, alert.id)
+        }
         super.onDestroy()
     }
 

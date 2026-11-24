@@ -1044,7 +1044,7 @@ pub struct AgentWatch {
 pub enum AgentEvent {
     Permission(SessionItem),
     TurnDone(SessionItem),
-    NoticeWait(SessionItem, WaitKind, Option<String>),
+    NoticeWait(SessionItem, WaitKind, Option<String>, Option<String>),
     NoticeDone(SessionItem, Option<i64>, bool),
     TerminalWait(SessionItem),
 }
@@ -1065,7 +1065,8 @@ impl AgentEvent {
 
     pub fn permission_id(&self) -> Option<&str> {
         match self {
-            Self::Permission(session) | Self::NoticeWait(session, WaitKind::Permission | WaitKind::Question, _) => session.permission_id.as_deref(),
+            Self::Permission(session) => session.permission_id.as_deref(),
+            Self::NoticeWait(_, _, _, request_id) => request_id.as_deref(),
             _ => None,
         }
     }

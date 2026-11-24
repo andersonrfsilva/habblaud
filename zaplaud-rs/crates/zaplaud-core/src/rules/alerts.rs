@@ -50,17 +50,21 @@ pub fn notice_event(notice: Notice, sessions: &[SessionItem]) -> Option<AgentEve
     let session = sessions.iter().find(|session| {
         !session.sub && session.agent_id.as_deref() == Some(agent_id)
     })?;
-    if let Some(request_id) = notice.request_id.as_deref()
-        && session.permission_id.as_deref() != Some(request_id)
-    {
-        return None;
-    }
     match notice.kind.as_deref() {
-        Some("wait") => Some(AgentEvent::NoticeWait(
-            session.clone(),
-            notice.wait?,
-            notice.reason,
-        )),
+        Some("wait") => {
+            let wait = notice.wait?;
+            let request_id = match wait {
+                WaitKind::Permission | WaitKind::Question => {
+                    // O snapshot só expõe a cabeça da fila, não os demais pedidos.
+                    if notice.request_id.is_some() && session.permission_id.is_none() {
+                        return None;
+                    }
+                    notice.request_id.or_else(|| session.permission_id.clone())
+                }
+                WaitKind::Terminal => None,
+            };
+            Some(AgentEvent::NoticeWait(session.clone(), wait, notice.reason, request_id))
+        }
         Some("done") => Some(AgentEvent::NoticeDone(
             session.clone(),
             notice.duration_ms,
@@ -97,7 +101,7 @@ pub fn batch_summary(count: usize) -> bool {
 }
 
 pub fn alert_reason(event: &AgentEvent) -> Option<String> {
-    let AgentEvent::NoticeWait(_, _, Some(reason)) = event else {
+    let AgentEvent::NoticeWait(_, _, Some(reason), _) = event else {
         return None;
     };
     let reason = reason.trim();
@@ -112,9 +116,9 @@ pub fn alert_reason(event: &AgentEvent) -> Option<String> {
 pub fn alert_text(event: &AgentEvent) -> &'static str {
     match event {
         AgentEvent::Permission(session) if session.permission_question => "notify_question",
-        AgentEvent::NoticeWait(_, WaitKind::Question, _) => "notify_question",
-        AgentEvent::Permission(_) | AgentEvent::NoticeWait(_, WaitKind::Permission, _) => "notify_permission",
-        AgentEvent::TerminalWait(_) | AgentEvent::NoticeWait(_, WaitKind::Terminal, _) => "notify_waiting",
+        AgentEvent::NoticeWait(_, WaitKind::Question, ..) => "notify_question",
+        AgentEvent::Permission(_) | AgentEvent::NoticeWait(_, WaitKind::Permission, ..) => "notify_permission",
+        AgentEvent::TerminalWait(_) | AgentEvent::NoticeWait(_, WaitKind::Terminal, ..) => "notify_waiting",
         AgentEvent::NoticeDone(_, _, true) => "notify_interrupted",
         AgentEvent::TurnDone(_) | AgentEvent::NoticeDone(..) => "notify_done",
     }

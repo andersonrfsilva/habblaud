@@ -444,6 +444,7 @@ export class Office {
       const typed = this.noticeAt.get(`${id}|typedWait`);
       if (typed === undefined || now - typed >= NOTICE_DEDUPE_MS) {
         this.notice('wait', id, 'alert', tr('✋ {0} precisa de você em {1}: {2}', [info.name, room, reason]), info.roomId, {
+          repeatable: true,
           extra: { wait: 'terminal', reason },
         });
       }
@@ -463,6 +464,7 @@ export class Office {
         rec.synthDone = { id: act.id, at: now };
       }
       this.notice('done', id, 'success', tr('✅ {0} concluiu em {1}', [info.name, room]), info.roomId, {
+        repeatable: true,
         extra: { ...(rec.turnStart ? { durationMs: now - rec.turnStart } : {}), ...(interrupted ? { interrupted: true } : {}) },
       });
     }
@@ -1162,20 +1164,28 @@ export class Office {
     level: NoticeLevel,
     text: string,
     roomId?: string,
-    opts: { dedupeKey?: string; dedupeMs?: number; extra?: Pick<Notice, 'wait' | 'reason' | 'requestId' | 'durationMs' | 'interrupted'> } = {},
+    opts: {
+      dedupeKey?: string;
+      dedupeMs?: number;
+      /** Dentro da janela de dedupe sai mesmo assim, com `repeat` (o Zaplaud precisa de cada borda; a web ignora). */
+      repeatable?: boolean;
+      extra?: Pick<Notice, 'wait' | 'reason' | 'requestId' | 'durationMs' | 'interrupted'>;
+    } = {},
   ): void {
     if (this.booting) return;
     const now = this.now();
     const k = opts.dedupeKey ?? `${key}|${kind}`;
     const window = opts.dedupeMs ?? NOTICE_DEDUPE_MS;
     const last = this.noticeAt.get(k);
-    if (last !== undefined && now - last < window) return;
-    this.noticeAt.set(k, now);
+    const repeat = last !== undefined && now - last < window;
+    if (repeat && !opts.repeatable) return;
+    if (!repeat) this.noticeAt.set(k, now);
     if (this.noticeAt.size > 2_000) {
       // Só esquece o que já passou da janela mais longa (a do aviso de shell).
       for (const [nk, t] of this.noticeAt) if (now - t > Math.max(NOTICE_DEDUPE_MS, SHELL_NOTICE_DEDUPE_MS)) this.noticeAt.delete(nk);
     }
     const n: Notice = { id: `n-${now.toString(36)}-${++this.seq}`, level, text, at: now, kind, ...opts.extra };
+    if (repeat) n.repeat = true;
     if (kind !== 'room') n.agentId = key;
     if (roomId) n.roomId = roomId;
     this.pendingNotices.push(n);

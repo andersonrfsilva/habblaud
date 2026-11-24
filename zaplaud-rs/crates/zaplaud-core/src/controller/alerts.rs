@@ -39,7 +39,7 @@ impl AlertController {
                 if current.get(key).is_none_or(|after| {
                     (after.status.as_deref() == Some("working")
                         && before.status.as_deref() != Some("working"))
-                        || (before.permission_id.is_some() && before.permission_id != after.permission_id)
+                        || (before.permission_id.is_some() && after.permission_id.is_none())
                 }) {
                     self.updates.push(AlertUpdate::Withdraw(key.clone()));
                 }
@@ -48,6 +48,13 @@ impl AlertController {
                 self.updates.extend(
                     agent_events(previous, sessions).into_iter().map(AlertUpdate::Fallback),
                 );
+            } else {
+                // Quando a cabeça muda, um pedido já anunciado passa a aceitar aprovação.
+                self.updates.extend(sessions.iter().filter_map(|session| {
+                    let before = previous.get(&session.key)?.permission_id.as_ref()?;
+                    let after = current.get(&session.key)?.permission_id.as_ref()?;
+                    (before != after).then(|| AlertUpdate::Fallback(AgentEvent::Permission(session.clone())))
+                }));
             }
         }
         self.previous = Some(current);
@@ -102,20 +109,27 @@ mod tests {
     }
 
     #[test]
-    fn permission_notice_follows_exact_pending_request() {
+    fn queued_permission_notifies_before_and_after_reaching_queue_head() {
         let mut c = AlertController::default();
         let first = item("waiting", Some("first"));
         let second = item("waiting", Some("second"));
         c.snapshot(std::slice::from_ref(&first));
         let notice = || serde_json::from_str(
-            r#"{"kind":"wait","wait":"permission","agentId":"agent","requestId":"first"}"#,
+            r#"{"kind":"wait","wait":"permission","agentId":"agent","requestId":"second"}"#,
         ).unwrap();
         c.notice(notice(), std::slice::from_ref(&first));
         let updates = c.take_updates();
         let [AlertUpdate::Notice(event)] = updates.as_slice() else { panic!("{updates:?}") };
-        assert_eq!(event.permission_id(), Some("first"));
+        assert_eq!(event.permission_id(), Some("second"));
+        assert_eq!(event.session().permission_id.as_deref(), Some("first"));
         c.snapshot(std::slice::from_ref(&second));
-        c.notice(notice(), &[second]);
+        let updates = c.take_updates();
+        let [AlertUpdate::Fallback(AgentEvent::Permission(event))] = updates.as_slice()
+        else { panic!("{updates:?}") };
+        assert_eq!(event.permission_id.as_deref(), Some("second"));
+        let cleared = item("waiting", None);
+        c.snapshot(std::slice::from_ref(&cleared));
+        c.notice(notice(), &[cleared]);
         assert!(matches!(c.take_updates().as_slice(), [AlertUpdate::Withdraw(_)]));
     }
 
@@ -136,6 +150,10 @@ mod tests {
         assert!(notice_event(parse(r#"{"kind":"done","agentId":"agent"}"#), &[sub]).is_none());
         assert!(notice_event(parse(r#"{"kind":"done","agentId":"other"}"#), sessions).is_none());
         assert!(notice_event(parse(r#"{"agentId":"agent"}"#), sessions).is_none());
+        assert!(matches!(
+            notice_event(parse(r#"{"kind":"wait","agentId":"agent","wait":"terminal","repeat":true}"#), sessions),
+            Some(AgentEvent::NoticeWait(_, crate::model::WaitKind::Terminal, ..))
+        ));
         let prefs = AlertPreferences { enabled: true, wait: true, done: true, min_turn: true };
         assert!(prefs.allows(&wait, None));
         assert!(!prefs.allows(&wait, Some(&item.key)));
@@ -145,7 +163,7 @@ mod tests {
         for (duration, allowed) in [(None, true), (Some(29_999), false), (Some(30_000), true)] {
             let done = notice_event(
                 serde_json::from_value(serde_json::json!({
-                    "kind":"done", "agentId":"agent", "interrupted":true, "durationMs":duration
+                    "kind":"done", "agentId":"agent", "interrupted":true, "durationMs":duration, "repeat":true
                 })).unwrap(),
                 sessions,
             ).unwrap();

@@ -170,11 +170,12 @@ describe('Office', () => {
     office.setStatus('acc:1', 'working');
     office.setStatus('acc:1', 'waiting', 'aprovar uma permissão');
     r = office.commit();
-    expect(r.notices.filter((n) => n.level === 'alert')).toHaveLength(1);
+    // Dentro dos 10 s a borda repetida sai marcada como `repeat` (a web ignora; o Zaplaud usa).
+    expect(r.notices.filter((n) => n.level === 'alert').map((n) => !!n.repeat)).toEqual([false, true]);
     advance(11_000);
     office.setStatus('acc:1', 'working');
     office.setStatus('acc:1', 'waiting', 'aprovar uma permissão');
-    expect(office.commit().notices.filter((n) => n.level === 'alert')).toHaveLength(1);
+    expect(office.commit().notices.filter((n) => n.level === 'alert' && !n.repeat)).toHaveLength(1);
     advance(5_000);
     office.setStatus('acc:1', 'working');
     advance(42_000);

@@ -60,17 +60,19 @@ suspend fun watchAlerts(
                                         val next = watchOf(current)
                                         previous?.let { before ->
                                             withdrawnSessions(before, next).forEach { key -> fallback.remove(key); withdraw(key) }
-                                            if (useSnapshotDiff(firstSnapshot, typedNoticeSeen)) {
-                                                val changes = agentEvents(before, current)
-                                                if (firstSnapshot) changes.forEach(::deliver)
-                                                else if (changes.isNotEmpty()) {
-                                                    changes.forEach { fallback[it.session.key] = it }
-                                                    // O servidor novo manda notice logo depois do snapshot no mesmo lote.
-                                                    if (fallbackJob?.isActive != true) fallbackJob = launch {
-                                                        delay(250)
-                                                        lock.withLock { fallback.values.forEach(::deliver); fallback.clear(); fallbackJob = null }
-                                                    }
-                                                }
+                                            val changes = agentEvents(before, current, useFallback = useSnapshotDiff(firstSnapshot, typedNoticeSeen))
+                                            for (change in changes) {
+                                                val key = change.session.key
+                                                val promoted = change is AgentEvent.Permission && change.requestId != null && before[key]?.permissionId != null
+                                                if (firstSnapshot || promoted) {
+                                                    fallback.remove(key)
+                                                    deliver(change)
+                                                } else fallback[key] = change
+                                            }
+                                            // O servidor novo manda notice logo depois do snapshot no mesmo lote.
+                                            if (fallback.isNotEmpty() && fallbackJob?.isActive != true) fallbackJob = launch {
+                                                delay(250)
+                                                lock.withLock { fallback.values.forEach(::deliver); fallback.clear(); fallbackJob = null }
                                             }
                                         }
                                         previous = next

@@ -34,6 +34,7 @@ data class NotificationRules(val permission: Boolean = true, val done: Boolean =
 internal fun noticeEvent(notice: JsonObject, sessions: List<SessionItem>): AgentEvent? {
     val agentId = notice.string("agentId") ?: return null
     val session = sessions.firstOrNull { !it.sub && it.agentId == agentId } ?: return null
+    // `repeat` é informativo; o aviso repetido também atualiza a notificação da sessão.
     return when (notice.string("kind")) {
         "wait" -> {
             val wait = when (notice.string("wait")) {
@@ -43,7 +44,8 @@ internal fun noticeEvent(notice: JsonObject, sessions: List<SessionItem>): Agent
                 else -> return null
             }
             val requestId = notice.string("requestId").takeUnless { wait == WaitKind.Terminal }
-            if (requestId != null && session.permissionId != requestId) return null
+            // O snapshot só expõe o primeiro pedido; o aviso também pode ser de um pedido na fila.
+            if (requestId != null && session.permissionId == null) return null
             AgentEvent.Permission(session, wait, notice.string("reason"), requestId)
         }
         "done" -> AgentEvent.TurnDone(session, notice.string("durationMs")?.toLongOrNull(), notice.flag("interrupted"))
@@ -57,14 +59,24 @@ internal fun notificationPermission(session: SessionItem?, key: SessionKey, requ
     session?.takeIf { it.key == key && it.permissionId == requestId }
 
 const val ALERT_BATCH_WINDOW_MS = 3_000L
-fun batchAlertCount(sessionCount: Int): Int? = sessionCount.takeIf { it >= 3 }
+fun mergeAlertBatch(summarized: MutableSet<SessionKey>, ready: Set<SessionKey>): Boolean {
+    if (ready.size < 3) return false
+    summarized.addAll(ready)
+    return true
+}
 
-/** Compara snapshots de servidor antigo ou o primeiro snapshot depois de uma queda da conexão. */
-fun agentEvents(previous: Map<SessionKey, AgentWatch>, current: List<SessionItem>): List<AgentEvent> = current.filter { it.agentId != null && !it.sub }.mapNotNull { session ->
+/** Inclui promoções da fila mesmo quando o servidor já manda avisos tipados. */
+internal fun agentEvents(
+    previous: Map<SessionKey, AgentWatch>,
+    current: List<SessionItem>,
+    useFallback: Boolean = true,
+): List<AgentEvent> = current.mapNotNull { session ->
+    if (session.agentId == null || session.sub) return@mapNotNull null
     val before = previous[session.key] ?: AgentWatch(null, null)
     val permission = session.permissionId
     when {
-        permission != null && permission != before.permissionId -> AgentEvent.Permission(session)
+        permission != null && permission != before.permissionId && (useFallback || before.permissionId != null) -> AgentEvent.Permission(session)
+        !useFallback -> null
         permission == null && before.status == "working" && session.status == "waiting" -> AgentEvent.Permission(session, WaitKind.Terminal)
         before.status == "working" && session.status in setOf("idle", "done") -> AgentEvent.TurnDone(session)
         else -> null
@@ -79,5 +91,5 @@ internal fun useSnapshotDiff(firstSnapshot: Boolean, typedNoticeSeen: Boolean) =
 internal fun withdrawnSessions(before: Map<SessionKey, AgentWatch>, after: Map<SessionKey, AgentWatch>): List<SessionKey> =
     before.mapNotNull { (key, old) ->
         val new = after[key]
-        key.takeIf { new == null || (old.permissionId != null && new.permissionId != old.permissionId) || (old.status != "working" && new.status == "working") }
+        key.takeIf { new == null || (old.permissionId != null && new.permissionId == null) || (old.status != "working" && new.status == "working") }
     }

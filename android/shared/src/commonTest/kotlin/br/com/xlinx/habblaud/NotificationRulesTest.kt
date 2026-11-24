@@ -50,23 +50,34 @@ class NotificationRulesTest {
         }
         assertEquals(AgentEvent.TurnDone(main, 77_000, interrupted = true),
             event(""""kind":"done","agentId":"agente","durationMs":77000,"interrupted":true"""))
+        assertEquals(AgentEvent.TurnDone(main), event(""""kind":"done","agentId":"agente","repeat":true"""))
+        assertEquals(AgentEvent.Permission(main, WaitKind.Terminal),
+            event(""""kind":"wait","agentId":"agente","wait":"terminal","repeat":true"""))
         assertNull(event(""""kind":"done","agentId":"sub""""))
         assertNull(event(""""kind":"done","agentId":"fora""""))
         assertNull(event(""""agentId":"agente","text":"Aviso antigo""""))
         assertNull(event(""""kind":"room","agentId":"agente""""))
     }
 
-    @Test fun permissionNoticesAndClicksUseTheExactPendingRequest() {
+    @Test fun queuedPermissionNotifiesButOnlyTheHeadCanOpenApproval() {
+        val head = session("waiting", "p1")
         val active = session("waiting", "p2")
         val other = key.copy(sessionId = "different")
         val json = wireJson.parseToJsonElement("""{"kind":"wait","agentId":"agente","wait":"permission","requestId":"p2"}""").jsonObject
         assertEquals("p2", assertIs<AgentEvent.Permission>(noticeEvent(json, listOf(active))).requestId)
-        assertNull(noticeEvent(json, listOf(active.copy(permissionId = "p1"))))
+        assertEquals("p2", assertIs<AgentEvent.Permission>(noticeEvent(json, listOf(head))).requestId)
+        assertNull(noticeEvent(json, listOf(session("waiting"))))
+        assertNull(notificationPermission(head, key, "p2"))
         assertEquals(active, notificationPermission(active, key, "p2"))
         assertNull(notificationPermission(active, key, "p1"))
         assertNull(notificationPermission(active, other, "p2"))
         assertNull(notificationPermission(active.copy(permissionId = null), key, "p2"))
-        assertEquals(listOf(key), withdrawnSessions(watchOf(listOf(session("waiting", "p1"))), watchOf(listOf(active))))
+        val before = watchOf(listOf(head))
+        val after = listOf(active)
+        assertTrue(withdrawnSessions(before, watchOf(after)).isEmpty())
+        assertEquals(AgentEvent.Permission(active), agentEvents(before, after, useFallback = false).single())
+        assertTrue(agentEvents(watchOf(after), after, useFallback = false).isEmpty())
+        assertTrue(agentEvents(emptyMap(), after, useFallback = false).isEmpty())
     }
 
     @Test fun legacyAndReconnectUseDiffWithTerminalWaitAndWithdrawal() {
@@ -95,15 +106,23 @@ class NotificationRulesTest {
         assertFalse(rules.copy(permission = false).allows(AgentEvent.Permission(session("waiting"), WaitKind.Terminal)))
     }
 
-    @Test fun suppressesOnlyTheVisibleSessionAndSummarizesThreeOrMore() {
+    @Test fun suppressesOnlyTheVisibleSession() {
         val other = key.copy(origin = "http://outro:4747")
         assertTrue(suppressNotification(key, visible = true, open = key))
         assertFalse(suppressNotification(key, visible = true, open = other))
         assertFalse(suppressNotification(key, visible = true, open = null))
         assertFalse(suppressNotification(key, visible = false, open = key))
-        assertNull(batchAlertCount(2))
-        assertEquals(3, batchAlertCount(3))
-        assertEquals(4, batchAlertCount(4))
+    }
+
+    @Test fun mergesSuccessiveBatchesWithoutDroppingOrDoubleCountingSessions() {
+        val keys = (1..6).map { key.copy(sessionId = "s$it") }
+        val summary = linkedSetOf<SessionKey>()
+        assertFalse(mergeAlertBatch(summary, keys.take(2).toSet()))
+        assertTrue(summary.isEmpty())
+        assertTrue(mergeAlertBatch(summary, keys.take(3).toSet()))
+        assertTrue(mergeAlertBatch(summary, keys.slice(2..4).toSet()))
+        assertFalse(mergeAlertBatch(summary, keys.takeLast(2).toSet()))
+        assertEquals(keys.take(5).toSet(), summary)
     }
 
     @Test fun weeklyQuotaChoosesMostUsedSevenDayWindowAcrossServers() {

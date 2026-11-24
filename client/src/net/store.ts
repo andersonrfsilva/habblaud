@@ -584,7 +584,8 @@ export class OfficeStore {
     es.addEventListener('notice', (ev) => {
       if (!current()) return;
       const n = this.parse<Notice>(ev, 'aviso');
-      if (n) this.emit('notice', n);
+      // Repetição dentro do dedupe de 10 s é para o Zaplaud; a web não repete o aviso.
+      if (n && !n.repeat) this.emit('notice', n);
     });
   }
 
@@ -628,7 +629,7 @@ export class OfficeStore {
       const r = sim.tick(now);
       if (r.changed) this.applySnapshot(sim.snapshot(now));
       this.applyFeed(r.feed);
-      r.notices.forEach((n) => this.emit('notice', n));
+      r.notices.forEach((n) => { if (!n.repeat) this.emit('notice', n); });
     }, 250);
   }
 }

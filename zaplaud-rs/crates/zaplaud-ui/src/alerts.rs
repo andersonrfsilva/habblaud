@@ -8,10 +8,12 @@ use notify_rust::Notification;
 use slint::{ComponentHandle, winit_030::WinitWindowAccessor};
 use std::{
     cell::RefCell,
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     sync::atomic::{AtomicBool, Ordering},
     time::Duration,
 };
+#[cfg(not(target_os = "macos"))]
+use std::collections::HashSet;
 use tokio::{
     sync::{Notify, mpsc},
     time::Instant,
@@ -79,7 +81,7 @@ pub fn setup(
         let mut multiple_servers = false;
         let mut pending: HashMap<SessionKey, (AgentEvent, bool)> = HashMap::new();
         let mut deadline = None;
-        let mut native = Native::default();
+        let mut native = Native::new(weak.clone(), commands.clone());
         loop {
             tokio::select! {
                 biased;
@@ -136,12 +138,7 @@ pub fn setup(
                 _ = tokio::time::sleep_until(deadline.unwrap_or_else(Instant::now)), if deadline.is_some() => {
                     pending.retain(|_, (event, _)| prefs.allows(event, focused_session(selected.as_ref())));
                     if batch_summary(pending.len()) {
-                        let count = pending.len() as i64;
-                        let text = strings::format_plural("notify_batch", count, &[&count.to_string()])
-                            .expect("recurso notify_batch");
-                        let members = pending.drain().map(|(key, _)| key).collect();
-                        native.summarize(members).await;
-                        native.show(notification(&text, ""), None, open(weak.clone(), commands.clone(), None)).await;
+                        native.summarize(pending.drain().map(|(key, _)| key)).await;
                     } else {
                         for (key, (event, _)) in pending.drain() {
                             let session = event.session();
@@ -169,7 +166,7 @@ pub fn setup(
                                 };
                                 let target = (serialized, event.permission_id().map(str::to_owned));
                                 let action = open(weak.clone(), commands.clone(), Some(target));
-                                native.show(notification, Some(key), action).await;
+                                native.show_session(notification, key, action).await;
                             }
                         }
                     }
@@ -209,9 +206,17 @@ fn notification(title: &str, body: &str) -> Notification {
     notification
 }
 
+fn summary_notification(count: usize) -> Notification {
+    let text = strings::format_plural("notify_batch", count as i64, &[&count.to_string()])
+        .expect("recurso notify_batch");
+    notification(&text, "")
+}
+
+type AppCommands = mpsc::UnboundedSender<Event>;
+
 fn open(
     weak: slint::Weak<AppWindow>,
-    commands: mpsc::UnboundedSender<Event>,
+    commands: AppCommands,
     target: Option<(String, Option<String>)>,
 ) -> impl FnOnce() + Send + 'static {
     move || {
@@ -234,11 +239,12 @@ fn open(
 }
 
 #[cfg(not(target_os = "macos"))]
-#[derive(Default)]
 struct Native {
     sessions: HashMap<SessionKey, Shown>,
     summary: Option<Shown>,
     summary_members: HashSet<SessionKey>,
+    weak: slint::Weak<AppWindow>,
+    commands: AppCommands,
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -260,10 +266,25 @@ impl Shown {
 
 #[cfg(not(target_os = "macos"))]
 impl Native {
-    async fn close_summary(&mut self) {
-        self.summary_members.clear();
-        if let Some(summary) = self.summary.take() {
-            summary.close().await;
+    fn new(weak: slint::Weak<AppWindow>, commands: AppCommands) -> Self {
+        Self { sessions: HashMap::new(), summary: None, summary_members: HashSet::new(), weak, commands }
+    }
+
+    fn forget_dismissed_summary(&mut self) {
+        if self.summary.as_ref().is_some_and(|shown| shown.listener.is_finished()) {
+            self.summary = None;
+            self.summary_members.clear();
+        }
+    }
+
+    async fn refresh_summary(&mut self) {
+        if self.summary_members.is_empty() {
+            if let Some(summary) = self.summary.take() {
+                summary.close().await;
+            }
+        } else {
+            let click = open(self.weak.clone(), self.commands.clone(), None);
+            self.show(summary_notification(self.summary_members.len()), None, click).await;
         }
     }
 
@@ -271,8 +292,9 @@ impl Native {
         if let Some(shown) = self.sessions.remove(key) {
             shown.close().await;
         }
-        if self.summary_members.contains(key) {
-            self.close_summary().await;
+        self.forget_dismissed_summary();
+        if self.summary_members.remove(key) {
+            self.refresh_summary().await;
         }
     }
 
@@ -282,20 +304,36 @@ impl Native {
         }) {
             shown.close().await;
         }
-        if self.summary_members.iter().any(|key| !origins.contains(&key.origin))
-            || self.summary.as_ref().is_some_and(|shown| shown.listener.is_finished())
-        {
-            self.close_summary().await;
+        self.forget_dismissed_summary();
+        let before = self.summary_members.len();
+        self.summary_members.retain(|key| origins.contains(&key.origin));
+        if self.summary_members.len() != before {
+            self.refresh_summary().await;
         }
     }
 
-    async fn summarize(&mut self, members: HashSet<SessionKey>) {
-        for key in &members {
-            if let Some(shown) = self.sessions.remove(key) {
+    async fn summarize(&mut self, members: impl Iterator<Item = SessionKey>) {
+        self.forget_dismissed_summary();
+        for key in members {
+            if let Some(shown) = self.sessions.remove(&key) {
                 shown.close().await;
             }
+            self.summary_members.insert(key);
         }
-        self.summary_members = members;
+        self.refresh_summary().await;
+    }
+
+    async fn show_session(
+        &mut self,
+        notification: Notification,
+        key: SessionKey,
+        click: impl FnOnce() + Send + 'static,
+    ) {
+        self.forget_dismissed_summary();
+        if self.summary_members.remove(&key) {
+            self.refresh_summary().await;
+        }
+        self.show(notification, Some(key), click).await;
     }
 
     async fn show(
@@ -305,9 +343,6 @@ impl Native {
         click: impl FnOnce() + Send + 'static,
     ) {
         self.sessions.retain(|_, shown| !shown.listener.is_finished());
-        if key.as_ref().is_some_and(|key| self.summary_members.contains(key)) {
-            self.close_summary().await;
-        }
         let previous = match &key {
             Some(key) => self.sessions.get(key),
             None => self.summary.as_ref().filter(|shown| !shown.listener.is_finished()),
@@ -352,19 +387,36 @@ impl Native {
 
 // shortcut: NSUserNotificationCenter não substitui nem retira por ID; migrar para UNUserNotificationCenter.
 #[cfg(target_os = "macos")]
-#[derive(Default)]
-struct Native;
+struct Native {
+    weak: slint::Weak<AppWindow>,
+    commands: AppCommands,
+}
 
 #[cfg(target_os = "macos")]
 impl Native {
+    fn new(weak: slint::Weak<AppWindow>, commands: AppCommands) -> Self {
+        Self { weak, commands }
+    }
+
     async fn withdraw(&mut self, _: &SessionKey) {}
     async fn retain_origins(&mut self, _: &[String]) {}
-    async fn summarize(&mut self, _: HashSet<SessionKey>) {}
+    async fn summarize(&mut self, members: impl Iterator<Item = SessionKey>) {
+        let click = open(self.weak.clone(), self.commands.clone(), None);
+        self.show(summary_notification(members.count()), click);
+    }
 
-    async fn show(
+    async fn show_session(
+        &mut self,
+        notification: Notification,
+        _: SessionKey,
+        click: impl FnOnce() + Send + 'static,
+    ) {
+        self.show(notification, click);
+    }
+
+    fn show(
         &mut self,
         mut notification: Notification,
-        _: Option<SessionKey>,
         click: impl FnOnce() + Send + 'static,
     ) {
         static WAITERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(6);
