@@ -69,6 +69,7 @@ pub fn notice_event(notice: Notice, sessions: &[SessionItem]) -> Option<AgentEve
             session.clone(),
             notice.duration_ms,
             notice.interrupted,
+            notice.excerpt.filter(|text| !text.trim().is_empty()),
         )),
         _ => None,
     }
@@ -90,7 +91,7 @@ impl AlertPreferences {
                 self.wait
             } else {
                 self.done && !(self.min_turn && matches!(
-                    event, AgentEvent::NoticeDone(_, Some(ms), _) if *ms < 30_000
+                    event, AgentEvent::NoticeDone(_, Some(ms), ..) if *ms < 30_000
                 ))
             }
     }
@@ -113,13 +114,20 @@ pub fn alert_reason(event: &AgentEvent) -> Option<String> {
         None => reason.to_owned(),
     })
 }
+/// O começo da resposta substitui "Terminou o turno" quando o servidor manda; turno interrompido mantém o aviso.
+pub fn alert_excerpt(event: &AgentEvent) -> Option<&str> {
+    match event {
+        AgentEvent::NoticeDone(_, _, false, Some(excerpt)) => Some(excerpt.trim()),
+        _ => None,
+    }
+}
 pub fn alert_text(event: &AgentEvent) -> &'static str {
     match event {
         AgentEvent::Permission(session) if session.permission_question => "notify_question",
         AgentEvent::NoticeWait(_, WaitKind::Question, ..) => "notify_question",
         AgentEvent::Permission(_) | AgentEvent::NoticeWait(_, WaitKind::Permission, ..) => "notify_permission",
         AgentEvent::TerminalWait(_) | AgentEvent::NoticeWait(_, WaitKind::Terminal, ..) => "notify_waiting",
-        AgentEvent::NoticeDone(_, _, true) => "notify_interrupted",
+        AgentEvent::NoticeDone(_, _, true, _) => "notify_interrupted",
         AgentEvent::TurnDone(_) | AgentEvent::NoticeDone(..) => "notify_done",
     }
 }

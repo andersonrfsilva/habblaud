@@ -19,6 +19,8 @@ sealed interface AgentEvent {
         override val session: SessionItem,
         val durationMs: Long? = null,
         val interrupted: Boolean = false,
+        /** Começo da última resposta do turno, quando o servidor manda. */
+        val excerpt: String? = null,
     ) : AgentEvent
 }
 
@@ -48,7 +50,12 @@ internal fun noticeEvent(notice: JsonObject, sessions: List<SessionItem>): Agent
             if (requestId != null && session.permissionId == null) return null
             AgentEvent.Permission(session, wait, notice.string("reason"), requestId)
         }
-        "done" -> AgentEvent.TurnDone(session, notice.string("durationMs")?.toLongOrNull(), notice.flag("interrupted"))
+        "done" -> AgentEvent.TurnDone(
+            session,
+            notice.string("durationMs")?.toLongOrNull(),
+            notice.flag("interrupted"),
+            notice.string("excerpt")?.trim()?.takeIf { it.isNotEmpty() },
+        )
         else -> null
     }
 }

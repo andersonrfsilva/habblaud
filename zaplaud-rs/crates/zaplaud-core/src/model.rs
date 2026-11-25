@@ -1045,7 +1045,8 @@ pub enum AgentEvent {
     Permission(SessionItem),
     TurnDone(SessionItem),
     NoticeWait(SessionItem, WaitKind, Option<String>, Option<String>),
-    NoticeDone(SessionItem, Option<i64>, bool),
+    /// Sessão, duração, interrompido, começo da resposta.
+    NoticeDone(SessionItem, Option<i64>, bool, Option<String>),
     TerminalWait(SessionItem),
 }
 impl AgentEvent {
@@ -1091,6 +1092,7 @@ pub struct Notice {
     pub duration_ms: Option<i64>,
     #[serde(default)]
     pub interrupted: bool,
+    pub excerpt: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

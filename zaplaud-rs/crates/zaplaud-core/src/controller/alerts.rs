@@ -171,6 +171,15 @@ mod tests {
             assert_eq!(prefs.allows(&done, None), allowed);
             assert!((AlertPreferences { min_turn: false, ..prefs }).allows(&done, None));
         }
+        // O começo da resposta vira o texto do aviso; turno interrompido continua dizendo que foi interrompido.
+        let done = |interrupted: bool| notice_event(
+            serde_json::from_value(serde_json::json!({
+                "kind":"done", "agentId":"agent", "interrupted":interrupted, "excerpt":"Pronto. O deploy terminou."
+            })).unwrap(),
+            sessions,
+        ).unwrap();
+        assert_eq!(crate::rules::alerts::alert_excerpt(&done(false)), Some("Pronto. O deploy terminou."));
+        assert_eq!(crate::rules::alerts::alert_excerpt(&done(true)), None);
         assert!(!batch_summary(2));
         assert!(batch_summary(3));
     }

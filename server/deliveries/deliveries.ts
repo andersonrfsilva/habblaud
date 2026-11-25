@@ -112,6 +112,12 @@ export function headlineOf(text: string): string {
   return cut(m ? m[1] : plain, HEADLINE_MAX);
 }
 
+/** Começo da resposta em texto corrido (primeiro parágrafo de prosa, sem markdown), para caber num aviso. */
+export function excerptOf(text: string, max = 160): string {
+  const first = paragraphs(text).find(isProse) ?? paragraphs(text)[0] ?? '';
+  return cut(stripMarkdown(first), max);
+}
+
 /** Último parágrafo em texto corrido (o resumo em linguagem simples), se for diferente da manchete. */
 export function summaryOf(text: string, headline: string): string | undefined {
   const paras = paragraphs(text).filter(isProse);

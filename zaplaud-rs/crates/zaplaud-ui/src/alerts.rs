@@ -21,7 +21,7 @@ use tokio::{
 use zaplaud_core::{
     controller::alerts::AlertUpdate,
     model::{AgentEvent, SessionKey},
-    rules::alerts::{AlertPreferences, alert_reason, alert_subtitle, alert_text, batch_summary},
+    rules::alerts::{AlertPreferences, alert_excerpt, alert_reason, alert_subtitle, alert_text, batch_summary},
 };
 
 type PermissionHandler = Box<dyn Fn(String, String)>;
@@ -144,7 +144,7 @@ pub fn setup(
                             let session = event.session();
                             let title = session.character_name.as_deref().unwrap_or(&session.title);
                             let text = strings::lookup(alert_text(&event)).expect("recurso da notificação");
-                            let mut body = text.to_owned();
+                            let mut body = alert_excerpt(&event).unwrap_or(text).to_owned();
                             if let Some(reason) = alert_reason(&event) {
                                 body.push_str(": ");
                                 body.push_str(&reason);

@@ -179,10 +179,11 @@ describe('Office', () => {
     advance(5_000);
     office.setStatus('acc:1', 'working');
     advance(42_000);
+    office.addActivity('acc:1', { id: 'r1', at: now(), kind: 'respond', icon: '💬', text: 'Escrevendo a resposta', detail: '## Feito\n\n**Pronto.** O deploy terminou sem erros e o `site` já responde.\n\n- detalhe' }, true);
     office.setStatus('acc:1', 'idle');
     const done = office.commit().notices.find((n) => n.kind === 'done');
     // O turno conta desde o primeiro "working"; esperar por você faz parte dele.
-    expect(done).toMatchObject({ agentId: 'acc:1', kind: 'done', durationMs: 58_000 });
+    expect(done).toMatchObject({ agentId: 'acc:1', kind: 'done', durationMs: 58_000, excerpt: 'Pronto. O deploy terminou sem erros e o site já responde.' });
     expect(done?.interrupted).toBeUndefined();
     office.noticePermission('acc:1', 'rm -rf build', 'permission', 'p1');
     expect(office.commit().notices).toEqual([expect.objectContaining({ kind: 'wait', wait: 'permission', reason: 'rm -rf build', requestId: 'p1' })]);

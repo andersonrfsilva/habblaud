@@ -591,6 +591,8 @@ export interface Notice {
   durationMs?: number;
   /** `done`: o provedor interrompeu o turno; não terminou de verdade. */
   interrupted?: boolean;
+  /** `done`: primeira frase da última resposta do turno, sem markdown (até 180 caracteres). */
+  excerpt?: string;
   /** Repetição dentro da janela de dedupe (10 s): a web não mostra; o Zaplaud usa para não perder a borda. */
   repeat?: boolean;
 }

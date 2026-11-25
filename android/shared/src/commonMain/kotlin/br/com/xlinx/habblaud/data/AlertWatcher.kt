@@ -114,6 +114,8 @@ fun alertText(event: AgentEvent): StringResource = when (event) {
 }
 
 fun alertBody(label: String, event: AgentEvent): String {
+    // O começo da resposta substitui "Terminou o turno"; turno interrompido continua dizendo que foi interrompido.
+    if (event is AgentEvent.TurnDone && !event.interrupted) event.excerpt?.let { return it }
     val reason = (event as? AgentEvent.Permission)?.reason?.trim()?.takeIf { it.isNotEmpty() } ?: return label
     val text = if (reason.length > 120) reason.take(119).trimEnd() + "…" else reason
     return "$label: $text"

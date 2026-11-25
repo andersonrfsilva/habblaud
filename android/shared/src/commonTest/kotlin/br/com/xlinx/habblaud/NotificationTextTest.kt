@@ -26,6 +26,12 @@ class NotificationTextTest {
         assertEquals("Aviso: " + "x".repeat(119) + "…", alertBody("Aviso", AgentEvent.Permission(session, reason = "x".repeat(121))))
     }
 
+    @Test fun finishedTurnShowsTheStartOfTheReply() {
+        assertEquals("Pronto. O deploy terminou.", alertBody("Terminou o turno", AgentEvent.TurnDone(session, excerpt = "Pronto. O deploy terminou.")))
+        assertEquals("Terminou o turno", alertBody("Terminou o turno", AgentEvent.TurnDone(session)))
+        assertEquals("Turno interrompido", alertBody("Turno interrompido", AgentEvent.TurnDone(session, interrupted = true, excerpt = "x")))
+    }
+
     @Test fun subtitleIncludesServerOnlyWithMultipleServers() {
         val event = AgentEvent.Permission(session)
         assertEquals("Projeto", alertSubtitle(event, false))

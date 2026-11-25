@@ -25,6 +25,7 @@ import type {
   NoticeKind,
 } from '../../shared/types';
 import { NEW_CAST_PREFIX } from '../../shared/types';
+import { excerptOf } from '../deliveries/deliveries';
 import { SHELL_WAIT_TOOL, SPECIAL, type ShellOutcome } from '../../shared/activity';
 import { nameKey } from '../../shared/appearance';
 import { DemoSimulator } from '../../shared/demo/simulator';
@@ -463,9 +464,16 @@ export class Office {
         this.addActivity(id, act, true);
         rec.synthDone = { id: act.id, at: now };
       }
+      // Começo da última resposta deste turno, para o aviso dizer o que o agente respondeu (não só "terminou").
+      const reply = rec.history.findLast((a) => a.kind === 'respond' && a.at >= (rec.turnStart ?? 0));
+      const excerpt = reply ? excerptOf(reply.detail ?? '') : '';
       this.notice('done', id, 'success', tr('✅ {0} concluiu em {1}', [info.name, room]), info.roomId, {
         repeatable: true,
-        extra: { ...(rec.turnStart ? { durationMs: now - rec.turnStart } : {}), ...(interrupted ? { interrupted: true } : {}) },
+        extra: {
+          ...(rec.turnStart ? { durationMs: now - rec.turnStart } : {}),
+          ...(interrupted ? { interrupted: true } : {}),
+          ...(excerpt ? { excerpt } : {}),
+        },
       });
     }
     this.markDirty();
@@ -1169,7 +1177,7 @@ export class Office {
       dedupeMs?: number;
       /** Dentro da janela de dedupe sai mesmo assim, com `repeat` (o Zaplaud precisa de cada borda; a web ignora). */
       repeatable?: boolean;
-      extra?: Pick<Notice, 'wait' | 'reason' | 'requestId' | 'durationMs' | 'interrupted'>;
+      extra?: Pick<Notice, 'wait' | 'reason' | 'requestId' | 'durationMs' | 'interrupted' | 'excerpt'>;
     } = {},
   ): void {
     if (this.booting) return;
