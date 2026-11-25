@@ -45,6 +45,10 @@ libc = "0.2"
 [target.'cfg(target_os = "linux")'.dependencies]
 ksni = { version = "0.3", default-features = false, features = ["async-io"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# Mesma versão do Slint: só para desligar a inércia própria do Flickable (o macOS já manda a inércia do trackpad).
+i-slint-core = "=1.19.0"
+
 [target.'cfg(target_os = "android")'.dependencies]
 slint = { workspace = true, features = ["backend-android-activity-06"] }
 

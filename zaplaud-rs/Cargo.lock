@@ -7097,6 +7097,7 @@ dependencies = [
  "base64 0.22.1",
  "futures-util",
  "httpdate",
+ "i-slint-core",
  "image",
  "ksni",
  "libc",

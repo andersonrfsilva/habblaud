@@ -24,7 +24,8 @@ do meio (0.**3**.0).
 - **Zaplaud (Android e desktop):** os avisos vêm do evento exato do servidor: avisa também quando o agente espera
   resposta no terminal e quando o turno é interrompido. Uma notificação por conversa, que some ao abrir ou responder;
   três ou mais de uma vez viram uma só; turnos com menos de 30 s não avisam (dá para mudar em Configurações). Com o
-  app aberto, só a conversa na tela fica sem aviso. Na primeira abertura o app pergunta se deve avisar.
+  app aberto, só a conversa na tela fica sem aviso. Na primeira abertura o app pergunta se deve avisar. O aviso de fim
+  de turno mostra o começo da resposta no lugar de "Terminou o turno".
 - **Zaplaud (Android e desktop):** a lista de conversas mostra no fim a cota semanal (7 dias) de cada provedor, com
   barra, percentual usado e quando renova.
 - **Servidor:** os avisos (`notice`) levam tipo, motivo da espera, id do pedido de permissão e duração do turno.
@@ -180,6 +181,8 @@ do meio (0.**3**.0).
 
 ### Alterado
 
+- **Zaplaud desktop (macOS):** a conversa não pula mais ao soltar o trackpad. A inércia é só a do macOS; a do Slint,
+  que brigava com a lista ao entrar um bloco de altura diferente, fica desligada.
 - **Zaplaud (Android e iPad):** a lista de sessões abre sem esperar a resposta de todos os servidores cadastrados.
 - **Zaplaud Android:** o cache de conversas tem teto de 64 MiB. Conversas removidas do cache são baixadas novamente ao abrir.
 - **Zaplaud (Android e iPad):** a conversa aberta reúne mudanças do cache em gravações a cada 3 segundos e grava sem esperar ao sair da conversa ou do app.

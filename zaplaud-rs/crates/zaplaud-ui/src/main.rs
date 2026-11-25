@@ -169,6 +169,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         window
             .global::<Theme>()
             .set_dark(std::env::var("ZAPLAUD_THEME").is_ok_and(|theme| theme == "dark"));
+        // O macOS já manda a inércia do trackpad como eventos de rolagem. A inércia própria do Slint por cima dela
+        // briga com o ListView, que recalcula a posição quando entra um bloco de altura diferente: a conversa pula.
+        // Com movimento reduzido, cada evento move exatamente o que o sistema mandou.
+        #[cfg(target_os = "macos")]
+        let _ = i_slint_core::with_existing_context(|context| {
+            context.set_motion_preference(i_slint_core::MotionPreference::Reduced)
+        });
         window.show()?;
         Ok(window)
     };
