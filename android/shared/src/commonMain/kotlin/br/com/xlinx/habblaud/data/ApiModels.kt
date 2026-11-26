@@ -74,7 +74,8 @@ class ConversationState {
     private var bytes = 0
     var truncated = false; private set
     var reduced = false; private set
-    fun snapshot(): List<TerminalEntry> = entries
+    /** Cópia: a tela memoriza pelas entradas publicadas; a lista viva nunca mudaria de identidade e o cache ficaria velho. */
+    fun snapshot(): List<TerminalEntry> = entries.toList()
     fun init(items: List<TerminalEntry>, truncated: Boolean) {
         require(items.sumOf { it.bytes.toLong() } <= MAX_BYTES && items.all { it.bytes <= MAX_BYTES }) { "event-too-large" }
         entries.clear(); ids.clear(); bytes = 0; reduced = false; this.truncated = truncated; append(items)

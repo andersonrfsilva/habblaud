@@ -29,4 +29,13 @@ class ConversationStateTest {
         try { state.append(listOf(entry("large", "x".repeat(ConversationState.MAX_BYTES)))) ; fail() } catch (_: IllegalArgumentException) { }
         assertEquals(listOf("ok"), state.snapshot().map { it.id })
     }
+    @Test fun publishedSnapshotDoesNotChangeWithLaterAppends() {
+        // A tela memoriza pela lista publicada: uma entrada nova precisa vir numa lista nova, não na mesma instância.
+        val state = ConversationState()
+        state.append(listOf(entry("one")))
+        val published = state.snapshot()
+        state.append(listOf(entry("two")))
+        assertEquals(listOf("one"), published.map { it.id })
+        assertNotEquals(published, state.snapshot())
+    }
 }
