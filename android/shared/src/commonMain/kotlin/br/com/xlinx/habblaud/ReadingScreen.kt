@@ -101,6 +101,7 @@ import androidx.lifecycle.compose.currentStateAsState
 import androidx.lifecycle.repeatOnLifecycle
 import br.com.xlinx.habblaud.data.*
 import com.mikepenz.markdown.m3.Markdown
+import com.mikepenz.markdown.model.rememberMarkdownState
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
 import kotlinx.coroutines.launch
@@ -1407,8 +1408,14 @@ private fun EntryView(entry: TerminalEntry, results: Map<String?, List<TerminalE
                     } else {
                         if (summarized) Text(stringResource(Res.string.summary_collapse), Modifier.onGloballyPositioned { headerY = it.positionInWindow().y }.clickable { val before = headerY; keepPlace(before) { headerY }; onExpanded(false) }.padding(bottom = 4.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                         SelectionContainer {
+                            // retainState: reprocessar o texto mantém a resposta desenhada. Sem isso, cada recomposição
+                            // voltava a resposta ao estado "carregando" (poucas linhas) por um quadro, e a lista invertida
+                            // pulava milhares de pixels.
+                            val markdown = rememberMarkdownState(remember(entry.text) { markdownImageLinks(entry.text) }, retainState = true)
+                            // Fora da busca, os componentes são os mesmos entre recomposições: o Markdown é pulado, como antes.
+                            val plainComponents = remember(api) { conversationMarkdownComponents(api, null) }
                             Markdown(
-                                remember(entry.text) { markdownImageLinks(entry.text) },
+                                markdown,
                                 modifier = Modifier.fillMaxWidth(),
                                 colors = markdownColor(text = if (entry.kind == "user") MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface),
                                 typography = markdownTypography(
@@ -1420,8 +1427,8 @@ private fun EntryView(entry: TerminalEntry, results: Map<String?, List<TerminalE
                                     h6 = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
                                 ),
                                 dimens = chatMarkdownDimens(),
-                                annotator = conversationMarkdownAnnotator,
-                                components = conversationMarkdownComponents(api, find),
+                                annotator = if (find != null) conversationMarkdownAnnotator else defaultMarkdownAnnotator,
+                                components = if (find != null) conversationMarkdownComponents(api, find) else plainComponents,
                             )
                         }
                         MarkdownImages(entry.text, api)

@@ -90,6 +90,9 @@ private val atxHeadings = setOf(Element.ATX_1, Element.ATX_2, Element.ATX_3, Ele
 internal fun findHeadingContent(node: ASTNode): ASTNode =
     node.findChildOfType(if (node.type in atxHeadings) Token.ATX_CONTENT else Token.SETEXT_CONTENT) ?: node
 
+/** O padrão da biblioteca, numa instância só, para as linhas sem resultado de busca. */
+internal val defaultMarkdownAnnotator = markdownAnnotator()
+
 internal val conversationMarkdownAnnotator = markdownAnnotator { source, node ->
     if (node.type == Token.TEXT && node.parent?.type != Element.CODE_SPAN) {
         append(EntityConverter.replaceEntities(node.getTextInNode(source), true, true))
