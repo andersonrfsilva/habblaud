@@ -3,6 +3,7 @@ use zaplaud_core::{
     api::HabblaudApi,
     controller::reading::ReadingController,
     model::{Access, SessionCollection, SessionKey},
+    rules::list::{RecentFooter, RecentPaging, recent_footer},
 };
 use zaplaud_store::SessionMarks;
 
@@ -130,12 +131,16 @@ pub enum Event {
         generation: u64,
         access: Access,
         repository: SessionCollection,
+        recent_step: u8,
     },
     RecentRefreshed {
         origin: String,
         generation: u64,
         result: Result<String, zaplaud_core::Error>,
+        step: u8,
     },
+    LoadMoreRecent,
+    RecentMoreFinished(Vec<(u64, Result<String, zaplaud_core::Error>)>),
     SnapshotData {
         origin: String,
         generation: u64,
@@ -188,6 +193,7 @@ pub struct ServerState {
     pub generation: u64,
     pub task: tokio::task::JoinHandle<()>,
     pub recent_task: Option<tokio::task::JoinHandle<()>>,
+    pub recent_step: Option<u8>,
     pub marks: HashMap<String, SessionMarks>,
 }
 impl Drop for ServerState {
@@ -203,17 +209,28 @@ pub struct AppState {
     pub filter: Option<String>,
     pub query: String,
     pub recent: bool,
+    pub recent_paging: RecentPaging,
     pub favorites: bool,
     pub persistence: Persistence,
     pub next_generation: u64,
 }
 impl AppState {
+    pub fn recent_footer(&self) -> RecentFooter {
+        recent_footer(
+            self.recent_paging.display_step(),
+            self.servers
+                .iter()
+                .filter_map(|server| server.reading.repository.recent_window),
+        )
+    }
+
     pub fn new(persistence: Box<dyn AppPersistence>) -> Self {
         Self {
             servers: Vec::new(),
             filter: None,
             query: String::new(),
             recent: false,
+            recent_paging: RecentPaging::default(),
             favorites: false,
             persistence: Persistence(std::sync::Arc::new(std::sync::Mutex::new(persistence))),
             next_generation: 0,

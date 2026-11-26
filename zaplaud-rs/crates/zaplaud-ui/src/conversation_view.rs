@@ -1,14 +1,17 @@
 use crate::{
-    AppWindow, ConversationState, ConversationViewState, InfoRow, TaskRow,
+    AppWindow, ConversationState, ConversationViewState, FindCodeMark, FindCodePreview, FindMark,
+    FindPaint, InfoRow, MarkdownFind, MdSpan, TaskRow,
     feature::FeatureContext,
     state::{Event, now_millis},
     strings, update_ui,
 };
-use slint::{ComponentHandle, Model, ModelExt, ModelRc, VecModel};
+use slint::{Color, ComponentHandle, Model, ModelExt, ModelRc, SharedString, StyledText, VecModel};
 use std::{
+    borrow::Borrow,
     cell::RefCell,
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     rc::Rc,
+    ops::Range,
     time::{Duration, SystemTime},
 };
 use tokio::sync::mpsc;
@@ -22,10 +25,11 @@ use zaplaud_core::{
 };
 use zaplaud_store::{LocalStateStore, ReadingState};
 
-use zaplaud_ui::conversation_rows::{RenderRow, build_rows};
+use zaplaud_ui::conversation_rows::{FindRun, RenderRow, build_rows, find_row_id};
 enum Command {
     View(usize),
     Toggle(String),
+    ExpandForFind(i32, String),
     Observe(String),
     Position(i32, bool),
     Anchor(i32, String, String, f32, bool),
@@ -36,21 +40,274 @@ enum Command {
 impl Command {
     fn matches_reading_generation(&self, active: i32) -> bool {
         match self {
-            Self::Position(generation, _) | Self::Anchor(generation, ..) => *generation == active,
+            Self::Position(generation, _) | Self::Anchor(generation, ..)
+            | Self::ExpandForFind(generation, _) => *generation == active,
             _ => true,
         }
     }
 }
 thread_local! { static ROWS: RefCell<Option<Rc<VecModel<RenderRow>>>> = const { RefCell::new(None) }; }
 
+#[derive(Default)]
+struct FindMessage {
+    source: SharedString,
+    runs: Vec<FindRun>,
+    first: usize,
+    last: usize,
+    collapsed: bool,
+    markdown: bool,
+    revision: usize,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct FindHit {
+    entry: SharedString,
+    piece: usize,
+    block: i32,
+    cell: i32,
+    range: Range<usize>,
+}
+
+type BlockMarks = HashMap<(i32, i32), ModelRc<FindMark>>;
+
+#[derive(Default)]
+struct FindState {
+    term: String,
+    revision: usize,
+    messages: HashMap<SharedString, FindMessage>,
+    matches: Vec<FindHit>,
+    marks: HashMap<SharedString, BlockMarks>,
+    paint_revision: i32,
+    current: Option<usize>,
+    pick_top: Option<usize>,
+    expanding: Option<SharedString>,
+}
+
+thread_local! { static FIND: RefCell<FindState> = RefCell::new(FindState::default()); }
+
+impl FindState {
+    fn index(&mut self, rows: impl IntoIterator<Item = impl Borrow<RenderRow>>) {
+        self.revision = self.revision.wrapping_add(1);
+        let revision = self.revision;
+        for (index, row) in rows.into_iter().enumerate() {
+            let Some(source) = row.borrow().find_source() else {
+                continue;
+            };
+            let message = if let Some(message) = self.messages.get_mut(source.id) {
+                message
+            } else {
+                self.messages.entry(source.id.into()).or_default()
+            };
+            if message.revision != revision {
+                message.first = index;
+                message.collapsed = source.collapsed;
+                if message.source != *source.source || message.markdown != source.markdown {
+                    message.runs = source.runs();
+                    message.source = source.source.clone();
+                    message.markdown = source.markdown;
+                }
+                message.revision = revision;
+            }
+            message.last = index;
+        }
+        self.messages.retain(|_, message| message.revision == revision);
+    }
+
+    fn current_hit(&self) -> Option<&FindHit> {
+        self.current.and_then(|index| self.matches.get(index))
+    }
+
+    fn visual_row(&self, hit: &FindHit) -> usize {
+        let message = &self.messages[&hit.entry];
+        message.first + hit.piece.min(message.last - message.first)
+    }
+
+    fn refresh(&mut self, state: &ConversationViewState, paint: &MarkdownFind, top: i32, edited: bool) {
+        let old = self.current_hit().cloned();
+        self.matches.clear();
+        self.marks.clear();
+        if !self.term.is_empty() {
+            let mut messages: Vec<_> = self.messages.iter().collect();
+            messages.sort_unstable_by_key(|(_, message)| message.first);
+            for (entry, message) in messages {
+                for run in &message.runs {
+                    let marks: Vec<_> = run.normalized.occurrences(&self.term).map(|range| {
+                        let mark = FindMark {
+                            start: range.start as i32,
+                            end: range.end as i32,
+                            index: self.matches.len() as i32,
+                        };
+                        self.matches.push(FindHit {
+                            entry: entry.clone(),
+                            piece: run.piece,
+                            block: run.block,
+                            cell: run.cell,
+                            range,
+                        });
+                        mark
+                    }).collect();
+                    if !marks.is_empty() {
+                        self.marks.entry(find_row_id(entry, run.piece)).or_default()
+                            .insert((run.block, run.cell), ModelRc::new(VecModel::from(marks)));
+                    }
+                }
+            }
+        }
+        let top = if edited { top.max(0) as usize } else { self.pick_top.unwrap_or(top.max(0) as usize) };
+        self.current = if edited || self.pick_top.is_some() {
+            None
+        } else {
+            old.as_ref().and_then(|hit| self.matches.iter().position(|candidate| candidate == hit))
+        }
+        .or_else(|| conversation::find_initial(&self.matches, top, |hit| self.visual_row(hit)));
+        self.paint_revision = self.paint_revision.wrapping_add(1).max(1);
+        paint.set_revision(if self.marks.is_empty() { 0 } else { self.paint_revision });
+        if (edited || self.pick_top.is_some())
+            && let Some(hit) = self.current_hit()
+            && self.visual_row(hit) == top
+            && !self.messages[&hit.entry].collapsed
+        {
+            let row = find_row_id(&hit.entry, hit.piece);
+            self.pick_top = Some(top);
+            Self::stop_navigation(state);
+            paint.set_probe_row(row);
+            return;
+        }
+        self.pick_top = None;
+        paint.set_probe_row("".into());
+        self.present(state, paint, edited || self.current_hit() != old.as_ref());
+    }
+
+    fn picked(&mut self, state: &ConversationViewState, paint: &MarkdownFind, index: i32) {
+        let Some(top) = self.pick_top.take() else { return };
+        if index >= 0 {
+            self.current = Some(index as usize);
+        } else if !self.matches.is_empty() {
+            let after = self.matches.partition_point(|hit| self.visual_row(hit) <= top);
+            self.current = Some(after.min(self.matches.len() - 1));
+        }
+        self.present(state, paint, true);
+    }
+
+    fn present(&mut self, state: &ConversationViewState, paint: &MarkdownFind, navigate: bool) {
+        let counter = if let Some(index) = self.current {
+            crate::formatted(
+                "find_count",
+                &[&(index + 1).to_string(), &self.matches.len().to_string()],
+            )
+        } else if self.term.is_empty() {
+            String::new()
+        } else {
+            strings::FIND_NONE.into()
+        };
+        state.set_find_counter(counter.into());
+        let Some(hit) = self.current_hit().cloned() else {
+            if !state.get_find_current().is_empty() {
+                Self::stop_navigation(state);
+            }
+            state.set_find_current("".into());
+            paint.set_current(-1);
+            self.expanding = None;
+            return;
+        };
+        let id = hit.entry;
+        let row = find_row_id(&id, hit.piece);
+        paint.set_current(self.current.unwrap_or(0) as i32);
+        state.set_find_current(id.clone());
+        let waiting = self.expanding.as_ref() == Some(&id);
+        if !navigate && !waiting {
+            return;
+        }
+        let message = &self.messages[&id];
+        if message.collapsed {
+            if navigate {
+                Self::stop_navigation(state);
+            }
+            if !waiting {
+                self.expanding = Some(id.clone());
+                state.invoke_find_expand(state.get_reading_generation(), id);
+            }
+            return;
+        }
+        self.expanding = None;
+        state.set_reset_request(state.get_reset_request().wrapping_add(1));
+        state.set_capture_pending(false);
+        state.set_restore_pending(true);
+        state.set_stable_ticks(0);
+        state.set_measured_height(-1.);
+        state.set_scan_index(-1);
+        state.set_anchor_entry(id);
+        state.set_anchor_row(row);
+        state.set_anchor_offset(0.);
+        state.set_anchor_index((message.first + hit.piece) as i32);
+        state.set_find_jump(true);
+        state.set_anchor_ticks(46);
+    }
+
+    fn stop_navigation(state: &ConversationViewState) {
+        state.set_reset_request(state.get_reset_request().wrapping_add(1));
+        state.set_restore_pending(false);
+        state.set_find_jump(false);
+        state.set_anchor_ticks(0);
+        state.set_pending_capture_generation(state.get_reading_generation());
+        state.set_capture_pending(true);
+    }
+}
+
+fn find_changed(state: &ConversationViewState, paint: &MarkdownFind, top: i32) {
+    if !state.get_find_open() {
+        return;
+    }
+    FIND.with(|find| {
+        let mut find = find.borrow_mut();
+        let term = conversation::find_term(&state.get_find_query());
+        if term == find.term {
+            return;
+        }
+        if find.term.is_empty() {
+            ROWS.with(|slot| {
+                if let Some(rows) = slot.borrow().as_ref() {
+                    find.index(rows.iter());
+                }
+            });
+        }
+        find.term = term;
+        find.refresh(state, paint, top, true);
+    });
+}
+
+fn reset_find(state: &ConversationViewState, paint: &MarkdownFind) {
+    state.set_find_open(false);
+    state.set_find_query("".into());
+    state.set_find_counter("".into());
+    state.set_find_top_index(-1);
+    state.set_find_current("".into());
+    paint.set_current(-1);
+    paint.set_probe_row("".into());
+    paint.set_revision(0);
+    FIND.with(|find| *find.borrow_mut() = FindState::default());
+}
+
+fn find_viewport_top(state: &ConversationViewState) -> i32 {
+    let top = state.get_find_top_index();
+    if top >= 0 {
+        top
+    } else {
+        state.get_anchor_index()
+    }
+}
+
 fn set_rows(window: &AppWindow, rows: Vec<RenderRow>, reset: bool) {
+    let state = window.global::<ConversationViewState>();
+    let searching = state.get_find_open() && FIND.with(|find| !find.borrow().term.is_empty());
+    if searching {
+        FIND.with(|find| find.borrow_mut().index(&rows));
+    }
     ROWS.with(|slot| {
         let mut slot = slot.borrow_mut();
         if reset || slot.is_none() {
             let model = Rc::new(VecModel::from(rows));
-            window
-                .global::<ConversationViewState>()
-                .set_rows(ModelRc::new(model.clone().map(RenderRow::into_ui)));
+            state.set_rows(ModelRc::new(model.clone().map(RenderRow::into_ui)));
             *slot = Some(model);
         } else if let Some(model) = slot.as_ref() {
             let old = model.row_count();
@@ -67,6 +324,173 @@ fn set_rows(window: &AppWindow, rows: Vec<RenderRow>, reset: bool) {
             }
         }
     });
+    if searching {
+        let top = find_viewport_top(&state);
+        let paint = window.global::<MarkdownFind>();
+        FIND.with(|find| find.borrow_mut().refresh(&state, &paint, top, false));
+    }
+}
+
+fn code_marks(text: &str, marks: &ModelRc<FindMark>) -> ModelRc<FindCodeMark> {
+    ModelRc::new(VecModel::from(code_mark_rows(text, marks.iter())))
+}
+
+fn code_mark_rows(text: &str, marks: impl IntoIterator<Item = FindMark>) -> Vec<FindCodeMark> {
+    let mut result = Vec::new();
+    let mut line = 0;
+    let mut line_start = 0;
+    let mut scanned = 0;
+    for mark in marks {
+        let start = mark.start as usize;
+        let end = (mark.end as usize).min(text.len());
+        let Some(between) = text.get(scanned..start) else { continue };
+        line += between.bytes().filter(|&ch| ch == b'\n').count() as i32;
+        if let Some(last) = between.rfind('\n') {
+            line_start = scanned + last + 1;
+        }
+        scanned = start;
+        let Some(matched) = text.get(start..end) else { continue };
+        for (offset, part) in matched.split('\n').enumerate() {
+            if !part.is_empty() {
+                result.push(FindCodeMark {
+                    line: line + offset as i32,
+                    prefix: if offset == 0 { text[line_start..start].into() } else { "".into() },
+                    text: part.into(),
+                    index: mark.index,
+                    first: offset == 0,
+                });
+            }
+        }
+    }
+    result
+}
+
+fn diagram_source(text: &str, marks: &ModelRc<FindMark>, current: i32) -> FindCodePreview {
+    let Some(hit) = marks.iter().find(|mark| mark.index == current).or_else(|| marks.row_data(0))
+    else {
+        return FindCodePreview::default();
+    };
+    // A imagem é uma única linha virtual. Mostre um trecho curto para manter as coordenadas do código no orçamento.
+    let hit_start = hit.start as usize;
+    let hit_end = hit.end as usize;
+    let start = text.floor_char_boundary(hit_start.saturating_sub(192));
+    let end = text.floor_char_boundary(text.len().min(hit_end + 192).min(start + 768));
+    let start = text[start..hit_start].find('\n').map_or(start, |offset| start + offset + 1);
+    let end = text[hit_end.min(end)..end].rfind('\n').map_or(end, |offset| hit_end + offset);
+    let preview = &text[start..end];
+    let marks = marks.iter().filter_map(|mark| {
+        let low = start.max(mark.start as usize);
+        let high = end.min(mark.end as usize);
+        (low < high).then(|| FindMark {
+            start: (low - start) as i32,
+            end: (high - start) as i32,
+            index: mark.index,
+        })
+    });
+    FindCodePreview {
+        text: preview.into(),
+        lines: preview.split('\n').count() as i32,
+        marks: ModelRc::new(VecModel::from(code_mark_rows(preview, marks))),
+    }
+}
+
+// O Slint só permite cor e sublinhado em vários trechos independentes do StyledText.
+fn paint_text(
+    rich: StyledText,
+    text: SharedString,
+    spans: ModelRc<MdSpan>,
+    marks: ModelRc<FindMark>,
+    current: i32,
+    ink: Color,
+    active_ink: Color,
+    bold: bool,
+    italic: bool,
+) -> FindPaint {
+    use i_slint_core::styled_text::{get_raw_text, parse_markdown};
+    const ARG: &str = "\u{e541}";
+    let active = marks.iter().find(|mark| mark.index == current);
+    let paint = |limit: usize| {
+        let mut format = String::new();
+        let mut args = Vec::new();
+        let mut offset = 0;
+        let mut marks = marks.iter().peekable();
+        let plain = MdSpan { text: text.clone(), ..Default::default() };
+        let spans = spans.iter().chain((spans.row_count() == 0).then_some(plain));
+        for span in spans {
+            if offset >= limit { break; }
+            let Some(source) = span.text.get(..(limit - offset).min(span.text.len())) else { break };
+            let end = offset + source.len();
+            let mut subformat = String::new();
+            let mut subargs = Vec::new();
+            let mut at = offset;
+            while at < end {
+                while marks.peek().is_some_and(|mark| mark.end as usize <= at) {
+                    marks.next();
+                }
+                let next_mark = marks.peek();
+                let matched = next_mark.filter(|mark| mark.start as usize <= at);
+                let next = matched.map_or_else(
+                    || next_mark.map_or(end, |mark| end.min(mark.start as usize)),
+                    |mark| end.min(mark.end as usize),
+                );
+                let Some(piece) = source.get(at - offset..next - offset) else { break };
+                if let Some(mark) = matched {
+                    let chosen = mark.index == current;
+                    let color = if chosen { active_ink } else { ink };
+                    let (r, g, b) = (color.red(), color.green(), color.blue());
+                    subformat.push_str(&format!("<u><font color=\"#{r:02x}{g:02x}{b:02x}\">"));
+                    if chosen && !bold && !span.bold { subformat.push_str("**"); }
+                    subformat.push_str(ARG);
+                    if chosen && !bold && !span.bold { subformat.push_str("**"); }
+                    subformat.push_str("</font></u>");
+                } else {
+                    subformat.push_str(ARG);
+                }
+                subargs.push(StyledText::from_plain_text(piece));
+                at = next;
+            }
+            if !subargs.is_empty() {
+                let sub = parse_markdown(&subformat, &subargs);
+                let mut wrapper = ARG.to_owned();
+                if span.code { wrapper = format!("`{wrapper}`"); }
+                if span.strike { wrapper = format!("~~{wrapper}~~"); }
+                if italic || span.italic { wrapper = format!("_{wrapper}_"); }
+                if bold || span.bold { wrapper = format!("**{wrapper}**"); }
+                if !span.link.is_empty() {
+                    let link = span.link.replace('\\', "%5C").replace('<', "%3C").replace('>', "%3E");
+                    wrapper = format!("[{wrapper}](<{link}>)");
+                }
+                args.push(if wrapper == ARG { sub } else { parse_markdown(&wrapper, &[sub]) });
+                format.push_str(ARG);
+            }
+            offset = end;
+        }
+        parse_markdown(&format, &args)
+    };
+    let painted = paint(text.len());
+    // A reconstrução nunca substitui o texto original por uma versão truncada.
+    let rich = if get_raw_text(&painted).as_ref() == text.as_str() { painted } else { rich };
+    FindPaint {
+        rich,
+        prefix: active.as_ref().map_or_else(StyledText::default, |mark| paint(mark.end as usize)),
+        active: active.is_some(),
+    }
+}
+
+fn setup_find_paint(paint: &MarkdownFind) {
+    paint.on_marks(|row, block, cell, _| {
+        FIND.with(|find| {
+            find.borrow().marks.get(&row)
+                .and_then(|blocks| blocks.get(&(block, cell)).cloned())
+                .unwrap_or_default()
+        })
+    });
+    paint.on_paint(|rich, text, spans, marks, current, ink, active, bold, italic| {
+        paint_text(rich, text, spans, marks, current, ink, active, bold, italic)
+    });
+    paint.on_code_marks(|text, marks| code_marks(&text, &marks));
+    paint.on_diagram_source(|text, marks, current| diagram_source(&text, &marks, current));
+    paint.on_prefix(|text, end| text.get(..end as usize).unwrap_or_default().into());
 }
 fn notice(error: Option<&str>, connection: &str) -> String {
     match error {
@@ -181,7 +605,7 @@ impl SessionRun {
                 state.set_anchor_ticks(46);
                 state.set_stable_ticks(0);
                 state.set_measured_height(-1.);
-                state.set_following(reading.following);
+                state.set_following(reading.following && !state.get_find_open());
                 state.set_capture_pending(false);
                 state.set_scan_index(-1);
                 state.set_anchor_index(-1);
@@ -189,14 +613,18 @@ impl SessionRun {
                 state.set_anchor_row(reading.row.into());
                 state.set_anchor_offset(reading.offset);
                 if reading.following {
-                    state.set_end_request(state.get_end_request().wrapping_add(1));
+                    if state.get_find_open() {
+                        state.invoke_position(generation, false);
+                    } else {
+                        state.set_end_request(state.get_end_request().wrapping_add(1));
+                    }
                 }
             }
             let anchor = state.get_anchor_row();
             let entry = state.get_anchor_entry();
             let index = zaplaud_ui::conversation_rows::anchor_index(&rows, &entry, &anchor);
-            set_rows(&window, rows, reading_generation.is_some());
             state.set_anchor_index(index.map_or(-1, |index| index as i32));
+            set_rows(&window, rows, reading_generation.is_some());
             if let Some(item) = item {
                 publish_info(&window, &item, &entries, partial);
             }
@@ -638,6 +1066,14 @@ async fn run_session(
                         run.save();
                         run.render(&weak,None);
                     }
+                    Some(Command::ExpandForFind(_, id)) => {
+                        if !run.expanded.contains(&id) {
+                            run.reading.toggle(id);
+                            run.expanded = run.reading.expanded.iter().cloned().collect();
+                            run.save();
+                            run.render(&weak,None);
+                        }
+                    }
                     Some(Command::Observe(id)) => {
                         let entry = run.controller.conversation.snapshot().find(|entry| entry.id == id).cloned();
                         if let Some(entry) = entry
@@ -775,10 +1211,75 @@ async fn stop_session(task: &mut Option<tokio::task::JoinHandle<()>>) {
 }
 pub fn setup(window: &AppWindow, context: &FeatureContext) {
     let state = window.global::<ConversationViewState>();
+    setup_find_paint(&window.global::<MarkdownFind>());
     let selection = window.global::<crate::MarkdownSelection>();
     selection.on_format(|blocks| zaplaud_ui::markdown::selection_text(&blocks));
     state.set_go_to_end(strings::GO_TO_END.into());
     state.set_view_label(strings::VIEW_MENU.into());
+    state.set_find_label(strings::FIND_IN_CONVERSATION.into());
+    state.set_find_placeholder(strings::FIND_PLACEHOLDER.into());
+    state.set_find_previous(strings::FIND_PREVIOUS.into());
+    state.set_find_next(strings::FIND_NEXT.into());
+    state.set_find_close_label(strings::SEARCH_CLOSE.into());
+    let weak = window.as_weak();
+    state.on_find_start(move || {
+        let Some(window) = weak.upgrade() else { return };
+        if !window.global::<ConversationState>().get_selected()
+            || window.global::<crate::AsideState>().get_visible()
+        {
+            return;
+        }
+        let state = window.global::<ConversationViewState>();
+        if !state.get_find_open() {
+            state.set_following(false);
+            state.invoke_position(state.get_reading_generation(), false);
+            state.set_find_open(true);
+            FindState::stop_navigation(&state);
+        }
+        state.set_find_focus_request(state.get_find_focus_request().wrapping_add(1));
+    });
+    let weak = window.as_weak();
+    state.on_find_close(move || {
+        if let Some(window) = weak.upgrade() {
+            let state = window.global::<ConversationViewState>();
+            FindState::stop_navigation(&state);
+            reset_find(&state, &window.global::<MarkdownFind>());
+        }
+    });
+    let weak = window.as_weak();
+    state.on_find_changed(move || {
+        if let Some(window) = weak.upgrade() {
+            let state = window.global::<ConversationViewState>();
+            find_changed(&state, &window.global::<MarkdownFind>(), find_viewport_top(&state));
+        }
+    });
+    let weak = window.as_weak();
+    state.on_find_picked(move |index| {
+        if let Some(window) = weak.upgrade() {
+            let state = window.global::<ConversationViewState>();
+            let paint = window.global::<MarkdownFind>();
+            FIND.with(|find| find.borrow_mut().picked(&state, &paint, index));
+        }
+    });
+    let weak = window.as_weak();
+    state.on_find_move(move |forward| {
+        let Some(window) = weak.upgrade() else { return };
+        let state = window.global::<ConversationViewState>();
+        if !state.get_find_open() {
+            return;
+        }
+        let paint = window.global::<MarkdownFind>();
+        find_changed(&state, &paint, find_viewport_top(&state));
+        FIND.with(|find| {
+            let mut find = find.borrow_mut();
+            find.pick_top = None;
+            paint.set_probe_row("".into());
+            if let Some(current) = find.current {
+                find.current = conversation::find_step(current, find.matches.len(), forward);
+                find.present(&state, &paint, true);
+            }
+        });
+    });
     let weak = window.as_weak();
     crate::window_state::on_focus(move |focused| {
         if let Some(window) = weak.upgrade() {
@@ -826,6 +1327,10 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
         }
     });
     let (sender, mut receiver) = mpsc::unbounded_channel();
+    let send = sender.clone();
+    state.on_find_expand(move |generation, id| {
+        let _ = send.send(Command::ExpandForFind(generation, id.into()));
+    });
     let send = sender.clone();
     window
         .global::<crate::SettingsState>()
@@ -951,6 +1456,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                     reading_generation = reading_generation.checked_add(1).expect("reading generation exhausted");
                     update_ui(&weak, |w| {
                         let state = w.global::<ConversationViewState>();
+                        reset_find(&state, &w.global::<MarkdownFind>());
                         state.set_reset_request(state.get_reset_request().wrapping_add(1));
                         state.set_info_open(false);
                         state.set_menu_open(false);
@@ -1008,6 +1514,166 @@ pub(crate) fn open_system(target: &std::ffi::OsStr) -> std::io::Result<()> {
 mod tests {
     use super::*;
     use zaplaud_core::model::SessionKey;
+
+    #[test]
+    fn find_reveals_code_line_and_paragraph_at_end_of_tall_answer() {
+        use slint::platform::{
+            Platform, WindowAdapter, update_timers_and_animations,
+            software_renderer::{MinimalSoftwareWindow, RepaintBufferType},
+        };
+        struct Headless(Rc<MinimalSoftwareWindow>);
+        impl Platform for Headless {
+            fn create_window_adapter(&self) -> Result<Rc<dyn WindowAdapter>, slint::PlatformError> {
+                Ok(self.0.clone())
+            }
+        }
+        let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
+        slint::platform::set_platform(Box::new(Headless(window.clone()))).unwrap();
+        let probe = crate::TranscriptProbe::new().unwrap();
+        probe.set_requested_width(800.);
+        probe.set_requested_height(600.);
+        probe.show().unwrap();
+        window.set_size(slint::PhysicalSize::new(800, 600));
+        let state = probe.global::<ConversationViewState>();
+        let paint = probe.global::<MarkdownFind>();
+        setup_find_paint(&paint);
+        let reply = zaplaud_core::model::TerminalEntry {
+            id: "long-reply".into(),
+            kind: "assistant".into(),
+            text: format!("```text\n{} localizador\n```\n\n**Outro localizador.**", "linha\n".repeat(140)),
+            ..Default::default()
+        };
+        let rows = build_rows(&[reply], "all", &HashSet::new(), &BTreeMap::new(), true, false, 0);
+        assert!(rows.len() > 2);
+        FIND.with(|find| find.borrow_mut().index(&rows));
+        state.set_rows(ModelRc::new(VecModel::from(rows).map(RenderRow::into_ui)));
+        state.set_following(false);
+        state.set_find_open(true);
+        let mut pixels = vec![slint::Rgb8Pixel::default(); 800 * 600];
+        let mut frame = || {
+            update_timers_and_animations();
+            window.request_redraw();
+            window.draw_if_needed(|renderer| { renderer.render(&mut pixels, 800); });
+        };
+        frame();
+        FIND.with(|find| {
+            let mut find = find.borrow_mut();
+            find.term = conversation::find_term("localizador");
+            find.refresh(&state, &paint, 0, true);
+            assert_eq!(find.matches.len(), 2);
+            assert!(find.matches[0].piece > 0);
+        });
+        for index in 0..2 {
+            if index == 1 {
+                FIND.with(|find| {
+                    let mut find = find.borrow_mut();
+                    find.current = Some(1);
+                    find.present(&state, &paint, true);
+                });
+            }
+            for _ in 0..110 {
+                frame();
+                if !state.get_restore_pending() { break; }
+                std::thread::sleep(Duration::from_millis(17));
+            }
+            // A última medida anterior ao fim da rolagem pode ser de um frame antigo.
+            paint.set_measured(false);
+            paint.set_request(paint.get_request() + 1);
+            frame();
+            assert!(paint.get_measured(), "ocorrência {index} não materializada");
+            let y = paint.get_measured_y();
+            let height = paint.get_measured_height();
+            assert!(
+                y >= probe.invoke_viewport_top() - 1. && y + height <= probe.invoke_viewport_bottom() + 1.,
+                "ocorrência {index} em {y}..{}, viewport {}..{}",
+                y + height, probe.invoke_viewport_top(), probe.invoke_viewport_bottom(),
+            );
+        }
+        reset_find(&state, &paint);
+        let weak = probe.as_weak();
+        state.on_find_picked(move |index| {
+            let probe = weak.unwrap();
+            FIND.with(|find| {
+                find.borrow_mut().picked(
+                    &probe.global::<ConversationViewState>(), &probe.global::<MarkdownFind>(), index,
+                );
+            });
+        });
+        let reply = zaplaud_core::model::TerminalEntry {
+            id: "same-piece".into(),
+            kind: "assistant".into(),
+            text: format!("```text\nalvo\n{}alvo\n{}alvo\n```\n", "x\n".repeat(42), "x\n".repeat(22)),
+            ..Default::default()
+        };
+        let rows = build_rows(&[reply], "all", &HashSet::new(), &BTreeMap::new(), true, false, 0);
+        assert_eq!(rows.len(), 1);
+        FIND.with(|find| find.borrow_mut().index(&rows));
+        state.set_rows(ModelRc::new(VecModel::from(rows).map(RenderRow::into_ui)));
+        state.set_find_open(true);
+        frame();
+        probe.invoke_scroll_to(0.65);
+        frame();
+        FIND.with(|find| {
+            let mut find = find.borrow_mut();
+            find.term = "alvo".into();
+            find.refresh(&state, &paint, 0, true);
+            assert_eq!(find.pick_top, Some(0));
+        });
+        for _ in 0..30 {
+            std::thread::sleep(Duration::from_millis(17));
+            frame();
+            if paint.get_current() >= 0 { break; }
+        }
+        assert_eq!(paint.get_current(), 1, "deve pular a ocorrência acima da viewport");
+        reset_find(&state, &paint);
+    }
+
+    #[test]
+    fn find_paint_keeps_text_and_formats_crossing_inline_styles() {
+        let plain = "uma ação";
+        let initial = StyledText::from_markdown("**uma** [ação](<https://example.test>)").unwrap();
+        let spans = [
+            MdSpan { text: "uma".into(), bold: true, ..Default::default() },
+            MdSpan { text: " ".into(), ..Default::default() },
+            MdSpan { text: "ação".into(), link: "https://example.test".into(), ..Default::default() },
+        ];
+        let marks = [FindMark { start: 2, end: plain.len() as i32, index: 0 }];
+        let painted = paint_text(
+            initial.clone(), plain.into(), ModelRc::new(VecModel::from(spans.to_vec())),
+            ModelRc::new(VecModel::from(marks.to_vec())), 0, Color::from_rgb_u8(40, 60, 80),
+            Color::from_rgb_u8(60, 40, 80), false, false,
+        );
+        assert!(painted.active);
+        assert_eq!(i_slint_core::styled_text::get_raw_text(&painted.rich), plain);
+        assert_ne!(painted.rich, initial);
+    }
+
+    #[test]
+    fn find_indexes_one_message_across_fragments_and_updates_streamed_text() {
+        use zaplaud_core::model::TerminalEntry;
+        let entry = TerminalEntry {
+            id: "reply".into(),
+            kind: "assistant".into(),
+            text: "```text\n".to_owned() + &"linha no código\n".repeat(100) + "```",
+            ..Default::default()
+        };
+        let mut entries = vec![entry];
+        let rows = |entries: &[TerminalEntry]| {
+            build_rows(entries, "all", &HashSet::new(), &BTreeMap::new(), true, false, 0)
+        };
+        let mut find = FindState::default();
+        find.index(rows(&entries));
+        assert_eq!(find.messages.len(), 1);
+        assert!(find.messages["reply"].last > 0);
+        assert_eq!(find.messages["reply"].runs.iter().map(|run| run.normalized.occurrences("codigo").count()).sum::<usize>(), 100);
+        entries[0].text.push_str("\n\n**Resultado final.**");
+        find.index(rows(&entries));
+        assert!(find.messages["reply"].runs.iter().any(|run| {
+            run.normalized.occurrences("resultado final.").next().is_some()
+        }));
+        find.index(rows(&[]));
+        assert!(find.messages.is_empty());
+    }
 
     #[test]
     fn cache_save_deadline_survives_continuous_updates() {

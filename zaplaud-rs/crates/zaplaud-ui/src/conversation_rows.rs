@@ -1,6 +1,6 @@
 //! Construção compartilhada das linhas do transcript e dos modelos Slint.
 pub use crate::transcript::{split_transcript, transcript_pieces};
-use slint::{Model, ModelRc, VecModel};
+use slint::{Model, ModelExt, ModelRc, VecModel};
 use std::collections::{BTreeMap, HashSet};
 use std::{ops::Range, sync::Arc};
 use zaplaud_core::{
@@ -33,6 +33,78 @@ pub struct RenderRow {
     tools: Vec<(String, String)>,
 }
 
+pub struct FindSource<'a> {
+    pub id: &'a str,
+    pub source: &'a slint::SharedString,
+    pub markdown: bool,
+    pub collapsed: bool,
+}
+
+pub struct FindRun {
+    pub piece: usize,
+    pub block: i32,
+    pub cell: i32,
+    pub normalized: conversation::FindText,
+}
+
+impl FindSource<'_> {
+    pub fn runs(&self) -> Vec<FindRun> {
+        let mut runs = Vec::new();
+        let mut push = |piece, block, cell, text: slint::SharedString| {
+            if !text.is_empty() {
+                let normalized = conversation::FindText::new(&text);
+                runs.push(FindRun { piece, block, cell, normalized });
+            }
+        };
+        for (piece, fragment) in transcript_pieces(self.source).into_iter().enumerate() {
+            if !self.markdown {
+                push(piece, -1, -1, fragment.source.into());
+                continue;
+            }
+            let synthetic_header = fragment
+                .display
+                .strip_suffix(fragment.source.as_str())
+                .is_some_and(|prefix| !prefix.is_empty());
+            for (block, parsed) in crate::markdown::find_blocks(&fragment.display)
+                .into_iter()
+                .enumerate()
+            {
+                let block = block as i32;
+                match parsed.kind.as_str() {
+                    "text" | "quote" | "code" => push(piece, block, -1, parsed.text),
+                    "table" => {
+                        for (cell, content) in parsed.cells.iter().enumerate() {
+                            if !(synthetic_header && block == 0 && content.header) {
+                                push(piece, block, cell as i32, content.text);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        runs
+    }
+}
+
+pub fn find_row_id(entry_id: &slint::SharedString, piece: usize) -> slint::SharedString {
+    if piece == 0 {
+        entry_id.clone()
+    } else {
+        format!("{entry_id}:piece:{piece}").into()
+    }
+}
+
+fn ui_spans(spans: ModelRc<crate::markdown::MdSpan>) -> ModelRc<MdSpan> {
+    ModelRc::new(spans.map(|span| MdSpan {
+        text: span.text,
+        bold: span.bold,
+        italic: span.italic,
+        strike: span.strike,
+        code: span.code,
+        link: span.link,
+    }))
+}
 pub fn anchor_index(rows: &[RenderRow], entry: &str, fragment: &str) -> Option<usize> {
     rows.iter()
         .position(|row| row.entry_id == entry && row.id == fragment)
@@ -83,6 +155,7 @@ impl MarkdownSource {
                 let continued_after = original.is_some_and(|(code, _)| code.end > range.end);
                 if continued_after && let Some(text) = b.text.strip_suffix('\n') {
                     b.text = text.into();
+                    b.layout_lines -= 1;
                 }
                 MdBlock {
                     kind: b.kind.clone(),
@@ -106,25 +179,15 @@ impl MarkdownSource {
                         b.diagram
                     },
                     code_lines: b.code_lines,
+                    layout_lines: b.layout_lines,
                     columns: b.columns,
-                    spans: ModelRc::new(VecModel::from(
-                        b.spans
-                            .iter()
-                            .map(|s| MdSpan {
-                                text: s.text,
-                                bold: s.bold,
-                                italic: s.italic,
-                                strike: s.strike,
-                                code: s.code,
-                                link: s.link,
-                            })
-                            .collect::<Vec<_>>(),
-                    )),
+                    spans: ui_spans(b.spans),
                     cells: ModelRc::new(VecModel::from(
                         b.cells
                             .iter()
                             .map(|c| MdCell {
                                 rich: c.rich,
+                                spans: ui_spans(c.spans),
                                 text: c.text,
                                 alignment: c.alignment,
                                 header: c.header,
@@ -312,6 +375,18 @@ impl RenderRow {
         }
         parts
     }
+    pub fn find_source(&self) -> Option<FindSource<'_>> {
+        if !matches!(self.kind.as_str(), "user" | "assistant" | "system") {
+            return None;
+        }
+        Some(FindSource {
+            id: &self.entry_id,
+            source: &self.source,
+            markdown: self.kind != "system",
+            collapsed: self.summarized && !self.expanded,
+        })
+    }
+
     pub fn into_ui(self) -> ConversationRow {
         let row = self;
         let blocks = if row.summarized && !row.expanded
@@ -351,6 +426,53 @@ impl RenderRow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn find_indexes_reply_under_summary_and_significant_markdown_text() {
+        let reply = TerminalEntry {
+            id: "reply".into(),
+            kind: "assistant".into(),
+            text: format!(
+                "Conclusão primeiro.\n\n{}\n\n**Uma** [ação][ref] em `linha`.\n\n\
+                 ```rust\nlet café = 1;\n```\n\n[ref]: https://destino.test",
+                "detalhe ".repeat(100)
+            ),
+            ..Default::default()
+        };
+        let summaries = BTreeMap::from([(
+            conversation::summary_key(&reply),
+            SummaryState {
+                text: Some("Resumo gerado.".into()),
+                ..Default::default()
+            },
+        )]);
+        let entries = [
+            reply,
+            TerminalEntry {
+                id: "warning".into(),
+                kind: "system".into(),
+                text: "Aviso!".into(),
+                ..Default::default()
+            },
+            TerminalEntry {
+                id: "thought".into(),
+                kind: "thinking".into(),
+                text: "Oculto".into(),
+                ..Default::default()
+            },
+        ];
+        let rows = build_rows(&entries, "all", &HashSet::new(), &summaries, true, false, 0);
+        let reply = rows[0].find_source().unwrap();
+        assert!(reply.collapsed);
+        let runs = reply.runs();
+        let matches = |term: &str| runs.iter().any(|run| run.normalized.occurrences(term).next().is_some());
+        assert!(matches("uma acao em linha."));
+        assert!(matches("let cafe = 1;"));
+        assert!(!matches("destino.test") && !matches("resumo gerado"));
+        let runs = rows[1].find_source().unwrap().runs();
+        assert_eq!(runs[0].normalized.occurrences("aviso!").next(), Some(0..6));
+        assert!(rows[2].find_source().is_none());
+    }
 
     #[test]
     fn reading_anchor_survives_insertions_and_summary_replacement() {

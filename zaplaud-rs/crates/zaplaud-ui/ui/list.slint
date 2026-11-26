@@ -30,6 +30,10 @@ export global ListState {
     in-out property <bool> menu-open;
     in-out property <int> focus-request;
     in property <bool> loading;
+    in property <string> recent-window;
+    in property <string> recent-more-label;
+    in property <string> recent-more-error;
+    in property <bool> recent-more-enabled;
     in property <bool> app-visible: true;
     in property <bool> server-notices;
     in property <bool> terminal-allowed;
@@ -45,6 +49,7 @@ export global ListState {
     callback toggle-pin(string);
     callback toggle-favorite(string);
     callback changed();
+    callback load-more-recent();
     callback settings();
     callback add-server();
     callback relogin(string);
@@ -81,14 +86,26 @@ export component ListPane inherits Rectangle {
     changed search-open => { if !self.search-open { list-focus.focus(); } }
     changed visible => { Clock.viewport(session-list.content-y, session-list.height, self.visible); }
     init => { list-focus.focus(); }
+    private property <int> session-count: ListState.rows.length - (ListState.rows.length > 0 && ListState.rows[ListState.rows.length - 1].key == "" ? 1 : 0);
     list-focus := FocusScope {
         key-pressed(event) => {
-            if event.text == Key.DownArrow { root.keyboard-index = min(root.keyboard-index + 1, ListState.rows.length - 1); return accept; }
-            if event.text == Key.UpArrow { root.keyboard-index = max(0, root.keyboard-index - 1); return accept; }
-            if event.text == Key.Return && root.keyboard-index >= 0 && root.keyboard-index < ListState.rows.length {
-                ListState.open(ListState.rows[root.keyboard-index].key); return accept;
+            if event.text == Key.DownArrow {
+                root.keyboard-index = min(root.keyboard-index + 1, ListState.rows.length - 1);
+                session-list.ensure-row-visible(root.keyboard-index, ScrollBehavior.instant);
+                return accept;
             }
-            if (event.text == Key.Menu || (event.text == Key.F10 && event.modifiers.shift)) && root.keyboard-index >= 0 && root.keyboard-index < ListState.rows.length && !ListState.rows[root.keyboard-index].sub {
+            if event.text == Key.UpArrow {
+                root.keyboard-index = max(0, root.keyboard-index - 1);
+                session-list.ensure-row-visible(root.keyboard-index, ScrollBehavior.instant);
+                return accept;
+            }
+            if event.text == Key.Return && root.keyboard-index >= 0 && root.keyboard-index < ListState.rows.length {
+                let key = ListState.rows[root.keyboard-index].key;
+                if key != "" { ListState.open(key); }
+                else if ListState.recent-more-enabled { ListState.load-more-recent(); }
+                return accept;
+            }
+            if (event.text == Key.Menu || (event.text == Key.F10 && event.modifiers.shift)) && root.keyboard-index >= 0 && root.keyboard-index < ListState.rows.length && ListState.rows[root.keyboard-index].key != "" && !ListState.rows[root.keyboard-index].sub {
                 root.menu-request += 1; return accept;
             }
             return reject;
@@ -139,7 +156,7 @@ export component ListPane inherits Rectangle {
         }
         if ListState.loading: ProgressRing { height: 24px; }
         if !ListState.loading && !ListState.terminal-allowed: Text { text: ListState.terminal-blocked-label; color: Theme.on-surface; font-size: 16px; letter-spacing: 0.5px; line-height-factor: 24px / body-metrics.preferred-height; wrap: word-wrap; }
-        if !ListState.loading && ListState.rows.length == 0: VerticalLayout { padding: 32px;
+        if !ListState.loading && root.session-count == 0: VerticalLayout { padding: 32px;
             Text { text: ListState.query != "" ? Labels.search-no-match : Labels.sessions-empty; color: Theme.on-surface-variant; wrap: word-wrap; horizontal-alignment: center; }
             if ListState.query != "": TextButton { text: Labels.search-clear; clicked => { ListState.query = ""; ListState.changed(); } }
         }
@@ -147,28 +164,47 @@ export component ListPane inherits Rectangle {
             changed content-y => { Clock.viewport(self.content-y, self.height, root.visible); }
             changed height => { Clock.viewport(self.content-y, self.height, root.visible); }
             for row[index] in ListState.rows: row-box := Rectangle {
-                property <length> body-height: row.sub ? 36px : max(60px, content.preferred-height);
-                property <length> group-spacing: index + 1 < ListState.rows.length && (row.sub ? row.sub-last : !ListState.rows[index + 1].sub) ? 8px : 0px;
-                init => { ListState.avatar(row.key); Clock.row-layout(index, self.y, self.body-height); }
-                changed y => { Clock.row-layout(index, self.y, self.body-height); }
-                changed height => { Clock.row-layout(index, self.y, self.body-height); }
+                property <bool> footer: row.key == "";
+                property <length> body-height: self.footer ? footer-content.preferred-height : row.sub ? 36px : max(60px, content.preferred-height);
+                property <length> group-spacing: index + 1 < root.session-count && (row.sub ? row.sub-last : !ListState.rows[index + 1].sub) ? 8px : 0px;
+                property <string> session-key: row.key;
+                changed session-key => { if !self.footer { ListState.avatar(row.key); } }
+                init => { if !self.footer { ListState.avatar(row.key); Clock.row-layout(index, self.y, self.body-height); } }
+                changed y => { if !self.footer { Clock.row-layout(index, self.y, self.body-height); } }
+                changed height => { if !self.footer { Clock.row-layout(index, self.y, self.body-height); } }
                 height: self.body-height + self.group-spacing;
-                Rectangle {
+                footer-content := VerticalLayout {
+                    visible: row-box.footer; width: parent.width; height: row-box.body-height;
+                    padding-top: 8px; padding-bottom: ListState.cast-visible ? 72px : 8px;
+                    padding-left: 12px; padding-right: 12px; spacing: 4px;
+                    if row-box.footer && ListState.recent-window != "": Text {
+                        text: ListState.recent-window; color: Theme.on-surface-variant; wrap: word-wrap; horizontal-alignment: center;
+                    }
+                    if row-box.footer && ListState.recent-more-error != "": Text {
+                        text: ListState.recent-more-error; color: Theme.error; wrap: word-wrap; horizontal-alignment: center;
+                    }
+                    if row-box.footer && ListState.recent-more-label != "": TextButton {
+                        text: ListState.recent-more-label; enabled: ListState.recent-more-enabled;
+                        border-width: root.keyboard-index == index && list-focus.has-focus ? 2px : 0px; border-color: Theme.primary;
+                        clicked => { ListState.load-more-recent(); }
+                    }
+                }
+                if !row-box.footer: Rectangle {
+                    accessible-role: list-item; accessible-label: row.title + ", " + row.subtitle + (row.pinned ? ", " + Labels.pinned-sessions : "") + (row.favorite ? ", " + Labels.favorite-sessions : "") + (row.activity == "" ? "" : ", " + row.activity) + (row.permission == "" ? "" : ", " + row.permission) + (row.unread-label == "" ? "" : ", " + row.unread-label);
+                    accessible-action-default => { ListState.open(row.key); }
                     x: 0px; y: 0px; width: parent.width; height: parent.body-height; border-radius: 12px;
                     background: row.selected ? Theme.secondary-container : row-touch.pressed ? Theme.on-surface.with-alpha(0.12) : row-touch.has-hover ? Theme.on-surface.with-alpha(0.08) : transparent;
                     border-width: root.keyboard-index == index && list-focus.has-focus ? 2px : 0px; border-color: Theme.primary;
                 }
                 if row.selected: Rectangle { x: 0px; y: 0px; width: parent.width; height: parent.body-height; border-radius: 12px; background: row-touch.pressed ? Theme.on-surface.with-alpha(0.12) : row-touch.has-hover ? Theme.on-surface.with-alpha(0.08) : transparent; }
-                accessible-role: list-item; accessible-label: row.title + ", " + row.subtitle + (row.pinned ? ", " + Labels.pinned-sessions : "") + (row.favorite ? ", " + Labels.favorite-sessions : "") + (row.activity == "" ? "" : ", " + row.activity) + (row.permission == "" ? "" : ", " + row.permission) + (row.unread-label == "" ? "" : ", " + row.unread-label);
-                accessible-action-default => { ListState.open(row.key); }
-                row-touch := TouchArea { x: 0px; y: 0px; width: parent.width; height: parent.body-height;
+                row-touch := TouchArea { enabled: !row-box.footer; x: 0px; y: 0px; width: parent.width; height: parent.body-height;
                     clicked => { root.keyboard-index = index; list-focus.focus(); ListState.open(row.key); }
                     pointer-event(event) => { if !row.sub && event.button == PointerEventButton.right && event.kind == PointerEventKind.up { actions.menu-x = self.mouse-x; actions.show(); } }
                 }
                 actions := SessionActions { x: 0px; y: 0px; width: parent.width; height: 0px; session: row; }
                 property <int> menu-request: root.menu-request;
-                changed menu-request => { if root.keyboard-index == index { actions.menu-x = 60px; actions.show(); } }
-                content := HorizontalLayout { x: 0px; y: 0px; width: parent.width; height: parent.body-height; padding-top: row.sub ? 0px : 6px; padding-bottom: row.sub ? 0px : 6px; spacing: row.sub ? 0px : 12px;
+                changed menu-request => { if root.keyboard-index == index && !self.footer { actions.menu-x = 60px; actions.show(); } }
+                content := HorizontalLayout { visible: !row-box.footer; x: 0px; y: 0px; width: parent.width; height: parent.body-height; padding-top: row.sub ? 0px : 6px; padding-bottom: row.sub ? 0px : 6px; spacing: row.sub ? 0px : 12px;
                     if row.sub: Rectangle { width: 40px;
                         Rectangle { x: 23.25px; width: 1.5px; height: row.sub-last ? parent.height / 2 : parent.height; background: Theme.outline-variant; }
                         Rectangle { x: 24px; y: parent.height / 2 - 0.75px; width: 16px; height: 1.5px; background: Theme.outline-variant; }

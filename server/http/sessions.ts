@@ -8,7 +8,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { RecentSession, RecentSessionsResponse } from '../../shared/types';
 import { errMsg, log } from '../log';
-import { HISTORY_DAYS, HISTORY_LIMIT } from '../sources/history';
+import { HISTORY_STEPS, historyWindow } from '../sources/history';
 import type { SessionLookup } from '../sources/source';
 import { sendJson } from './app';
 import { isLoopbackHost } from './guard';
@@ -59,10 +59,18 @@ export function handleSessionsRoute(req: IncomingMessage, res: ServerResponse, p
   if (locked || !history || !terminals) return sendJson(res, 403, { error: locked });
 
   if (recent) {
+    // «Carregar mais» nos Recentes: ?step=2..4 amplia a janela (dias) e o máximo de sessões; sem step, o padrão.
+    const window = historyWindow(Number(new URL(req.url ?? '/', 'http://x').searchParams.get('step') ?? 1));
     history
-      .list()
+      .list({ limit: window.limit, maxAgeMs: window.maxAgeMs })
       .then((sessions) => {
-        const body: RecentSessionsResponse = { sessions: sessions.filter((s) => !isTestSession(s)), days: HISTORY_DAYS, limit: HISTORY_LIMIT };
+        const body: RecentSessionsResponse = {
+          sessions: sessions.filter((s) => !isTestSession(s)),
+          days: window.days,
+          limit: window.limit,
+          step: window.step,
+          maxStep: HISTORY_STEPS.length,
+        };
         sendJson(res, 200, body);
       })
       .catch((err) => {

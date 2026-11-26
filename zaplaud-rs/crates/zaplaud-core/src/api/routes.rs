@@ -133,8 +133,17 @@ impl HabblaudApi {
             &self.request("/api/snapshot", None).await?,
         )?)
     }
+    pub async fn recent_sessions_data(&self, step: u8) -> Result<String, Error> {
+        let step = step.clamp(1, crate::rules::list::RECENT_MAX_STEP);
+        if step == 1 {
+            self.request("/api/sessions/recent", None).await
+        } else {
+            self.request(&format!("/api/sessions/recent?step={step}"), None)
+                .await
+        }
+    }
     pub async fn recent_sessions(&self) -> Result<Vec<SessionItem>, Error> {
-        let value = self.json("/api/sessions/recent", None).await?;
+        let value = serde_json::from_str(&self.recent_sessions_data(1).await?)?;
         Ok(model::objects(&value, "sessions")
             .filter_map(|o| SessionItem::parse(self.origin(), o, None, 0, 0))
             .collect())

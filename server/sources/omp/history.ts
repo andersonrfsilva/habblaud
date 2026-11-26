@@ -7,8 +7,8 @@ import { realpathSync } from 'node:fs';
 import { sep } from 'node:path';
 import { OMP_SESSION_ID } from '../../../shared/omp-events';
 import type { RecentSession } from '../../../shared/types';
-import { HISTORY_LIMIT, HISTORY_MAX_AGE_MS } from '../history';
-import type { HistoryProvider, HistoryResolveResult } from '../source';
+import { HISTORY_CACHE_MAX_AGE_MS, HISTORY_LIMIT, HISTORY_MAX_AGE_MS } from '../history';
+import type { HistoryProvider, HistoryResolveResult, HistoryWindow } from '../source';
 import { encodeCwd } from '../watcher';
 import { OmpIndex, readOmpHead } from './files';
 import type { OmpHead } from './parser';
@@ -48,16 +48,18 @@ export class OmpHistory implements HistoryProvider {
     return this.opts.accounts().some((a) => a.id === account);
   }
 
-  async list(): Promise<RecentSession[]> {
+  async list(window?: HistoryWindow): Promise<RecentSession[]> {
     const now = this.now();
+    const maxAgeMs = window?.maxAgeMs ?? this.maxAgeMs;
     const all: Array<{ account: string; sessionId: string; path: string; mtimeMs: number; size: number }> = [];
     for (const acc of this.opts.accounts()) {
-      for (const f of this.index(acc).scan()) if (now - f.mtimeMs <= this.maxAgeMs) all.push({ account: acc.id, ...f });
+      for (const f of this.index(acc).scan()) if (now - f.mtimeMs <= maxAgeMs) all.push({ account: acc.id, ...f });
     }
     all.sort((a, b) => b.mtimeMs - a.mtimeMs);
-    const picked = all.slice(0, this.limit);
-    const keep = new Set(picked.map((c) => c.path));
-    for (const path of this.heads.keys()) if (!keep.has(path)) this.heads.delete(path);
+    const picked = all.slice(0, window?.limit ?? this.limit);
+    // Esquece só o que nenhum degrau lista mais, para os degraus de «Carregar mais» não se apagarem entre si.
+    const keepAge = Math.max(this.maxAgeMs, HISTORY_CACHE_MAX_AGE_MS);
+    for (const [path, hit] of this.heads) if (now - hit.mtimeMs > keepAge) this.heads.delete(path);
 
     const out: RecentSession[] = [];
     for (const c of picked) {

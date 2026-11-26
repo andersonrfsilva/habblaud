@@ -1,5 +1,73 @@
-use crate::model::{AccountQuota, ReadingState, SEVEN_DAYS_MS, SessionItem};
+use crate::model::{AccountQuota, ReadingState, RecentWindow, SEVEN_DAYS_MS, SessionItem};
 use std::collections::HashMap;
+
+pub const RECENT_MAX_STEP: u8 = 4;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RecentFooter {
+    pub days: Option<u32>,
+    pub can_load_more: bool,
+}
+
+/// Resume a última janela bem-sucedida de cada servidor.
+pub fn recent_footer(step: u8, windows: impl IntoIterator<Item = RecentWindow>) -> RecentFooter {
+    let mut footer = RecentFooter::default();
+    for window in windows {
+        footer.days = footer.days.max(window.days);
+        footer.can_load_more |= step < window.max_step.unwrap_or(1).min(RECENT_MAX_STEP);
+    }
+    footer
+}
+
+#[derive(Debug)]
+pub struct RecentPaging {
+    step: u8,
+    previous: Option<u8>,
+    pub failed: bool,
+}
+
+impl Default for RecentPaging {
+    fn default() -> Self {
+        Self {
+            step: 1,
+            previous: None,
+            failed: false,
+        }
+    }
+}
+
+impl RecentPaging {
+    pub fn step(&self) -> u8 {
+        self.step
+    }
+
+    pub fn loading(&self) -> bool {
+        self.previous.is_some()
+    }
+
+    pub fn display_step(&self) -> u8 {
+        self.previous.unwrap_or(self.step)
+    }
+
+    pub fn start(&mut self) -> Option<u8> {
+        if self.loading() || self.step >= RECENT_MAX_STEP {
+            return None;
+        }
+        self.previous = Some(self.step);
+        self.step += 1;
+        self.failed = false;
+        Some(self.step)
+    }
+
+    pub fn finish(&mut self, any_success: bool) {
+        if let Some(previous) = self.previous.take() {
+            self.failed = !any_success;
+            if self.failed {
+                self.step = previous;
+            }
+        }
+    }
+}
 
 /// A última resposta prevalece sobre o evento; empates mantêm a ordem original.
 pub fn by_last_message(sessions: &[SessionItem]) -> Vec<SessionItem> {
@@ -145,6 +213,98 @@ pub fn weekly_quotas<'a>(accounts: impl IntoIterator<Item = &'a AccountQuota>) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recent_footer_uses_largest_window_and_any_server_with_more() {
+        let old = RecentWindow {
+            days: Some(7),
+            step: None,
+            max_step: None,
+        };
+        let capped = RecentWindow {
+            days: Some(365),
+            step: Some(4),
+            max_step: Some(4),
+        };
+        let expandable = RecentWindow {
+            days: Some(30),
+            step: Some(2),
+            max_step: Some(4),
+        };
+        assert_eq!(recent_footer(1, []), RecentFooter::default());
+        assert!(!recent_footer(1, [old]).can_load_more);
+        assert!(!recent_footer(4, [old, capped]).can_load_more);
+        assert_eq!(
+            recent_footer(2, [expandable, old, capped]),
+            RecentFooter {
+                days: Some(365),
+                can_load_more: true,
+            }
+        );
+    }
+
+    #[test]
+    fn recent_paging_keeps_last_known_window_when_only_legacy_server_succeeds() {
+        let updated = RecentWindow {
+            days: Some(7),
+            step: Some(1),
+            max_step: Some(4),
+        };
+        let legacy = RecentWindow {
+            days: Some(7),
+            step: None,
+            max_step: None,
+        };
+        let mut paging = RecentPaging::default();
+        assert_eq!(paging.start(), Some(2));
+        let responses = [None, Some(legacy)];
+        paging.finish(responses.iter().any(Option::is_some));
+        let windows = [updated, legacy]
+            .into_iter()
+            .zip(responses)
+            .map(|(previous, response)| response.unwrap_or(previous));
+        assert_eq!(paging.step(), 2);
+        assert!(!paging.failed);
+        assert_eq!(
+            recent_footer(paging.step(), windows),
+            RecentFooter {
+                days: Some(7),
+                can_load_more: true,
+            }
+        );
+        assert_eq!(paging.start(), Some(3));
+        paging.finish(true);
+        let updated = RecentWindow {
+            days: Some(90),
+            step: Some(3),
+            ..updated
+        };
+        assert_eq!(
+            recent_footer(paging.step(), [updated, legacy]).days,
+            Some(90)
+        );
+    }
+
+    #[test]
+    fn recent_paging_rolls_back_on_total_failure_and_stops_at_four() {
+        let mut paging = RecentPaging::default();
+        assert_eq!(paging.step(), 1);
+        assert_eq!(paging.start(), Some(2));
+        assert!(paging.loading());
+        assert_eq!(paging.start(), None);
+        paging.finish(false);
+        assert_eq!(paging.step(), 1);
+        assert!(paging.failed);
+        assert!(!paging.loading());
+        for next in 2..=4 {
+            assert_eq!(paging.start(), Some(next));
+            assert!(!paging.failed);
+            paging.finish(true);
+        }
+        assert_eq!(paging.step(), 4);
+        assert_eq!(paging.start(), None);
+        assert!(!paging.loading());
+    }
     fn session(id: &str, last: Option<i64>, replies: &[i64]) -> SessionItem {
         SessionItem {
             title: id.into(),

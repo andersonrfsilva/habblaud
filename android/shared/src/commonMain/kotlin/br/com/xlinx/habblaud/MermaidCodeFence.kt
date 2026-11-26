@@ -62,12 +62,17 @@ internal fun svgThemeColors(svg: String): String = svgVar.replace(svg) { svgPale
 @Composable
 internal fun CopyableCodeBlock(model: MarkdownComponentModel) {
     val source = remember(model.content, model.node) { model.node.getTextInNode(model.content).toString().replaceIndent() }
+    CopyableCode(source) { MarkdownCodeBlock(model.content, model.node, model.typography.code) }
+}
+
+@Composable
+internal fun CopyableCode(source: String, content: @Composable () -> Unit) {
     val clipboard = LocalClipboardManager.current
     Column(Modifier.fillMaxWidth()) {
         TextButton(onClick = { clipboard.setText(AnnotatedString(source)) }, modifier = Modifier.align(Alignment.End)) {
             Text(stringResource(Res.string.copy))
         }
-        MarkdownCodeBlock(model.content, model.node, model.typography.code)
+        content()
     }
 }
 
@@ -79,13 +84,7 @@ internal fun MermaidCodeFence(model: MarkdownComponentModel, api: HabblaudApi) {
         model.node.children.filter { it.type == MarkdownTokenTypes.CODE_FENCE_CONTENT }
             .joinToString("\n") { it.getTextInNode(model.content).toString() }
     }
-    val clipboard = LocalClipboardManager.current
-    Column(Modifier.fillMaxWidth()) {
-        TextButton(onClick = { clipboard.setText(AnnotatedString(source)) }, modifier = Modifier.align(Alignment.End)) {
-            Text(stringResource(Res.string.copy))
-        }
-        MermaidContent(model, api, language, closed, source)
-    }
+    CopyableCode(source) { MermaidContent(model, api, language, closed, source) }
 }
 
 @Composable

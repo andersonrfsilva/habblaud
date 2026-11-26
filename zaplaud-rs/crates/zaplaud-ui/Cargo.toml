@@ -23,6 +23,8 @@ pulldown-cmark = { version = "0.13", default-features = false }
 zaplaud-core = { path = "../zaplaud-core" }
 zaplaud-store = { path = "../zaplaud-store" }
 slint.workspace = true
+# Mesma versão do Slint: composição de trechos StyledText para a busca e inércia no macOS.
+i-slint-core = "=1.19.0"
 tokio.workspace = true
 serde_json.workspace = true
 url.workspace = true
@@ -44,10 +46,6 @@ libc = "0.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 ksni = { version = "0.3", default-features = false, features = ["async-io"] }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-# Mesma versão do Slint: só para desligar a inércia própria do Flickable (o macOS já manda a inércia do trackpad).
-i-slint-core = "=1.19.0"
 
 [target.'cfg(target_os = "android")'.dependencies]
 slint = { workspace = true, features = ["backend-android-activity-06"] }

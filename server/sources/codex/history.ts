@@ -8,8 +8,8 @@ import { open, readdir, stat } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
 import type { RecentSession } from '../../../shared/types';
 import { errMsg, log } from '../../log';
-import { HISTORY_LIMIT, HISTORY_MAX_AGE_MS } from '../history';
-import type { HistoryProvider, HistoryResolveResult } from '../source';
+import { HISTORY_CACHE_MAX_AGE_MS, HISTORY_LIMIT, HISTORY_MAX_AGE_MS } from '../history';
+import type { HistoryProvider, HistoryResolveResult, HistoryWindow } from '../source';
 import { encodeCwd } from '../watcher';
 import { parseRolloutName, rolloutDirs } from './files';
 import { createCodexState, isThreadId, metaFromLine, parseRolloutLine, type RolloutMeta } from './rollout';
@@ -73,15 +73,17 @@ export class CodexHistory implements HistoryProvider {
     return this.opts.accounts().some((a) => a.id === account);
   }
 
-  async list(): Promise<RecentSession[]> {
+  async list(window?: HistoryWindow): Promise<RecentSession[]> {
     const now = this.now();
+    const maxAgeMs = window?.maxAgeMs ?? this.maxAgeMs;
     const all: Candidate[] = [];
-    for (const acc of this.opts.accounts()) all.push(...(await this.candidates(acc, now)));
+    for (const acc of this.opts.accounts()) all.push(...(await this.candidates(acc, now, maxAgeMs)));
     all.sort((a, b) => b.mtimeMs - a.mtimeMs);
-    const picked = all.slice(0, this.limit);
+    const picked = all.slice(0, window?.limit ?? this.limit);
     const summaries = await mapLimit(picked, READ_CONCURRENCY, (c) => this.summaryOf(c));
-    const keep = new Set(picked.map((c) => c.path));
-    for (const path of this.cache.keys()) if (!keep.has(path)) this.cache.delete(path);
+    // Esquece só o que nenhum degrau lista mais, para os degraus de «Carregar mais» não se apagarem entre si.
+    const keepAge = Math.max(this.maxAgeMs, HISTORY_CACHE_MAX_AGE_MS);
+    for (const [path, hit] of this.cache) if (now - hit.mtimeMs > keepAge) this.cache.delete(path);
 
     const out: RecentSession[] = [];
     picked.forEach((c, i) => {
@@ -157,7 +159,7 @@ export class CodexHistory implements HistoryProvider {
   }
 
   /** Rollouts (um por thread: o mais recente) modificados dentro da janela. */
-  private async candidates(acc: CodexHistoryAccount, now: number): Promise<Candidate[]> {
+  private async candidates(acc: CodexHistoryAccount, now: number, maxAgeMs: number): Promise<Candidate[]> {
     const byThread = new Map<string, Candidate>();
     for (const dir of rolloutDirs(acc.dir)) {
       let names: string[];
@@ -172,7 +174,7 @@ export class CodexHistory implements HistoryProvider {
         const path = join(dir, name);
         try {
           const st = await stat(path);
-          if (!st.isFile() || now - st.mtimeMs > this.maxAgeMs) continue;
+          if (!st.isFile() || now - st.mtimeMs > maxAgeMs) continue;
           const prev = byThread.get(r.threadId);
           if (!prev || st.mtimeMs > prev.mtimeMs) byThread.set(r.threadId, { account: acc.id, threadId: r.threadId, path, dir: acc.dir, mtimeMs: st.mtimeMs, size: st.size });
         } catch {

@@ -556,9 +556,18 @@ impl Snapshot {
     }
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentWindow {
+    pub days: Option<u32>,
+    pub step: Option<u8>,
+    pub max_step: Option<u8>,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct SessionCollection {
     pub recent: Vec<SessionItem>,
+    pub recent_window: Option<RecentWindow>,
     pub open: Vec<SessionItem>,
     pub cast: Vec<Value>,
     pub server_time: i64,
@@ -580,9 +589,12 @@ impl SessionCollection {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_millis().min(i64::MAX as u128) as i64);
-        self.recent = objects(&root(data)?, "sessions")
+        let value = root(data)?;
+        let window = RecentWindow::deserialize(&value)?;
+        self.recent = objects(&value, "sessions")
             .filter_map(|v| SessionItem::parse(origin, v, None, self.server_time, now))
             .collect();
+        self.recent_window = Some(window);
         self.recent_stale = false;
         Ok(())
     }
@@ -1706,6 +1718,36 @@ mod tests {
             ServerEvent::Unknown { .. }
         ));
     }
+    #[test]
+    fn recent_window_decodes_current_and_legacy_servers() {
+        let mut collection = SessionCollection::default();
+        collection
+            .set_recent(
+                "https://test",
+                r#"{"sessions":[],"days":90,"limit":450,"step":3,"maxStep":4}"#,
+            )
+            .unwrap();
+        assert_eq!(
+            collection.recent_window,
+            Some(RecentWindow {
+                days: Some(90),
+                step: Some(3),
+                max_step: Some(4),
+            })
+        );
+        collection
+            .set_recent("https://test", r#"{"sessions":[],"days":7,"limit":150}"#)
+            .unwrap();
+        assert_eq!(
+            collection.recent_window,
+            Some(RecentWindow {
+                days: Some(7),
+                step: None,
+                max_step: None,
+            })
+        );
+    }
+
     #[test]
     fn historical_merge_restores_title_and_unique_cast_owner() {
         let mut collection = SessionCollection::default();

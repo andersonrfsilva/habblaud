@@ -2,7 +2,7 @@ import { Clock } from "clock.slint";
 import { Theme } from "resources.slint";
 import { Labels } from "labels.slint";
 import { ConversationState } from "conversation.slint";
-import { MarkdownView, MdBlock, MeasuredInput } from "markdown/markdown.slint";
+import { MarkdownView, MdBlock, MeasuredInput, MeasuredText, MarkdownFind } from "markdown/markdown.slint";
 import { ScrollList, ScrollContainer, TextButton, IconButton, TextField, Banner, Sheet, Avatar, Pill, Divider } from "widgets/kit.slint";
 import { ComposerState } from "composer.slint";
 import { CastState } from "cast.slint";
@@ -10,7 +10,7 @@ import { AsideState } from "aside.slint";
 import { FilesState } from "files.slint";
 import { DeliveriesState } from "deliveries.slint";
 import { MaterialIcons } from "widgets/material-icons.slint";
-export { MdBlock, MdCell, MdSpan, MarkdownGeometry } from "markdown/markdown.slint";
+export { MdBlock, MdCell, MdSpan, MarkdownGeometry, MarkdownFind, FindMark, FindCodeMark, FindCodePreview, FindPaint } from "markdown/markdown.slint";
 
 export struct ToolDetail { title: string, text: string }
 export struct ConversationRow {
@@ -104,6 +104,25 @@ export global ConversationViewState {
     callback open-parent(string);
     in property <string> copy-label;
     callback model-query-changed(string);
+    in property <string> find-label;
+    in property <string> find-placeholder;
+    in property <string> find-previous;
+    in property <string> find-next;
+    in property <string> find-close-label;
+    in property <bool> find-open;
+    in-out property <string> find-query;
+    in property <string> find-counter;
+    in property <string> find-current;
+    in property <int> find-focus-request;
+    in-out property <bool> find-jump;
+    in-out property <int> find-probe;
+    in-out property <int> find-top-index: -1;
+    callback find-start();
+    callback find-close();
+    callback find-changed();
+    callback find-picked(int);
+    callback find-move(bool);
+    callback find-expand(int, string);
 }
 
 component EntryBubble inherits Rectangle {
@@ -115,6 +134,11 @@ component EntryBubble inherits Rectangle {
     property <int> capture-request: ConversationViewState.capture-request;
     property <int> scan-request: ConversationViewState.scan-request;
     property <int> anchor-index: ConversationViewState.anchor-index;
+    property <int> find-probe: ConversationViewState.find-probe;
+    property <bool> at-viewport-top: root.y + ConversationViewState.scroll-y <= 0px && root.y + root.height + ConversationViewState.scroll-y > 0px;
+    changed find-probe => {
+        if root.at-viewport-top { ConversationViewState.find-top-index = root.row-index; }
+    }
     function align-anchor() {
         if !ConversationViewState.following && !ConversationViewState.capture-pending && !ConversationViewState.restore-pending && ConversationViewState.anchor-ticks > 0 && root.row-index == ConversationViewState.anchor-index {
             ConversationViewState.scroll-target = max(ConversationViewState.anchor-offset, 1px - root.height) - root.y;
@@ -132,7 +156,8 @@ component EntryBubble inherits Rectangle {
         }
     }
     changed capture-request => {
-        if root.y + ConversationViewState.scroll-y <= 0px && root.y + root.height + ConversationViewState.scroll-y > 0px {
+        if root.at-viewport-top {
+            if ConversationViewState.find-open { ConversationViewState.find-top-index = root.row-index; }
             root.capture-anchor(ConversationViewState.capture-generation);
         }
     }
@@ -210,12 +235,22 @@ component EntryBubble inherits Rectangle {
                 }
                 TouchArea { clicked => { group-keys.focus(); root.toggle-expanded(); } }
             }
-            if root.entry.kind == "system": MeasuredInput {
+            if root.entry.kind == "system" && MarkdownFind.revision == 0: MeasuredInput {
                 row-id: root.entry.id;
                 text: root.entry.fragment + (root.entry.time == "" ? "" : " · " + root.entry.time);
                 accessible-role: text; accessible-label: self.text;
                 read-only: true; wrap: word-wrap; color: Theme.on-surface;
                 font-size: 12px; horizontal-alignment: center;
+            }
+            if root.entry.kind == "system" && MarkdownFind.revision != 0: MeasuredText {
+                row-id: root.entry.id;
+                find-block: -1;
+                find-text: root.entry.fragment + (root.entry.time == "" ? "" : " · " + root.entry.time);
+                text: @markdown("\{self.find-text}");
+                accessible-role: text; accessible-label: self.find-text;
+                default-color: Theme.on-surface;
+                default-font-size: 12px; horizontal-alignment: center;
+                find-viewport-height: root.viewport-bottom - root.viewport-top;
             }
             if root.entry.kind == "thinking" && root.entry.expanded: MeasuredInput {
                 row-id: root.entry.id;
@@ -335,12 +370,89 @@ component TasksPanel inherits Rectangle {
     }
 }
 
+component FindBar inherits HorizontalLayout {
+    in property <bool> can-take-focus;
+    callback edited();
+    property <int> focus-request: ConversationViewState.find-focus-request;
+    function focus-input() { if root.can-take-focus { query.focus(); } }
+    init => { root.focus-input(); }
+    changed focus-request => { root.focus-input(); }
+    changed can-take-focus => { root.focus-input(); }
+    padding-top: 4px; padding-bottom: 4px; spacing: 2px;
+    query := TextField {
+        min-width: 56px;
+        horizontal-stretch: 1;
+        placeholder: ConversationViewState.find-placeholder;
+        text <=> ConversationViewState.find-query;
+        outlined: true;
+        edited => { root.edited(); }
+        input-key-pressed(event) => {
+            if event.text == Key.Return { ConversationViewState.find-move(!event.modifiers.shift); return accept; }
+            return reject;
+        }
+    }
+    Text {
+        text: ConversationViewState.find-counter;
+        color: Theme.on-surface-variant;
+        font-size: 12px; vertical-alignment: center;
+        accessible-role: text; accessible-label: self.text; accessible-live-region: polite;
+    }
+    IconButton {
+        icon: MaterialIcons.keyboard-arrow-up; label: ConversationViewState.find-previous;
+        enabled: ConversationViewState.find-current != "";
+        clicked => { ConversationViewState.find-move(false); }
+    }
+    IconButton {
+        icon: MaterialIcons.keyboard-arrow-down; label: ConversationViewState.find-next;
+        enabled: ConversationViewState.find-current != "";
+        clicked => { ConversationViewState.find-move(true); }
+    }
+    IconButton {
+        icon: MaterialIcons.close; label: ConversationViewState.find-close-label;
+        clicked => { ConversationViewState.find-close(); }
+    }
+}
+
 export component ConversationView inherits Rectangle {
     vertical-stretch: 1;
     forward-focus: scroll-keys;
     in property <bool> can-take-focus: true;
+    public function find-viewport-top() -> float { return messages.absolute-position.y / 1px; }
+    public function find-viewport-bottom() -> float { return (messages.absolute-position.y + messages.visible-height) / 1px; }
+    property <bool> find-open: ConversationViewState.find-open;
+    changed find-open => {
+        if !root.find-open {
+            find-settle.stop();
+            if root.can-take-focus && ConversationState.selected { scroll-keys.focus(); }
+        }
+    }
+    Timer {
+        interval: 16ms;
+        running: MarkdownFind.probe-row != "";
+        property <int> sampled-revision: 0;
+        triggered => {
+            if self.sampled-revision != MarkdownFind.revision {
+                self.sampled-revision = MarkdownFind.revision;
+                MarkdownFind.probe-top = messages.absolute-position.y;
+                MarkdownFind.probe-best = -1;
+                MarkdownFind.probe-request += 1;
+            } else {
+                self.sampled-revision = 0;
+                MarkdownFind.probe-row = "";
+                ConversationViewState.find-picked(MarkdownFind.probe-best);
+            }
+        }
+    }
+    find-settle := Timer {
+        interval: 16ms; running: false;
+        triggered => {
+            self.stop();
+            ConversationViewState.find-changed();
+        }
+    }
     function cancel-restore() {
         ConversationViewState.restore-pending = false;
+        ConversationViewState.find-jump = false;
         ConversationViewState.anchor-ticks = 0;
         scroll-settle.stop();
     }
@@ -350,7 +462,7 @@ export component ConversationView inherits Rectangle {
     }
     public function scroll-to(fraction: float) {
         root.cancel-restore();
-        ConversationViewState.following = fraction >= 1;
+        ConversationViewState.following = fraction >= 1 && !root.find-open;
         messages.content-y = min(0px, messages.height - messages.content-height) * clamp(fraction, 0, 1);
         let generation = ConversationViewState.reading-generation;
         root.request-capture(generation);
@@ -367,12 +479,14 @@ export component ConversationView inherits Rectangle {
     public function jump-to-end() {
         root.cancel-restore();
         if root.can-take-focus { scroll-keys.focus(); }
-        ConversationViewState.following = true;
+        ConversationViewState.following = !root.find-open;
         messages.content-y = messages.end-y;
-        ConversationViewState.position(ConversationViewState.reading-generation, true);
+        let generation = ConversationViewState.reading-generation;
+        if root.find-open { root.request-capture(generation); }
+        ConversationViewState.position(generation, ConversationViewState.following);
     }
     property <int> end-request: ConversationViewState.end-request;
-    changed end-request => { root.jump-to-end(); }
+    changed end-request => { if !root.find-open { root.jump-to-end(); } }
     property <int> reset-request: ConversationViewState.reset-request;
     property <bool> restore-estimated;
     changed reset-request => {
@@ -406,7 +520,7 @@ export component ConversationView inherits Rectangle {
                 self.stop();
                 if generation == ConversationViewState.reading-generation
                     && ConversationViewState.rows.length > 0 && !ConversationViewState.restore-pending && ConversationViewState.anchor-ticks == 0 {
-                    let follow = ConversationViewState.following || messages.at-end;
+                    let follow = !root.find-open && (ConversationViewState.following || messages.at-end);
                     ConversationViewState.following = follow;
                     if follow { messages.content-y = messages.end-y; }
                     ConversationViewState.position(generation, follow);
@@ -426,15 +540,25 @@ export component ConversationView inherits Rectangle {
             if ConversationViewState.restore-pending && ConversationViewState.anchor-index >= 0 {
                 if ConversationViewState.scan-index >= 0 {
                     if ConversationViewState.scan-index == ConversationViewState.anchor-index {
-                        if ConversationViewState.measured-height == ConversationViewState.scan-height { ConversationViewState.stable-ticks += 1; }
+                        let use-hit = ConversationViewState.find-jump && MarkdownFind.measured;
+                        let height = use-hit ? MarkdownFind.measured-height : ConversationViewState.scan-height;
+                        if ConversationViewState.measured-height == height { ConversationViewState.stable-ticks += 1; }
                         else { ConversationViewState.stable-ticks = 0; }
-                        ConversationViewState.measured-height = ConversationViewState.scan-height;
-                        if ConversationViewState.stable-ticks >= 4 || ConversationViewState.anchor-ticks == 0 {
-                            messages.content-y = min(0px, max(messages.height - messages.content-height, max(ConversationViewState.anchor-offset, 1px - ConversationViewState.scan-height) - ConversationViewState.scan-y));
+                        ConversationViewState.measured-height = height;
+                        let settled = ConversationViewState.stable-ticks >= 4 || ConversationViewState.anchor-ticks == 0;
+                        let row-offset = settled ? max(ConversationViewState.anchor-offset, 1px - ConversationViewState.scan-height) : 0px;
+                        let row-target = row-offset - ConversationViewState.scan-y;
+                        let hit-target = messages.content-y + messages.absolute-position.y + 8px - MarkdownFind.measured-y;
+                        if use-hit || !ConversationViewState.find-jump {
+                            ConversationViewState.scroll-target = use-hit ? hit-target : row-target;
+                            ConversationViewState.scroll-request += 1;
+                        }
+                        if (ConversationViewState.stable-ticks >= 4 && (use-hit || !ConversationViewState.find-jump))
+                            || ConversationViewState.anchor-ticks == 0 {
                             ConversationViewState.restore-pending = false;
+                            ConversationViewState.find-jump = false;
                             ConversationViewState.anchor-ticks = 0;
-                        } else {
-                            messages.content-y = min(0px, max(messages.height - messages.content-height, -ConversationViewState.scan-y));
+                            if root.find-open { root.request-capture(ConversationViewState.reading-generation); }
                         }
                     } else if ConversationViewState.anchor-ticks > 0 {
                         ConversationViewState.stable-ticks = 0;
@@ -454,9 +578,15 @@ export component ConversationView inherits Rectangle {
                     ConversationViewState.scan-index = -1;
                 } else if ConversationViewState.anchor-ticks > 0 {
                     ConversationViewState.scan-request += 1;
+                    if ConversationViewState.find-jump {
+                        MarkdownFind.measured = false;
+                        MarkdownFind.request += 1;
+                    }
                 }
                 if ConversationViewState.anchor-ticks == 0 {
                     ConversationViewState.restore-pending = false;
+                    ConversationViewState.find-jump = false;
+                    if root.find-open && !ConversationViewState.capture-pending { root.request-capture(ConversationViewState.reading-generation); }
                 }
             }
         }
@@ -465,6 +595,14 @@ export component ConversationView inherits Rectangle {
         padding-left: 16px;
         padding-right: 16px;
         spacing: 0px;
+        if root.find-open: FindBar {
+            can-take-focus: root.can-take-focus;
+            edited => {
+                ConversationViewState.find-top-index = -1;
+                ConversationViewState.find-probe += 1;
+                find-settle.restart();
+            }
+        }
         if ConversationViewState.notice != "": Banner { text: ConversationViewState.notice; severity: "warn"; }
         if ConversationViewState.reduced != "": Banner { text: ConversationViewState.reduced; }
         scroll-keys := FocusScope {
@@ -517,6 +655,7 @@ export component ConversationView inherits Rectangle {
                 }
                 scrolled => {
                     ConversationViewState.restore-pending = false;
+                    ConversationViewState.find-jump = false;
                     ConversationViewState.anchor-ticks = 0;
                     self.scroll-generation = ConversationViewState.reading-generation;
                     // A roda pode avisar antes de mover content-y. Só retome o fim em repouso.
@@ -593,6 +732,10 @@ export component ConversationMenu inherits Rectangle {
                 label: ConversationViewState.view-label; group: true;
                 detail: ConversationViewState.view-labels[ConversationViewState.view == "all" ? 0 : ConversationViewState.view == "prompts" ? 1 : 2];
                 clicked => { ConversationViewState.menu-page = "view"; }
+            }
+            MenuAction {
+                label: ConversationViewState.find-label; leading-icon: MaterialIcons.search;
+                clicked => { root.dismiss(); ConversationViewState.find-start(); }
             }
             if ComposerState.modes-visible: MenuAction {
                 label: ConversationViewState.deliver-label; group: true; detail: ComposerState.mode-labels[ComposerState.mode-index];
@@ -771,6 +914,8 @@ export component TranscriptProbe inherits Window {
     public function scroll-to(fraction: float) { transcript.scroll-to(fraction); }
     public function page-up() { transcript.page-up(); }
     public function jump-to-end() { transcript.jump-to-end(); }
+    public function viewport-top() -> float { return transcript.find-viewport-top(); }
+    public function viewport-bottom() -> float { return transcript.find-viewport-bottom(); }
     VerticalLayout {
         transcript := ConversationView { }
         if ConversationViewState.working: ConversationStatus { }

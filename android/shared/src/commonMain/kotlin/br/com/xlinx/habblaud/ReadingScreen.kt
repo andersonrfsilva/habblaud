@@ -12,6 +12,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
@@ -26,6 +27,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -47,6 +50,7 @@ import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material3.*
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.runtime.*
@@ -77,11 +81,14 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -93,12 +100,17 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.currentStateAsState
 import androidx.lifecycle.repeatOnLifecycle
 import br.com.xlinx.habblaud.data.*
-import com.mikepenz.markdown.compose.components.markdownComponents
 import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.math.roundToInt
@@ -157,6 +169,25 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
             onDispose { owner.lifecycle.removeObserver(observer); controller.stop() }
         }
     } }
+    val recentPage by recentLoad.collectAsStateWithLifecycle()
+    val recentWindows = states.filterKeys { it !in needsLogin }.values.mapNotNull { it.recentWindow }
+    val recentFooter = recentFooter(recentWindows, recentPage)
+    fun loadMoreRecent() {
+        if (!recentFooter.canLoadMore) return
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            val previous = recentLoad.value
+            val next = previous.begin()
+            if (next == previous) return@launch
+            recentLoad.value = next
+            var anyLoaded = false
+            try {
+                anyLoaded = controllers.filterKeys { it !in needsLogin }.values
+                    .map { async { it.refreshRecent(manual = true) } }.awaitAll().any { it }
+            } finally {
+                recentLoad.value = next.finish(anyLoaded)
+            }
+        }
+    }
     var savedFilter by rememberSaveable { mutableStateOf<String?>(null) }
     val filter = savedFilter?.takeIf { it in apis }
     LaunchedEffect(apis.keys) { if (savedFilter !in apis) savedFilter = null }
@@ -278,6 +309,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
     val sessionsList = rememberLazyListState()
     /** Conversa que estava no topo na última composição (sem ser estado: mudar não recompõe). */
     val sessionsTop = remember { arrayOfNulls<String>(1) }
+    val sessionsTopSteps = remember(apis.keys) { mutableMapOf<String, Int>() }
     // O que a conversa mostra (tudo, só prompts ou sem ferramentas) e o modo de envio: cada sessão lembra os seus.
     // Cada valor guarda a sessão a que pertence: ao trocar de sessão, o valor da anterior não vale nem é salvo na nova.
     var viewFor by remember { mutableStateOf<Pair<SessionKey, String>?>(null) }
@@ -300,8 +332,18 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
         return
     }
     PlatformBackHandler(enabled = selected != null && permissionSession == null && !menuExpanded) { controller.close() }
+    var findOpen by remember(selected?.key) { mutableStateOf(false) }
+    var findQuery by remember(selected?.key) { mutableStateOf("") }
+    fun closeFind() { findOpen = false; findQuery = "" }
+    val findEscape = Modifier.onPreviewKeyEvent {
+        if (findOpen && it.type == KeyEventType.KeyDown && it.key == Key.Escape) {
+            closeFind()
+            true
+        } else false
+    }
     // Bate-papo paralelo do agente aberto: some ao trocar de conversa (o controlador também fecha).
     var asideOpen by remember(selected?.key) { mutableStateOf(false) }
+    PlatformBackHandler(enabled = findOpen && !asideOpen && permissionSession == null) { closeFind() }
     var filesOpen by remember(api.origin, selected?.key) { mutableStateOf(false) }
     // Arquivo do servidor tocado num link da conversa (não imagem): a janela de arquivos abre e baixa.
     var linkDownload by remember(api.origin, selected?.key) { mutableStateOf<String?>(null) }
@@ -381,6 +423,11 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
             }
             "thinking" -> { Back(); THINKING_LEVELS.forEach { level -> Choice(thinkingLabel(level), level == selected!!.thinking) { controller.messages.setThinking(agentId!!, level); close() } } }
             else -> {
+                if (selected != null) DropdownMenuItem(
+                    text = { Text(stringResource(Res.string.find_in_conversation)) },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    onClick = { close(); findOpen = true },
+                )
                 DropdownMenuItem(modifier = Modifier.testTag("files-menu"), text = { Text(stringResource(Res.string.files_title)) }, onClick = { filesOpen = true; close() })
                 if (selected != null && !selected.sub) {
                     DropdownMenuItem(modifier = Modifier.testTag("deliveries-menu"), text = { Text(stringResource(Res.string.deliveries_menu)) }, onClick = { deliveriesOpen = true; close() })
@@ -471,7 +518,9 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                     TextButton(modifier = Modifier.testTag("relogin:$origin"), onClick = { onLogin(origin) }) { Text(stringResource(Res.string.relogin)) }
                 }
             }
-            states.forEach { (origin, serverState) -> serverState.error?.let {
+            states.forEach { (origin, serverState) -> (serverState.error ?: "network".takeIf {
+                serverState.recentRefreshFailed && !recentPage.loading && !recentPage.failed
+            })?.let {
                 Text((if (apis.size > 1) serverLabel(origin) + ": " else "") + stringResource(readingErrorResource(it)), color = MaterialTheme.colorScheme.error)
             } }
             if (apis.size > 1) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -506,8 +555,17 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
             // Outra conversa subiu para o topo com a lista no topo: sem isto, a lista segura a que estava em cima (pela
             // chave) e a nova fica escondida acima dela.
             val top = items.firstOrNull()?.key?.serialize()
+            var widened = false
+            if (recent) states.forEach { (origin, serverState) ->
+                if (filter != null && origin != filter) return@forEach
+                val step = serverState.recentWindow?.requestedStep ?: return@forEach
+                val previous = sessionsTopSteps.put(origin, step) ?: 1
+                if (step > previous) widened = true
+            }
             if (top != sessionsTop[0]) {
-                if (sessionsTop[0] != null && sessionsList.firstVisibleItemIndex == 0) sessionsList.requestScrollToItem(0, sessionsList.firstVisibleItemScrollOffset)
+                if (!widened && !(recent && recentPage.loading) && sessionsTop[0] != null && sessionsList.firstVisibleItemIndex == 0) {
+                    sessionsList.requestScrollToItem(0, sessionsList.firstVisibleItemScrollOffset)
+                }
                 sessionsTop[0] = top
             }
             if (searchOpen) {
@@ -607,21 +665,33 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                     }
                 }
                 if (weeklyQuotas.isNotEmpty()) item(key = "weekly-quotas") { WeeklyQuotaPanel(weeklyQuotas) }
+                if (recent && (recentFooter.days != null || recentPage.loading || recentPage.failed)) item(key = "recent-window") {
+                    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        recentFooter.days?.let { days ->
+                            Text(stringResource(Res.string.recent_window, days), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        if (recentPage.failed) Text(
+                            stringResource(Res.string.recent_load_more_failed),
+                            Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                        if (recentPage.loading || recentFooter.canLoadMore) {
+                            TextButton(onClick = ::loadMoreRecent, enabled = !recentPage.loading, modifier = Modifier.testTag("recent-load-more")) {
+                                Text(stringResource(if (recentPage.loading) Res.string.recent_loading_more else Res.string.recent_load_more))
+                            }
+                        }
+                    }
+                }
             }
     }
     val conversationContent: @Composable ColumnScope.(SessionItem, ReadingState) -> Unit = { selected, state ->
-        state.error?.let { error -> Text(stringResource(readingErrorResource(error)), color = MaterialTheme.colorScheme.error) }
-            Spacer(Modifier.height(1.dp))
-            if (selected.agentId == null) Text(stringResource(Res.string.history_read_only))
-            if (!state.terminalAllowed) Text(stringResource(Res.string.terminal_blocked))
-            state.readingError?.let { error ->
-                Text(stringResource(when (error) { "forbidden" -> Res.string.terminal_blocked; "missing" -> Res.string.reading_missing; "oversize" -> Res.string.reading_oversize; else -> Res.string.reading_offline }), color = MaterialTheme.colorScheme.error)
-            }
-            if (state.reduced) Text(stringResource(Res.string.window_reduced))
             val results = state.entries.filter { it.kind == "result" }.groupBy { it.toolUseId }
             // Lista invertida: o índice 0 é a entrada mais nova. A conversa já abre no fim, sem rolar por todo o histórico.
             val listState = remember(selected.key) { LazyListState() }
-            val following by remember(listState) { derivedStateOf { listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0 } }
+            val following by remember(listState, findOpen) {
+                derivedStateOf { !findOpen && listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0 }
+            }
             var readingAnchor by remember(selected.key) { mutableStateOf<Pair<Float, () -> Float>?>(null) }
             // Gesto da pessoa desde que a conversa abriu: um swipe rápido termina antes da restauração e ela não pode desfazê-lo.
             var userScrolled by remember(selected.key) { mutableStateOf(false) }
@@ -650,13 +720,17 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
             }
             var unread by remember(selected.key) { mutableIntStateOf(0) }
             var previousLastId by remember(selected.key) { mutableStateOf<String?>(null) }
-            val shown = visibleEntries(state.entries, view)
-            val rows = groupTurn(shown)
+            val shown = remember(state.entries, view) { visibleEntries(state.entries, view) }
+            val rows = remember(shown) { groupTurn(shown) }
             var restored by remember(selected.key) { mutableStateOf(false) }
-            val rowIds = rows.asReversed().map { it.entry.id }
+            val rowIds = remember(rows) { rows.asReversed().map { it.entry.id } }
             val currentRowIds by rememberUpdatedState(rowIds)
             // Restaura uma vez por abertura: relançar a cada mudança das linhas recomeçava no meio da medição.
-            LaunchedEffect(state.readingLoaded, loaded, rowIds.isEmpty()) {
+            LaunchedEffect(listState, state.readingLoaded, loaded, rowIds.isEmpty(), findOpen) {
+                if (findOpen) {
+                    readingAnchor = null
+                    userScrolled = true
+                }
                 if (!state.readingLoaded || !loaded || restored || rowIds.isEmpty()) return@LaunchedEffect
                 val position = controller.readingPosition()
                 val index = readingIndex(currentRowIds, position)
@@ -694,19 +768,105 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                     controller.setReadingVisible(selected.key, false)
                 }
             }
+            val searching by rememberUpdatedState(findOpen)
             LaunchedEffect(listState, restored) {
                 if (!restored) return@LaunchedEffect
                 snapshotFlow {
                     val id = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == listState.firstVisibleItemIndex }?.key as? String
-                    id?.let { ReadingPosition(it, listState.firstVisibleItemScrollOffset, listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) }
+                    id?.let { ReadingPosition(it, listState.firstVisibleItemScrollOffset, !searching && listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) }
                 }.collect { position -> if (position != null) controller.position(selected.key, position) }
             }
-            val recovered = recoveredErrors(state.entries)
+            val recovered = remember(state.entries) { recoveredErrors(state.entries) }
+            val findTerm = remember(findQuery) { normalizeFindQuery(findQuery) }
+            val matches = if (findOpen && findTerm.isNotEmpty()) {
+                val interrupted = stringResource(Res.string.response_interrupted)
+                // O stream pode alterar uma só mensagem sem mudar as outras linhas.
+                val memo = remember(selected.key) { mutableMapOf<String, Pair<String, List<FindBlock>>>() }
+                val texts = remember(rows, recovered, interrupted) {
+                    memo.keys.retainAll(rowIds.toSet())
+                    rows.map { (entry) ->
+                        val raw = when (entry.kind) {
+                            "user", "assistant" -> entry.text
+                            "system" -> if (entry.id in recovered) interrupted else entry.text
+                            else -> null
+                        } ?: return@map emptyList()
+                        val cached = memo[entry.id]
+                        if (cached?.first == raw) cached.second else {
+                            val blocks = if (entry.kind == "system") listOf(FindBlock(0, raw)) else findMarkdownBlocks(markdownImageLinks(raw))
+                            memo[entry.id] = raw to blocks
+                            blocks
+                        }
+                    }
+                }
+                remember(texts, findTerm) { conversationMatches(texts, findTerm) }
+            } else emptyList()
+            val findBlocksByEntry = remember(matches, rows) {
+                matches.groupBy { rows[it.message].entry.id }.mapValues { (_, occurrences) ->
+                    occurrences.mapTo(mutableSetOf()) { it.location.block }
+                }
+            }
+            var activeFind by remember(selected.key, findOpen, findQuery) { mutableStateOf<Pair<String, FindLocation>?>(null) }
+            var findStep by remember(selected.key, findOpen) { mutableIntStateOf(0) }
+            val findIndex = if (matches.isEmpty()) -1 else {
+                val active = matches.indexOfFirst { rows[it.message].entry.id == activeFind?.first && it.location == activeFind?.second }
+                if (active >= 0) active else {
+                    // O maior índice visível na lista invertida corresponde à mensagem mais alta na tela.
+                    val top = listState.layoutInfo.visibleItemsInfo.lastOrNull { it.index < rows.size }?.index
+                    initialFindIndex(matches, if (top == null) 0 else rows.lastIndex - top)
+                }
+            }
+            val findMatch = matches.getOrNull(findIndex)
+            val findEntry = findMatch?.let { rows[it.message].entry }
+            val findId = findEntry?.id
+            val findLocation = findMatch?.location
+            val findAnchor = remember(listState, findQuery, findId, findLocation, findStep) {
+                findLocation?.let { CompletableDeferred<FindAnchor>() }
+            }
+            var findViewport by remember(listState) { mutableStateOf<LayoutCoordinates?>(null) }
+            val findPadding = with(LocalDensity.current) { 8.dp.roundToPx() }
+            val findCanSummarize = remember(findEntry, summarizeReplies) {
+                findEntry != null && findEntry.kind == "assistant" && findEntry.text.length > SUMMARY_MIN_CHARS &&
+                    (summarizeReplies || replyBrief(findEntry.text).isNotEmpty())
+            }
+            LaunchedEffect(findAnchor, findCanSummarize, state.readingLoaded) {
+                val entry = findEntry ?: return@LaunchedEffect
+                val location = findLocation ?: return@LaunchedEffect
+                val target = findAnchor ?: return@LaunchedEffect
+                activeFind = entry.id to location
+                readingAnchor = null
+                if (findCanSummarize && entry.id !in state.reading.expanded) controller.expand(selected.key, entry.id, true)
+                if (listState.layoutInfo.visibleItemsInfo.none { it.key == entry.id }) {
+                    val index = currentRowIds.indexOf(entry.id)
+                    if (index < 0) return@LaunchedEffect
+                    listState.animateScrollToItem(index)
+                }
+                val anchor = target.await()
+                val viewport = snapshotFlow { findViewport }.filterNotNull().first()
+                val y = anchor.revealIn(viewport, findPadding) ?: return@LaunchedEffect
+                // A rolagem positiva na lista invertida desloca a linha para baixo.
+                listState.animateScrollBy(findPadding - y)
+            }
+            if (findOpen) {
+                fun step(direction: Int) {
+                    val target = matches.getOrNull(stepFindIndex(findIndex, matches.size, direction)) ?: return
+                    activeFind = rows[target.message].entry.id to target.location
+                    findStep++
+                }
+                ConversationFindBar(findQuery, { findQuery = it }, findTerm.isNotEmpty(), findIndex, matches.size, { step(-1) }, { step(1) }, ::closeFind)
+            }
+            state.error?.let { error -> Text(stringResource(readingErrorResource(error)), color = MaterialTheme.colorScheme.error) }
+            Spacer(Modifier.height(1.dp))
+            if (selected.agentId == null) Text(stringResource(Res.string.history_read_only))
+            if (!state.terminalAllowed) Text(stringResource(Res.string.terminal_blocked))
+            state.readingError?.let { error ->
+                Text(stringResource(when (error) { "forbidden" -> Res.string.terminal_blocked; "missing" -> Res.string.reading_missing; "oversize" -> Res.string.reading_oversize; else -> Res.string.reading_offline }), color = MaterialTheme.colorScheme.error)
+            }
+            if (state.reduced) Text(stringResource(Res.string.window_reduced))
             val lastId = shown.lastOrNull()?.id
             val working = selected.agentId != null && selected.status == "working"
             LaunchedEffect(following) { if (following) unread = 0 }
             // Ao enviar, volta a seguir o fim: o prompt e a resposta que chegam aparecem sem rolar à mão.
-            fun stickToEnd() { readingAnchor = null; unread = 0; scope.launch { listState.scrollToItem(0) } }
+            fun stickToEnd() { if (!findOpen) { readingAnchor = null; unread = 0; scope.launch { listState.scrollToItem(0) } } }
             // Entrada nova no pé seguindo o fim: a lista seguraria o item que estava no pé, pela chave, e o novo ficaria
             // escondido abaixo. Pedido ainda na composição, antes da medida que o insere: sem um quadro com o botão "↓"
             // piscando.
@@ -728,11 +888,16 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
             var tasksPanel by rememberSaveable { mutableStateOf(false) }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 CompositionLocalProvider(LocalUriHandler provides conversationUriHandler) {
-                LazyColumn(Modifier.fillMaxSize().nestedScroll(manualScroll).testTag("conversation-list"), state = listState, reverseLayout = true, contentPadding = PaddingValues(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom)) {
+                val viewportModifier = if (findOpen) Modifier.onGloballyPositioned { findViewport = it } else Modifier
+                LazyColumn(Modifier.fillMaxSize().then(viewportModifier).nestedScroll(manualScroll).testTag("conversation-list"), state = listState, reverseLayout = true, contentPadding = PaddingValues(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom)) {
                     // Lista invertida: o primeiro item fica no pé da conversa, logo abaixo da última mensagem.
                     items(rows.asReversed(), key = { it.entry.id }) { row ->
                         val entry = row.entry
-                        EntryView(entry, results, row.count, row.tools, recovered = entry.id in recovered, cachedSummary = controller.summary(entry), expanded = entry.id in state.reading.expanded, onExpanded = { controller.expand(selected.key, entry.id, it) }, summarize = if (summarizeReplies) { text -> controller.summarize(entry, text) } else null, api = api) { before, now ->
+                        val find = findBlocksByEntry[entry.id]?.let { blocks ->
+                            val current = entry.id == findId
+                            FindRowRender(findTerm, blocks, findLocation.takeIf { current }, findAnchor.takeIf { current })
+                        }
+                        EntryView(entry, results, row.count, row.tools, recovered = entry.id in recovered, cachedSummary = controller.summary(entry), expanded = entry.id in state.reading.expanded, onExpanded = { controller.expand(selected.key, entry.id, it) }, summarize = if (summarizeReplies) { text -> controller.summarize(entry, text) } else null, api = api, find = find) { before, now ->
                             // A lista é invertida: o item cresce para cima. Acompanha a posição medida do cabeçalho
                             // até a pessoa rolar ou tocar noutro cabeçalho, inclusive nas medidas tardias do markdown.
                             readingAnchor = before to now
@@ -747,7 +912,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                     }
                 }
                 }
-                if (!following && rows.isNotEmpty()) {
+                if (!findOpen && !following && rows.isNotEmpty()) {
                     val label = stringResource(Res.string.go_to_end)
                     SmallFloatingActionButton(onClick = { stickToEnd() }, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp).semantics { contentDescription = label }, shape = CircleShape) {
                         BadgedBox(badge = { if (unread > 0) Badge { Text(unread.toString()) } }) { Icon(Icons.Default.KeyboardArrowDown, contentDescription = null) }
@@ -891,7 +1056,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
             } else {
                 Scaffold(Modifier.weight(1f).fillMaxHeight(), topBar = { conversationTopBar(selected, false) }) { padding ->
                     Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
-                        Column(Modifier.fillMaxSize().imePadding().background(if (MaterialTheme.colorScheme.background.luminance() < 0.5f) MaterialTheme.colorScheme.surfaceContainerLowest else MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(Modifier.fillMaxSize().then(findEscape).imePadding().background(if (MaterialTheme.colorScheme.background.luminance() < 0.5f) MaterialTheme.colorScheme.surfaceContainerLowest else MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             conversationContent(selected, conversationState!!)
                         }
                     }
@@ -902,7 +1067,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
     Scaffold(floatingActionButton = { if (selected == null && (filter != null || apis.size == 1)) castFab() }, topBar = {
         if (selected == null) listTopBar(state) else conversationTopBar(selected, true)
     }) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).imePadding().background(if (selected == null) MaterialTheme.colorScheme.background else if (MaterialTheme.colorScheme.background.luminance() < 0.5f) MaterialTheme.colorScheme.surfaceContainerLowest else MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.fillMaxSize().padding(padding).then(findEscape).imePadding().background(if (selected == null) MaterialTheme.colorScheme.background else if (MaterialTheme.colorScheme.background.luminance() < 0.5f) MaterialTheme.colorScheme.surfaceContainerLowest else MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             castStatus()
             if (selected == null) {
                 state.error?.let { error -> Text(stringResource(readingErrorResource(error)), color = MaterialTheme.colorScheme.error) }
@@ -1052,6 +1217,51 @@ private fun ChatBanner(message: String, modifier: Modifier = Modifier) {
     }
 }
 
+@Composable
+private fun ConversationFindBar(query: String, onQuery: (String) -> Unit, hasTerm: Boolean, index: Int, count: Int, previous: () -> Unit, next: () -> Unit, close: () -> Unit) {
+    val focus = remember { FocusRequester() }
+    val fieldLabel = stringResource(Res.string.find_placeholder)
+    LaunchedEffect(Unit) { focus.requestFocus() }
+    Column(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            TextField(
+                query,
+                onQuery,
+                Modifier.weight(1f).focusRequester(focus).onPreviewKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown && (event.key == Key.Enter || event.key == Key.NumPadEnter)) {
+                        next()
+                        true
+                    } else false
+                },
+                label = { Text(fieldLabel) },
+                singleLine = true,
+                shape = CircleShape,
+                colors = pillFieldColors(),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { next() }),
+            )
+            IconButton(onClick = previous, enabled = count > 0) {
+                Icon(Icons.Default.ExpandLess, contentDescription = stringResource(Res.string.find_previous))
+            }
+            IconButton(onClick = next, enabled = count > 0) {
+                Icon(Icons.Default.ExpandMore, contentDescription = stringResource(Res.string.find_next))
+            }
+            IconButton(onClick = close) {
+                Icon(Icons.Default.Close, contentDescription = stringResource(Res.string.search_close))
+            }
+        }
+        Text(
+            when {
+                !hasTerm -> ""
+                count == 0 -> stringResource(Res.string.find_none)
+                else -> stringResource(Res.string.find_count, index + 1, count)
+            },
+            Modifier.padding(start = 12.dp).semantics { liveRegion = LiveRegionMode.Polite },
+            style = MaterialTheme.typography.labelMedium,
+        )
+    }
+}
+
 /** O servidor guarda até 99 respostas por agente (REPLIES_LIMIT): daí para cima o balão mostra "99+". */
 private const val REPLIES_SHOWN = 99
 /** Quanto puxar além do topo da lista para revelar a busca: grande o bastante para não acontecer por acidente. */
@@ -1113,13 +1323,19 @@ private fun CollapseAtEnd(keepPlace: (before: Float, now: () -> Float) -> Unit, 
 }
 
 @Composable
-private fun EntryView(entry: TerminalEntry, results: Map<String?, List<TerminalEntry>>, count: Int = 1, tools: List<TerminalEntry> = emptyList(), recovered: Boolean = false, cachedSummary: String? = null, expanded: Boolean, onExpanded: (Boolean) -> Unit, summarize: (suspend (String) -> String)? = null, api: HabblaudApi, keepPlace: (before: Float, now: () -> Float) -> Unit = { _, _ -> }) {
+private fun EntryView(entry: TerminalEntry, results: Map<String?, List<TerminalEntry>>, count: Int = 1, tools: List<TerminalEntry> = emptyList(), recovered: Boolean = false, cachedSummary: String? = null, expanded: Boolean, onExpanded: (Boolean) -> Unit, summarize: (suspend (String) -> String)? = null, api: HabblaudApi, find: FindRowRender? = null, keepPlace: (before: Float, now: () -> Float) -> Unit = { _, _ -> }) {
     var headerY by remember { mutableFloatStateOf(0f) }
     val clipboard = LocalClipboardManager.current
     if (entry.kind == "system") {
         // Resposta cortada pelo provedor e retomada logo depois: o texto que veio fica na bolha acima; aqui só um aviso discreto.
         val text = if (recovered) stringResource(Res.string.response_interrupted) else entry.text
-        SelectionContainer { Text(listOfNotNull(text, entry.at?.let(::entryTime)).joinToString(" · "), Modifier.fillMaxWidth().padding(8.dp), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodySmall, color = if (recovered) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface) }
+        val content = listOfNotNull(text, entry.at?.let(::entryTime)).joinToString(" · ")
+        val color = if (recovered) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
+        SelectionContainer {
+            FindMarkedText(AnnotatedString(content), find, 0, Modifier.fillMaxWidth().padding(8.dp), text.length) { marked, modifier, layout ->
+                Text(marked, modifier, textAlign = TextAlign.Center, style = MaterialTheme.typography.bodySmall, color = color, onTextLayout = layout)
+            }
+        }
         return
     }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (entry.kind == "user") Arrangement.End else Arrangement.Start) {
@@ -1203,7 +1419,8 @@ private fun EntryView(entry: TerminalEntry, results: Map<String?, List<TerminalE
                                     h6 = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
                                 ),
                                 dimens = chatMarkdownDimens(),
-                                components = markdownComponents(codeFence = { MermaidCodeFence(it, api) }, codeBlock = { CopyableCodeBlock(it) }, table = wrappingTable),
+                                annotator = conversationMarkdownAnnotator,
+                                components = conversationMarkdownComponents(api, find),
                             )
                         }
                         MarkdownImages(entry.text, api)

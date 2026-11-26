@@ -9,7 +9,7 @@ export struct MdSpan {
     text: string, bold: bool, italic: bool, strike: bool, code: bool, link: string,
 }
 export struct MdCell {
-    rich: styled-text, text: string, alignment: int, header: bool,
+    rich: styled-text, text: string, spans: [MdSpan], alignment: int, header: bool,
 }
 export struct MdBlock {
     kind: string, rich: styled-text, text: string, spans: [MdSpan],
@@ -18,7 +18,7 @@ export struct MdBlock {
     level: int, depth: int, marker: string, language: string,
     links: [string],
     link-labels: [string],
-    code-lines: int, diagram: image,
+    code-lines: int, layout-lines: int, diagram: image,
     cells: [MdCell], columns: int,
 }
 
@@ -27,14 +27,47 @@ export global MarkdownGeometry {
     callback measured(string, float, float, float, float);
 }
 
+export struct FindMark { start: int, end: int, index: int }
+export struct FindCodeMark { line: int, prefix: string, text: string, index: int, first: bool }
+export struct FindCodePreview { text: string, marks: [FindCodeMark], lines: int }
+export struct FindPaint { rich: styled-text, prefix: styled-text, active: bool }
+
+export global MarkdownFind {
+    in property <int> revision;
+    in property <int> current: -1;
+    in-out property <int> request;
+    in-out property <bool> measured;
+    in-out property <length> measured-y;
+    in-out property <length> measured-height;
+    in-out property <string> probe-row;
+    in-out property <int> probe-request;
+    in-out property <int> probe-best: -1;
+    in-out property <length> probe-top;
+    pure callback prefix(string, int) -> string;
+    pure callback marks(string, int, int, int) -> [FindMark];
+    pure callback paint(styled-text, string, [MdSpan], [FindMark], int, color, color, bool, bool) -> FindPaint;
+    pure callback code-marks(string, [FindMark]) -> [FindCodeMark];
+    pure callback diagram-source(string, [FindMark], int) -> FindCodePreview;
+    public function report(y: length, height: length) {
+        MarkdownFind.measured-y = y;
+        MarkdownFind.measured-height = height;
+        MarkdownFind.measured = true;
+    }
+    public function report-near(index: int, bottom: length) {
+        if bottom > MarkdownFind.probe-top && (MarkdownFind.probe-best < 0 || index < MarkdownFind.probe-best) {
+            MarkdownFind.probe-best = index;
+        }
+    }
+}
+
 export global MarkdownSelection {
     out property <string> select-message-label: "Selecionar a mensagem toda";
     callback format([MdBlock]) -> string;
 }
 
-component MeasuredText inherits FocusScope {
+export component MeasuredText inherits FocusScope {
     in property <string> row-id;
-    in property <styled-text> text <=> body.text;
+    in property <styled-text> text;
     in property <brush> default-color <=> body.default-color;
     in property <length> default-font-size <=> body.default-font-size;
     in property <color> link-color <=> body.link-color;
@@ -42,6 +75,57 @@ component MeasuredText inherits FocusScope {
     callback link-clicked(string);
     callback copy-message();
     focus-on-click: false;
+    in property <string> find-text;
+    in property <[MdSpan]> find-spans;
+    in property <int> find-block: -2;
+    in property <int> find-cell: -1;
+    in property <bool> find-bold;
+    in property <bool> find-italic;
+    in property <color> find-ink: Theme.primary;
+    in property <color> find-current-ink: Theme.tertiary;
+    in property <length> find-viewport-height;
+    callback reveal();
+    property <[FindMark]> find-marks: root.find-block == -2 || MarkdownFind.revision == 0 ? []
+        : MarkdownFind.marks(root.row-id, root.find-block, root.find-cell, MarkdownFind.revision);
+    property <FindPaint> find-paint: root.find-marks.length == 0 ? { rich: root.text }
+        : MarkdownFind.paint(root.text, root.find-text, root.find-spans, root.find-marks, MarkdownFind.current,
+            root.find-ink, root.find-current-ink, root.find-bold, root.find-italic);
+    property <int> find-request: root.find-paint.active ? MarkdownFind.request : 0;
+    changed find-request => {
+        if root.find-paint.active {
+            root.reveal();
+            let tall = root.find-viewport-height > 0px && root.height > root.find-viewport-height - 8px;
+            let offset = tall ? max(0px, find-prefix.preferred-height - find-line.preferred-height) : 0px;
+            MarkdownFind.report(root.absolute-position.y + offset, tall ? find-line.preferred-height : root.height);
+        }
+    }
+    find-prefix := StyledText {
+        visible: false; width: root.width; text: root.find-paint.prefix;
+        default-font-size: root.default-font-size;
+    }
+    find-line := StyledText {
+        visible: false; width: root.width; text: @markdown("M");
+        default-font-size: root.default-font-size;
+    }
+    property <bool> probing: root.row-id == MarkdownFind.probe-row && root.find-marks.length > 0;
+    property <int> near-request: root.probing ? MarkdownFind.probe-request : 0;
+    changed near-request => {
+        if root.probing && root.absolute-position.y >= MarkdownFind.probe-top {
+            MarkdownFind.report-near(root.find-marks[0].index, root.absolute-position.y + root.height);
+        }
+    }
+    if root.probing && root.absolute-position.y < MarkdownFind.probe-top
+        && root.absolute-position.y + root.height > MarkdownFind.probe-top: Rectangle {
+        for mark in root.find-marks: StyledText {
+            visible: false; width: root.width;
+            default-font-size: root.default-font-size;
+            text: @markdown("\{MarkdownFind.prefix(root.find-text, mark.end)}");
+            property <int> probe-request: MarkdownFind.probe-request;
+            changed probe-request => {
+                MarkdownFind.report-near(mark.index, root.absolute-position.y + self.preferred-height);
+            }
+        }
+    }
     min-width: body.min-width;
     preferred-width: body.preferred-width;
     preferred-height: body.preferred-height;
@@ -58,6 +142,7 @@ component MeasuredText inherits FocusScope {
     body := StyledText {
         width: parent.width;
         height: parent.height;
+        text: root.find-paint.rich;
         selectable: true;
         selection-background-color: Theme.primary;
         selection-foreground-color: Theme.on-primary;
@@ -132,6 +217,10 @@ component MdButton inherits Rectangle {
 component FormattedBlock inherits VerticalLayout {
     in property <MdBlock> block;
     in property <string> row-id;
+    in property <int> find-block: -2;
+    in property <length> find-viewport-height;
+    in property <color> find-ink: Theme.primary;
+    in property <color> find-current-ink: Theme.tertiary;
     callback link-clicked(string);
     callback copy(string);
     callback select-text();
@@ -144,6 +233,10 @@ component FormattedBlock inherits VerticalLayout {
             MeasuredText {
                 row-id: root.row-id;
                 text: root.block.rich;
+                find-text: root.block.text; find-spans: root.block.spans; find-block: root.find-block;
+                find-bold: root.block.level > 0; find-italic: root.block.kind == "quote";
+                find-viewport-height: root.find-viewport-height;
+                find-ink: root.find-ink; find-current-ink: root.find-current-ink;
                 default-color: root.foreground;
                 default-font-size: root.block.level == 1 ? 24px : root.block.level == 2 ? 22px : root.block.level == 3 ? 16px : root.block.level == 4 ? 14px : root.block.level == 5 ? 16px : root.block.level == 6 || root.block.kind == "quote" ? 14px : 16px;
                 link-color: Theme.primary;
@@ -170,6 +263,8 @@ export component MarkdownView inherits Rectangle {
     in property <string> row-id;
     in property <length> viewport-top;
     in property <length> viewport-bottom;
+    in property <color> find-ink: Theme.primary;
+    in property <color> find-current-ink: Theme.tertiary;
     callback link-clicked(string);
     callback copy(string);
     callback before-selection-change();
@@ -252,11 +347,13 @@ export component MarkdownView inherits Rectangle {
     }
     if !root.selecting: VerticalLayout {
     spacing: 8px;
-    for block in root.blocks: VerticalLayout {
+    for block[block-index] in root.blocks: VerticalLayout {
         padding-left: min(block.depth, 4) * 20px;
         if block.kind == "rule": Rectangle { height: 1px; background: Theme.outline-variant; }
         if block.kind == "text": FormattedBlock {
             block: block;
+            find-block: block-index; find-viewport-height: root.viewport-bottom - root.viewport-top;
+            find-ink: root.find-ink; find-current-ink: root.find-current-ink;
             row-id: root.row-id;
             foreground: root.foreground;
             source-markdown: root.source-markdown;
@@ -267,7 +364,13 @@ export component MarkdownView inherits Rectangle {
         if block.kind == "quote": HorizontalLayout {
             spacing: 8px;
             Rectangle { width: 3px; background: Theme.outline-variant; }
-            FormattedBlock { row-id: root.row-id; block: block; foreground: root.foreground; source-markdown: root.source-markdown; copy(text) => { root.copy(text); } select-text => { root.select-text(); } link-clicked(url) => { message-focus.focus(); root.link-clicked(url); } }
+            FormattedBlock {
+                row-id: root.row-id; block: block; foreground: root.foreground; source-markdown: root.source-markdown;
+                find-block: block-index; find-viewport-height: root.viewport-bottom - root.viewport-top;
+                find-ink: root.find-ink; find-current-ink: root.find-current-ink;
+                copy(text) => { root.copy(text); } select-text => { root.select-text(); }
+                link-clicked(url) => { message-focus.focus(); root.link-clicked(url); }
+            }
         }
         if block.kind == "code": code-box := Rectangle {
             background: Theme.on-background.with-alpha(0.1);
@@ -276,7 +379,14 @@ export component MarkdownView inherits Rectangle {
             border-bottom-left-radius: block.continued-after ? 0px : 8px;
             border-bottom-right-radius: self.border-bottom-left-radius;
             preferred-height: code-content.preferred-height;
-            code-metrics := Text { visible: false; text: block.text; font-family: "Noto Sans Mono"; font-size: 14px; wrap: no-wrap; }
+            property <[FindMark]> marks: MarkdownFind.revision == 0 ? []
+                : MarkdownFind.marks(root.row-id, block-index, -1, MarkdownFind.revision);
+            property <bool> reveal-source: block.diagram.width > 0 && self.marks.length > 0;
+            property <FindCodePreview> source: self.reveal-source
+                ? MarkdownFind.diagram-source(block.text, self.marks, MarkdownFind.current)
+                : { text: block.text, lines: block.layout-lines,
+                    marks: self.marks.length == 0 ? [] : MarkdownFind.code-marks(block.text, self.marks) };
+            code-metrics := Text { visible: false; text: code-box.source.text; font-family: "Noto Sans Mono"; font-size: 14px; wrap: no-wrap; }
             ContextMenuArea {
                 Menu {
                     MenuItem { title: "Copiar mensagem"; activated => { root.copy(root.source-markdown); } }
@@ -289,7 +399,7 @@ export component MarkdownView inherits Rectangle {
                 padding-bottom: block.continued-after ? 0px : 8px;
                 spacing: 4px;
                 // O tema do renderizador é claro; o cartão branco mantém contraste no tema escuro.
-                if block.diagram.width > 0: HorizontalLayout {
+                if block.diagram.width > 0 && !code-box.reveal-source: HorizontalLayout {
                     alignment: start;
                     Rectangle {
                         property <length> diagram-width: min(code-content.width - 16px, block.diagram.width * 1px);
@@ -322,19 +432,45 @@ export component MarkdownView inherits Rectangle {
                         TouchArea { clicked => { DiagramState.open(block.diagram); } }
                     }
                 }
-                if block.diagram.width == 0: ScrollView {
+                if block.diagram.width == 0 || code-box.reveal-source: code-scroll := ScrollView {
                     min-height: 0px;
                     preferred-height: code.preferred-height + (code-metrics.preferred-width > self.width ? 12px : 0px);
                     max-height: self.preferred-height;
                     vertical-stretch: 0;
                     content-width: max(self.width, code-metrics.preferred-width);
+                    for mark in code-box.source.marks: Rectangle {
+                        property <bool> active: mark.index == MarkdownFind.current;
+                        property <length> pitch: code.height / max(1, code-box.source.lines);
+                        x: before.preferred-width; y: mark.line * self.pitch;
+                        width: max(3px, matched.preferred-width); height: self.pitch;
+                        background: root.find-ink.with-alpha(self.active ? 0.38 : 0.19);
+                        Rectangle { y: parent.height - self.height; height: parent.active ? 2px : 1px; background: root.find-ink; }
+                        before := Text { visible: false; text: mark.prefix; font-family: "Noto Sans Mono"; font-size: 14px; }
+                        matched := Text { visible: false; text: mark.text; font-family: "Noto Sans Mono"; font-size: 14px; }
+                        property <int> probe-request: mark.first && root.row-id == MarkdownFind.probe-row ? MarkdownFind.probe-request : 0;
+                        changed probe-request => {
+                            if root.row-id == MarkdownFind.probe-row && mark.first {
+                                MarkdownFind.report-near(mark.index, self.absolute-position.y + self.height);
+                            }
+                        }
+                        property <int> find-request: self.active && mark.first ? MarkdownFind.request : 0;
+                        changed find-request => {
+                            if self.active && mark.first {
+                                if self.x + self.width > -code-scroll.content-x + code-scroll.width || self.x < -code-scroll.content-x {
+                                    code-scroll.content-x = min(0px, max(code-scroll.width - code-scroll.content-width, 8px - self.x));
+                                }
+                                let tall = code-box.height > root.viewport-bottom - root.viewport-top - 8px;
+                                MarkdownFind.report(tall ? self.absolute-position.y : code-box.absolute-position.y, tall ? self.height : code-box.height);
+                            }
+                        }
+                    }
                     code := MeasuredInput {
                         row-id: root.row-id;
                         width: max(parent.width, code-metrics.preferred-width);
                         // A medida nativa inclui a última linha vazia e as métricas reais da fonte.
                         height: self.preferred-height;
-                        text: block.text;
-                        accessible-role: text; accessible-label: block.text;
+                        text: code-box.source.text;
+                        accessible-role: text; accessible-label: self.text;
                         read-only: true;
                         single-line: false;
                         wrap: no-wrap;
@@ -392,7 +528,7 @@ export component MarkdownView inherits Rectangle {
                 MdButton { text: "Carregar imagem"; clicked => { MarkdownImages.load(block.text); } }
             }
         }
-        if block.kind == "table": ScrollView {
+        if block.kind == "table": table-scroll := ScrollView {
             height: table.preferred-height + 16px;
             content-width: max(self.width, block.columns * 180px);
             table := VerticalLayout {
@@ -409,6 +545,17 @@ export component MarkdownView inherits Rectangle {
                             MeasuredText {
                                 row-id: root.row-id;
                                 text: cell-box.cell.rich;
+                                find-text: cell-box.cell.text; find-spans: cell-box.cell.spans;
+                                find-block: block-index; find-cell: row * block.columns + column;
+                                find-bold: cell-box.cell.header;
+                                find-ink: root.find-ink; find-current-ink: root.find-current-ink;
+                                find-viewport-height: root.viewport-bottom - root.viewport-top;
+                                reveal => {
+                                    let cell-x = column * cell-box.width;
+                                    if cell-x + cell-box.width > -table-scroll.content-x + table-scroll.width || cell-x < -table-scroll.content-x {
+                                        table-scroll.content-x = min(0px, max(table-scroll.width - table-scroll.content-width, -cell-x));
+                                    }
+                                }
                                 default-color: root.foreground;
                                 default-font-size: 16px;
                                 link-color: Theme.primary;

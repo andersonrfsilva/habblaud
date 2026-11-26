@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { AgentInfo } from '../../shared/types';
 import { setQuiet } from '../log';
 import { L, symlinkOrSkip, tempDir, writeLines } from '../test/fixtures';
-import { HEAD_BYTES, HISTORY_MAX_AGE_MS, isSessionId, openMainAgent, SessionHistory, TAIL_BYTES, type HistoryAccount } from './history';
+import { HEAD_BYTES, HISTORY_MAX_AGE_MS, historyWindow, isSessionId, openMainAgent, SessionHistory, TAIL_BYTES, type HistoryAccount } from './history';
 import { encodeCwd } from './watcher';
 
 setQuiet(true);
@@ -96,6 +96,27 @@ describe('SessionHistory.list', () => {
     for (let i = 1; i <= 5; i++) session(c, `/p${i}`, sid(i), [L.prompt(`p${i}`, { at: NOW - i * HOUR })], NOW - i * HOUR);
     const list = await history([c], { limit: 3 }).list();
     expect(list.map((s) => s.title)).toEqual(['p1', 'p2', 'p3']);
+  });
+
+  it('«Carregar mais»: cada degrau amplia dias e limite, e voltar ao padrão não relê o que o degrau maior leu', async () => {
+    const { acc } = setup();
+    const c = acc('.claude');
+    const DAY = 24 * HOUR;
+    for (const [i, days] of [[1, 1], [2, 20], [3, 60], [4, 200], [5, 400]] as const) {
+      session(c, `/p${i}`, sid(i), [L.prompt(`p${i}`, { at: NOW - days * DAY })], NOW - days * DAY);
+    }
+    const h = history([c]);
+    expect((await h.list()).map((s) => s.title)).toEqual(['p1']);
+    expect((await h.list(historyWindow(2))).map((s) => s.title)).toEqual(['p1', 'p2']);
+    expect((await h.list(historyWindow(4))).map((s) => s.title)).toEqual(['p1', 'p2', 'p3', 'p4']);
+    const reads = h.reads;
+    await h.list();
+    await h.list(historyWindow(4));
+    expect(h.reads).toBe(reads);
+    // Fora da faixa: o degrau mais próximo.
+    expect(historyWindow(0)).toMatchObject({ step: 1, days: 7, limit: 150 });
+    expect(historyWindow(99)).toMatchObject({ step: 4, days: 365, limit: 600 });
+    expect(historyWindow(Number.NaN).step).toBe(1);
   });
 
   it('cache por mtime: o arquivo que não mudou não é relido; o que mudou é', async () => {

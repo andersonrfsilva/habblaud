@@ -9,7 +9,7 @@ import { join, sep } from 'node:path';
 import { truncate } from '../../shared/activity';
 import type { AgentInfo, RecentSession } from '../../shared/types';
 import { errMsg, log } from '../log';
-import type { HistoryProvider, HistoryResolveResult } from './source';
+import type { HistoryProvider, HistoryResolveResult, HistoryWindow } from './source';
 import { sessionDirOf } from './subagents';
 import { createTerminalParser } from './terminal';
 import { createTranscriptState, parseLine, titleOf } from './transcript';
@@ -21,6 +21,24 @@ export const HISTORY_DAYS = 7;
 export const HISTORY_MAX_AGE_MS = HISTORY_DAYS * 24 * 3600_000;
 /** Máximo de sessões listadas (as mais recentes). */
 export const HISTORY_LIMIT = 150;
+/**
+ * Degraus de «Carregar mais» nos Recentes: cada um amplia a janela e o máximo de sessões. O primeiro é o padrão.
+ * O último limita o custo: no pior caso, 600 transcripts lidos só no começo e no fim, com cache por mtime.
+ */
+export const HISTORY_STEPS: readonly { days: number; limit: number }[] = [
+  { days: HISTORY_DAYS, limit: HISTORY_LIMIT },
+  { days: 30, limit: 300 },
+  { days: 90, limit: 450 },
+  { days: 365, limit: 600 },
+];
+/** Janela do degrau `step` (1 = padrão); fora da faixa vale o degrau mais próximo. */
+export function historyWindow(step: number): { step: number; days: number; limit: number; maxAgeMs: number } {
+  const i = Math.min(HISTORY_STEPS.length, Math.max(1, Math.trunc(step) || 1)) - 1;
+  const s = HISTORY_STEPS[i];
+  return { step: i + 1, days: s.days, limit: s.limit, maxAgeMs: s.days * 24 * 3600_000 };
+}
+/** Cache de metadados: guarda tudo o que o maior degrau ainda pode listar, para os degraus não se apagarem entre si. */
+export const HISTORY_CACHE_MAX_AGE_MS = HISTORY_STEPS[HISTORY_STEPS.length - 1].days * 24 * 3600_000;
 /** Começo do arquivo lido: projeto (cwd), primeira atividade e o primeiro prompt. */
 export const HEAD_BYTES = 64 * 1024;
 /** Fim do arquivo lido: o Claude Code regrava título e último prompt a cada turno, então eles ficam perto do fim. */
@@ -101,16 +119,17 @@ export class SessionHistory implements HistoryProvider {
   }
 
   /** Sessões recentes de todas as contas, da atividade mais recente para a mais antiga. */
-  async list(): Promise<RecentSession[]> {
+  async list(window?: HistoryWindow): Promise<RecentSession[]> {
     const now = this.now();
+    const maxAgeMs = window?.maxAgeMs ?? this.maxAgeMs;
     const all: Candidate[] = [];
-    for (const acc of this.opts.accounts()) all.push(...(await this.candidates(acc, now)));
+    for (const acc of this.opts.accounts()) all.push(...(await this.candidates(acc, now, maxAgeMs)));
     all.sort((a, b) => b.mtimeMs - a.mtimeMs);
-    const picked = all.slice(0, this.limit);
+    const picked = all.slice(0, window?.limit ?? this.limit);
     const metas = await mapLimit(picked, READ_CONCURRENCY, (c) => this.metaOf(c));
-    // Esquece os arquivos que saíram da janela (o cache não cresce sem limite).
-    const keep = new Set(picked.map((c) => c.path));
-    for (const path of this.cache.keys()) if (!keep.has(path)) this.cache.delete(path);
+    // Esquece só o que nenhum degrau lista mais (o cache não cresce sem limite e os degraus não se apagam).
+    const keepAge = Math.max(this.maxAgeMs, HISTORY_CACHE_MAX_AGE_MS);
+    for (const [path, hit] of this.cache) if (now - hit.mtimeMs > keepAge) this.cache.delete(path);
 
     const out: RecentSession[] = [];
     picked.forEach((c, i) => {
@@ -170,7 +189,7 @@ export class SessionHistory implements HistoryProvider {
   }
 
   /** Transcripts de primeiro nível (um por sessão) modificados dentro da janela. */
-  private async candidates(acc: HistoryAccount, now: number): Promise<Candidate[]> {
+  private async candidates(acc: HistoryAccount, now: number, maxAgeMs: number): Promise<Candidate[]> {
     const projects = join(acc.dir, 'projects');
     const out: Candidate[] = [];
     let dirs: string[];
@@ -193,7 +212,7 @@ export class SessionHistory implements HistoryProvider {
         const path = join(projects, projectDir, name);
         try {
           const st = await stat(path);
-          if (!st.isFile() || now - st.mtimeMs > this.maxAgeMs) continue;
+          if (!st.isFile() || now - st.mtimeMs > maxAgeMs) continue;
           out.push({ account: acc.id, sessionId, projectDir, path, mtimeMs: st.mtimeMs, size: st.size });
         } catch {
           // apagado no meio da listagem

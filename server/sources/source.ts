@@ -124,10 +124,16 @@ export interface HistorySession {
 /** Resultado de resolve(): a sessão ou o erro HTTP. */
 export type HistoryResolveResult = HistorySession | { status: 400 | 404; error: string };
 
+/** Janela de uma listagem de Recentes: até `limit` sessões com atividade nos últimos `maxAgeMs`. */
+export interface HistoryWindow {
+  limit: number;
+  maxAgeMs: number;
+}
+
 /** O que as rotas /api/sessions/* precisam: um provedor sozinho ou o HistorySet. */
 export interface SessionLookup {
-  /** Sessões recentes, da atividade mais recente para a mais antiga. */
-  list(): Promise<RecentSession[]>;
+  /** Sessões recentes, da atividade mais recente para a mais antiga; sem janela, a padrão do provedor. */
+  list(window?: HistoryWindow): Promise<RecentSession[]>;
   /**
    * Valida e acha a sessão `sessionId` da conta (nada de path traversal). Nunca lança: 400 = id inválido,
    * 404 = conta ou sessão desconhecida.
@@ -162,8 +168,8 @@ export class HistorySet implements SessionLookup {
   }
 
   /** Um provedor que falha não derruba a listagem dos outros (só vai para o log); todos falhando, a falha sobe. */
-  async list(): Promise<RecentSession[]> {
-    const results = await Promise.allSettled(this.list_.map((p) => p.list()));
+  async list(window?: HistoryWindow): Promise<RecentSession[]> {
+    const results = await Promise.allSettled(this.list_.map((p) => p.list(window)));
     const out: RecentSession[] = [];
     const failures: Array<{ provider: Provider; err: unknown }> = [];
     results.forEach((r, i) => {
@@ -174,7 +180,7 @@ export class HistorySet implements SessionLookup {
     for (const f of failures) {
       log.warnOnce(`history-list:${f.provider}:${errMsg(f.err)}`, tr('Histórico de sessões ({0}): falha ao listar ({1}).', [f.provider, errMsg(f.err)]));
     }
-    return out.sort((a, b) => b.lastAt - a.lastAt).slice(0, this.limit);
+    return out.sort((a, b) => b.lastAt - a.lastAt).slice(0, window?.limit ?? this.limit);
   }
 
   resolve(account: string, sessionId: string): HistoryResolveResult {

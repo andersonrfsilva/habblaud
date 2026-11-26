@@ -324,12 +324,23 @@ impl Blocks {
     }
 }
 
+const SEARCH_OPTIONS: Options = Options::ENABLE_TABLES
+    .union(Options::ENABLE_STRIKETHROUGH)
+    .union(Options::ENABLE_TASKLISTS);
+
+pub(crate) fn find_blocks(markdown: &str) -> Vec<MdBlock> {
+    parse_blocks(markdown, false)
+}
+
 /// Converte CommonMark/GFM em blocos leves, mantendo estilos inline e texto literal.
 /// HTML permanece texto. Imagens viram link mais um bloco `image` com o destino em `text` e a
 /// origem (`images::kind`) em `language`; o parser nunca acessa a rede.
 pub fn parse(markdown: &str) -> Vec<MdBlock> {
-    let options =
-        Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
+    parse_blocks(markdown, true)
+}
+
+fn parse_blocks(markdown: &str, draw: bool) -> Vec<MdBlock> {
+    let options = SEARCH_OPTIONS;
     let marked = autolink::mark(markdown, options);
     let (markdown, bare_urls) = marked
         .as_ref()
@@ -462,13 +473,14 @@ pub fn parse(markdown: &str) -> Vec<MdBlock> {
             Event::End(TagEnd::CodeBlock) => {
                 if let Some((language, text, closed)) = state.code.take() {
                     // Desenho inválido, grande demais ou incompleto (streaming) fica como código.
-                    let diagram = closed
+                    let diagram = (draw && closed)
                         .then(|| diagram(&language, &text))
                         .flatten()
                         .map_or_else(slint::Image::default, |d| d.image());
                     state.blocks.push(MdBlock {
                         kind: "code".into(),
                         code_lines: text.lines().count().max(1) as i32,
+                        layout_lines: text.split('\n').count() as i32,
                         text: text.into(),
                         language: language.into(),
                         diagram,
@@ -489,7 +501,7 @@ pub fn parse(markdown: &str) -> Vec<MdBlock> {
             Event::End(TagEnd::TableHead) => state.table_head = false,
             Event::Start(Tag::TableRow) => state.column = 0,
             Event::End(TagEnd::TableCell) => {
-                let (text, rich, _) = state.inline.take(state.table_head, false);
+                let (text, rich, spans) = state.inline.take(state.table_head, false);
                 let alignment = match state.alignments.get(state.column) {
                     Some(Alignment::Center) => 1,
                     Some(Alignment::Right) => 2,
@@ -498,6 +510,7 @@ pub fn parse(markdown: &str) -> Vec<MdBlock> {
                 state.cells.push(MdCell {
                     text: text.into(),
                     rich,
+                    spans: model(spans),
                     alignment,
                     header: state.table_head,
                 });

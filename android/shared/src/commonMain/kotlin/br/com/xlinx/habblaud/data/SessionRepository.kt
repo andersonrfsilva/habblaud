@@ -45,6 +45,8 @@ class SessionRepository(private val api: HabblaudApi) {
     private var cast = emptyList<JsonObject>()
     var recentStale = false
         private set
+    var recentWindow: RecentWindow? = null
+        private set
     var terminalAllowed = false
         private set
     var messagesAllowed = false
@@ -57,25 +59,35 @@ class SessionRepository(private val api: HabblaudApi) {
     var serverTime = 0L
         private set
 
-    suspend fun refresh() {
+    suspend fun refresh(step: Int = 1) {
         val access = wireJson.parseToJsonElement(api.access()).jsonObject
         terminalAllowed = access.flag("terminal")
         messagesAllowed = access.flag("messages")
         messageGuard = access.flag("messageSessionGuard")
         permissionsAllowed = access.flag("permissions")
-        refreshRecent()
+        refreshRecent(step)
         cast = if (terminalAllowed) try {
             wireJson.parseToJsonElement(api.request("/api/cast")).jsonObject.objects("members")
         } catch (e: ApiException) { if (e.status == 403 || e.status == 404) emptyList() else throw e } else emptyList()
     }
 
-    suspend fun refreshRecent() {
-        recent = if (terminalAllowed) {
+    suspend fun refreshRecent(step: Int = 1): Boolean {
+        val response = if (terminalAllowed) {
+            val path = "/api/sessions/recent" + if (step == 1) "" else "?step=$step"
             try {
-                wireJson.parseToJsonElement(api.request("/api/sessions/recent")).jsonObject.objects("sessions").mapNotNull { item(it, null) }
-            } catch (e: ApiException) { if (e.status == 403) { terminalAllowed = false; emptyList() } else throw e }
-        } else emptyList()
+                wireJson.parseToJsonElement(api.request(path)).jsonObject
+            } catch (e: ApiException) {
+                if (e.status != 403) throw e
+                terminalAllowed = false
+                null
+            }
+        } else null
+        recent = response?.objects("sessions").orEmpty().mapNotNull { item(it, null) }
+        recentWindow = response?.let { root ->
+            RecentWindow(step, root.string("days")?.toIntOrNull() ?: 7, root.string("maxStep")?.toIntOrNull() ?: 1)
+        }
         recentStale = false
+        return response != null
     }
 
     fun snapshot(data: String): List<SessionItem> = snapshot(wireJson.parseToJsonElement(data).jsonObject)

@@ -52,6 +52,18 @@ describe('histórico ZeroClaw', () => {
     expect(list.map((item) => item.sessionId)).toEqual([NEXT]);
   });
 
+  it('«Carregar mais»: além da janela padrão só lista o que já está espelhado, sem baixar transcripts', async () => {
+    const s = await setup();
+    const OLD = '7f2c9ee1-2bdd-49ea-b431-3d56fc046303';
+    const MIRRORED = '7f2c9ee1-2bdd-49ea-b431-3d56fc046304';
+    s.gateway.sessions.push(remote(SID), remote(OLD, 20 * 86400000), remote(MIRRORED, 25 * 86400000));
+    for (const id of [SID, OLD, MIRRORED]) s.gateway.messages.set(id, [{ role: 'assistant', content: id }]);
+    await s.mirror.bootstrap(MIRRORED, [{ role: 'assistant', content: 'local' }]);
+    const list = await s.history.list({ limit: 300, maxAgeMs: 30 * 86400000 });
+    expect(list.map((item) => item.sessionId)).toEqual([SID, MIRRORED]);
+    expect(s.history.resolve('final-account~2', OLD)).toMatchObject({ status: 404 });
+  });
+
   it('preserva leitura e metadados locais com gateway offline', async () => {
     const s = await setup();
     await s.mirror.setMetadata({ sessionId: SID, agent: 'assistant', name: 'Local', cwd: '/projetos/local', lastAt: Date.now() });

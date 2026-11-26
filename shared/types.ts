@@ -784,12 +784,15 @@ export interface DeliveriesResponse {
   deliveries: DeliveryInfo[];
 }
 
-/** Resposta de GET /api/sessions/recent: da atividade mais recente para a mais antiga. */
+/** Resposta de GET /api/sessions/recent[?step=N]: da atividade mais recente para a mais antiga. */
 export interface RecentSessionsResponse {
   sessions: RecentSession[];
-  /** Janela da listagem (dias) e máximo de sessões. */
+  /** Janela da listagem (dias) e máximo de sessões do degrau pedido. */
   days: number;
   limit: number;
+  /** Degrau de «Carregar mais» atendido (1 = padrão) e o último que existe; servidor antigo não manda. */
+  step?: number;
+  maxStep?: number;
 }
 
 // ------------------------------------------------------------------ responder pelo escritório

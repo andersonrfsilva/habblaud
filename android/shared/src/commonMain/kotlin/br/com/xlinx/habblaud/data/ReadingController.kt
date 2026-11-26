@@ -5,6 +5,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.IO
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -69,6 +71,8 @@ internal class ConversationCacheSchedule(private val scope: CoroutineScope, priv
     val readingLoaded: Boolean = false,
     val accounts: List<AccountQuota> = emptyList(),
     val snapshotReady: Boolean = false,
+    val recentWindow: RecentWindow? = null,
+    val recentRefreshFailed: Boolean = false,
 )
 
 internal fun ReadingState.readingSession(visibleKey: SessionKey?): SessionKey? =
@@ -115,6 +119,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
     val state: StateFlow<ReadingState> = mutable
     private var stateJob: Job? = null
     private var recentJob: Job? = null
+    private val recentLock = Mutex()
     private var conversationJob: Job? = null
     private var generation = 0
     private var active = false
@@ -184,7 +189,10 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
             try {
                 var retry = 2000L
                 while (true) {
-                    try { repository.refresh(); break } catch (e: Exception) {
+                    try {
+                        recentLock.withLock { repository.refresh(recentLoad.value.step) }
+                        break
+                    } catch (e: Exception) {
                         if (e is kotlinx.coroutines.CancellationException) throw e
                         if (e is ApiException && e.status in listOf(401, 403, 404)) throw e
                         mutable.update { it.copy(connection = "offline", error = "network") }
@@ -196,7 +204,8 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                 val messageGuard = repository.messageGuard
                 val permissionsAllowed = repository.permissionsAllowed
                 mutable.update {
-                    it.copy(terminalAllowed = terminalAllowed, messagesAllowed = messagesAllowed, messageGuard = messageGuard, permissionsAllowed = permissionsAllowed)
+                    it.copy(terminalAllowed = terminalAllowed, messagesAllowed = messagesAllowed, messageGuard = messageGuard,
+                        permissionsAllowed = permissionsAllowed, recentWindow = repository.recentWindow, recentRefreshFailed = false)
                 }
                 if (!restoreLoaded) {
                     val saved = store.lastSession()?.takeIf { it.origin == api.origin }
@@ -218,18 +227,8 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                             val sessions = repository.snapshot(snapshot)
                             val accounts = parseAccounts(snapshot)
                             reconcileSessions(sessions, accounts)
-                            if (repository.recentStale && recentJob?.isActive != true) {
-                                recentJob = scope.launch {
-                                    try {
-                                        repository.refreshRecent()
-                                    } catch (e: Exception) {
-                                        if (e is CancellationException) throw e
-                                        if (e is ApiException && e.status == 401) unauthorized()
-                                        return@launch
-                                    }
-                                    if (!active) return@launch
-                                    reconcileSessions(repository.sessions())
-                                }
+                            if (repository.recentStale && !recentLoad.value.loading && recentJob?.isActive != true) {
+                                recentJob = scope.launch { refreshRecent(manual = false) }
                             }
                         }
                     }
@@ -237,6 +236,24 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
             } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; if (e is ApiException && e.status == 401) unauthorized() else mutable.update { it.copy(connection = "offline", error = "network") } }
         }
     }
+
+    internal suspend fun refreshRecent(manual: Boolean): Boolean = recentLock.withLock {
+        if (!active || (!manual && recentLoad.value.loading)) return@withLock false
+        val loaded = try {
+            repository.refreshRecent(recentLoad.value.step)
+        } catch (e: Exception) {
+            // A troca de login ou ida ao fundo pode cancelar só a requisição, não o lote.
+            currentCoroutineContext().ensureActive()
+            if (e is ApiException && e.status == 401) unauthorized()
+            else if (e !is CancellationException && manual && active) mutable.update { it.copy(recentRefreshFailed = true) }
+            return@withLock false
+        }
+        if (!active) return@withLock false
+        reconcileSessions(repository.sessions())
+        if (mutable.value.recentRefreshFailed) mutable.update { it.copy(recentRefreshFailed = false) }
+        loaded
+    }
+
     private fun reconcileSessions(sessions: List<SessionItem>, accounts: List<AccountQuota>? = null) {
         val firstSnapshot = accounts != null && !accessReady
         val terminalAllowed = repository.terminalAllowed
@@ -248,6 +265,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
         mutable.update { state ->
             state.copy(
                 sessions = sessions, accounts = accounts ?: state.accounts, terminalAllowed = terminalAllowed,
+                recentWindow = repository.recentWindow,
                 snapshotReady = accounts != null || state.snapshotReady,
                 selected = state.selected?.let { selectedItem ->
                     if (selectedItem.sub) sessions.firstNotNullOfOrNull { parent ->

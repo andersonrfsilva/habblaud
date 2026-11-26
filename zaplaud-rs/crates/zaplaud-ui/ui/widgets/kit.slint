@@ -114,6 +114,7 @@ export component TextField inherits Rectangle {
     init => { if root.autofocus { input.focus(); } }
     callback edited(string);
     callback accepted();
+    callback input-key-pressed(KeyEvent) -> EventResult;
     // Mínimo acompanha o texto até max-lines: o layout não pode espremer o campo abaixo das linhas digitadas.
     min-height: root.multiline && root.max-lines > 0 ? min(max(56px, metrics.preferred-height + 32px), root.max-lines * 24px + 32px) : 56px;
     preferred-height: root.multiline ? (root.max-lines > 0 ? min(max(56px, metrics.preferred-height + 32px), root.max-lines * 24px + 32px) : 100px) : 56px; vertical-stretch: 0;
@@ -151,7 +152,7 @@ export component TextField inherits Rectangle {
             if root.sends-on-enter && event.text == Key.Return && !event.modifiers.shift {
                 root.accepted(); return accept;
             }
-            return reject;
+            return root.input-key-pressed(event);
         }
         accessible-label: root.placeholder;
     }

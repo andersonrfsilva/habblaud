@@ -39,6 +39,10 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
         let _ = send.send(Event::Open(key.into()));
     });
     let send = sender.clone();
+    window.global::<ListState>().on_load_more_recent(move || {
+        let _ = send.send(Event::LoadMoreRecent);
+    });
+    let send = sender.clone();
     window.global::<ListState>().on_toggle_pin(move |key| {
         let _ = send.send(Event::ToggleMark {
             key: key.into(),
@@ -332,6 +336,15 @@ pub fn publish(state: &AppState, weak: &slint::Weak<AppWindow>) {
             .into(),
     })
     .collect();
+    let footer = state.recent_footer();
+    let window_label = footer
+        .days
+        .map(|days| formatted("recent_window", &[&days.to_string()]))
+        .unwrap_or_default();
+    let loading_more = state.recent_paging.loading();
+    let failed_more = state.recent_paging.failed;
+    let show_footer =
+        state.recent && (footer.days.is_some() || footer.can_load_more || failed_more || loading_more);
     update_ui(weak, move |window| {
         let list = window.global::<ListState>();
         list.set_connection(connection.into());
@@ -340,11 +353,50 @@ pub fn publish(state: &AppState, weak: &slint::Weak<AppWindow>) {
         list.set_quotas(ModelRc::new(VecModel::from(quotas)));
         list.set_terminal_allowed(terminal_allowed);
         list.set_terminal_blocked_label(strings::TERMINAL_BLOCKED.into());
-        let models = rows
+        list.set_recent_window(window_label.into());
+        list.set_recent_more_enabled(footer.can_load_more && !loading_more);
+        list.set_recent_more_label(
+            if loading_more {
+                strings::RECENT_LOADING_MORE
+            } else if footer.can_load_more {
+                strings::RECENT_LOAD_MORE
+            } else {
+                ""
+            }
+            .into(),
+        );
+        list.set_recent_more_error(
+            if failed_more {
+                strings::RECENT_LOAD_MORE_FAILED
+            } else {
+                ""
+            }
+            .into(),
+        );
+        let total = rows.len() + usize::from(show_footer);
+        let mut models = rows
             .into_iter()
             .map(|row| row_model(&window, row))
-            .collect::<Vec<_>>();
-        list.set_rows(ModelRc::new(VecModel::from(models)));
+            .chain(show_footer.then(SessionRow::default));
+        // Atualiza o modelo virtual sem trocar o viewport ao acrescentar as sessões.
+        let model = list.get_rows();
+        if let Some(model) = model.as_any().downcast_ref::<VecModel<SessionRow>>() {
+            let previous = model.row_count();
+            for (index, row) in models.by_ref().take(previous).enumerate() {
+                if model.row_data(index).is_none_or(|current| row != current) {
+                    model.set_row_data(index, row);
+                }
+            }
+            if total > previous {
+                model.extend(models);
+            } else {
+                for index in (total..previous).rev() {
+                    model.remove(index);
+                }
+            }
+        } else {
+            list.set_rows(ModelRc::new(models.collect::<VecModel<_>>()));
+        }
         crate::clock::refresh_list(&window);
         list.set_servers(ModelRc::new(VecModel::from(
             servers

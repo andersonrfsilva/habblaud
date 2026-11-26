@@ -11,6 +11,7 @@ import { ConversationPane, ConversationState } from "conversation.slint";
 import { ConversationView, ConversationStatus, ConversationViewState, ConversationMenu, SessionInfoSheet } from "conversation_view.slint";
 export { ConversationViewState, ConversationRow, ToolDetail, InfoRow, TaskRow, ModelChoice, MdBlock, MdCell, MdSpan } from "conversation_view.slint";
 export { TranscriptProbe, MarkdownGeometry } from "conversation_view.slint";
+export { MarkdownFind, FindMark, FindCodeMark, FindCodePreview, FindPaint } from "conversation_view.slint";
 export { MarkdownSelection } from "markdown/markdown.slint";
 export { ComposerState, ComposerAttachment } from "composer.slint";
 import { Dialog, TextButton } from "widgets/kit.slint";
@@ -78,10 +79,12 @@ export component AppWindow inherits Window {
         width: root.width - self.x - (root.android ? root.safe-area-insets.right : 0px);
         height: (root.android && root.virtual-keyboard-size.height > 0px ? root.virtual-keyboard-position.y : root.height - (root.android ? root.safe-area-insets.bottom : 0px)) - self.y;
         enabled: !root.overlay-open;
-        changed enabled => { if self.enabled { self.focus(); ListState.focus-request += 1; } }
+        changed enabled => { if self.enabled && !ConversationViewState.find-open { self.focus(); ListState.focus-request += 1; } }
         key-pressed(event) => {
-            if (root.wide || !ConversationState.selected) && (event.modifiers.control || event.modifiers.meta) && (event.text == "f" || event.text == "F") && !LoginState.visible && !SettingsState.visible {
-                ListState.search-open = true; return accept;
+            if (event.modifiers.control || event.modifiers.meta) && event.text.to-lowercase() == "f" && !LoginState.visible && !SettingsState.visible {
+                if ConversationState.selected { ConversationViewState.find-start(); }
+                else { ListState.search-open = true; }
+                return accept;
             }
             return reject;
         }
@@ -90,6 +93,7 @@ export component AppWindow inherits Window {
                 if LoginState.confirm-http { LoginState.cancel-http(); }
                 else if LoginState.visible && LoginState.can-cancel { LoginState.cancel(); }
                 else if SettingsState.visible { SettingsState.close(); }
+                else if ConversationViewState.find-open { ConversationViewState.find-close(); }
                 else if ConversationViewState.tasks-visible { ConversationViewState.tasks-open = false; }
                 else if ConversationState.selected { ConversationState.close(); ListState.focus-request += 1; }
                 else if ListState.search-open { ListState.query = ""; ListState.search-open = false; ListState.changed(); }

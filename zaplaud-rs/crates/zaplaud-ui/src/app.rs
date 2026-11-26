@@ -7,7 +7,10 @@ use crate::{
 use slint::ComponentHandle;
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU8, Ordering},
+    },
 };
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use zaplaud_core::{
@@ -26,11 +29,15 @@ fn status(error: &Error) -> Option<i32> {
         _ => None,
     }
 }
-async fn refresh(api: &HabblaudApi) -> Result<(Access, SessionCollection), Error> {
+async fn refresh(
+    api: &HabblaudApi,
+    step: &AtomicU8,
+) -> Result<(Access, SessionCollection, u8), Error> {
     let mut access = api.access().await?;
     let mut repository = SessionCollection::default();
+    let step = step.load(Ordering::Relaxed);
     if access.terminal {
-        match api.request("/api/sessions/recent", None).await {
+        match api.recent_sessions_data(step).await {
             Ok(data) => repository.set_recent(api.origin(), &data)?,
             Err(Error::Api { status: 403, .. }) => access.terminal = false,
             Err(error) => return Err(error),
@@ -43,7 +50,7 @@ async fn refresh(api: &HabblaudApi) -> Result<(Access, SessionCollection), Error
             Err(error) => return Err(error),
         }
     }
-    Ok((access, repository))
+    Ok((access, repository, step))
 }
 #[derive(Default)]
 struct LatestSnapshots {
@@ -96,17 +103,19 @@ async fn stream(
     generation: u64,
     sender: UnboundedSender<Event>,
     latest: Arc<LatestSnapshots>,
+    recent_step: Arc<AtomicU8>,
 ) {
     let origin = api.origin().to_owned();
     let mut delay = std::time::Duration::from_secs(2);
     loop {
-        match refresh(&api).await {
-            Ok((access, repository)) => {
+        match refresh(&api, &recent_step).await {
+            Ok((access, repository, recent_step)) => {
                 let _ = sender.send(Event::Refreshed {
                     origin: origin.clone(),
                     generation,
                     access,
                     repository,
+                    recent_step,
                 });
                 break;
             }
@@ -211,6 +220,8 @@ pub async fn run(
     let latest = Arc::new(LatestSnapshots::default());
     let mut seen_writes = HashMap::new();
     let mut alert_selected = None;
+    let recent_step = Arc::new(AtomicU8::new(state.recent_paging.step()));
+    let mut recent_more_task = None;
     let mut alert_origins = Vec::<String>::new();
     match state.persistence.call(|store| store.servers()).await {
         Ok(servers) => {
@@ -412,6 +423,7 @@ pub async fn run(
                     generation,
                     sender.clone(),
                     latest.clone(),
+                    recent_step.clone(),
                 ));
                 state.servers.push(ServerState {
                     api,
@@ -419,6 +431,7 @@ pub async fn run(
                     generation,
                     task,
                     recent_task: None,
+                    recent_step: None,
                     marks,
                 });
                 update_ui(&weak, |window| {
@@ -433,6 +446,7 @@ pub async fn run(
                 generation,
                 access,
                 repository,
+                recent_step: step,
             } => {
                 if let Some(server) = state
                     .servers
@@ -442,7 +456,15 @@ pub async fn run(
                     let reading = &mut server.reading;
                     // A consulta inicial pode autorizar sem cookie, por exemplo em acesso local.
                     reading.needs_login = false;
-                    reading.repository = repository;
+                    if server.recent_step.is_some() {
+                        // A ampliação pode terminar antes da consulta inicial.
+                        reading.repository.cast = repository.cast;
+                    } else {
+                        server.recent_step = repository.recent_window.map(|_| step);
+                        reading.repository = repository;
+                    }
+                    reading.repository.recent_stale |= server.recent_step.is_some()
+                        && server.recent_step != Some(state.recent_paging.step());
                     reading.state.terminal_allowed = access.terminal;
                     reading.state.messages_allowed = access.messages;
                     reading.state.message_guard = access.message_session_guard;
@@ -466,15 +488,18 @@ pub async fn run(
                         && reading.state.terminal_allowed
                         && !reading.needs_login
                         && server.recent_task.is_none()
+                        && !state.recent_paging.loading()
                     {
                         let api = server.api.clone();
                         let send = sender.clone();
+                        let step = state.recent_paging.step();
                         server.recent_task = Some(tokio::spawn(async move {
-                            let result = api.request("/api/sessions/recent", None).await;
+                            let result = api.recent_sessions_data(step).await;
                             let _ = send.send(Event::RecentRefreshed {
                                 origin,
                                 generation,
                                 result,
+                                step,
                             });
                         }));
                     }
@@ -497,7 +522,11 @@ pub async fn run(
                 origin,
                 generation,
                 result,
+                step,
             } => {
+                if state.recent_paging.loading() || step != state.recent_paging.step() {
+                    continue;
+                }
                 let Some(server) = state
                     .servers
                     .iter_mut()
@@ -506,17 +535,46 @@ pub async fn run(
                     continue;
                 };
                 server.recent_task = None;
-                let reading = &mut server.reading;
-                match result {
-                    Ok(data) => {
-                        let _ = reading.refresh_recent(Some(&data));
-                    }
-                    Err(Error::Api { status: 403, .. }) => {
-                        let _ = reading.refresh_recent(None);
-                    }
-                    Err(Error::Unauthorized) => reading.needs_login = true,
-                    Err(_) => {}
+                apply_recent(server, step, result);
+            }
+            Event::LoadMoreRecent => {
+                if !state.recent || !state.recent_footer().can_load_more {
+                    continue;
                 }
+                let Some(step) = state.recent_paging.start() else {
+                    continue;
+                };
+                recent_step.store(step, Ordering::Relaxed);
+                let requests = state
+                    .servers
+                    .iter_mut()
+                    .map(|server| {
+                        if let Some(task) = server.recent_task.take() {
+                            task.abort();
+                        }
+                        let api = server.api.clone();
+                        let generation = server.generation;
+                        async move { (generation, api.recent_sessions_data(step).await) }
+                    })
+                    .collect::<Vec<_>>();
+                let send = sender.clone();
+                recent_more_task = Some(tokio::spawn(async move {
+                    let results = futures_util::future::join_all(requests).await;
+                    let _ = send.send(Event::RecentMoreFinished(results));
+                }));
+            }
+            Event::RecentMoreFinished(results) => {
+                recent_more_task = None;
+                let step = state.recent_paging.step();
+                let mut any_success = false;
+                for (generation, result) in results {
+                    if let Some(server) = state.servers.iter_mut().find(|s| s.generation == generation)
+                    {
+                        any_success |= apply_recent(server, step, result);
+                    }
+                }
+                state.recent_paging.finish(any_success);
+                recent_step.store(state.recent_paging.step(), Ordering::Relaxed);
             }
             Event::Connection {
                 origin,
@@ -769,6 +827,9 @@ pub async fn run(
     if let Some(task) = login_task {
         task.abort();
     }
+    if let Some(task) = recent_more_task {
+        task.abort();
+    }
     avatar_tasks.abort_all();
     flush_seen(&mut state, &mut seen_writes, true).await;
     if seen_writes.values().any(|write| write.deadline.is_some()) {
@@ -778,6 +839,25 @@ pub async fn run(
         eprintln!("{}", strings::STORAGE_ERROR);
     }
 }
+fn apply_recent(server: &mut ServerState, step: u8, result: Result<String, Error>) -> bool {
+    let reading = &mut server.reading;
+    match result {
+        Ok(data) => {
+            if reading.refresh_recent(Some(&data)).is_ok() {
+                server.recent_step = Some(step);
+                return true;
+            }
+        }
+        Err(Error::Api { status: 403, .. }) => {
+            let _ = reading.refresh_recent(None);
+            server.recent_step = None;
+        }
+        Err(Error::Unauthorized) => reading.needs_login = true,
+        Err(_) => {}
+    }
+    false
+}
+
 async fn update_marks(state: &mut AppState, key: SessionKey, pin: bool) -> Result<(), String> {
     let Some(server) = state
         .servers
@@ -952,6 +1032,7 @@ mod tests {
             generation: 1,
             task: tokio::spawn(async {}),
             recent_task: None,
+            recent_step: None,
             marks: HashMap::new(),
         });
         let id = zaplaud_store::storage_hash(&key.serialize().unwrap());
@@ -1018,6 +1099,7 @@ mod tests {
             generation: 1,
             task: tokio::spawn(async {}),
             recent_task: None,
+            recent_step: None,
             marks: HashMap::new(),
         });
         std::fs::write(data.join("local_state.json"), b"malformed").unwrap();
@@ -1045,6 +1127,7 @@ mod tests {
             generation: 1,
             task: tokio::spawn(async {}),
             recent_task: None,
+            recent_step: None,
             marks: HashMap::new(),
         });
         let mut writes = HashMap::new();

@@ -2,7 +2,7 @@ import { realpathSync, statSync } from 'node:fs';
 import { sep } from 'node:path';
 import type { RecentSession } from '../../../shared/types';
 import { HISTORY_LIMIT, HISTORY_MAX_AGE_MS } from '../history';
-import type { HistoryProvider, HistoryResolveResult } from '../source';
+import type { HistoryProvider, HistoryResolveResult, HistoryWindow } from '../source';
 import { createTerminalParser } from '../terminal';
 import { encodeCwd } from '../watcher';
 import { ZeroClawConnector } from './connector';
@@ -27,7 +27,7 @@ export class ZeroClawHistory implements HistoryProvider {
 
   hasAccount(account: string): boolean { return account === this.opts.account(); }
 
-  async list(): Promise<RecentSession[]> {
+  async list(window?: HistoryWindow): Promise<RecentSession[]> {
     const { connector, mirror } = this.opts;
     let candidates: SessionMetadata[];
     try {
@@ -40,15 +40,22 @@ export class ZeroClawHistory implements HistoryProvider {
       candidates = mirror.entries();
     }
     const now = (this.opts.now ?? Date.now)();
-    const picked = candidates.filter((s) => s.lastAt !== undefined && now - s.lastAt <= (this.opts.maxAgeMs ?? HISTORY_MAX_AGE_MS))
-      .sort((a, b) => b.lastAt! - a.lastAt!).slice(0, this.opts.limit ?? HISTORY_LIMIT);
+    const picked = candidates.filter((s) => s.lastAt !== undefined && now - s.lastAt <= (window?.maxAgeMs ?? this.opts.maxAgeMs ?? HISTORY_MAX_AGE_MS))
+      .sort((a, b) => b.lastAt! - a.lastAt!).slice(0, window?.limit ?? this.opts.limit ?? HISTORY_LIMIT);
     // Two workers bound snapshot imports, including when a remote session contains a large transcript.
+    // shortcut: além da janela padrão («Carregar mais»), só entra sessão já espelhada; baixar até 600 transcripts
+    // completos num cache frio travaria a listagem. Trocar quando resolve() puder buscar a sessão ao abrir.
+    const defaultAge = this.opts.maxAgeMs ?? HISTORY_MAX_AGE_MS;
+    const defaultLimit = this.opts.limit ?? HISTORY_LIMIT;
     let cursor = 0;
     const results: RecentSession[] = [];
     await Promise.all(Array.from({ length: Math.min(2, picked.length) }, async () => {
       while (cursor < picked.length) {
+        const index = cursor;
         const metadata = picked[cursor++];
         try {
+          const extra = index >= defaultLimit || now - metadata.lastAt! > defaultAge;
+          if (extra && 'status' in this.resolve(this.opts.account(), metadata.sessionId)) continue;
           await mirror.setMetadata(metadata);
           if ('status' in this.resolve(this.opts.account(), metadata.sessionId)) {
             const response = await connector.request(`/api/sessions/${metadata.sessionId}/messages`);

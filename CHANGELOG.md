@@ -35,6 +35,11 @@ do meio (0.**3**.0).
 - **Zaplaud desktop:** «Dispensar» pelo clique direito na lista; «Entrar de novo» aparece na hora quando falta o
   login salvo; arrastar arquivos para a janela anexa (X11 e macOS); URL solta vira link; cache de conversas com teto
   de 64 MiB.
+- **Zaplaud (Android/iPad e desktop):** «Buscar na conversa» no menu da conversa (desktop: também Ctrl+F/Cmd+F):
+  acha o termo sem diferenciar maiúsculas nem acentos, destaca as ocorrências, pula de uma para outra e abre a
+  resposta recolhida.
+- **Zaplaud (Android/iPad e desktop):** a aba Recentes termina com «Carregar mais sessões», que amplia a janela em
+  degraus (7, 30, 90 e 365 dias; até 600 sessões). Servidor: `GET /api/sessions/recent?step=N`.
 - **omp:** a lista de tarefas do agente (ferramenta `todo`, com fases) aparece na página e no cartão da conversa.
 - **Zaplaud (Android/iPad):** a lista de tarefas do agente aparece nas informações da sessão, com o progresso acima do campo de mensagem.
 - **Zaplaud desktop:** a lista de tarefas do agente aparece nas informações da sessão, com o progresso acima do campo de mensagem.

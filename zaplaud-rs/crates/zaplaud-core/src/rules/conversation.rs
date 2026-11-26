@@ -282,9 +282,164 @@ pub fn reduce_summary(
     (state, effects)
 }
 
+/// Minúsculas sem marcas combinantes nem acentos decomponíveis do alfabeto latino.
+pub fn normalize_find(text: &str) -> String {
+    text.chars()
+        .flat_map(char::to_lowercase)
+        .filter_map(find_char)
+        .collect()
+}
+
+fn find_char(ch: char) -> Option<char> {
+    Some(match ch {
+            '\u{0300}'..='\u{036f}' | '\u{1ab0}'..='\u{1aff}' | '\u{1dc0}'..='\u{1dff}'
+            | '\u{20d0}'..='\u{20ff}' | '\u{fe20}'..='\u{fe2f}' => return None,
+            'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' | 'ā' | 'ă' | 'ą' | 'ǎ' | 'ǟ' | 'ǡ' | 'ǻ'
+            | 'ȁ' | 'ȃ' | 'ȧ' | 'ḁ' | 'ạ' | 'ả' | 'ấ' | 'ầ' | 'ẩ' | 'ẫ' | 'ậ' | 'ắ'
+            | 'ằ' | 'ẳ' | 'ẵ' | 'ặ' => 'a',
+            'ḃ' | 'ḅ' | 'ḇ' => 'b',
+            'ç' | 'ć' | 'ĉ' | 'ċ' | 'č' | 'ḉ' => 'c',
+            'ď' | 'ḋ' | 'ḍ' | 'ḏ' | 'ḑ' | 'ḓ' => 'd',
+            'è' | 'é' | 'ê' | 'ë' | 'ē' | 'ĕ' | 'ė' | 'ę' | 'ě' | 'ȅ' | 'ȇ' | 'ȩ' | 'ḕ'
+            | 'ḗ' | 'ḙ' | 'ḛ' | 'ḝ' | 'ẹ' | 'ẻ' | 'ẽ' | 'ế' | 'ề' | 'ể' | 'ễ' | 'ệ' => 'e',
+            'ḟ' => 'f',
+            'ĝ' | 'ğ' | 'ġ' | 'ģ' | 'ǧ' | 'ǵ' | 'ḡ' => 'g',
+            'ĥ' | 'ȟ' | 'ḣ' | 'ḥ' | 'ḧ' | 'ḩ' | 'ḫ' | 'ẖ' => 'h',
+            'ì' | 'í' | 'î' | 'ï' | 'ĩ' | 'ī' | 'ĭ' | 'į' | 'ǐ' | 'ȉ' | 'ȋ' | 'ḭ' | 'ḯ'
+            | 'ỉ' | 'ị' => 'i',
+            'ĵ' | 'ǰ' => 'j',
+            'ķ' | 'ǩ' | 'ḱ' | 'ḳ' | 'ḵ' => 'k',
+            'ĺ' | 'ļ' | 'ľ' | 'ḷ' | 'ḹ' | 'ḻ' | 'ḽ' => 'l',
+            'ḿ' | 'ṁ' | 'ṃ' => 'm',
+            'ñ' | 'ń' | 'ņ' | 'ň' | 'ǹ' | 'ṅ' | 'ṇ' | 'ṉ' | 'ṋ' => 'n',
+            'ò' | 'ó' | 'ô' | 'õ' | 'ö' | 'ō' | 'ŏ' | 'ő' | 'ơ' | 'ǒ' | 'ǫ' | 'ǭ' | 'ȍ'
+            | 'ȏ' | 'ȫ' | 'ȭ' | 'ȯ' | 'ȱ' | 'ṍ' | 'ṏ' | 'ṑ' | 'ṓ' | 'ọ' | 'ỏ' | 'ố' | 'ồ'
+            | 'ổ' | 'ỗ' | 'ộ' | 'ớ' | 'ờ' | 'ở' | 'ỡ' | 'ợ' => 'o',
+            'ṕ' | 'ṗ' => 'p',
+            'ŕ' | 'ŗ' | 'ř' | 'ȑ' | 'ȓ' | 'ṙ' | 'ṛ' | 'ṝ' | 'ṟ' => 'r',
+            'ś' | 'ŝ' | 'ş' | 'š' | 'ș' | 'ṡ' | 'ṣ' | 'ṥ' | 'ṧ' | 'ṩ' => 's',
+            'ţ' | 'ť' | 'ț' | 'ṫ' | 'ṭ' | 'ṯ' | 'ṱ' | 'ẗ' => 't',
+            'ù' | 'ú' | 'û' | 'ü' | 'ũ' | 'ū' | 'ŭ' | 'ů' | 'ű' | 'ų' | 'ư' | 'ǔ' | 'ǖ'
+            | 'ǘ' | 'ǚ' | 'ǜ' | 'ȕ' | 'ȗ' | 'ṳ' | 'ṵ' | 'ṷ' | 'ṹ' | 'ṻ' | 'ụ' | 'ủ' | 'ứ'
+            | 'ừ' | 'ử' | 'ữ' | 'ự' => 'u',
+            'ṽ' | 'ṿ' => 'v',
+            'ŵ' | 'ẁ' | 'ẃ' | 'ẅ' | 'ẇ' | 'ẉ' | 'ẘ' => 'w',
+            'ẋ' | 'ẍ' => 'x',
+            'ý' | 'ÿ' | 'ŷ' | 'ȳ' | 'ẏ' | 'ẙ' | 'ỳ' | 'ỵ' | 'ỷ' | 'ỹ' => 'y',
+            'ź' | 'ż' | 'ž' | 'ẑ' | 'ẓ' | 'ẕ' => 'z',
+            'ǣ' | 'ǽ' => 'æ',
+            'ǿ' => 'ø',
+            'ẛ' => 'ſ',
+            'ǯ' => 'ʒ',
+            _ => ch,
+    })
+}
+
+/// Texto normalizado com o mapa de volta aos bytes exibidos.
+pub struct FindText {
+    normalized: String,
+    offsets: Vec<(usize, usize)>,
+}
+
+impl FindText {
+    pub fn new(text: &str) -> Self {
+        let mut normalized = String::with_capacity(text.len());
+        let mut offsets: Vec<(usize, usize)> = Vec::new();
+        if text.is_ascii() {
+            normalized.push_str(text);
+            normalized.make_ascii_lowercase();
+        } else {
+            for (start, ch) in text.char_indices() {
+                let len = normalized.len();
+                normalized.extend(ch.to_lowercase().filter_map(find_char));
+                if normalized.len() - len != ch.len_utf8() {
+                    let boundary = (normalized.len(), start + ch.len_utf8());
+                    if let Some(last) = offsets.last_mut().filter(|last| last.0 == boundary.0) {
+                        *last = boundary;
+                    } else {
+                        offsets.push(boundary);
+                    }
+                }
+            }
+        }
+        Self { normalized, offsets }
+    }
+
+    /// Ocorrências sem sobreposição, em ordem de leitura.
+    pub fn occurrences<'a>(
+        &'a self,
+        term: &'a str,
+    ) -> impl Iterator<Item = std::ops::Range<usize>> + 'a {
+        (!term.is_empty())
+            .then_some(self.normalized.match_indices(term))
+            .into_iter()
+            .flatten()
+            .map(|(start, matched)| self.original(start)..self.original(start + matched.len()))
+    }
+
+    fn original(&self, offset: usize) -> usize {
+        let next = self.offsets.partition_point(|&(normalized, _)| normalized <= offset);
+        if next == 0 {
+            offset
+        } else {
+            let (normalized, original) = self.offsets[next - 1];
+            original + (offset - normalized)
+        }
+    }
+}
+
+/// Parte do topo visível ou escolhe a última ocorrência acima.
+pub fn find_initial<T>(matches: &[T], top: usize, row: impl Fn(&T) -> usize) -> Option<usize> {
+    let last = matches.len().checked_sub(1)?;
+    Some(matches.partition_point(|hit| row(hit) < top).min(last))
+}
+
+pub fn find_step(current: usize, len: usize, forward: bool) -> Option<usize> {
+    let last = len.checked_sub(1)?;
+    Some(if forward {
+        if current >= last { 0 } else { current + 1 }
+    } else {
+        if current == 0 { last } else { current - 1 }
+    })
+}
+
+pub fn find_term(term: &str) -> String {
+    normalize_find(term.trim())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn find_occurrences_return_original_byte_ranges_without_overlap() {
+        let text = "AÇÃO na aça\u{303}o; REAÇÃO e café\u{301}";
+        let indexed = FindText::new(text);
+        let hits = |term| {
+            indexed
+                .occurrences(&find_term(term))
+                .map(|range| &text[range])
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(hits(" AçÃO "), ["AÇÃO", "aça\u{303}o", "AÇÃO"]);
+        assert_eq!(hits("CAFE"), ["café\u{301}"]);
+        assert!(hits("   \n").is_empty());
+        assert!(hits("\u{301}").is_empty());
+        assert_eq!(FindText::new("AnaNaNa").occurrences("ana").collect::<Vec<_>>(), [0..3, 4..7]);
+        assert_eq!(normalize_find(" Ǻ Ć "), " a c ");
+    }
+
+    #[test]
+    fn find_starts_at_visible_message_and_wraps() {
+        assert_eq!(find_initial::<usize>(&[], 3, |&end| end), None);
+        assert_eq!(find_initial(&[2, 7, 12], 4, |&end| end), Some(1));
+        assert_eq!(find_initial(&[2, 7, 12], 7, |&end| end), Some(1));
+        assert_eq!(find_initial(&[2, 7, 12], 13, |&end| end), Some(2));
+        assert_eq!(find_step(2, 3, true), Some(0));
+        assert_eq!(find_step(0, 3, false), Some(2));
+        assert_eq!(find_step(1, 3, false), Some(0));
+        assert_eq!(find_step(0, 0, true), None);
+    }
 
     #[test]
     fn brief_starts_at_first_prose_skips_code_titles_tables_and_cuts_at_word() {
