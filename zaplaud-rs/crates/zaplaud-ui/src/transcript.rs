@@ -37,16 +37,16 @@ pub fn estimate(source: &str) -> usize {
 /// do desenho, não o texto. As demais (inválidas, em streaming, grandes demais) seguem como código.
 fn drawn_fences(source: &str) -> Vec<(Range<usize>, usize)> {
     let mut fences = Vec::new();
-    if !source.contains("svg") && !source.contains("mermaid") {
+    if !source.contains("```") && !source.contains("~~~") {
         return fences;
     }
-    let mut fence: Option<(Range<usize>, String, String)> = None;
+    let mut fence: Option<(Range<usize>, &str, String)> = None;
     for (event, range) in Parser::new_ext(source, Options::ENABLE_TABLES).into_offset_iter() {
         match event {
-            Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(language)))
-                if matches!(language.trim(), "svg" | "mermaid") =>
-            {
-                fence = Some((range, language.to_string(), String::new()));
+            Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))) => {
+                if let Some(language) = crate::markdown::diagram_language(&info) {
+                    fence = Some((range, language, String::new()));
+                }
             }
             Event::Text(text) => {
                 if let Some((_, _, content)) = &mut fence {
@@ -56,7 +56,7 @@ fn drawn_fences(source: &str) -> Vec<(Range<usize>, usize)> {
             Event::End(TagEnd::CodeBlock) => {
                 if let Some((range, language, content)) = fence.take()
                     && crate::markdown::fence_closed(&source[range.clone()])
-                    && let Some(diagram) = crate::markdown::diagram(&language, &content)
+                    && let Some(diagram) = crate::markdown::diagram(language, &content)
                 {
                     fences.push((range, diagram_cost(diagram.height)));
                 }
@@ -346,8 +346,8 @@ mod tests {
     fn real_size_svg_fence_is_drawn_whole() {
         let svg = real_svg("0 0 900 300");
         assert!(estimate(&svg) > HEIGHT_BUDGET * 3);
-        let source = format!("Antes do desenho.\n\n```svg\n{svg}```\n\nDepois do desenho.\n");
-        assert_eq!(drawn(&source, "svg"), (1, 0));
+        let source = format!("Antes do desenho.\n\n```SVG\n{svg}```\n\nDepois do desenho.\n");
+        assert_eq!(drawn(&source, "SVG"), (1, 0));
     }
 
     #[test]
@@ -355,8 +355,8 @@ mod tests {
         let diagram = real_mermaid();
         assert!(estimate(&diagram) > HEIGHT_BUDGET * 3);
         let source =
-            format!("Antes do desenho.\n\n```mermaid\n{diagram}```\n\nDepois do desenho.\n");
-        assert_eq!(drawn(&source, "mermaid"), (1, 0));
+            format!("Antes do desenho.\n\n```Mermaid\n{diagram}```\n\nDepois do desenho.\n");
+        assert_eq!(drawn(&source, "Mermaid"), (1, 0));
     }
 
     /// Todo fragmento cabe no orçamento, contando o desenho pela altura, e nas coordenadas i16

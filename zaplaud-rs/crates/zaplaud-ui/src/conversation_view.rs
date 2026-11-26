@@ -455,7 +455,7 @@ fn publish_info(
             .map(String::as_str)
     });
     let all_groups = zaplaud_core::rules::composer::role_model_groups(&item.models, current_model);
-    let total_models: usize = all_groups.iter().map(|(_, list)| list.len()).sum();
+    let has_models = !all_groups.is_empty();
     let query = state.get_model_query();
     let groups = if query.is_empty() {
         all_groups
@@ -497,7 +497,7 @@ fn publish_info(
         }
         choices.extend(older.into_iter().map(|value| option(value, true)));
     }
-    state.set_model_filter_visible(total_models > 15);
+    state.set_has_models(has_models);
     state.set_models(ModelRc::new(VecModel::from(choices)));
     state.set_model(current_model.unwrap_or_default().into());
     state.set_model_detail(
@@ -922,6 +922,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
     let context = context.clone();
     context.runtime.clone().spawn(async move {
         let mut selected = None;
+        let mut was_live = false;
         let mut reading_generation = 0i32;
         let mut task:Option<tokio::task::JoinHandle<()>> = None;
         let mut current:Option<mpsc::UnboundedSender<Command>> = None;
@@ -933,13 +934,17 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                         let server = snapshot.servers.iter().find(|server| server.api.origin() == item.key.origin);
                         (item.key.clone(), server.is_some_and(|s| s.reading.terminal_allowed), server.is_some_and(|s| s.needs_login))
                     });
-                    if selected == key {
+                    let live = snapshot.selected.as_ref().is_some_and(|item| item.agent_id.is_some());
+                    let resumed = !was_live && live;
+                    was_live = live;
+                    if selected == key && !resumed {
                         if let Some(item) = &snapshot.selected {
                             if let Some(sender) = &current { let _ = sender.send(Command::Metadata(Box::new(item.clone()))); }
                             else { let item = item.clone(); update_ui(&weak, move |w| publish_info(&w, &item, &[], true)); }
                         }
                         continue;
                     }
+                    // A parada grava a âncora e o cache antes de reabrir a mesma sessão ao vivo.
                     stop_session(&mut task).await;
                     selected = key;
                     current = None;
@@ -1197,7 +1202,7 @@ mod tests {
     }
 
     #[test]
-    fn closing_persists_cache_and_reopening_resumes_from_last_dated_entry() {
+    fn resuming_history_reopens_live_from_the_saved_anchor_and_cache() {
         let temporary = tempfile::tempdir().unwrap();
         let store = LocalStateStore::with_dirs(zaplaud_store::DesktopDirs {
             data: temporary.path().join("data"),
@@ -1212,11 +1217,12 @@ mod tests {
                 account: "test".into(),
                 session_id: "session".into(),
             },
-            agent_id: Some("agent".into()),
+            agent_id: None,
             ..SessionItem::default()
         };
         let mut controller = ConversationController::default();
-        let (generation, _) = controller.open(item.clone(), None).unwrap();
+        let (generation, path) = controller.open(item.clone(), None).unwrap();
+        assert_eq!(path, "/api/sessions/test/session/terminal");
         controller.apply(generation,StreamEvent::Data { event_type:"init".into(), data:r#"{"entries":[{"id":"first","kind":"assistant","text":"persisted","at":123}]}"#.into(),first_connection:true }).unwrap();
         let run = SessionRun {
             controller,
@@ -1245,8 +1251,16 @@ mod tests {
         let cache = store.conversation(&item.key).unwrap().unwrap();
         assert_eq!(cache.entries[0].text, "persisted");
         let mut reopened = ConversationController::default();
-        let (_, path) = reopened.open(item.clone(), Some(cache)).unwrap();
-        assert!(path.ends_with("?after=first&at=123"));
+        let (_, path) = reopened
+            .open(
+                SessionItem {
+                    agent_id: Some("agent".into()),
+                    ..item
+                },
+                Some(cache),
+            )
+            .unwrap();
+        assert_eq!(path, "/api/agents/agent/terminal?after=first&at=123");
         assert_eq!(reopened.entries().len(), 1);
         assert_eq!(reopened.entries()[0].at, Some(123));
     }

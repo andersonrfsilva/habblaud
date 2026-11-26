@@ -120,10 +120,68 @@ fun roleModelGroups(models: List<String>, keep: String? = null, query: String = 
         }
     }
     // A data não conta como versão: `opus-4-20250514` fica junto de `opus-4`, depois de `opus-4-8`.
-    val key = { m: String -> rawModelName(m).replace(DATED, "") }
+    val key = { m: String -> undated(rawModelName(m)) }
     return shown.groupBy(::modelGroupKey).entries.sortedWith { a, b -> a.key.compareTo(b.key, ignoreCase = true) }
         .map { (provider, list) -> provider to list.sortedWith { a, b -> compareModelNames(key(a), key(b)).takeIf { it != 0 } ?: a.compareTo(b) } }
 }
+
+internal data class ModelPickerGroup(val provider: String, val latest: List<String>, val older: List<String>)
+
+internal fun modelPickerGroups(models: List<String>, keep: String?, query: String): List<ModelPickerGroup> =
+    roleModelGroups(models, keep, query).map { (provider, list) ->
+        if (query.isNotEmpty()) ModelPickerGroup(provider, list, emptyList())
+        else {
+            val (latest, older) = latestModelVersions(list, keep)
+            ModelPickerGroup(provider, latest, older)
+        }
+    }
+
+/** Mantém a versão mais nova de cada família e o modelo atual, sem mudar a ordem das opções. */
+internal fun latestModelVersions(models: List<String>, keep: String?): Pair<List<String>, List<String>> {
+    val newest = mutableMapOf<List<String>, Int>()
+    val families = models.map { model ->
+        val words = mutableListOf<String>()
+        val version = mutableListOf<Long>()
+        for (token in undated(modelSortName(model).lowercase()).split(NAME_PARTS)) {
+            if (token.isEmpty()) continue
+            val number = token.toLongOrNull()
+            // Datas de snapshot não contam como versão.
+            if (number == null) words.add(token)
+            else if (number < 10_000_000) version.add(number)
+        }
+        words to version
+    }
+    for ((index, family) in families.withIndex()) {
+        val (words, version) = family
+        val best = newest[words]
+        if (best == null || compareVersions(version, families[best].second) > 0) newest[words] = index
+    }
+    val latest = mutableListOf<String>()
+    val older = mutableListOf<String>()
+    for ((index, model) in models.withIndex()) {
+        if (model == keep || newest[families[index].first] == index) latest.add(model) else older.add(model)
+    }
+    return latest to older
+}
+
+private fun compareVersions(a: List<Long>, b: List<Long>): Int {
+    for (i in 0 until minOf(a.size, b.size)) {
+        val order = a[i].compareTo(b[i])
+        if (order != 0) return order
+    }
+    return a.size.compareTo(b.size)
+}
+
+private fun modelSortName(model: String): String {
+    val rest = model.substringAfter('/')
+    if (model.startsWith("openrouter/")) {
+        val vendor = rest.substringBefore('/')
+        if (vendor.isNotEmpty() && !vendor.startsWith('~')) return rest.substringAfter('/')
+    }
+    return rest
+}
+
+private fun undated(model: String): String = model.replace(DATED, "")
 
 private val DATED = Regex("-\\d{8}$")
 private val NAME_PARTS = Regex("[^a-z0-9]+")

@@ -38,12 +38,41 @@ class MarkdownLinksTest {
         val images = destinations.mapIndexed { index, (dest, _) -> "alt $index" to dest }
         val source = images.joinToString("\n\n") { (alt, dest) -> "![$alt](<$dest>)" } +
             "\n\n```md\n![hidden](https://example.test/hidden.png)\n```\n\n![reference][asset]\n\n[asset]: /ref.png"
-        assertEquals(images, markdownImages(source))
+        assertEquals(images + ("reference" to "/ref.png"), markdownImages(source))
         assertEquals(
             listOf("foto" to "/tmp/a.PNG", "" to "https://example.test/b.jpg?x=1", "" to "https://example.test/c.webp"),
             markdownImages("[foto](/tmp/a.PNG) [site](https://example.test/page) <https://example.test/b.jpg?x=1> https://example.test/c.webp `[x](/d.png)`"),
         )
     }
+    @Test fun imageReferencesResolveNormalizedLabelsAndShareTheExistingLoadPolicy() {
+        val source = """
+            ![remote][ ASSet  One ] ![logo][] ![inline-data] ![missing]
+
+            [plain link][another] ![scheme][bad] ![repeat][asset one]
+
+            ~~~md
+            [asset one]: /hidden.png
+            [missing]: /also-hidden.png
+            ~~~
+
+            [asset one]: https://example.test/image?x=1&amp;y=2
+            [logo]: </proj/Arte Final/logo.svg> "Logotipo"
+            [inline-data]: data:image/png;base64,aGVsbG8=
+            [another]: /proj/other.jpg
+            [bad]: javascript:alert(1)
+            [asset one]: https://example.test/duplicate
+        """.trimIndent()
+        val images = markdownImages(source)
+        assertEquals(listOf(
+            "remote" to "https://example.test/image?x=1&y=2",
+            "logo" to "/proj/Arte Final/logo.svg",
+            "inline-data" to "data:image/png;base64,aGVsbG8=",
+            "plain link" to "/proj/other.jpg",
+            "scheme" to "javascript:alert(1)",
+        ), images)
+        assertEquals(listOf(ImageKind.REMOTE, ImageKind.HOST_FILE, ImageKind.DATA, ImageKind.HOST_FILE, null), images.map { markdownImageKind(it.second) })
+    }
+
     @Test fun tappingAHostFileThatIsNotAnImageDownloadsIt() {
         listOf("/proj/sub/fonte.aseprite", "</proj/Arte Final/fonte.aseprite>", "file:///proj/notas.txt").forEach {
             assertEquals(LinkAction.DOWNLOAD, markdownLinkAction(it), it)

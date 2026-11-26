@@ -4,6 +4,7 @@ import { Labels } from "labels.slint";
 import { TextField, TextButton, SegmentedControl, Chip, Banner, Avatar, Badge, ScrollList, ScrollContainer, Menu, ProgressRing, Tooltip, Fab, IconButton } from "widgets/kit.slint";
 import { MaterialIcons } from "widgets/material-icons.slint";
 import { FilesState } from "files.slint";
+import { CastState } from "cast.slint";
 export struct SessionRow {
     key: string, title: string, subtitle: string, activity: string, time: string, unread: string,
     initials: string, avatar: image, brand: image, brand-color: color, fallback-color: color,
@@ -35,6 +36,10 @@ export global ListState {
     in property <string> terminal-blocked-label;
     in property <bool> cast-visible;
     in property <image> cast-icon;
+    in property <[string]> dismissible-keys;
+    in property <string> cast-confirmation-key;
+    pure callback can-dismiss(string, [string]) -> bool;
+    callback dismiss(string);
     callback open(string);
     callback avatar(string);
     callback toggle-pin(string);
@@ -47,7 +52,7 @@ export global ListState {
     callback cast();
 }
 
-// Fixar e favoritar: clique direito ou toque longo na linha, sem coluna de botão.
+// Ações da sessão: clique direito ou menu do teclado na linha, sem coluna de botão.
 component SessionActions inherits Rectangle {
     in property <SessionRow> session;
     in property <length> menu-x;
@@ -55,6 +60,10 @@ component SessionActions inherits Rectangle {
     row-menu := Menu { x: min(root.menu-x, root.width - self.width); y: 40px; width: 220px;
         TextButton { text: root.session.pinned ? Labels.unpin-session : Labels.pin-session; horizontal-alignment: left; clicked => { row-menu.close(); ListState.toggle-pin(root.session.key); } }
         TextButton { text: root.session.favorite ? Labels.unfavorite-session : Labels.favorite-session; horizontal-alignment: left; clicked => { row-menu.close(); ListState.toggle-favorite(root.session.key); } }
+        if ListState.can-dismiss(root.session.key, ListState.dismissible-keys): TextButton {
+            text: CastState.dismiss-label; horizontal-alignment: left; enabled: CastState.enabled;
+            clicked => { row-menu.close(); ListState.dismiss(root.session.key); }
+        }
     }
 }
 

@@ -26,6 +26,7 @@ export global AsideState {
     in property <string> error;
     in property <[AsideTurnRow]> turns;
     in property <[AsideTopicRow]> topics;
+    in property <string> topic-id;
     callback open(); callback close(); callback ask(string); callback stop(); callback choose(string); callback new-topic(); callback link(string); callback copy(string);
     callback app-visibility(bool);
 }
@@ -57,9 +58,15 @@ export component AsideSheet inherits Rectangle {
             Rectangle { vertical-stretch: 1;
                 if AsideState.loading && AsideState.turns.length == 0: ProgressRing { width: 40px; height: 40px; x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; }
                 if !AsideState.loading && AsideState.turns.length == 0: Text { text: AsideState.empty; color: Theme.on-surface-variant; vertical-alignment: center; horizontal-alignment: center; }
-                ScrollList {
+                aside-list := ScrollList {
                     // Só acompanha o fim se o usuário já estava nele: rolar para o início não é desfeito pelo polling.
                     property <bool> following: true;
+                    private property <string> topic-id: AsideState.topic-id;
+                    public function follow-end() {
+                        self.following = true;
+                        self.content-y = min(0px, self.height - self.content-height);
+                    }
+                    changed topic-id => { self.follow-end(); }
                     changed content-height => { if self.following { self.content-y = min(0px, self.height - self.content-height); } }
                     scrolled => { self.following = self.content-height <= self.height || self.content-y <= self.height - self.content-height + 2px; }
                 // Cada fragmento é uma linha virtual independente, sem ancestral pintado gigante.
@@ -98,7 +105,7 @@ export component AsideSheet inherits Rectangle {
                     }
                 }
                 if AsideState.running: IconButton { icon: MaterialIcons.stop; label: AsideState.stop-label; background: Theme.error-container; foreground: Theme.on-error-container; clicked => { AsideState.stop(); } }
-                if !AsideState.running: IconButton { icon: MaterialIcons.send; label: AsideState.send-label; background: Theme.primary; foreground: Theme.on-primary; enabled: !AsideState.sending && AsideState.nonblank-draft(AsideState.draft); clicked => { AsideState.ask(AsideState.draft); } }
+                if !AsideState.running: IconButton { icon: MaterialIcons.send; label: AsideState.send-label; background: Theme.primary; foreground: Theme.on-primary; enabled: !AsideState.sending && AsideState.nonblank-draft(AsideState.draft); clicked => { aside-list.follow-end(); AsideState.ask(AsideState.draft); } }
             }
         }
     }

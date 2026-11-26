@@ -4,6 +4,8 @@ import io.ktor.http.Url
 import org.intellij.markdown.MarkdownElementTypes
 import org.intellij.markdown.ast.ASTNode
 import org.intellij.markdown.flavours.gfm.GFMFlavourDescriptor
+import org.intellij.markdown.html.entities.EntityConverter
+import org.intellij.markdown.parser.LinkMap
 import org.intellij.markdown.parser.MarkdownParser
 
 /** Mesmo limite do desktop: conteúdo da conversa não pode abrir esquemas de aplicativos ou arquivos locais. */
@@ -69,25 +71,65 @@ internal fun markdownLinkAction(uri: String): LinkAction {
     }
 }
 
+// O parser Kotlin não aceita espaço entre < > numa definição, embora aceite em links inline.
+// Troca só durante o parse, sem deslocar os nós; o destino sempre vem do texto original.
+private val angledDefinition = Regex("""^([ \t>]*\[[^\]\r\n]+\]:[ \t]*(?:\r?\n[ \t]*)?<)([^<>\r\n]*)(>)""", RegexOption.MULTILINE)
+private val escapedHtml = Regex("&(?:amp|quot|lt|gt);")
+private fun rawDestination(value: String): String =
+    escapedHtml.replace(EntityConverter.replaceEntities(value.removeSurrounding("<", ">"), true, true)) { entity ->
+        when (entity.value) { "&amp;" -> "&"; "&quot;" -> "\""; "&lt;" -> "<"; else -> ">" }
+    }
+
 internal fun markdownImages(source: String): List<Pair<String, String>> {
     val images = mutableListOf<Pair<String, String>>()
+    val input = angledDefinition.replace(source) { match ->
+        val (_, before, destination, after) = match.groupValues
+        before + destination.replace(' ', '_').replace('\t', '_') + after
+    }
+    val tree = MarkdownParser(GFMFlavourDescriptor()).buildMarkdownTreeFromString(input)
+    fun text(node: ASTNode): String = source.substring(node.startOffset, node.endOffset)
     fun descendant(node: ASTNode, type: org.intellij.markdown.IElementType): ASTNode? =
         node.children.firstOrNull { it.type == type } ?: node.children.firstNotNullOfOrNull { descendant(it, type) }
+    fun labelKey(node: ASTNode): CharSequence = LinkMap.normalizeLabel(text(node).removeSurrounding("[", "]").trim())
+    val definitions by lazy {
+        val destinations = mutableMapOf<CharSequence, String>()
+        fun collectDefinitions(node: ASTNode) {
+            if (node.type == MarkdownElementTypes.LINK_DEFINITION) {
+                val label = descendant(node, MarkdownElementTypes.LINK_LABEL)
+                val dest = descendant(node, MarkdownElementTypes.LINK_DESTINATION)
+                if (label != null && dest != null) {
+                    val key = labelKey(label)
+                    if (key !in destinations) destinations[key] = rawDestination(text(dest))
+                }
+            } else node.children.forEach(::collectDefinitions)
+        }
+        collectDefinitions(tree)
+        destinations
+    }
     fun collect(node: ASTNode) {
         val image = node.type == MarkdownElementTypes.IMAGE
-        val destination = when (node.type) {
+        val reference = when (node.type) {
+            MarkdownElementTypes.IMAGE ->
+                node.children.firstOrNull { it.type == MarkdownElementTypes.FULL_REFERENCE_LINK || it.type == MarkdownElementTypes.SHORT_REFERENCE_LINK }
+            MarkdownElementTypes.FULL_REFERENCE_LINK, MarkdownElementTypes.SHORT_REFERENCE_LINK -> node
+            else -> null
+        }
+        val label = reference?.children?.firstOrNull { it.type == MarkdownElementTypes.LINK_LABEL }
+        val destination = if (label != null) {
+            definitions[labelKey(label)]
+        } else when (node.type) {
             MarkdownElementTypes.IMAGE, MarkdownElementTypes.INLINE_LINK ->
                 descendant(node, MarkdownElementTypes.LINK_DESTINATION) ?: descendant(node, MarkdownElementTypes.AUTOLINK)
             MarkdownElementTypes.AUTOLINK, org.intellij.markdown.flavours.gfm.GFMTokenTypes.GFM_AUTOLINK -> node
             else -> null
-        }?.let { source.substring(it.startOffset, it.endOffset).removeSurrounding("<", ">") }
+        }?.let { text(it).removeSurrounding("<", ">") }
         if (destination != null && (image || isImageLink(destination)) && images.none { it.second == destination }) {
-            val alt = descendant(node, MarkdownElementTypes.LINK_TEXT)
-            images.add(alt?.let { source.substring(it.startOffset, it.endOffset).removeSurrounding("[", "]") }.orEmpty() to destination)
+            val alt = descendant(node, MarkdownElementTypes.LINK_TEXT) ?: label
+            images.add(alt?.let { text(it).removeSurrounding("[", "]") }.orEmpty() to destination)
         }
         // O link pode envolver uma imagem; a imagem não tem mais nada a procurar.
         if (!image) node.children.forEach(::collect)
     }
-    collect(MarkdownParser(GFMFlavourDescriptor()).buildMarkdownTreeFromString(source))
+    collect(tree)
     return images
 }

@@ -24,7 +24,6 @@ export global SettingsState {
     // Provedor cujo "Ver mais" está aberto; um por vez.
     in-out property <string> more-group;
     in-out property <string> filter;
-    in property <bool> filter-visible;
     in property <[SettingsRow]> rows;
     in property <[SettingsRow]> servers;
     in-out property <string> origin;
@@ -131,7 +130,7 @@ export component SettingsPane inherits Rectangle {
         ScrollContainer { height: min(360px, role-content.preferred-height); content-width: self.width;
             role-content := VerticalLayout { width: parent.width; spacing: 2px;
                 Text { text: SettingsState.role-prompt; font-size: 14px; color: Theme.on-surface-variant; }
-                if SettingsState.choosing-model && SettingsState.filter-visible: Rectangle { height: 64px;
+                if SettingsState.choosing-model: Rectangle { height: 64px;
                     TextField {
                         y: 4px; width: parent.width; height: 56px; placeholder: SettingsState.filter-placeholder; text <=> SettingsState.filter; outlined: true;
                         edited(value) => { SettingsState.filter-changed(value); }

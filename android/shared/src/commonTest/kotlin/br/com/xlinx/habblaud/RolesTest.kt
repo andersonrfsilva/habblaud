@@ -1,9 +1,11 @@
 package br.com.xlinx.habblaud
 
 import br.com.xlinx.habblaud.data.joinRole
+import br.com.xlinx.habblaud.data.latestModelVersions
 import br.com.xlinx.habblaud.data.modelBrand
 import br.com.xlinx.habblaud.data.modelLabel
 import br.com.xlinx.habblaud.data.modelOptionLabel
+import br.com.xlinx.habblaud.data.modelPickerGroups
 import br.com.xlinx.habblaud.data.providerLabel
 import br.com.xlinx.habblaud.data.roleModelGroups
 import br.com.xlinx.habblaud.data.snapshotModels
@@ -141,6 +143,74 @@ class RolesTest {
             assertEquals(shown.size, shown.toSet().size)
         }
         assertEquals(listOf(current), roleModelGroups(emptyList(), keep = current, query = "no-match").single().second)
+    }
+
+    @Test fun modelPickerShowsTheNewestVersionOfEachFamily() {
+        val models = listOf(
+            "anthropic/claude-opus-4-5",
+            "anthropic/claude-opus-4-1",
+            "anthropic/claude-opus-4-20250514",
+            "anthropic/claude-sonnet-4-5",
+            "anthropic/claude-3-5-sonnet-20241022",
+            "anthropic/claude-sonnet-4-5:thinking",
+            "openai/gpt-5.1",
+            "openai/gpt-5",
+            "openai/gpt-5-mini",
+            "openai/gpt-4.1-mini",
+            "google/gemini-2.5-pro",
+            "google/gemini-3-pro",
+        )
+        val (latest, older) = latestModelVersions(models, keep = null)
+        assertEquals(listOf(
+            "anthropic/claude-opus-4-5",
+            "anthropic/claude-sonnet-4-5",
+            "anthropic/claude-sonnet-4-5:thinking",
+            "openai/gpt-5.1",
+            "openai/gpt-5-mini",
+            "google/gemini-3-pro",
+        ), latest)
+        assertEquals(listOf(
+            "anthropic/claude-opus-4-1",
+            "anthropic/claude-opus-4-20250514",
+            "anthropic/claude-3-5-sonnet-20241022",
+            "openai/gpt-5",
+            "openai/gpt-4.1-mini",
+            "google/gemini-2.5-pro",
+        ), older)
+
+        val (withCurrent, _) = latestModelVersions(models, keep = "openai/gpt-5")
+        assertContains(withCurrent, "openai/gpt-5")
+        assertContains(withCurrent, "openai/gpt-5.1")
+    }
+
+    @Test fun equalVersionsKeepFirstAndIgnoreSnapshotNumbersBeforeVariants() {
+        val models = listOf(
+            "anthropic/claude-opus-4:thinking",
+            "anthropic/claude-opus-4-20250514:thinking",
+            "anthropic/claude-opus-4-20260514",
+            "anthropic/claude-opus-4.0",
+        )
+        assertEquals(listOf(models[0], models[3]) to listOf(models[1], models[2]), latestModelVersions(models, keep = null))
+    }
+
+    @Test fun modelPickerCollapsesEachProviderSeparatelyAndSearchShowsOlderMatches() {
+        val models = listOf(
+            "openai/gpt-5.2", "openai/gpt-5.1", "openai/gpt-5",
+            "openrouter/openai/gpt-5.1", "openrouter/openai/gpt-5",
+        )
+        val (direct, router) = modelPickerGroups(models, keep = models[1], query = "")
+        assertEquals("openai", direct.provider)
+        assertEquals(models.take(2), direct.latest)
+        assertEquals(listOf(models[2]), direct.older)
+        assertEquals("openrouter/openai", router.provider)
+        assertEquals(listOf(models[3]), router.latest)
+        assertEquals(listOf(models[4]), router.older)
+
+        val (filteredDirect, filteredRouter) = modelPickerGroups(models, keep = models[1], query = "gpt-5")
+        assertEquals(models.take(3), filteredDirect.latest)
+        assertEquals(models.drop(3), filteredRouter.latest)
+        assertTrue(filteredDirect.older.isEmpty())
+        assertTrue(filteredRouter.older.isEmpty())
     }
 
     @Test fun numericVersionsAndAlphanumericSuffixesHaveConsistentOrder() {

@@ -16,7 +16,7 @@ use zaplaud_core::{
 enum Command {
     Start,
     Resume(SessionKey),
-    Dismiss(SessionKey),
+    Dismiss { key: SessionKey, from_list: bool },
     Choose(String),
     Confirm(SessionKey),
     Close,
@@ -26,11 +26,22 @@ struct Dialog {
     mode: String,
     choice: Option<CastChoice>,
     target: Option<SessionItem>,
+    from_list: bool,
     confirming: bool,
 }
 impl Dialog {
     fn picking_model(&self, state: &State) -> bool {
         self.mode == "start" && self.choice.is_some() && state.picks_model()
+    }
+    fn current_target<'a>(&self, snapshot: &'a AppSnapshot, origin: &str) -> Option<&'a SessionItem> {
+        let target = self.target.as_ref()?;
+        let current = if self.from_list {
+            list_target(snapshot, origin, &target.key)
+        } else {
+            snapshot.selected.as_ref()
+        }?;
+        confirmation_target(target, current, origin)?;
+        Some(current)
     }
     fn close(&mut self, state: &State) {
         if self.picking_model(state) {
@@ -40,6 +51,34 @@ impl Dialog {
         }
     }
 }
+
+fn list_target<'a>(
+    snapshot: &'a AppSnapshot,
+    origin: &str,
+    key: &SessionKey,
+) -> Option<&'a SessionItem> {
+    if key.origin != origin {
+        return None;
+    }
+    snapshot
+        .servers
+        .iter()
+        .find(|server| server.api.origin() == origin)?
+        .reading
+        .sessions
+        .iter()
+        .find(|session| session.key == *key)
+}
+
+fn dismissible(state: &State, session: &SessionItem) -> bool {
+    !session.sub
+        && state.can_dismiss(session)
+        && !session
+            .cast
+            .as_deref()
+            .is_some_and(|id| state.active_job(id))
+}
+
 pub fn setup(window: &AppWindow, context: &FeatureContext) {
     let global = window.global::<CastState>();
     global.set_resume_label(strings::CAST_RESUME.into());
@@ -70,12 +109,34 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
         }
     };
     global.on_resume(selected_command(Command::Resume));
-    global.on_dismiss(selected_command(Command::Dismiss));
+    global.on_dismiss(selected_command(|key| Command::Dismiss {
+        key,
+        from_list: false,
+    }));
+    let s = send.clone();
+    window.global::<ListState>().on_dismiss(move |key| {
+        if let Ok(key) = SessionKey::deserialize(key.as_str()) {
+            let _ = s.send(Command::Dismiss {
+                key,
+                from_list: true,
+            });
+        }
+    });
     let s = send.clone();
     global.on_choose(move |id| {
         let _ = s.send(Command::Choose(id.into()));
     });
-    global.on_confirm(selected_command(Command::Confirm));
+    let weak = window.as_weak();
+    let s = send.clone();
+    global.on_confirm(move || {
+        if let Some(window) = weak.upgrade()
+            && let Ok(key) = SessionKey::deserialize(
+                window.global::<ListState>().get_cast_confirmation_key().as_str(),
+            )
+        {
+            let _ = s.send(Command::Confirm(key));
+        }
+    });
     global.on_close(move || {
         let _ = send.send(Command::Close);
     });
@@ -106,7 +167,12 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                     let next_origin = value.selected.as_ref().map(|s| s.key.origin.as_str()).or(value.filter.as_deref()).or_else(|| (value.servers.len() == 1).then(|| value.servers[0].api.origin())).unwrap_or_default();
                     if next_origin != origin { origin = next_origin.into(); state = State::default(); dialog = Dialog::default(); refresh = true; loaded = false; avatar_keys.clear(); }
                     if snapshot.as_ref().and_then(|s| s.selected.as_ref()).map(|s| &s.key) != value.selected.as_ref().map(|s| &s.key) { state.result.clear(); dialog = Dialog::default(); }
-                    if dialog.target.is_some() && snapshot.as_ref().is_some_and(|old| old.filter != value.filter) { dialog = Dialog::default(); }
+                    if dialog.target.is_some()
+                        && (snapshot.as_ref().is_some_and(|old| old.filter != value.filter)
+                            || dialog.current_target(&value, &origin).is_none())
+                    {
+                        dialog = Dialog::default();
+                    }
                     snapshot = Some(value);
                 }
                 changed = visibility.changed() => { if changed.is_err() { break; } refresh = *visibility.borrow(); }
@@ -125,9 +191,10 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                                 if let Err(error) = state.load(&server.api).await { unauthorized(&commands, &origin, &error); }
                             }
                         }
-                        Command::Dismiss(key) => {
-                            if let Some(target) = selected.filter(|s| s.key == key && state.can_dismiss(s)) {
-                                dialog = Dialog { mode: "dismiss".into(), target: Some(target.clone()), confirming: true, ..Dialog::default() };
+                        Command::Dismiss { key, from_list } => {
+                            let target = if from_list { list_target(snap, &origin, &key) } else { selected.filter(|s| s.key == key) };
+                            if let Some(target) = target.filter(|s| dismissible(&state, s)) {
+                                dialog = Dialog { mode: "dismiss".into(), target: Some(target.clone()), from_list, confirming: true, ..Dialog::default() };
                             }
                         }
                         Command::Close => { dialog.close(&state); }
@@ -147,12 +214,10 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                             }
                         }
                         Command::Confirm(key) if dialog.confirming => {
-                            if let Some(current) = selected.filter(|s| s.key == key)
-                                && let Some(target) = dialog.target.as_ref().and_then(|s| confirmation_target(s, current, server.api.origin()))
-                            {
+                            if let Some(current) = dialog.current_target(snap, &origin).filter(|s| s.key == key) {
                                 if dialog.mode == "dismiss" {
-                                    if state.can_dismiss(current) && !current.cast.as_ref().is_some_and(|id| state.active_job(id)) && let Some(id) = target.agent_id.as_deref() && let Err(error) = state.submit(&server.api, "", None, Some(id), None).await { unauthorized(&commands, &origin, &error); }
-                                } else if let Some(choice) = &dialog.choice && state.can_resume(current) && let Err(error) = state.submit(&server.api, &choice.id, Some(target), None, None).await { unauthorized(&commands, &origin, &error); }
+                                    if dismissible(&state, current) && let Some(id) = current.agent_id.as_deref() && let Err(error) = state.submit(&server.api, "", None, Some(id), None).await { unauthorized(&commands, &origin, &error); }
+                                } else if let Some(choice) = &dialog.choice && state.can_resume(current) && let Err(error) = state.submit(&server.api, &choice.id, dialog.target.as_ref(), None, None).await { unauthorized(&commands, &origin, &error); }
                             }
                             dialog = Dialog::default(); refresh = true; loaded = false;
                         }
@@ -176,7 +241,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                         }
                     }
                     publish(&weak, snap.clone(), state.clone(), &dialog, &origin);
-                } else { update_ui(&weak, |window| { window.global::<ListState>().set_cast_visible(false); let global = window.global::<CastState>(); global.set_resume_visible(false); global.set_dismiss_visible(false); global.set_visible(false); global.set_confirming(false); global.set_status("".into()); }); }
+                } else { update_ui(&weak, |window| { let list = window.global::<ListState>(); list.set_cast_visible(false); list.set_dismissible_keys(ModelRc::default()); list.set_cast_confirmation_key("".into()); let global = window.global::<CastState>(); global.set_resume_visible(false); global.set_dismiss_visible(false); global.set_visible(false); global.set_confirming(false); global.set_status("".into()); }); }
             }
         }
     });
@@ -256,7 +321,16 @@ fn publish(
         strings::CAST_SELECT_CHARACTER
     };
     let warning = if dialog.mode == "dismiss" {
-        strings::CAST_DISMISS_CONFIRM.into()
+        dialog.target.as_ref().map_or_else(
+            || strings::CAST_DISMISS_CONFIRM.to_owned(),
+            |target| {
+                format!(
+                    "{}\n{}",
+                    target.character_name.as_deref().unwrap_or(&target.title),
+                    strings::CAST_DISMISS_CONFIRM
+                )
+            },
+        )
     } else {
         format!(
             "{}\n{}",
@@ -273,6 +347,19 @@ fn publish(
         )
     };
     let confirming = dialog.confirming;
+    let confirmation_key = dialog
+        .target
+        .as_ref()
+        .filter(|_| confirming)
+        .and_then(|target| target.key.serialize().ok())
+        .unwrap_or_default();
+    let dismissible_keys: Vec<slint::SharedString> = server
+        .filter(|_| state.availability == "available")
+        .into_iter()
+        .flat_map(|server| &server.reading.sessions)
+        .filter(|session| dismissible(&state, session))
+        .filter_map(|session| session.key.serialize().ok().map(Into::into))
+        .collect();
     let visible = !dialog.mode.is_empty() && !confirming;
     let origin = origin.to_owned();
     let mut status = if state.availability == "available"
@@ -300,7 +387,10 @@ fn publish(
     update_ui(weak, move |window| {
         let global = window.global::<CastState>();
         let available = state.availability == "available";
-        window.global::<ListState>().set_cast_visible(available);
+        let list = window.global::<ListState>();
+        list.set_cast_visible(available);
+        list.set_dismissible_keys(ModelRc::new(VecModel::from(dismissible_keys)));
+        list.set_cast_confirmation_key(confirmation_key.into());
         global.set_resume_visible(
             available
                 && snapshot
@@ -355,6 +445,82 @@ fn publish(
 mod tests {
     use super::*;
     use zaplaud_core::model::CastCatalog;
+
+    #[test]
+    fn list_dismisses_only_open_cast_or_new_main_sessions_without_jobs() {
+        let mut state = State {
+            characters: vec![CastChoice {
+                id: "contact".into(),
+                name: "Contact".into(),
+                avatar: None,
+                model: None,
+            }],
+            ..State::default()
+        };
+        let mut item = SessionItem {
+            agent_id: Some("live".into()),
+            cast_opened: true,
+            cast: Some("contact".into()),
+            ..SessionItem::default()
+        };
+        assert!(dismissible(&state, &item));
+        for status in ["queued", "sent", "waiting"] {
+            state.jobs.jobs.insert("contact".into(), status.into());
+            assert!(!dismissible(&state, &item));
+        }
+        state.jobs.jobs.insert("contact".into(), "done".into());
+        assert!(dismissible(&state, &item));
+        item.cast = Some("unlisted".into());
+        assert!(!dismissible(&state, &item));
+        item.cast = Some("novo-1".into());
+        assert!(dismissible(&state, &item));
+        item.sub = true;
+        assert!(!dismissible(&state, &item));
+        item.sub = false;
+        item.cast_opened = false;
+        assert!(!dismissible(&state, &item));
+        item.cast_opened = true;
+        item.agent_id = None;
+        assert!(!dismissible(&state, &item));
+    }
+
+    #[test]
+    fn list_confirmation_keeps_its_row_without_selecting_it() {
+        use crate::feature::ServerSnapshot;
+        use zaplaud_core::{api::HabblaudApi, model::ReadingState};
+
+        let origin = "https://example.com";
+        let mut item = SessionItem {
+            agent_id: Some("original-agent".into()),
+            ..SessionItem::default()
+        };
+        item.key.origin = origin.into();
+        let mut selected = item.clone();
+        selected.key.session_id = "another-session".into();
+        let mut snapshot = AppSnapshot {
+            selected: Some(selected),
+            filter: None,
+            servers: vec![ServerSnapshot {
+                api: HabblaudApi::new(origin).unwrap(),
+                reading: ReadingState {
+                    sessions: vec![item.clone()],
+                    ..ReadingState::default()
+                },
+                needs_login: false,
+            }],
+        };
+        let dialog = Dialog {
+            target: Some(item),
+            from_list: true,
+            ..Dialog::default()
+        };
+        assert!(dialog.current_target(&snapshot, origin).is_some());
+        assert!(dialog.current_target(&snapshot, "https://other.test").is_none());
+        snapshot.servers[0].reading.sessions[0].agent_id = Some("replacement".into());
+        assert!(dialog.current_target(&snapshot, origin).is_none());
+        snapshot.servers[0].reading.sessions.clear();
+        assert!(dialog.current_target(&snapshot, origin).is_none());
+    }
 
     #[test]
     fn model_step_only_for_new_zeroclaw_and_cancel_returns_to_contacts() {

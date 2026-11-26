@@ -52,7 +52,7 @@ export global ConversationViewState {
     // Provedor cujo "Ver mais" está aberto; um por vez.
     in-out property <string> model-more-group;
     in-out property <string> model-query;
-    in property <bool> model-filter-visible;
+    in property <bool> has-models;
     in property <string> thinking;
     in property <[string]> thinking-labels;
     in-out property <string> menu-page;
@@ -598,7 +598,7 @@ export component ConversationMenu inherits Rectangle {
                 label: ConversationViewState.deliver-label; group: true; detail: ComposerState.mode-labels[ComposerState.mode-index];
                 clicked => { ConversationViewState.menu-page = "deliver"; }
             }
-            if ComposerState.omp-tools && (ConversationViewState.models.length > 0 || ConversationViewState.model-filter-visible): MenuAction {
+            if ComposerState.omp-tools && ConversationViewState.has-models: MenuAction {
                 label: ConversationViewState.model-label; detail: ConversationViewState.model-detail; group: true; enabled: ComposerState.can-shake;
                 clicked => { ConversationViewState.menu-page = "model"; }
             }
@@ -651,7 +651,7 @@ export component ConversationMenu inherits Rectangle {
         }
         if ConversationViewState.menu-page == "model": VerticalLayout {
             vertical-stretch: 0;
-            if ConversationViewState.model-filter-visible: Rectangle { height: 64px;
+            Rectangle { height: 64px;
                 TextField {
                     x: 12px; y: 4px; width: parent.width - 24px; height: 56px;
                     placeholder: ConversationViewState.model-filter-placeholder;

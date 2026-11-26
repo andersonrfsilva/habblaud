@@ -214,6 +214,15 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
         if (result.isNotEmpty()) Text(resultDetail?.takeIf { result == "busy" || result == "failed" || result == "forbidden" } ?: stringResource(when (result) { "pending" -> Res.string.cast_pending; "done" -> Res.string.cast_done; "busy" -> Res.string.cast_busy; "forbidden" -> Res.string.cast_forbidden; "failed" -> Res.string.cast_failed; else -> Res.string.cast_unknown }), style = MaterialTheme.typography.bodySmall)
     }
     val candidates = dismissable(openSessions, characters.map { it.id }.toSet(), jobs)
+    fun currentDismissTarget(): SessionItem? {
+        val requested = target ?: return null
+        if (!connected || availability != "available") return null
+        return candidates.firstOrNull { it.key == requested.key && it.agentId == requested.agentId }
+    }
+    val dismissTarget = currentDismissTarget()
+    LaunchedEffect(dialog, dismissTarget) {
+        if (dialog == "dismiss" && dismissTarget == null) { dialog = ""; target = null }
+    }
     // Item do menu de cada sessão na lista: dispensar aquele contato sem abrir a conversa.
     val dismissFor: @Composable (session: SessionItem, close: () -> Unit) -> Unit = { session, close ->
         if (availability == "available" && candidates.any { it.key == session.key }) DropdownMenuItem(
@@ -276,13 +285,17 @@ internal fun CastActions(api: HabblaudApi, selected: SessionItem?, connected: Bo
             }
         }
     }, confirmButton = {}, dismissButton = { TextButton(onClick = { dialog = "" }) { Text(stringResource(Res.string.cancel)) } })
-    if (dialog == "dismiss" || dialog == "resume") AlertDialog(onDismissRequest = { dialog = "" }, title = { Text(stringResource(if (dialog == "dismiss") Res.string.cast_dismiss else Res.string.cast_resume)) }, text = {
-        Text(if (dialog == "dismiss") listOfNotNull(target?.let { it.characterName ?: it.title }, stringResource(Res.string.cast_dismiss_confirm)).joinToString("\n") else listOfNotNull(choice?.name, selected?.project).joinToString("\n"))
+    if ((dialog == "dismiss" && dismissTarget != null) || dialog == "resume") AlertDialog(onDismissRequest = { dialog = "" }, title = { Text(stringResource(if (dialog == "dismiss") Res.string.cast_dismiss else Res.string.cast_resume)) }, text = {
+        Text(if (dialog == "dismiss") listOfNotNull(dismissTarget?.let { it.characterName ?: it.title }, stringResource(Res.string.cast_dismiss_confirm)).joinToString("\n") else listOfNotNull(choice?.name, selected?.project).joinToString("\n"))
     }, confirmButton = {
         TextButton(enabled = !sending, onClick = {
             val s = selected
             val c = choice
-            if (dialog == "dismiss") target?.agentId?.let { submit("/api/agents/${it.encodeURLPathPart()}/dismiss", buildJsonObject {}) }
+            if (dialog == "dismiss") {
+                val id = currentDismissTarget()?.agentId
+                if (id == null) { dialog = ""; target = null }
+                else submit("/api/agents/${id.encodeURLPathPart()}/dismiss", buildJsonObject {})
+            }
             else if (dialog == "resume") {
                 if (s == null || c == null) {
                     dialog = ""

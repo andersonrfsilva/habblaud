@@ -78,6 +78,53 @@ static ORDERING: LazyLock<Mutex<HashMap<PathBuf, Ordering>>> = LazyLock::new(Def
 fn ordering() -> &'static Mutex<HashMap<PathBuf, Ordering>> {
     &ORDERING
 }
+
+const CONVERSATION_CACHE_MAX_BYTES: u64 = 64 * 1024 * 1024;
+
+fn trim_conversation_cache(dir: &Path, written: &Path, open: Option<&Path>, budget: u64) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    let mut candidates = Vec::new();
+    let mut total: u64 = 0;
+    for entry in entries.flatten() {
+        if !entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| name.starts_with("conversation-") && name.ends_with(".json"))
+            || !entry.file_type().is_ok_and(|kind| kind.is_file())
+        {
+            continue;
+        }
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        total = total.saturating_add(metadata.len());
+        let path = entry.path();
+        if path != written && Some(path.as_path()) != open {
+            candidates.push((metadata.modified().ok(), path, metadata.len()));
+        }
+    }
+    if total <= budget {
+        return;
+    }
+    // Como no Android, a leitura não altera a ordem: as gravações mais antigas saem primeiro.
+    candidates.sort_unstable();
+    for (_, path, size) in candidates {
+        if total <= budget {
+            break;
+        }
+        if fs::remove_file(path).is_ok() {
+            total -= size;
+        }
+    }
+}
+
+fn open_conversation(data: &Map<String, Value>) -> Option<SessionKey> {
+    data.get("last_session")
+        .and_then(Value::as_str)
+        .and_then(|value| SessionKey::deserialize(value).ok())
+}
 pub fn storage_hash(value: &str) -> String {
     format!("{:x}", Sha256::digest(value.as_bytes()))
 }
@@ -378,14 +425,7 @@ impl LocalStateStore {
         )
     }
     pub fn last_session(&self) -> Result<Option<SessionKey>> {
-        self.state(
-            |d| {
-                Ok(d.get("last_session")
-                    .and_then(string)
-                    .and_then(|s| SessionKey::deserialize(&s).ok()))
-            },
-            false,
-        )
+        self.state(|d| Ok(open_conversation(d)), false)
     }
     pub fn set_last_session(&self, key: Option<&SessionKey>) -> Result<()> {
         self.state(
@@ -800,8 +840,19 @@ impl LocalStateStore {
                         .collect();
                     value["summaries"] = json!(retained);
                 }
-                atomic_write(&self.cache_path(key, d)?, &serde_json::to_vec(&value)?)?;
+                let path = self.cache_path(key, d)?;
+                atomic_write(&path, &serde_json::to_vec(&value)?)?;
                 order.written.insert(key.clone(), write.sequence);
+                // Uma gravação de fechamento pode chegar depois da abertura de outra conversa.
+                let open = open_conversation(d)
+                    .filter(|open| open != key)
+                    .and_then(|key| self.cache_path(&key, d).ok());
+                trim_conversation_cache(
+                    &self.dirs.data,
+                    &path,
+                    open.as_deref(),
+                    CONVERSATION_CACHE_MAX_BYTES,
+                );
                 Ok(())
             },
             false,
@@ -948,6 +999,34 @@ fn import_preferences(xml: &str) -> Map<String, Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn conversation_budget_evicts_oldest_writes_across_servers_without_evicting_open() {
+        use std::time::{Duration, SystemTime};
+
+        let dir = tempfile::tempdir().unwrap();
+        let file = |name, seconds| {
+            let path = dir.path().join(name);
+            let file = File::create(&path).unwrap();
+            file.set_len(10).unwrap();
+            file.set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(seconds))
+                .unwrap();
+            path
+        };
+        let open = file("conversation-null-first-open.json", 1);
+        let written = file("conversation-null-second-written.json", 2);
+        let oldest = file("conversation-null-second-old.json", 3);
+        let latest = file("conversation-null-first-recent.json", 4);
+        let temporary = file("conversation-null-second-old.json.tmp", 0);
+        let state = file("local_state.json", 0);
+
+        trim_conversation_cache(dir.path(), &written, Some(&open), 30);
+
+        assert!(!oldest.exists());
+        for keep in [open, written, latest, temporary, state] {
+            assert!(keep.exists());
+        }
+    }
 
     #[test]
     fn java_preferences_imports_only_kotlin_settings() {

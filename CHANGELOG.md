@@ -30,6 +30,11 @@ do meio (0.**3**.0).
   barra, percentual usado e quando renova.
 - **Servidor:** os avisos (`notice`) levam tipo, motivo da espera, id do pedido de permissão e duração do turno.
   Pedidos de permissão distintos do mesmo agente avisam cada um.
+- **Zaplaud (Android/iPad):** o seletor de modelo mostra só a versão mais nova de cada família, com «Ver mais» por
+  provedor, como no desktop.
+- **Zaplaud desktop:** «Dispensar» pelo clique direito na lista; «Entrar de novo» aparece na hora quando falta o
+  login salvo; arrastar arquivos para a janela anexa (X11 e macOS); URL solta vira link; cache de conversas com teto
+  de 64 MiB.
 - **omp:** a lista de tarefas do agente (ferramenta `todo`, com fases) aparece na página e no cartão da conversa.
 - **Zaplaud (Android/iPad):** a lista de tarefas do agente aparece nas informações da sessão, com o progresso acima do campo de mensagem.
 - **Zaplaud desktop:** a lista de tarefas do agente aparece nas informações da sessão, com o progresso acima do campo de mensagem.
@@ -203,6 +208,15 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Zaplaud (Android/iPad):** a conversa aberta não fica lida enquanto você lê acima da última resposta ou está em
+  Configurações; o modo de envio é o escolhido ao apertar Enviar, mesmo com anexos subindo; um status antigo de
+  Parar/Nova sessão não sobrescreve o atual; acesso revogado fecha a conversa; o «Abrir» da notificação também acha a
+  sessão que só aparece ao reler Recentes; dispensar não segue para um alvo que parou; links de arquivo do projeto
+  funcionam no bate-papo paralelo; imagem markdown por referência é desenhada.
+- **Zaplaud desktop:** responder uma aprovação pela lista não troca a conversa; histórico retomado passa à sessão ao vivo;
+  detalhes do subagente se atualizam; o bate-papo paralelo volta ao fim ao enviar ou trocar de tópico; falha nas cotas
+  não esconde papéis e resumos, e servidor omp sem resumidor mostra como ativar o Tiny; a busca dos seletores de modelo
+  aparece sempre; cercas `Mermaid`/`SVG` em maiúsculas são desenhadas e o limite do Mermaid conta caracteres como no Android.
 - **Zaplaud desktop:** a rolagem não salta nem volta sozinha depois da atualização do Slint 1.19.
 - **Zaplaud:** links para arquivos do projeto citados pelo agente (caminho relativo) passam a abrir: imagens
   aparecem na conversa e os demais arquivos podem ser baixados.

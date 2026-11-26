@@ -34,6 +34,14 @@ pub async fn flush() -> Result<(), String> {
         .map_err(|_| "Compositor encerrado".to_owned())?
 }
 
+pub(crate) fn drop_files(key: &str, paths: Vec<std::path::PathBuf>) {
+    if let Some(actions) = COMPOSER_ACTIONS.get()
+        && let Ok(key) = SessionKey::deserialize(key)
+    {
+        let _ = actions.send(Action::DropFiles(key, paths));
+    }
+}
+
 struct NativeBackend {
     store: LocalStateStore,
     snapshot: Arc<RwLock<Option<Arc<AppSnapshot>>>>,
@@ -229,6 +237,7 @@ enum Action {
     Command(String, String),
     Remove(String),
     Attach,
+    DropFiles(SessionKey, Vec<std::path::PathBuf>),
     Paths(String),
     PickerDismiss,
     Mode(i32),
@@ -462,10 +471,7 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                             picker = Some(tokio::spawn(async move {
                                 match pick_files().await {
                                     Ok(Some(paths)) => {
-                                        let uris: Vec<_> = paths.iter().filter_map(|path| url::Url::from_file_path(path).ok().map(|uri| uri.to_string())).collect();
-                                        let selected = select_attachments_async(uris, before.clone()).await;
-                                        let event = match selected { Ok(selected) => Event::AttachmentsSelected { key, before, selected }, Err(_) => Event::AttachmentFailed(key) };
-                                        let _ = sender.send(event);
+                                        let _ = sender.send(selected_files(key, before, paths).await);
                                     }
                                     Ok(None) => {}
                                     Err(()) => update_ui(&weak, |window| {
@@ -475,6 +481,10 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                                     }),
                                 }
                             })); None
+                        }
+                        Action::DropFiles(key, paths) => {
+                            if item.key != key || state.composer.key.as_ref() != Some(&key) { continue; }
+                            Some(selected_files(key, state.composer.draft.attachments, paths).await)
                         }
                         Action::Paths(paths) => {
                             let uris = paths.lines().filter(|line| !line.trim().is_empty()).map(|line| url::Url::from_file_path(line.trim()).map(|uri| uri.to_string())).collect::<Result<Vec<_>,_>>();
@@ -566,6 +576,28 @@ fn parse_picker_paths(output: Vec<u8>) -> Result<Vec<std::path::PathBuf>, ()> {
         .filter(|path| !path.is_empty())
         .map(std::path::PathBuf::from)
         .collect())
+}
+
+async fn selected_files(
+    key: SessionKey,
+    before: Vec<Attachment>,
+    paths: Vec<std::path::PathBuf>,
+) -> Event {
+    let uris = paths
+        .iter()
+        .map(|path| url::Url::from_file_path(path).map(|uri| uri.to_string()))
+        .collect::<Result<_, _>>();
+    if let Ok(uris) = uris
+        && let Ok(selected) = select_attachments_async(uris, before.clone()).await
+    {
+        Event::AttachmentsSelected {
+            key,
+            before,
+            selected,
+        }
+    } else {
+        Event::AttachmentFailed(key)
+    }
 }
 
 async fn select_attachments_async(

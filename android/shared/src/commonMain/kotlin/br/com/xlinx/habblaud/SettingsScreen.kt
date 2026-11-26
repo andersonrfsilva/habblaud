@@ -40,7 +40,7 @@ import br.com.xlinx.habblaud.data.joinRole
 import br.com.xlinx.habblaud.data.parseAccounts
 import br.com.xlinx.habblaud.data.modelLabel
 import br.com.xlinx.habblaud.data.modelOptionLabel
-import br.com.xlinx.habblaud.data.roleModelGroups
+import br.com.xlinx.habblaud.data.modelPickerGroups
 import br.com.xlinx.habblaud.data.providerLabel
 import br.com.xlinx.habblaud.data.snapshotModels
 import br.com.xlinx.habblaud.data.splitRole
@@ -412,8 +412,8 @@ private fun AccessRow(label: StringResource, allowed: Boolean?) {
 }
 
 @Composable
-private fun RadioRow(label: String, selected: Boolean, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().selectable(selected, onClick = onClick, role = Role.RadioButton).padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+private fun RadioRow(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Row(modifier.fillMaxWidth().selectable(selected, onClick = onClick, role = Role.RadioButton).padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         RadioButton(selected = selected, onClick = null)
         Text(label, style = MaterialTheme.typography.bodyLarge)
     }
@@ -441,17 +441,27 @@ private fun RoleDialog(role: String, current: String?, models: List<String>, onD
     val (currentModel, currentLevel) = current?.let(::splitRole) ?: (null to null)
     var model by remember { mutableStateOf<String?>(null) }
     var filter by remember { mutableStateOf("") }
+    var expandedProvider by remember { mutableStateOf<String?>(null) }
     var typed by remember { mutableStateOf("") }
     AlertDialog(onDismissRequest = onDismiss, title = { Text(stringResource(roleLabel(role))) }, text = {
         Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
             if (model == null) {
                 Text(stringResource(Res.string.role_pick_model), style = MaterialTheme.typography.titleSmall)
                 OutlinedTextField(filter, { filter = it }, Modifier.fillMaxWidth().padding(top = 8.dp), label = { Text(stringResource(Res.string.filter_models)) }, singleLine = true)
-                val groups = remember(models, currentModel, filter) { roleModelGroups(models, keep = currentModel, query = filter) }
+                val groups = remember(models, currentModel, filter) { modelPickerGroups(models, currentModel, filter) }
                 if (groups.isEmpty() && filter.isNotBlank()) Text(stringResource(Res.string.models_no_results), style = MaterialTheme.typography.bodySmall)
-                groups.forEach { (provider, list) ->
+                groups.forEach { (provider, latest, older) ->
                     Text(providerLabel(provider), Modifier.padding(top = 12.dp, bottom = 2.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                    list.forEach { m -> RadioRow(modelOptionLabel(m), m == currentModel) { model = m } }
+                    latest.forEach { m -> RadioRow(modelOptionLabel(m), m == currentModel) { model = m } }
+                    if (older.isNotEmpty()) {
+                        val expanded = expandedProvider == provider
+                        TextButton(onClick = { expandedProvider = if (expanded) null else provider }) {
+                            Text(if (expanded) stringResource(Res.string.models_less) else "${stringResource(Res.string.models_more)} (${older.size})")
+                        }
+                        if (expanded) older.forEach { m ->
+                            RadioRow(modelOptionLabel(m), m == currentModel, Modifier.padding(start = 16.dp)) { model = m }
+                        }
+                    }
                 }
                 if (models.isEmpty()) Text(stringResource(Res.string.role_no_models), style = MaterialTheme.typography.bodySmall)
                 // Sem agente aberto não há lista: o modelo também pode ser digitado (o servidor confere o formato).

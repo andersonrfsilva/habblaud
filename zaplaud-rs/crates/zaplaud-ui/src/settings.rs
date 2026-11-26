@@ -82,15 +82,16 @@ enum Command {
     Filter(String),
     Model(String),
     Thinking(String),
-    Loaded(u64, Result<Loaded, zaplaud_core::Error>),
+    Loaded(u64, Loaded),
     Access(u64, Result<ServerAccess, zaplaud_core::Error>),
     Saved(String, Result<(), zaplaud_core::Error>),
 }
-struct Loaded {
-    roles: Result<ModelRoles, zaplaud_core::Error>,
-    snapshot: Option<(Vec<String>, Vec<AccountQuota>)>,
-    runtime: Option<String>,
-    summary_http: bool,
+type SnapshotData = (Vec<String>, Vec<AccountQuota>);
+enum Loaded {
+    Snapshot(Result<SnapshotData, zaplaud_core::Error>),
+    Runtime(Result<Option<String>, zaplaud_core::Error>),
+    Summary(Result<bool, zaplaud_core::Error>),
+    Roles(Result<ModelRoles, zaplaud_core::Error>),
 }
 #[derive(Default)]
 struct State {
@@ -104,6 +105,7 @@ struct State {
     summary_http: bool,
     models: Vec<String>,
     quotas: Option<Vec<AccountQuota>>,
+    quota_error: bool,
     access: Option<Result<ServerAccess, ()>>,
     status: String,
     error: Option<&'static str>,
@@ -159,6 +161,69 @@ fn unauthorized(error: &zaplaud_core::Error) -> bool {
     )
 }
 impl State {
+    fn reset_server(&mut self, status: &str) {
+        self.generation += 1;
+        self.status = status.into();
+        self.runtime = None;
+        self.summary_http = false;
+        self.roles = ModelRoles::default();
+        self.editing.clear();
+        self.access = None;
+        self.quotas = None;
+        self.quota_error = false;
+        self.models.clear();
+        self.snapshot_at = None;
+    }
+
+    fn apply_loaded(&mut self, loaded: Loaded) -> bool {
+        let error = match &loaded {
+            Loaded::Snapshot(result) => result.as_ref().err(),
+            Loaded::Runtime(result) => result.as_ref().err(),
+            Loaded::Summary(result) => result.as_ref().err(),
+            Loaded::Roles(result) => result.as_ref().err(),
+        };
+        if error.is_some_and(unauthorized) {
+            self.reset_server("unauthorized");
+            return true;
+        }
+        match loaded {
+            Loaded::Snapshot(result) => {
+                self.snapshot_at = Some(tokio::time::Instant::now());
+                self.quota_error = result.is_err();
+                if let Ok((models, quotas)) = result {
+                    self.models = models;
+                    self.quotas = Some(quotas);
+                }
+            }
+            Loaded::Runtime(Ok(runtime)) => {
+                self.runtime = runtime;
+                if self.runtime.as_deref() != Some("omp") {
+                    self.roles = ModelRoles::default();
+                    self.editing.clear();
+                    self.status = "loading".into();
+                }
+            }
+            Loaded::Summary(result) => self.summary_http = result.unwrap_or(false),
+            Loaded::Roles(result) if self.runtime.as_deref() == Some("omp") => match result {
+                Ok(mut roles) => {
+                    roles.pending |= self.saving.contains(&self.origin);
+                    self.roles = roles;
+                    self.status = "ready".into();
+                    if self.error == Some(strings::ROLES_ERROR) {
+                        self.error = None;
+                    }
+                }
+                Err(zaplaud_core::Error::Api { status: 403, .. }) => {
+                    self.status = "forbidden".into();
+                }
+                Err(_) if self.roles.roles.is_none() => self.status = "error".into(),
+                Err(_) => {}
+            },
+            _ => {}
+        }
+        false
+    }
+
     fn finish_save(&mut self, origin: &str) -> bool {
         self.saving.remove(origin);
         origin == self.origin
@@ -295,6 +360,8 @@ impl State {
             "",
             if tiny {
                 strings::SETTINGS_SUMMARIZE_HINT
+            } else if self.runtime.as_deref() == Some("omp") {
+                strings::SETTINGS_SUMMARIZE_NEEDS_TINY
             } else {
                 strings::SETTINGS_SUMMARIZE_UNAVAILABLE
             },
@@ -373,7 +440,7 @@ impl State {
             None => rows.push(row(
                 "hint",
                 "",
-                if self.error == Some(strings::QUOTA_ERROR) {
+                if self.quota_error {
                     strings::QUOTA_ERROR
                 } else {
                     strings::QUOTA_LOADING
@@ -479,10 +546,12 @@ impl State {
                 }
             }
         }
-        if let Some(error) = self
-            .error
-            .filter(|error| *error != strings::QUOTA_ERROR || self.quotas.is_some())
-        {
+        if self.quota_error && self.quotas.is_some() {
+            let mut r = row("hint", "", strings::QUOTA_ERROR);
+            r.severity = 2;
+            rows.push(r);
+        }
+        if let Some(error) = self.error {
             let mut r = row("hint", "", error);
             r.severity = 2;
             rows.push(r);
@@ -523,8 +592,6 @@ impl State {
             .unwrap_or("");
         let (current_model, current_level) = split_role(current);
         let all_groups = role_model_groups(&self.models, Some(current_model));
-        let filter_visible =
-            choosing && all_groups.iter().map(|(_, m)| m.len()).sum::<usize>() > 15;
         if choosing {
             let groups = if self.filter.is_empty() {
                 all_groups
@@ -583,7 +650,6 @@ impl State {
                 .into(),
             );
             ui.set_choosing_model(choosing);
-            ui.set_filter_visible(filter_visible);
             ui.set_choices(ModelRc::new(VecModel::from(choices)));
         });
     }
@@ -593,58 +659,64 @@ fn refresh(
     runtime: &tokio::runtime::Handle,
     send: &mpsc::UnboundedSender<Command>,
 ) -> Option<tokio::task::JoinHandle<()>> {
-    let (api, needs_login) = state
+    let (api, _) = state
         .servers
         .iter()
-        .find(|(api, _)| api.origin() == state.origin)?;
-    let access_due = !needs_login && state.access.is_none();
+        .find(|(api, needs_login)| api.origin() == state.origin && !needs_login)?;
+    if state.status == "unauthorized" {
+        return None;
+    }
+    let access_due = state.access.is_none();
     let api = api.clone();
     let generation = state.generation;
     let send = send.clone();
-    let snapshot_due = state.quotas.is_none()
-        || state
-            .snapshot_at
-            .is_none_or(|at| at.elapsed() >= Duration::from_secs(60));
+    let roles_due = state.runtime.as_deref() == Some("omp");
+    let snapshot_due = state
+        .snapshot_at
+        .is_none_or(|at| at.elapsed() >= Duration::from_secs(60));
     Some(runtime.spawn(async move {
-        let result = async {
-            let snapshot = if snapshot_due {
-                let data = api.request("/api/snapshot", None).await?;
-                let value: serde_json::Value = serde_json::from_str(&data)?;
-                let models = snapshot_models(&data)?;
-                let quotas = value
-                    .get("accounts")
-                    .and_then(serde_json::Value::as_array)
-                    .into_iter()
-                    .flatten()
-                    .filter_map(AccountQuota::parse)
-                    .collect();
-                Some((models, quotas))
-            } else {
-                None
-            };
-            let runtime = api.cast_runtime().await?;
-            let summary_http = api.summary_http().await?;
-            let roles = if runtime.as_deref() == Some("omp") {
-                api.roles().await
-            } else {
-                Ok(ModelRoles::default())
-            };
-            Ok(Loaded {
-                roles,
-                snapshot,
-                runtime,
-                summary_http,
-            })
+        let snapshot = async {
+            if snapshot_due {
+                let result = async {
+                    let data = api.request("/api/snapshot", None).await?;
+                    let value: serde_json::Value = serde_json::from_str(&data)?;
+                    let models = snapshot_models(&data)?;
+                    let quotas = value
+                        .get("accounts")
+                        .and_then(serde_json::Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .filter_map(AccountQuota::parse)
+                        .collect();
+                    Ok((models, quotas))
+                }
+                .await;
+                let _ = send.send(Command::Loaded(generation, Loaded::Snapshot(result)));
+            }
+        };
+        let roles = async {
+            if roles_due {
+                let _ = send.send(Command::Loaded(generation, Loaded::Roles(api.roles().await)));
+            }
+        };
+        let runtime = async {
+            let result = api.cast_runtime().await;
+            let load_roles = !roles_due
+                && result.as_ref().is_ok_and(|runtime| runtime.as_deref() == Some("omp"));
+            let _ = send.send(Command::Loaded(generation, Loaded::Runtime(result)));
+            if load_roles {
+                let _ = send.send(Command::Loaded(generation, Loaded::Roles(api.roles().await)));
+            }
+        };
+        let summary = async {
+            let _ = send.send(Command::Loaded(generation, Loaded::Summary(api.summary_http().await)));
         };
         let access = async {
             if access_due {
                 let _ = send.send(Command::Access(generation, api.server_access().await));
             }
         };
-        let load = async {
-            let _ = send.send(Command::Loaded(generation, result.await));
-        };
-        tokio::join!(access, load);
+        tokio::join!(access, snapshot, runtime, summary, roles);
     }))
 }
 pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
@@ -767,20 +839,13 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
                             if state.servers.len() == snapshot.servers.len() && state.servers.iter().zip(&snapshot.servers).all(|((api, login), server)| api.origin() == server.api.origin() && *login == server.needs_login) { continue; }
                             let was_logged_out = state.servers.iter().any(|(api, login)| api.origin() == state.origin && *login);
                             state.servers = snapshot.servers.iter().map(|s| (s.api.clone(), s.needs_login)).collect();
-                            if state.servers.iter().any(|(api, login)| api.origin() == state.origin && *login) {
-                                state.access = None;
-                                state.runtime = None; state.summary_http = false; state.roles = ModelRoles::default(); state.editing.clear();
-                                state.generation += 1;
+                            if state.status != "unauthorized" && state.servers.iter().any(|(api, login)| api.origin() == state.origin && *login) {
+                                state.reset_server("unauthorized");
+                                reload = true;
                             }
                             if !state.servers.iter().any(|(api, _)| api.origin() == state.origin) {
                                 state.origin = state.servers.first().map_or_else(String::new, |(api, _)| api.origin().to_owned());
-                                state.generation += 1;
-                                state.roles = ModelRoles::default();
-                                state.runtime = None;
-                                state.summary_http = false;
-                                state.access = None;
-                                state.quotas = None;
-                                state.status = "loading".into();
+                                state.reset_server("loading");
                                 reload = state.visible;
                             }
                             if was_logged_out && state.servers.iter().any(|(api, login)| api.origin() == state.origin && !*login) {
@@ -797,15 +862,7 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
                     match command {
                         Some(Command::Open) => {
                             state.visible = true;
-                            state.status = "loading".into();
-                            state.generation += 1;
-                            state.editing.clear();
-                            state.roles = ModelRoles::default();
-                            state.runtime = None;
-                            state.summary_http = false;
-                            state.access = None;
-                            state.quotas = None;
-                            state.models.clear();
+                            state.reset_server("loading");
                             state.error = None;
                             match Preferences::load(&store) {
                                 Ok(preferences) => state.preferences = preferences,
@@ -824,14 +881,7 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
                         }
                         Some(Command::Origin(origin)) => {
                             state.origin = origin;
-                            state.generation += 1;
-                            state.roles = ModelRoles::default();
-                            state.runtime = None;
-                            state.summary_http = false;
-                            state.access = None;
-                            state.quotas = None;
-                            state.status = "loading".into();
-                            state.editing.clear();
+                            state.reset_server("loading");
                             reload = true;
                         }
                         Some(Command::Activate(key, value, on)) => {
@@ -907,52 +957,29 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
                         Some(Command::Access(generation, result)) if generation == state.generation => {
                             if result.as_ref().is_err_and(unauthorized) {
                                 let _ = commands.send(crate::state::Event::Unauthorized(state.origin.clone()));
-                                state.status = "unauthorized".into();
+                                state.reset_server("unauthorized");
+                                reload = true;
+                            } else {
+                                state.access = Some(result.map_err(|_| ()));
                             }
-                            state.access = Some(result.map_err(|_| ()));
                         }
-                        Some(Command::Loaded(generation, result)) if generation == state.generation => {
-                            match result {
-                                Ok(loaded) => {
-                                    state.runtime = loaded.runtime;
-                                    state.summary_http = loaded.summary_http;
-                                    if state.runtime.as_deref() != Some("omp") { state.editing.clear(); }
-                                    if let Some((models, quotas)) = loaded.snapshot {
-                                        state.models = models;
-                                        state.quotas = Some(quotas);
-                                        state.snapshot_at = Some(tokio::time::Instant::now());
-                                    }
-                                    match loaded.roles {
-                                        Ok(mut roles) => {
-                                            roles.pending |= state.saving.contains(&state.origin);
-                                            state.roles = roles; state.status = "ready".into(); state.error = None;
-                                        }
-                                        Err(error) => {
-                                            if unauthorized(&error) { let _ = commands.send(crate::state::Event::Unauthorized(state.origin.clone())); state.status = "unauthorized".into(); }
-                                            else if matches!(error, zaplaud_core::Error::Api { status: 403, .. }) { state.status = "forbidden".into(); }
-                                            else if state.roles.roles.is_none() { state.status = "error".into(); }
-                                        }
-                                    }
-                                }
-                                Err(error) => {
-                                    state.runtime = None;
-                                    state.summary_http = false;
-                                    state.roles = ModelRoles::default();
-                                    state.editing.clear();
-                                    state.error = Some(strings::QUOTA_ERROR);
-                                    if unauthorized(&error) { let _ = commands.send(crate::state::Event::Unauthorized(state.origin.clone())); state.status = "unauthorized".into(); }
-                                    else if state.roles.roles.is_none() { state.status = "error".into(); }
-                                }
+                        Some(Command::Loaded(generation, loaded)) if generation == state.generation => {
+                            let roles_loaded = matches!(loaded, Loaded::Roles(_));
+                            if state.apply_loaded(loaded) {
+                                let _ = commands.send(crate::state::Event::Unauthorized(state.origin.clone()));
+                                reload = true;
                             }
-                            deadline = tokio::time::Instant::now() + Duration::from_millis(if state.roles.pending { 1500 } else { 10000 });
+                            if roles_loaded {
+                                deadline = tokio::time::Instant::now() + Duration::from_millis(if state.roles.pending { 1500 } else { 10000 });
+                            }
                         }
                         Some(_) => {}
                         None => break,
                     }
                 }
-                _ = tokio::time::sleep_until(deadline), if state.visible && state.active && state.status != "unauthorized" && request.as_ref().is_none_or(|task| task.is_finished()) => {
-                    reload = true;
-                    deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+                _ = tokio::time::sleep_until(deadline), if state.visible && state.active && state.status != "unauthorized" => {
+                    reload = request.as_ref().is_none_or(|task| task.is_finished());
+                    deadline = tokio::time::Instant::now() + Duration::from_millis(if state.roles.pending { 1500 } else { 10000 });
                 }
             }
             if !state.visible || !state.active || reload {
@@ -967,6 +994,32 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn settings_refresh_failures_do_not_discard_other_sections() {
+        let mut state = State::default();
+        let failure = || zaplaud_core::Error::InvalidResponse("teste");
+        assert!(!state.apply_loaded(Loaded::Snapshot(Err(failure()))));
+        assert!(!state.apply_loaded(Loaded::Runtime(Ok(Some("omp".into())))));
+        assert!(!state.apply_loaded(Loaded::Summary(Ok(true))));
+        assert!(!state.apply_loaded(Loaded::Roles(Ok(ModelRoles {
+            roles: Some(BTreeMap::from([("tiny".into(), "p/model".into())])),
+            available: true,
+            ..ModelRoles::default()
+        }))));
+        state.editing = "tiny".into();
+        assert!(state.quota_error && state.summary_http && state.roles.available);
+        assert!(!state.apply_loaded(Loaded::Snapshot(Ok((vec!["p/model".into()], vec![])))));
+        assert!(!state.apply_loaded(Loaded::Runtime(Err(failure()))));
+        assert!(!state.apply_loaded(Loaded::Summary(Err(failure()))));
+        assert!(!state.apply_loaded(Loaded::Roles(Err(failure()))));
+        assert!(!state.quota_error && !state.summary_http && state.roles.available);
+        assert_eq!(state.runtime.as_deref(), Some("omp"));
+        assert_eq!(state.editing, "tiny");
+        assert_eq!(state.status, "ready");
+        assert_eq!(state.models, ["p/model"]);
+        assert!(state.quotas.is_some());
+    }
+
     #[test]
     fn role_save_survives_visibility_and_generation_changes() {
         let mut state = State {
@@ -1059,6 +1112,7 @@ mod tests {
         assert!(!summary.enabled);
         assert!(!summary.checked);
         state.runtime = Some("omp".into());
+        assert!(state.rows().iter().any(|r| r.text == strings::SETTINGS_SUMMARIZE_NEEDS_TINY));
         state.roles.roles = Some(BTreeMap::from([("tiny".into(), "p/model".into())]));
         let rows = state.rows();
         let summary = rows.iter().find(|r| r.key == "summarize").unwrap();
@@ -1102,7 +1156,7 @@ mod tests {
     #[test]
     fn quota_error_replaces_initial_loading_and_limits_keep_the_card() {
         let mut state = State {
-            error: Some(strings::QUOTA_ERROR),
+            quota_error: true,
             ..Default::default()
         };
         let rows = state.rows();
@@ -1113,7 +1167,7 @@ mod tests {
                 .count(),
             1
         );
-        state.error = None;
+        state.quota_error = false;
         state.quotas = Some(vec![
             AccountQuota::parse(&serde_json::json!({
                 "id": "test", "usage": {"fiveHour": {"utilization": 90.5}}

@@ -30,6 +30,9 @@ pub fn setup(window: &AppWindow, context: &crate::feature::FeatureContext) {
     window
         .global::<ListState>()
         .set_quota_title(strings::QUOTA_WEEKLY_TITLE.into());
+    window
+        .global::<ListState>()
+        .on_can_dismiss(|key, keys| keys.iter().any(|candidate| candidate == key));
     let sender = &context.commands;
     let send = sender.clone();
     window.global::<ListState>().on_open(move |key| {

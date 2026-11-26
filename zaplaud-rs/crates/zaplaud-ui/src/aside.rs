@@ -142,6 +142,7 @@ fn publish(weak: &slint::Weak<AppWindow>, state: State, accepted: Option<Arc<Str
         }
         global.set_loading(aside.loading);
         global.set_sending(aside.sending);
+        global.set_topic_id(aside.topic().map_or("", |topic| topic.id.as_str()).into());
         global.set_running(
             aside
                 .topic()

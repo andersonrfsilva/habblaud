@@ -1,7 +1,7 @@
 use crate::{
     AppWindow, ListState, PermissionChoice, PermissionQuestionRow, PermissionState,
     PermissionSuggestionRow,
-    feature::{AppSnapshot, FeatureContext},
+    feature::{AppSnapshot, FeatureContext, ServerSnapshot},
     state::Event as AppEvent,
     strings, update_ui,
 };
@@ -10,7 +10,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use zaplaud_core::{
     controller::permission::{Update, now_millis, run},
-    model::SessionItem,
+    model::{SessionItem, SessionKey},
     rules::permission::{Event, State},
 };
 
@@ -19,6 +19,27 @@ enum Command {
     Selected,
     Event(Event),
 }
+
+fn permission_target<'a>(
+    snapshot: &'a AppSnapshot,
+    key: &SessionKey,
+    expected: Option<&str>,
+) -> Option<(&'a ServerSnapshot, &'a SessionItem)> {
+    let server = snapshot
+        .servers
+        .iter()
+        .find(|s| s.api.origin() == key.origin)?;
+    let item = server
+        .reading
+        .sessions
+        .iter()
+        .find(|item| &item.key == key)?;
+    let request = item.permission_id.as_deref()?;
+    expected
+        .is_none_or(|id| id == request)
+        .then_some((server, item))
+}
+
 pub fn setup(window: &AppWindow, context: &FeatureContext) {
     let global = window.global::<PermissionState>();
     global.set_pending_label(strings::PERMISSION_PENDING.into());
@@ -93,7 +114,6 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
     global.on_set_interrupt(move |value| {
         let _ = tx.send(Command::Event(Event::Interrupt(value)));
     });
-    let retry = sender.clone();
     global.on_set_reason(move |text| {
         let _ = sender.send(Command::Event(Event::Message(text.to_string())));
     });
@@ -102,7 +122,6 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
     let weak = window.as_weak();
     context.runtime.clone().spawn(async move {
         let mut snapshot: Option<Arc<AppSnapshot>> = None;
-        let mut pending_open = None;
         let mut active: Option<(SessionItem, mpsc::UnboundedSender<Event>)> = None;
         let mut runner = None;
         let (updates, mut results) = mpsc::unbounded_channel();
@@ -128,9 +147,6 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                             } else { let _ = tx.send(Event::ForceClose); }
                         }
                         snapshot = Some(next);
-                        if pending_open.as_ref().is_some_and(|key| snapshot.as_ref().is_some_and(|s| s.servers.iter().any(|server| server.reading.sessions.iter().any(|item| item.key.serialize().ok().as_ref() == Some(key)))))
-                            && let Some(key) = pending_open.take()
-                        { let _ = retry.send(Command::Open(key, None)); }
                     },
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                     Err(_) => break,
@@ -144,21 +160,9 @@ pub fn setup(window: &AppWindow, context: &FeatureContext) {
                                 Command::Open(key, expected) => (key, expected),
                                 _ => (snapshot.as_ref().and_then(|s| s.selected.as_ref()).and_then(|s| s.key.serialize().ok()).unwrap_or_default(), None),
                             };
-                            if expected.is_none() { let _ = context.commands.send(AppEvent::Open(key.clone())); }
-                            let Some(snapshot) = &snapshot else {
-                                if expected.is_none() { pending_open = Some(key); }
-                                continue;
-                            };
-                            let found = snapshot.servers.iter().find_map(|server| server.reading.sessions.iter().find(|s| s.key.serialize().ok().as_deref() == Some(&key)).map(|item| (server, item)));
-                            let Some((server, item)) = found else {
-                                if expected.is_none() { pending_open = Some(key); }
-                                continue;
-                            };
-                            if item.permission_id.is_none()
-                                || expected.as_ref().is_some_and(|id| item.permission_id.as_ref() != Some(id))
-                            {
-                                continue;
-                            }
+                            let Ok(session_key) = SessionKey::deserialize(&key) else { continue; };
+                            let found = snapshot.as_ref().and_then(|snapshot| permission_target(snapshot, &session_key, expected.as_deref()));
+                            let Some((server, item)) = found else { continue; };
                             if let Some(task) = runner.take() { let task: tokio::task::JoinHandle<()> = task; task.abort(); let _ = task.await; }
                             while results.try_recv().is_ok() {}
                             let (tx, rx) = mpsc::unbounded_channel();
@@ -432,6 +436,48 @@ fn permission_summary(permission: &zaplaud_core::model::Permission) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn opens_permission_for_the_row_instead_of_the_selected_conversation() {
+        use zaplaud_core::{api::HabblaudApi, model::ReadingState};
+
+        let origin = "https://example.com";
+        let selected = SessionItem {
+            key: SessionKey {
+                origin: origin.into(),
+                session_id: "selected".into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let row = SessionItem {
+            key: SessionKey {
+                origin: origin.into(),
+                session_id: "other".into(),
+                ..Default::default()
+            },
+            permission_id: Some("request".into()),
+            ..Default::default()
+        };
+        let snapshot = AppSnapshot {
+            filter: None,
+            selected: Some(selected.clone()),
+            servers: vec![ServerSnapshot {
+                api: HabblaudApi::new(origin).unwrap(),
+                reading: ReadingState {
+                    sessions: vec![selected.clone(), row.clone()],
+                    ..Default::default()
+                },
+                needs_login: false,
+            }],
+        };
+        assert_eq!(
+            permission_target(&snapshot, &row.key, None).map(|(_, item)| item),
+            Some(&row)
+        );
+        assert_eq!(snapshot.selected.as_ref(), Some(&selected));
+        assert!(permission_target(&snapshot, &row.key, Some("replaced")).is_none());
+    }
+
     #[test]
     fn editing_updates_existing_rows_without_replacing_model() {
         let model = ModelRc::new(VecModel::from(vec![String::new()]));

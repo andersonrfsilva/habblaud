@@ -1,5 +1,5 @@
 use crate::controller::alerts::AlertController;
-use crate::model::{ReadingState, SessionCollection, SessionItem, SessionKey, Snapshot};
+use crate::model::{ReadingState, SessionCollection, SessionItem, SessionKey, Snapshot, sub_session};
 use crate::rules::list::{unread_count, updated_seen};
 use std::collections::HashMap;
 
@@ -101,13 +101,16 @@ impl ReadingController {
         }
         if let Some(selected) = self.state.selected.as_mut() {
             if selected.sub {
-                let live = sessions
-                    .iter()
-                    .flat_map(|s| &s.subagents)
-                    .find(|sub| Some(&sub.id) == selected.agent_id.as_ref());
-                selected.status = Some(if live.is_some() { "working" } else { "done" }.into());
-                if let Some(activity) = live.and_then(|s| s.activity.clone()) {
-                    selected.activity = Some(activity);
+                if let Some(live) = sessions.iter().find_map(|parent| {
+                    parent
+                        .subagents
+                        .iter()
+                        .find(|sub| Some(&sub.id) == selected.agent_id.as_ref())
+                        .map(|sub| sub_session(parent, sub))
+                }) {
+                    *selected = live;
+                } else {
+                    selected.status = Some("done".into());
                 }
             } else if let Some(current) = sessions.iter().find(|s| s.key == selected.key) {
                 *selected = current.clone();
@@ -212,6 +215,35 @@ pub fn seen_id(key: &SessionKey) -> Result<String, serde_json::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn open_subagent_refreshes_snapshot_details_and_keeps_them_when_done() {
+        let mut reading = ReadingController::new("https://a".into(), HashMap::new(), None);
+        let mut parent = SessionItem::default();
+        parent.key.origin = "https://a".into();
+        parent.key.session_id = "parent".into();
+        let sub: crate::model::SubAgent = serde_json::from_value(serde_json::json!({
+            "id": "sub", "name": "Subagente", "advisor": false,
+            "model": "old", "activity": "Lendo"
+        }))
+        .unwrap();
+        reading.open(sub_session(&parent, &sub));
+        let mut sub = sub;
+        sub.model = Some("new".into());
+        sub.task = Some("Revisar".into());
+        sub.activity = None;
+        sub.context_tokens = Some(100);
+        sub.context_window = Some(200);
+        sub.status_since = Some(300);
+        sub.last_at = Some(400);
+        parent.subagents.push(sub.clone());
+        let mut expected = sub_session(&parent, &sub);
+        reading.update_sessions(vec![parent]);
+        assert_eq!(reading.state.selected.as_ref(), Some(&expected));
+        reading.update_sessions(Vec::new());
+        expected.status = Some("done".into());
+        assert_eq!(reading.state.selected, Some(expected));
+    }
+
     #[test]
     fn unchanged_snapshots_do_not_dirty_seen() {
         let mut reading = ReadingController::new("http://a".into(), HashMap::new(), None);

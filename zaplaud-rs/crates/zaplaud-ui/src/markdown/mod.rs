@@ -26,6 +26,7 @@ use std::collections::VecDeque;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex, PoisonError};
 
+mod autolink;
 pub mod images;
 
 include!(concat!(env!("OUT_DIR"), "/markdown.rs"));
@@ -146,7 +147,7 @@ fn svg_theme_colors(svg: &str) -> String {
 
 /// Fontes maiores ficam como código, como no Android (`MermaidCodeFence.kt`).
 const MAX_SVG_BYTES: usize = 200_000;
-const MAX_MERMAID_BYTES: usize = 20_000;
+const MAX_MERMAID_UTF16: usize = 20_000;
 /// O bloco nunca exibe o desenho mais alto que a imagem; acima disso o fragmento do transcript
 /// passaria do orçamento de coordenadas i16 (`transcript::HEIGHT_BUDGET`), então fica como código.
 pub const MAX_DIAGRAM_HEIGHT: u32 = 6_000;
@@ -165,24 +166,36 @@ impl Diagram {
     }
 }
 
-type DiagramEntry = (String, String, Option<Arc<Diagram>>);
+type DiagramEntry = (&'static str, String, Option<Arc<Diagram>>);
 static DIAGRAMS: Mutex<(VecDeque<DiagramEntry>, usize)> = Mutex::new((VecDeque::new(), 0));
 
 fn entry_bytes((language, source, diagram): &DiagramEntry) -> usize {
     language.len() + source.len() + diagram.as_ref().map_or(0, |d| d.svg.len())
 }
 
+pub(crate) fn diagram_language(info: &str) -> Option<&'static str> {
+    let info = info.trim();
+    ["mermaid", "svg"]
+        .into_iter()
+        .find(|language| info.eq_ignore_ascii_case(language))
+}
+
+fn diagram_source_allowed(language: &str, source: &str) -> bool {
+    if language == "svg" {
+        return source.len() <= MAX_SVG_BYTES;
+    }
+    // O token do pulldown inclui a quebra que separa o conteúdo da cerca final.
+    let content = source.strip_suffix('\n').unwrap_or(source);
+    content.len() <= MAX_MERMAID_UTF16
+        || content.encode_utf16().take(MAX_MERMAID_UTF16 + 1).count() <= MAX_MERMAID_UTF16
+}
+
 /// Desenho de uma cerca `svg`/`mermaid` com o conteúdo `source`; `None` a deixa como código.
 /// A divisão do transcript (fora da thread da tela) e a montagem dos blocos perguntam pela
 /// mesma cerca: o resultado fica guardado por conteúdo e o Mermaid é renderizado uma vez.
 pub fn diagram(language: &str, source: &str) -> Option<Arc<Diagram>> {
-    let language = language.trim();
-    let limit = match language {
-        "mermaid" => MAX_MERMAID_BYTES,
-        "svg" => MAX_SVG_BYTES,
-        _ => return None,
-    };
-    if source.len() > limit {
+    let language = diagram_language(language)?;
+    if !diagram_source_allowed(language, source) {
         return None;
     }
     {
@@ -190,7 +203,7 @@ pub fn diagram(language: &str, source: &str) -> Option<Arc<Diagram>> {
         let entries = &mut cache.0;
         if let Some(index) = entries
             .iter()
-            .position(|(l, s, _)| l == language && s == source)
+            .position(|(l, s, _)| *l == language && s == source)
             && let Some(entry) = entries.remove(index)
         {
             let diagram = entry.2.clone();
@@ -214,7 +227,7 @@ pub fn diagram(language: &str, source: &str) -> Option<Arc<Diagram>> {
             })
         })
     });
-    let entry = (language.to_owned(), source.to_owned(), diagram.clone());
+    let entry = (language, source.to_owned(), diagram.clone());
     let mut cache = DIAGRAMS.lock().unwrap_or_else(PoisonError::into_inner);
     let (entries, bytes) = &mut *cache;
     *bytes += entry_bytes(&entry);
@@ -317,6 +330,14 @@ impl Blocks {
 pub fn parse(markdown: &str) -> Vec<MdBlock> {
     let options =
         Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
+    let marked = autolink::mark(markdown, options);
+    let (markdown, bare_urls) = marked
+        .as_ref()
+        .map_or((markdown, &[][..]), |(source, links)| {
+            (source.as_str(), links.as_slice())
+        });
+    let mut bare_urls = bare_urls.iter().peekable();
+    let mut bare_link = false;
     let mut state = Blocks::default();
     for (event, range) in Parser::new_ext(markdown, options).into_offset_iter() {
         match event {
@@ -355,21 +376,37 @@ pub fn parse(markdown: &str) -> Vec<MdBlock> {
                 state.inline.markup.push_str("~~");
             }
             Event::Start(tag @ (Tag::Link { .. } | Tag::Image { .. })) => {
-                let (image, dest_url) = match tag {
-                    Tag::Image { dest_url, .. } => (true, dest_url),
-                    Tag::Link { dest_url, .. } => (images::is_image_link(&dest_url), dest_url),
+                let dest = if let Some(&&(offset, url)) = bare_urls.peek()
+                    && offset == range.start
+                {
+                    bare_urls.next();
+                    bare_link = true;
+                    Some(url)
+                } else {
+                    None
+                };
+                let (image, dest_url) = match &tag {
+                    Tag::Image { dest_url, .. } => (true, dest_url.as_ref()),
+                    Tag::Link { dest_url, .. } => {
+                        let url = dest.unwrap_or(dest_url);
+                        (images::is_image_link(url), url)
+                    }
                     _ => unreachable!(),
                 };
                 if image
-                    && !images::kind(&dest_url).is_empty()
-                    && !state.images.iter().any(|dest| **dest == *dest_url)
+                    && !images::kind(dest_url).is_empty()
+                    && !state.images.iter().any(|dest| dest == dest_url)
                 {
                     state.images.push(dest_url.to_string());
                 }
                 state.inline.links.push(dest_url.to_string());
                 state.inline.markup.push('[');
+                if let Some(url) = dest {
+                    state.inline.push(url, false);
+                }
             }
             Event::End(TagEnd::Link | TagEnd::Image) => {
+                bare_link = false;
                 if let Some(link) = state.inline.links.pop() {
                     let url = link
                         .replace('\\', "%5C")
@@ -474,6 +511,7 @@ pub fn parse(markdown: &str) -> Vec<MdBlock> {
                     ..Default::default()
                 });
             }
+            Event::Text(_) if bare_link => {}
             Event::Text(text) => {
                 if let Some((_, code, _)) = &mut state.code {
                     code.push_str(&text);
@@ -577,7 +615,7 @@ fn format_selection<C: Clone + 'static>(
             text.push('\n');
         }
         if block.rendered_diagram {
-            text.push_str(if block.language.trim() == "svg" {
+            text.push_str(if diagram_language(&block.language) == Some("svg") {
                 "[diagrama SVG]"
             } else {
                 "[diagrama Mermaid]"
@@ -723,6 +761,48 @@ mod tests {
     }
 
     #[test]
+    fn bare_urls_keep_gfm_punctuation_and_only_render_http_links_outside_code() {
+        let blocks = parse(concat!(
+            "Veja (https://ex.com/a(b)). Depois http://localhost/test, ",
+            "e https://ex.com/a*b*c; **https://ex.com/forte!** ",
+            "`https://ex.com/inline` [https://ex.com/rotulo](https://ex.org/) ",
+            "ftp://ex.com/f HTTPS://ex.com/x pre_https://ex.com/y \\https://ex.com/z.\n\n",
+            "```\nhttps://ex.com/bloco\n```"
+        ));
+        let links: Vec<_> = blocks[0].links.iter().map(|link| link.to_string()).collect();
+        assert_eq!(
+            links,
+            [
+                "https://ex.com/a(b)",
+                "http://localhost/test",
+                "https://ex.com/a*b*c",
+                "https://ex.com/forte",
+                "https://ex.org/",
+                "https://ex.com/z",
+            ]
+        );
+        assert!(blocks[0].text.contains("(https://ex.com/a(b))."));
+        assert!(blocks[0].text.contains("\\https://ex.com/z."));
+        assert!(
+            blocks[0]
+                .spans
+                .iter()
+                .any(|span| span.code && span.link.is_empty())
+        );
+        assert_eq!(blocks[1].links.row_count(), 0);
+    }
+
+    #[test]
+    fn bare_image_url_keeps_the_link_and_the_remote_load_gate() {
+        let blocks = parse("Veja https://ex.com/arte.PNG?v=2.");
+        assert_eq!(blocks[0].text, "Veja https://ex.com/arte.PNG?v=2.");
+        assert_eq!(blocks[0].links.row_data(0).unwrap(), "https://ex.com/arte.PNG?v=2");
+        assert_eq!(blocks[1].kind, "image");
+        assert_eq!(blocks[1].language, "remote");
+        assert_eq!(blocks[1].text, "https://ex.com/arte.PNG?v=2");
+    }
+
+    #[test]
     fn context_link_labels_are_short_without_changing_the_copied_url() {
         let url = format!("https://example.com/{}", "a".repeat(100));
         let blocks = parse(&format!("[link]({url})"));
@@ -777,8 +857,16 @@ mod tests {
     }
 
     #[test]
+    fn mermaid_size_budget_counts_utf16_instead_of_bytes() {
+        let limit = format!("{}\n", "界".repeat(MAX_MERMAID_UTF16));
+        assert!(diagram_source_allowed("mermaid", &limit));
+        let over_limit = format!("{}🦀", "界".repeat(MAX_MERMAID_UTF16 - 1));
+        assert!(!diagram_source_allowed("mermaid", &over_limit));
+    }
+
+    #[test]
     fn mermaid_fences_render_diagrams_and_invalid_ones_stay_code() {
-        let blocks = parse("```mermaid\nflowchart LR\n  A[Início] --> B{Ok?}\n  B -->|sim| C\n```");
+        let blocks = parse("```Mermaid\nflowchart LR\n  A[Início] --> B{Ok?}\n  B -->|sim| C\n```");
         assert_eq!(blocks[0].kind, "code");
         assert!(blocks[0].diagram.size().width > 0);
         assert!(blocks[0].text.contains("flowchart LR"));
@@ -793,7 +881,7 @@ mod tests {
     #[test]
     fn svg_fences_render_drawings_and_invalid_ones_stay_code() {
         let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect width="40" height="20"/></svg>"#;
-        let blocks = parse(&format!("```svg\n{svg}\n```"));
+        let blocks = parse(&format!("```SVG\n{svg}\n```"));
         assert_eq!(blocks[0].diagram.size().width, 40);
         assert!(blocks[0].text.contains("<rect"));
         assert_eq!(parse("```svg\n<svg><rect\n```")[0].diagram.size().width, 0);

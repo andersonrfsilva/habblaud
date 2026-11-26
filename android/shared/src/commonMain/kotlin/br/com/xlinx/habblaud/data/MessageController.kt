@@ -179,6 +179,7 @@ class MessageController(
         val draft = current.draft
         if (!visible || current.loading || key in sending || (draft.text.isBlank() && draft.attachments.isEmpty()) || draft.text.length > 20000 || current.unavailable.isNotEmpty() || !eligible(key, agentId)) return
         if (current.operation?.status == "unknown" && !confirmed) { mutable.value = current.copy(error = "confirm"); return }
+        val delivery = messageDelivery(key.provider, deliverAs)
         sending.add(key)
         mutable.value = current.copy(sending = true, error = null)
         val job = scope.launch(start = CoroutineStart.LAZY) {
@@ -217,7 +218,7 @@ class MessageController(
                 }
                 val body = buildJsonObject {
                     put("agentId", agentId); put("text", draft.text); put("expectedSessionId", key.sessionId)
-                    messageDelivery(key.provider, deliverAs)?.let { put("deliverAs", it) }
+                    delivery?.let { put("deliverAs", it) }
                     if (ids.isNotEmpty()) put("attachments", buildJsonArray { ids.forEach { add(it) } })
                 }
                 dispatched = true
@@ -348,23 +349,27 @@ class MessageController(
         controlPoll?.cancel()
         if (!visible || operation?.id == null || operation.status in setOf("delivered", "failed")) return
         controlPoll = scope.launch {
+            val id = operation.id
+            fun currentOperation(): Boolean = visible && state.value.key == key && state.value.control?.id == id
             var op: MessageOperation = operation
-            while (visible && state.value.key == key) {
+            while (currentOperation()) {
                 delay(2000)
                 try {
-                    val id = op.id ?: break
+                    if (!currentOperation()) break
                     val response = wireJson.parseToJsonElement(request("/api/messages/${id.encodeURLPathPart()}", null)).jsonObject
+                    if (!currentOperation()) break
                     op = op.copy(status = requireNotNull(response.string("status")), error = response.string("error"))
                     store.updateMessage(key) { if (it.control?.id == id) it.copy(control = op) else it }
-                    if (state.value.key == key) mutable.value = state.value.copy(control = op, controlError = response.string("error"))
+                    if (currentOperation()) mutable.value = state.value.copy(control = op, controlError = op.error)
                     if (op.status in setOf("delivered", "failed", "unknown")) break
                 } catch (e: Exception) {
                     if (e is CancellationException) throw e
+                    if (!currentOperation()) break
                     if (e is ApiException && e.status == 401) { unauthorized(); break }
                     if (e is ApiException && e.status == 404) {
                         op = op.copy(status = "unknown")
-                        store.updateMessage(key) { if (it.control?.id == op.id) it.copy(control = op) else it }
-                        if (state.value.key == key) mutable.value = state.value.copy(control = op)
+                        store.updateMessage(key) { if (it.control?.id == id) it.copy(control = op) else it }
+                        if (currentOperation()) mutable.value = state.value.copy(control = op)
                         break
                     }
                 }

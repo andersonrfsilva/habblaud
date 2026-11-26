@@ -220,7 +220,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
     LaunchedEffect(notificationRequest, requestState?.snapshotReady, requestState?.selected, needsLogin) {
         val (key, requestId) = notificationRequest ?: return@LaunchedEffect
         if (requestState == null || key.origin in needsLogin) notificationRequest = null
-        else if (requestState.snapshotReady) {
+        else if (requestState.snapshotReady && requestState.selected?.key == key) {
             permissionSession = notificationPermission(requestState.selected, key, requestId)
             notificationRequest = null
         }
@@ -328,7 +328,8 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
         @Composable fun Group(label: StringResource, value: String?, target: String, enabled: Boolean = true) = DropdownMenuItem(
             text = { Column { Text(stringResource(label)); value?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) } } },
             trailingIcon = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) }, enabled = enabled, onClick = { page = target })
-        @Composable fun Choice(label: String, checked: Boolean, onClick: () -> Unit) = DropdownMenuItem(text = { Text(label) }, leadingIcon = { RadioButton(selected = checked, onClick = null) }, onClick = onClick)
+        @Composable fun Choice(label: String, checked: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) =
+            DropdownMenuItem(text = { Text(label) }, modifier = modifier, leadingIcon = { RadioButton(selected = checked, onClick = null) }, onClick = onClick)
         val viewLabels = listOf("all" to Res.string.view_all, "prompts" to Res.string.view_prompts, "no_tools" to Res.string.view_no_tools)
         val deliverLabels = listOf("aside" to Res.string.deliver_aside, "followUp" to Res.string.deliver_follow_up, "steer" to Res.string.deliver_steer)
             .filter { it.first in deliveryModes(selected?.key?.provider) }
@@ -354,11 +355,28 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                     singleLine = true,
                 )
                 // Como no seletor dos papéis: por provedor/fabricante, a versão mais nova primeiro, sem variantes ocultas nem cópias datadas.
-                val groups = remember(selected!!.models, currentModel, modelQuery) { roleModelGroups(selected.models, keep = currentModel, query = modelQuery) }
+                var expandedProvider by remember { mutableStateOf<String?>(null) }
+                val groups = remember(selected!!.models, currentModel, modelQuery) { modelPickerGroups(selected.models, currentModel, modelQuery) }
+                fun chooseModel(model: String) {
+                    controller.messages.setModel(agentId!!, model)
+                    modelQuery = ""
+                    close()
+                }
                 if (groups.isEmpty()) Text(stringResource(Res.string.models_no_results), Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
-                groups.forEach { (provider, list) ->
+                groups.forEach { (provider, latest, older) ->
                     Text(providerLabel(provider), Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                    list.forEach { model -> Choice(modelOptionLabel(model), model == currentModel) { controller.messages.setModel(agentId!!, model); modelQuery = ""; close() } }
+                    latest.forEach { model -> Choice(modelOptionLabel(model), model == currentModel) { chooseModel(model) } }
+                    if (older.isNotEmpty()) {
+                        val expanded = expandedProvider == provider
+                        DropdownMenuItem(
+                            text = { Text(if (expanded) stringResource(Res.string.models_less) else "${stringResource(Res.string.models_more)} (${older.size})") },
+                            trailingIcon = { Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = null) },
+                            onClick = { expandedProvider = if (expanded) null else provider },
+                        )
+                        if (expanded) older.forEach { model ->
+                            Choice(modelOptionLabel(model), model == currentModel, Modifier.padding(start = 16.dp)) { chooseModel(model) }
+                        }
+                    }
                 }
             }
             "thinking" -> { Back(); THINKING_LEVELS.forEach { level -> Choice(thinkingLabel(level), level == selected!!.thinking) { controller.messages.setThinking(agentId!!, level); close() } } }
@@ -389,7 +407,11 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
         showInfo = false
         controller.openKey(parent)
     }) { showInfo = false }
-    if (asideOpen && selected?.agentId != null) AsideSheet(controller.asides, api) { asideOpen = false; controller.asides.close() }
+    if (asideOpen && selected?.agentId != null) {
+        CompositionLocalProvider(LocalUriHandler provides conversationUriHandler) {
+            AsideSheet(controller.asides, api) { asideOpen = false; controller.asides.close() }
+        }
+    }
     if (filesOpen) FilesSheet(api, selected, { onUnauthorized(api.origin) }) { filesOpen = false }
     linkDownload?.let { path -> key(path) { FilesSheet(api, selected, { onUnauthorized(api.origin) }, download = path) { linkDownload = null } } }
     if (deliveriesOpen && selected != null) DeliveriesSheet(api, selected, { onUnauthorized(api.origin) }) { deliveriesOpen = false }
@@ -636,7 +658,7 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
             // Restaura uma vez por abertura: relançar a cada mudança das linhas recomeçava no meio da medição.
             LaunchedEffect(state.readingLoaded, loaded, rowIds.isEmpty()) {
                 if (!state.readingLoaded || !loaded || restored || rowIds.isEmpty()) return@LaunchedEffect
-                val position = state.reading.position
+                val position = controller.readingPosition()
                 val index = readingIndex(currentRowIds, position)
                 val offset = if (index == null || position.following) 0 else position.offset
                 // A janela pode ter descartado a entrada antiga; nesse caso abre a mais antiga disponível. O índice é
@@ -658,6 +680,19 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                 }
                 if (!userScrolled) listState.scrollToItem(target(), offset)
                 restored = true
+            }
+            val conversationVisible = !asideOpen && !filesOpen && linkDownload == null && !deliveriesOpen && !showInfo && permissionSession == null
+            val readingAtEnd = conversationVisible && state.readingLoaded && (restored || userScrolled) && following
+            DisposableEffect(controller, selected.key, owner, readingAtEnd) {
+                val observer = LifecycleEventObserver { _, event ->
+                    if (event == Lifecycle.Event.ON_RESUME) controller.setReadingVisible(selected.key, readingAtEnd)
+                    if (event == Lifecycle.Event.ON_PAUSE) controller.setReadingVisible(selected.key, false)
+                }
+                owner.lifecycle.addObserver(observer)
+                onDispose {
+                    owner.lifecycle.removeObserver(observer)
+                    controller.setReadingVisible(selected.key, false)
+                }
             }
             LaunchedEffect(listState, restored) {
                 if (!restored) return@LaunchedEffect

@@ -128,6 +128,34 @@ class AttachmentControllerTest {
         assertEquals(1, store.values[a]?.draft?.attachments?.size)
         controller.stop()
     }
+    @Test fun sendingKeepsTheModeChosenBeforeAttachmentUpload() = runTest {
+        val key = SessionKey("https://example.test", "omp", "account", "one")
+        val store = MemoryStore()
+        store.values[key] = MessageLocalState(MessageDraft("text", attachments = listOf(Attachment("uri", "name", "text/plain", 1, true))))
+        val started = CompletableDeferred<Unit>()
+        val finish = CompletableDeferred<Unit>()
+        val posted = CompletableDeferred<String>()
+        val controller = MessageController(
+            request = { path, body ->
+                assertEquals("/api/messages", path)
+                posted.complete(assertNotNull(body))
+                """{"id":"sent","status":"delivered"}"""
+            }, store = store, scope = this, eligible = { _, _ -> true }, changed = {}, unauthorized = {},
+            upload = { _, _, _ -> started.complete(Unit); finish.await(); """{"id":"attachment"}""" },
+            attachmentBody = { _, _ -> body(byteArrayOf(1)) },
+        )
+        controller.start(); controller.open(key)
+        controller.state.first { !it.loading }
+        controller.deliverAs = "followUp"
+        controller.send("agent")
+        started.await()
+        controller.deliverAs = "steer"
+        finish.complete(Unit)
+        assertContains(posted.await(), "\"deliverAs\":\"followUp\"")
+        controller.state.first { !it.sending }
+        controller.stop()
+    }
+
     @Test fun backgroundCancelsUploadBeforeMessage() = runTest {
         val key = SessionKey("https://example.test", "omp", "account", "one")
         val store = MemoryStore()

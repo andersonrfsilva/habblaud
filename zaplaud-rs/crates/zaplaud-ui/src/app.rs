@@ -403,7 +403,8 @@ pub async fn run(
                     .await
                     .unwrap_or_default()
                     .filter(|key| key.origin == api.origin());
-                let reading = ReadingController::new(api.origin().into(), seen, restore);
+                let mut reading = ReadingController::new(api.origin().into(), seen, restore);
+                reading.needs_login = !api.has_session_cookie();
                 state.next_generation += 1;
                 let generation = state.next_generation;
                 let task = tokio::spawn(stream(
@@ -439,6 +440,8 @@ pub async fn run(
                     .find(|s| s.api.origin() == origin && s.generation == generation)
                 {
                     let reading = &mut server.reading;
+                    // A consulta inicial pode autorizar sem cookie, por exemplo em acesso local.
+                    reading.needs_login = false;
                     reading.repository = repository;
                     reading.state.terminal_allowed = access.terminal;
                     reading.state.messages_allowed = access.messages;

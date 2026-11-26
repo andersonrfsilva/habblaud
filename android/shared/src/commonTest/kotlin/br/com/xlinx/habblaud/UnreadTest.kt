@@ -9,6 +9,9 @@ import br.com.xlinx.habblaud.data.SessionMarks
 import br.com.xlinx.habblaud.data.ReadingState
 import br.com.xlinx.habblaud.data.markedSessions
 import br.com.xlinx.habblaud.data.mergeSessions
+import br.com.xlinx.habblaud.data.publishUnread
+import br.com.xlinx.habblaud.data.readingSession
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.test.*
 
 class UnreadTest {
@@ -22,6 +25,25 @@ class UnreadTest {
         // Conversa nova entra lida; a aberta avança; a outra, já marcada, fica como estava.
         assertEquals(mapOf("a" to 50L, "b" to 500L, "c" to 500L), updatedSeen(mapOf("a" to 50L, "b" to 10L), listOf("a", "b", "c"), openId = "b", now = 500))
         assertNull(updatedSeen(mapOf("a" to 50L), listOf("a"), openId = null, now = 500))
+    }
+
+    @Test fun selectedConversationStaysUnreadUntilVisibleAtTheEnd() {
+        val key = SessionKey("https://one.invalid", "omp", "a", "session")
+        val item = SessionItem(key, "agent", "title", null, null, null, replies = listOf(100, 200))
+        val state = MutableStateFlow(ReadingState(sessions = listOf(item), selected = item))
+        val marks = mapOf(key.sessionId to 100L)
+        for (notVisible in listOf(null, key.copy(sessionId = "other"))) {
+            val open = state.value.readingSession(notVisible)
+            assertNull(open)
+            assertNull(updatedSeen(marks, listOf(key.sessionId), open?.sessionId, now = 200))
+            state.publishUnread(marks, notVisible) { it.sessionId }
+            assertEquals(mapOf(key to 1), state.value.unread)
+        }
+        val open = assertNotNull(state.value.readingSession(key))
+        val read = assertNotNull(updatedSeen(marks, listOf(key.sessionId), open.sessionId, now = 200))
+        state.publishUnread(read, null) { it.sessionId }
+        assertTrue(state.value.unread.isEmpty())
+        assertNull(state.value.copy(selected = item.copy(sub = true)).readingSession(key))
     }
 
     @Test fun newestReplyFirstFallingBackToTheLastEvent() {

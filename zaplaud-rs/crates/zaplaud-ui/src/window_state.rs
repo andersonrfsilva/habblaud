@@ -196,7 +196,42 @@ fn setup_loaded(
         }
     });
     let weak = window.as_weak();
+    let drop_timer = slint::Timer::default();
+    let dropped = Rc::new(RefCell::new((slint::SharedString::default(), Vec::new())));
     window.window().on_winit_window_event(move |window, event| {
+        if let WindowEvent::DroppedFile(path) = event {
+            if let Some(window) = weak.upgrade() {
+                let composer = window.global::<crate::ComposerState>();
+                let conversation = window.global::<crate::ConversationState>();
+                let key = composer.get_draft_key();
+                if composer.get_visible()
+                    && conversation.get_selected()
+                    && conversation.get_key() == key
+                    && !window.global::<crate::LoginState>().get_visible()
+                    && !window.global::<crate::SettingsState>().get_visible()
+                    && !key.is_empty()
+                {
+                    {
+                        let mut pending = dropped.borrow_mut();
+                        if pending.0 != key {
+                            *pending = (key, Vec::new());
+                        }
+                        pending.1.push(path.clone());
+                    }
+                    // O winit entrega um evento por arquivo. Valide a seleção inteira de uma vez.
+                    let dropped = dropped.clone();
+                    drop_timer.start(
+                        slint::TimerMode::SingleShot,
+                        std::time::Duration::from_millis(30),
+                        move || {
+                            let (key, paths) = std::mem::take(&mut *dropped.borrow_mut());
+                            crate::composer::drop_files(key.as_str(), paths);
+                        },
+                    );
+                }
+            }
+            return slint::winit_030::EventResult::Propagate;
+        }
         // Capture gestures before Slint handles them, including gestures ending during restore.
         if matches!(
             event,

@@ -71,11 +71,14 @@ internal class ConversationCacheSchedule(private val scope: CoroutineScope, priv
     val snapshotReady: Boolean = false,
 )
 
+internal fun ReadingState.readingSession(visibleKey: SessionKey?): SessionKey? =
+    selected?.takeIf { !it.sub && it.key == visibleKey }?.key
+
 internal inline fun MutableStateFlow<ReadingState>.publishUnread(
-    marks: Map<String, Long>, seenId: (SessionKey) -> String,
+    marks: Map<String, Long>, visibleKey: SessionKey? = null, seenId: (SessionKey) -> String,
 ) {
     update { state ->
-        val open = state.selected?.takeUnless { it.sub }?.key
+        val open = state.readingSession(visibleKey)
         state.copy(unread = state.sessions.filter { it.key != open }
             .associate { it.key to unreadCount(it.replies, marks[seenId(it.key)]) }.filterValues { it > 0 })
     }
@@ -116,6 +119,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
     private var generation = 0
     private var active = false
     private var accessReady = false
+    private var readingVisibleKey: SessionKey? = null
     private val conversation = ConversationState()
     private val conversationEpoch = store.conversationEpoch(api.origin)
     val messages = MessageController(api, store, scope, ::canSend, ::changed, unauthorized)
@@ -213,30 +217,18 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                             val snapshot = wireJson.parseToJsonElement(event.data).jsonObject
                             val sessions = repository.snapshot(snapshot)
                             val accounts = parseAccounts(snapshot)
-                            val firstSnapshot = !accessReady
-                            val selected = mutable.value.selected
-                            if (selected?.agentId != null && sessions.any { it.agentId == selected.agentId && it.key != selected.key }) changed()
-                            // A conversa de um subagente não está na lista: segue aberta como está até o leitor fechar.
-                            mutable.update { state ->
-                                state.copy(sessions = sessions, accounts = accounts, snapshotReady = true, selected = state.selected?.let { selectedItem ->
-                                    if (selectedItem.sub) sessions.firstNotNullOfOrNull { parent ->
-                                        parent.subagents.find { it.id == selectedItem.agentId }?.let { subSession(parent, it) }
-                                    } ?: selectedItem.copy(status = "done")
-                                    else sessions.find { it.key == selectedItem.key } ?: selectedItem.copy(agentId = null, canMessage = false)
-                                })
-                            }
-                            publishMarks()
-                            accessReady = true
-                            restore?.let { key -> sessions.find { it.key == key }?.let { item -> restore = null; open(item) } }
-                            if (firstSnapshot && conversationJob?.isActive != true) mutable.value.selected?.let(::open)
-                            refreshUnread()
+                            reconcileSessions(sessions, accounts)
                             if (repository.recentStale && recentJob?.isActive != true) {
                                 recentJob = scope.launch {
-                                    try { repository.refreshRecent() } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; return@launch }
-                                    val recentSessions = repository.sessions()
-                                    mutable.update { it.copy(sessions = recentSessions) }
-                                    publishMarks()
-                                    refreshUnread()
+                                    try {
+                                        repository.refreshRecent()
+                                    } catch (e: Exception) {
+                                        if (e is CancellationException) throw e
+                                        if (e is ApiException && e.status == 401) unauthorized()
+                                        return@launch
+                                    }
+                                    if (!active) return@launch
+                                    reconcileSessions(repository.sessions())
                                 }
                             }
                         }
@@ -245,10 +237,45 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
             } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; if (e is ApiException && e.status == 401) unauthorized() else mutable.update { it.copy(connection = "offline", error = "network") } }
         }
     }
+    private fun reconcileSessions(sessions: List<SessionItem>, accounts: List<AccountQuota>? = null) {
+        val firstSnapshot = accounts != null && !accessReady
+        val terminalAllowed = repository.terminalAllowed
+        val previous = mutable.value
+        val selected = previous.selected
+        if (!terminalAllowed && previous.terminalAllowed && selected != null) close()
+        else if (selected?.agentId != null && sessions.any { it.agentId == selected.agentId && it.key != selected.key }) changed()
+        // A conversa de um subagente não está na lista: segue aberta como está até o leitor fechar.
+        mutable.update { state ->
+            state.copy(
+                sessions = sessions, accounts = accounts ?: state.accounts, terminalAllowed = terminalAllowed,
+                snapshotReady = accounts != null || state.snapshotReady,
+                selected = state.selected?.let { selectedItem ->
+                    if (selectedItem.sub) sessions.firstNotNullOfOrNull { parent ->
+                        parent.subagents.find { it.id == selectedItem.agentId }?.let { subSession(parent, it) }
+                    } ?: selectedItem.copy(status = "done")
+                    else sessions.find { it.key == selectedItem.key } ?: selectedItem.copy(agentId = null, canMessage = false)
+                },
+            )
+        }
+        publishMarks()
+        if (accounts != null) accessReady = true
+        resolveRestore(sessions)
+        if (firstSnapshot && conversationJob?.isActive != true) mutable.value.selected?.let(::open)
+        refreshUnread()
+    }
+
+    private fun resolveRestore(sessions: List<SessionItem>) {
+        val key = restore ?: return
+        val item = sessions.find { it.key == key } ?: return
+        restore = null
+        open(item)
+    }
+
     fun stop() {
         cacheSave.flush(force = active)
         if (!active) return
         saveSeen(0); active = false; accessReady = false; generation++
+        readingVisibleKey = null
         stateJob?.cancel(); conversationJob?.cancel(); recentJob?.cancel()
         pendingSummaries.values.toList().forEach { it.cancel() }; pendingSummaries.clear()
         messages.stop(); asides.pause(); api.cancelCalls()
@@ -256,19 +283,31 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
             it.copy(connection = "offline", snapshotReady = false, readingError = if (it.selected != null && it.readingError == null) "network" else it.readingError)
         }
     }
-    fun close() { cacheSave.flush(); cachedKey = null; dropSummaries(); generation++; conversationJob?.cancel(); messages.close(); asides.close(); restore = null; val write = store.conversationWrite(api.origin, conversationEpoch); launchPersist(scope) { store.setLastSession(null, write) }; mutable.update { it.copy(selected = null, entries = emptyList(), error = null, readingError = null) }; refreshUnread() }
+    fun close() { cacheSave.flush(); cachedKey = null; dropSummaries(); generation++; conversationJob?.cancel(); messages.close(); asides.close(); restore = null; readingVisibleKey = null; val write = store.conversationWrite(api.origin, conversationEpoch); launchPersist(scope) { store.setLastSession(null, write) }; mutable.update { it.copy(selected = null, entries = emptyList(), error = null, readingError = null) }; refreshUnread() }
     /** Até quando cada conversa foi lida (`LocalStateStore.seenId` → hora do servidor); null até ler do aparelho. */
     private var seen: Map<String, Long>? = null
     private var seenJob: Job? = null
-    /** Marca a conversa aberta como lida até o último snapshot e recalcula os balões de não lidas. */
+    fun setReadingVisible(key: SessionKey, visible: Boolean) {
+        val next = when {
+            visible && active && mutable.value.selected?.key == key -> key
+            !visible && readingVisibleKey == key -> null
+            else -> return
+        }
+        if (readingVisibleKey != next) {
+            readingVisibleKey = next
+            refreshUnread()
+        }
+    }
+
+    /** Atualiza as marcas só quando a conversa está visível e seguindo o fim. */
     private fun refreshUnread() {
         val current = seen ?: return
         val state = mutable.value
         val now = repository.serverTime
-        val open = state.selected?.takeUnless { it.sub }?.key
+        val open = state.readingSession(readingVisibleKey)
         val next = if (now > 0) updatedSeen(current, state.sessions.filter { it.agentId != null }.map { store.seenId(it.key) }, open?.let(store::seenId), now) else null
         if (next != null) { seen = next; saveSeen(2_000) }
-        mutable.publishUnread(next ?: current, store::seenId)
+        mutable.publishUnread(next ?: current, readingVisibleKey, store::seenId)
     }
     private fun saveSeen(delayMs: Long) {
         val marks = seen ?: return
@@ -283,6 +322,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
     private val summaries = HashMap<String, String>()
     fun summary(entry: TerminalEntry): String? = summaries[summaryKey(entry)]
     private var reading = ConversationReading()
+    fun readingPosition(): ReadingPosition = reading.position
     fun expand(key: SessionKey, id: String, open: Boolean) {
         if (mutable.value.selected?.key != key || !mutable.value.readingLoaded) return
         val expanded = reading.expand(id, open)
@@ -348,13 +388,13 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
     }
     fun open(item: SessionItem) {
         val sameSession = mutable.value.selected?.key == item.key
+        if (!sameSession) readingVisibleKey = null
         cacheSave.flush(); cachedKey = null; dropSummaries()
         val emptyReading = ConversationReading()
         reading = emptyReading
         generation++; val token = generation
         conversationJob?.cancel()
         mutable.update { it.copy(selected = item, entries = emptyList(), truncated = false, reduced = false, error = null, readingError = null, reading = emptyReading, readingLoaded = false) }
-        // Abrir lê tudo o que já chegou: sem isso, uma conversa parada (sem snapshot novo) voltaria com o balão.
         refreshUnread()
         messages.open(item.key); if (!sameSession) asides.close()
         if (!active || !accessReady || !repository.terminalAllowed) return

@@ -170,6 +170,11 @@ impl HabblaudApi {
     pub fn origin(&self) -> &str {
         &self.origin
     }
+    pub fn has_session_cookie(&self) -> bool {
+        Url::parse(&self.origin)
+            .and_then(|origin| origin.join("/api/access"))
+            .is_ok_and(|url| self.session().cookies.cookies(&url).is_some())
+    }
     fn session(&self) -> MutexGuard<'_, Session> {
         self.session
             .lock()
@@ -604,6 +609,25 @@ mod tests {
             self.operations.lock().unwrap().push("clear");
             *self.cookie.lock().unwrap() = None;
         }
+    }
+
+    #[test]
+    fn session_cookie_must_be_usable_on_access() {
+        let api = HabblaudApi::new("https://example.com").unwrap();
+        let url = Url::parse(api.origin()).unwrap();
+        assert!(!api.has_session_cookie());
+        api.session()
+            .cookies
+            .add_cookie_str("habblaud_remote=value; Path=/elsewhere", &url);
+        assert!(!api.has_session_cookie());
+        api.session()
+            .cookies
+            .add_cookie_str("habblaud_remote=value; Path=/api; Max-Age=0", &url);
+        assert!(!api.has_session_cookie());
+        api.session()
+            .cookies
+            .add_cookie_str("habblaud_remote=value; Path=/api", &url);
+        assert!(api.has_session_cookie());
     }
 
     #[tokio::test(flavor = "current_thread")]
