@@ -243,10 +243,11 @@ export component ListPane inherits Rectangle {
             padding-top: 2px; padding-bottom: ListState.cast-visible ? 80px : 8px; spacing: 4px;
             Rectangle { height: 1px; background: Theme.outline-variant; }
             Text { text: ListState.quota-title; color: Theme.on-surface-variant; font-size: 11px; }
-            // Uma linha por provedor: nome, barra curta e percentual. A renovação fica só no rótulo de acessibilidade.
+            // Uma linha por provedor: nome, renovação, barra curta e percentual.
             for quota in ListState.quotas: HorizontalLayout { spacing: 8px; height: 18px;
                 accessible-role: text; accessible-label: quota.label + ", " + quota.percent + (quota.resets == "" ? "" : ", " + quota.resets);
                 Text { text: quota.label; color: Theme.on-surface; font-size: 12px; overflow: elide; vertical-alignment: center; horizontal-stretch: 1; }
+                if quota.resets != "": Text { text: quota.resets; color: Theme.on-surface-variant; font-size: 11px; vertical-alignment: center; horizontal-stretch: 0; }
                 VerticalLayout { alignment: center; horizontal-stretch: 0;
                     Rectangle { width: 72px; height: 4px; border-radius: 2px; background: Theme.surface-container-highest;
                         Rectangle { x: 0px; width: parent.width * quota.fraction; height: parent.height; border-radius: 2px; background: quota.severity == 2 ? Theme.error : quota.severity == 1 ? StatusColors.warning : Theme.primary; }

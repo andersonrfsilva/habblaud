@@ -1733,7 +1733,7 @@ internal fun pillFieldColors() = TextFieldDefaults.colors(
 private fun WeeklyQuotaPanel(quotas: List<WeeklyQuota>) {
     Column(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(stringResource(Res.string.quota_weekly_title), Modifier.semantics { heading() }, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        // Uma linha por provedor: nome, barra curta e percentual. A renovação fica só no rótulo de acessibilidade.
+        // Uma linha por provedor: nome, renovação, barra curta e percentual.
         quotas.forEach { quota ->
             val alert = quota.exhausted || quota.utilization >= 90
             val color = when {
@@ -1742,9 +1742,12 @@ private fun WeeklyQuotaPanel(quotas: List<WeeklyQuota>) {
                 else -> MaterialTheme.colorScheme.primary
             }
             val percent = "${quota.utilization.roundToInt()}%"
-            val spoken = listOfNotNull(quota.label, percent, quota.resetsAt?.let { stringResource(Res.string.quota_resets, entryTime(it)) }).joinToString(", ")
+            // Na linha compacta só cabe a data (ou a hora, se renova hoje).
+            val resets = quota.resetsAt?.let { stringResource(Res.string.quota_resets, entryTime(it).substringBefore(' ')) }
+            val spoken = listOfNotNull(quota.label, percent, resets).joinToString(", ")
             Row(Modifier.fillMaxWidth().clearAndSetSemantics { contentDescription = spoken }, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(quota.label, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (resets != null) Text(resets, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                 LinearProgressIndicator(
                     progress = { (quota.utilization / 100).toFloat().coerceIn(0f, 1f) },
                     modifier = Modifier.width(72.dp).height(4.dp),

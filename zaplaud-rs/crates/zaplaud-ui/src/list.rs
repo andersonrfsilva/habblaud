@@ -331,7 +331,8 @@ pub fn publish(state: &AppState, weak: &slint::Weak<AppWindow>) {
         resets: quota
             .resets_at
             .and_then(|at| zaplaud_core::rules::time::entry_time(at, now))
-            .map(|at| formatted("quota_resets", &[&at]))
+            // Na linha compacta só cabe a data (ou a hora, se renova hoje).
+            .map(|at| formatted("quota_resets", &[at.split(' ').next().unwrap_or(&at)]))
             .unwrap_or_default()
             .into(),
     })
