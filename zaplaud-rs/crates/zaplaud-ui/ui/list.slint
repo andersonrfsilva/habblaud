@@ -143,7 +143,8 @@ export component ListPane inherits Rectangle {
             }
         }
         Rectangle { height: 48px; SegmentedControl { x: 0px; y: 4px; width: parent.width; height: 40px; labels: [Labels.open-sessions, Labels.recent-sessions]; selected <=> ListState.tab; chosen(index) => { if ListState.query == "" { ListState.search-open = false; } ListState.changed(); } } }
-        HorizontalLayout { height: 40px; spacing: 8px;
+        // Recolhidos como a busca: aparecem com ela. Com o filtro Favoritas ligado ficam à vista, para ele não agir escondido.
+        if ListState.search-open || ListState.favorites: HorizontalLayout { height: 40px; spacing: 8px;
             Chip { text: Labels.filter-all; selected: !ListState.favorites; clicked => { ListState.favorites = false; ListState.changed(); } }
             Chip { text: Labels.favorite-sessions; selected: ListState.favorites; clicked => { ListState.favorites = true; ListState.changed(); } }
             Rectangle { horizontal-stretch: 1; }

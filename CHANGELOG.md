@@ -28,6 +28,8 @@ do meio (0.**3**.0).
   de turno mostra o começo da resposta no lugar de "Terminou o turno".
 - **Zaplaud (Android e desktop):** a lista de conversas mostra no fim a cota semanal (7 dias) de cada provedor, numa
   linha compacta com a data de renovação, barra curta e percentual. Em tenants o provedor aparece como «XLinx».
+- **Zaplaud (Android e desktop):** os botões «Todos» e «Favoritas» da lista ficam recolhidos e aparecem junto com a
+  busca; com o filtro Favoritas ligado, continuam à vista.
 - **Servidor:** os avisos (`notice`) levam tipo, motivo da espera, id do pedido de permissão e duração do turno.
   Pedidos de permissão distintos do mesmo agente avisam cada um.
 - **Zaplaud (Android/iPad):** o seletor de modelo mostra só a versão mais nova de cada família, com «Ver mais» por

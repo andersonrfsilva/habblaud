@@ -544,7 +544,8 @@ fun ReadingScreen(apis: Map<String, HabblaudApi>, needsLogin: Set<String>, store
                     Text(stringResource(Res.string.recent_sessions))
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Recolhidos como a busca: aparecem com ela. Com o filtro Favoritas ligado ficam à vista, para ele não agir escondido.
+            if (searchOpen || favoritesOnly) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(selected = !favoritesOnly, onClick = { favoritesOnly = false }, label = { Text(stringResource(Res.string.filter_all)) })
                 FilterChip(selected = favoritesOnly, onClick = { favoritesOnly = true }, label = { Text(stringResource(Res.string.favorite_sessions)) },
                     leadingIcon = { Icon(Icons.Default.Star, contentDescription = null, modifier = Modifier.size(18.dp)) })
