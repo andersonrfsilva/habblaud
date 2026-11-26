@@ -37,7 +37,7 @@ it.each([
 });
 
 it('fixture de dois provedores escolhe primeiro válido, sem somar nem copiar metadados', () => {
-  expect(parseTenantQuota(raw, NOW)).toEqual({ source: 'omp', quota: true, fetchedAt: NOW,
+  expect(parseTenantQuota(raw, NOW)).toEqual({ source: 'omp', quota: true, fetchedAt: NOW, ompProvider: 'xlinx',
     fiveHour: { utilization: 25, resetsAt: NOW + 18000000 }, sevenDay: { utilization: 50, resetsAt: NOW + 604800000 } });
   const data = JSON.parse(raw);
   data.reports.unshift(null, { provider: 'invalid' });
@@ -52,7 +52,7 @@ it('exaustão mantém 100%; limita frações; aceita resetsAt ausente', () => {
   data.reports[0].limits[0].amount.usedFraction = 2;
   data.reports[0].limits[1].amount.usedFraction = -1;
   delete data.reports[0].limits[1].window.resetsAt;
-  expect(parseTenantQuota(JSON.stringify(data), NOW)).toEqual({ source: 'omp', quota: true, fetchedAt: NOW,
+  expect(parseTenantQuota(JSON.stringify(data), NOW)).toEqual({ source: 'omp', quota: true, fetchedAt: NOW, ompProvider: 'xlinx',
     fiveHour: { utilization: 100, resetsAt: NOW + 18000000 }, sevenDay: { utilization: 0 } });
 });
 

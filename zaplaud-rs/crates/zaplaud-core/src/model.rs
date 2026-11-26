@@ -1371,7 +1371,8 @@ impl AccountQuota {
                         None
                     } else {
                         Some(UsageGroup {
-                            provider: None,
+                            // Cota do tenant: janelas legadas com o provedor nomeado (`xlinx`).
+                            provider: string(u, "ompProvider"),
                             plan: None,
                             limits,
                             note,

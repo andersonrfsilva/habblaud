@@ -406,11 +406,17 @@ mod tests {
         let claude = AccountQuota::parse(&serde_json::json!({"id": "c", "name": "Claude Max",
             "usage": {"fiveHour": {"utilization": 10}, "sevenDay": {"utilization": 42}}}))
         .unwrap();
-        let accounts = [omp("a", 30.0), omp("b", 80.0), claude];
+        // Cota do tenant: janelas legadas com o provedor nomeado, em duas contas do mesmo servidor.
+        let tenant = |id: &str| {
+            AccountQuota::parse(&serde_json::json!({"id": id, "name": "ZeroClaw", "provider": "zeroclaw",
+                "usage": {"ompProvider": "xlinx", "fiveHour": {"utilization": 5}, "sevenDay": {"utilization": 61}}}))
+            .unwrap()
+        };
+        let accounts = [omp("a", 30.0), omp("b", 80.0), claude, tenant("z1"), tenant("z2")];
         let quotas = weekly_quotas(&accounts);
         assert_eq!(
             quotas.iter().map(|q| (q.label.as_str(), q.utilization)).collect::<Vec<_>>(),
-            [("Anthropic", 80.0), ("Claude Max", 42.0)]
+            [("Anthropic", 80.0), ("Claude Max", 42.0), ("XLinx", 61.0)]
         );
         assert_eq!(quotas[0].resets_at, Some(1_000));
     }

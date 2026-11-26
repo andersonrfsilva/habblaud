@@ -156,5 +156,8 @@ class NotificationRulesTest {
         )
         assertEquals(listOf(80.0, 65.0), weeklyQuotas(first).map { it.utilization })
         assertTrue(weeklyQuotas(emptyList()).isEmpty())
+        // Cota do tenant: janelas legadas com o provedor nomeado, não o nome da conta (ZeroClaw).
+        val tenant = parseAccounts("""{"accounts":[{"id":"z","name":"ZeroClaw","provider":"zeroclaw","usage":{"ompProvider":"xlinx","fiveHour":{"utilization":5},"sevenDay":{"utilization":61}}}]}""")
+        assertEquals(listOf(WeeklyQuota("XLinx", 61.0, null, false)), weeklyQuotas(tenant))
     }
 }

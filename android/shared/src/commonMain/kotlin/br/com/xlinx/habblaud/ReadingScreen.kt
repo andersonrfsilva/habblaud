@@ -1731,32 +1731,30 @@ internal fun pillFieldColors() = TextFieldDefaults.colors(
 
 @Composable
 private fun WeeklyQuotaPanel(quotas: List<WeeklyQuota>) {
-    Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(stringResource(Res.string.quota_weekly_title), Modifier.semantics { heading() }, style = MaterialTheme.typography.titleSmall)
+    Column(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(stringResource(Res.string.quota_weekly_title), Modifier.semantics { heading() }, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        // Uma linha por provedor: nome, barra curta e percentual. A renovação fica só no rótulo de acessibilidade.
         quotas.forEach { quota ->
+            val alert = quota.exhausted || quota.utilization >= 90
             val color = when {
-                quota.exhausted || quota.utilization >= 90 -> MaterialTheme.colorScheme.error
+                alert -> MaterialTheme.colorScheme.error
                 quota.utilization >= 70 -> warningColor()
                 else -> MaterialTheme.colorScheme.primary
             }
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(quota.label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                    // O Compose não desescapa %% no recurso compartilhado com o Rust.
-                    Text(stringResource(Res.string.quota_used, quota.utilization.roundToInt().toString()).replace("%%", "%"),
-                        color = color, style = MaterialTheme.typography.bodyMedium)
-                }
+            val percent = "${quota.utilization.roundToInt()}%"
+            val spoken = listOfNotNull(quota.label, percent, quota.resetsAt?.let { stringResource(Res.string.quota_resets, entryTime(it)) }).joinToString(", ")
+            Row(Modifier.fillMaxWidth().clearAndSetSemantics { contentDescription = spoken }, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(quota.label, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 LinearProgressIndicator(
                     progress = { (quota.utilization / 100).toFloat().coerceIn(0f, 1f) },
-                    modifier = Modifier.fillMaxWidth().height(6.dp),
+                    modifier = Modifier.width(72.dp).height(4.dp),
                     color = color,
                     strokeCap = StrokeCap.Round,
                     gapSize = 0.dp,
                     drawStopIndicator = {},
                 )
-                quota.resetsAt?.let {
-                    Text(stringResource(Res.string.quota_resets, entryTime(it)), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
-                }
+                Text(percent, Modifier.width(36.dp), textAlign = TextAlign.End, style = MaterialTheme.typography.bodySmall,
+                    color = if (quota.utilization >= 70 || alert) color else MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

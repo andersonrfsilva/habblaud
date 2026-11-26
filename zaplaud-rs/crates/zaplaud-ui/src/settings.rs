@@ -479,7 +479,7 @@ impl State {
                             rows.push(row(
                                 "hint",
                                 "",
-                                &[Some(provider.as_str()), group.plan.as_deref()]
+                                &[Some(provider_label(provider).as_str()), group.plan.as_deref()]
                                     .into_iter()
                                     .flatten()
                                     .collect::<Vec<_>>()

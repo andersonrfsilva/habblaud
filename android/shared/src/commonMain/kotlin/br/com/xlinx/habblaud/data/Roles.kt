@@ -28,6 +28,7 @@ fun snapshotModels(snapshot: String): List<String> =
 
 private val PROVIDER_LABELS = mapOf(
     "anthropic" to "Anthropic",
+    "xlinx" to "XLinx",
     "openai" to "OpenAI",
     "openai-codex" to "OpenAI Codex",
     "google" to "Google",

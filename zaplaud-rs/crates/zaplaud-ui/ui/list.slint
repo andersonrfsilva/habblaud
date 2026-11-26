@@ -240,19 +240,19 @@ export component ListPane inherits Rectangle {
         if ListState.quotas.length > 0: VerticalLayout {
             vertical-stretch: 0; alignment: start;
             // O FAB de elenco ocupa o canto inferior direito.
-            padding-top: 4px; padding-bottom: ListState.cast-visible ? 80px : 12px; spacing: 10px;
+            padding-top: 2px; padding-bottom: ListState.cast-visible ? 80px : 8px; spacing: 4px;
             Rectangle { height: 1px; background: Theme.outline-variant; }
-            Text { text: ListState.quota-title; color: Theme.on-surface-variant; font-size: 12px; font-weight: 600; letter-spacing: 0.5px; }
-            for quota in ListState.quotas: VerticalLayout { spacing: 4px; vertical-stretch: 0;
+            Text { text: ListState.quota-title; color: Theme.on-surface-variant; font-size: 11px; }
+            // Uma linha por provedor: nome, barra curta e percentual. A renovação fica só no rótulo de acessibilidade.
+            for quota in ListState.quotas: HorizontalLayout { spacing: 8px; height: 18px;
                 accessible-role: text; accessible-label: quota.label + ", " + quota.percent + (quota.resets == "" ? "" : ", " + quota.resets);
-                HorizontalLayout { spacing: 8px;
-                    Text { text: quota.label; color: Theme.on-surface; font-size: 13px; overflow: elide; horizontal-stretch: 1; }
-                    Text { text: quota.percent; color: quota.severity == 2 ? Theme.error : quota.severity == 1 ? StatusColors.warning : Theme.on-surface; font-size: 13px; font-weight: 600; horizontal-stretch: 0; }
+                Text { text: quota.label; color: Theme.on-surface; font-size: 12px; overflow: elide; vertical-alignment: center; horizontal-stretch: 1; }
+                VerticalLayout { alignment: center; horizontal-stretch: 0;
+                    Rectangle { width: 72px; height: 4px; border-radius: 2px; background: Theme.surface-container-highest;
+                        Rectangle { x: 0px; width: parent.width * quota.fraction; height: parent.height; border-radius: 2px; background: quota.severity == 2 ? Theme.error : quota.severity == 1 ? StatusColors.warning : Theme.primary; }
+                    }
                 }
-                Rectangle { height: 6px; border-radius: 3px; background: Theme.surface-container-highest;
-                    Rectangle { x: 0px; width: parent.width * quota.fraction; height: parent.height; border-radius: 3px; background: quota.severity == 2 ? Theme.error : quota.severity == 1 ? StatusColors.warning : Theme.primary; }
-                }
-                if quota.resets != "": Text { text: quota.resets; color: Theme.on-surface-variant; font-size: 11px; overflow: elide; }
+                Text { text: quota.percent; width: 34px; horizontal-alignment: right; vertical-alignment: center; color: quota.severity == 2 ? Theme.error : quota.severity == 1 ? StatusColors.warning : Theme.on-surface-variant; font-size: 12px; horizontal-stretch: 0; }
             }
         }
         }

@@ -227,6 +227,7 @@ pub fn provider_label(id: &str) -> String {
         "minimax" => "MiniMax",
         "nvidia" => "NVIDIA",
         "xiaomi" => "Xiaomi",
+        "xlinx" => "XLinx",
         _ => id,
     }
     .into()

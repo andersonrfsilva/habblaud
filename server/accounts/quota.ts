@@ -7,7 +7,10 @@ function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-/** Valida o contrato do proxy antes de reutilizar o parser histórico, sem metadados de provedor. */
+/**
+ * Valida o contrato do proxy antes de reutilizar o parser histórico. O provedor de origem não vai adiante: para o
+ * tenant, quem fornece a cota é a XLinx (`ompProvider`), e é esse nome que os clientes mostram.
+ */
 export function parseTenantQuota(raw: string, now: number): AccountUsage | undefined {
   let data: unknown;
   try { data = JSON.parse(raw); } catch { return undefined; }
@@ -24,7 +27,7 @@ export function parseTenantQuota(raw: string, now: number): AccountUsage | undef
     });
     if (![FIVE_HOURS_MS, SEVEN_DAYS_MS].every((duration) => limits.some((limit) => limit.window.durationMs === duration))) continue;
     const usage = parseOmpUsage(JSON.stringify({ quota: true, reports: [{ ...report, limits }] }), report.provider, now)!;
-    return { source: 'omp', quota: true, fetchedAt: usage.fetchedAt, fiveHour: usage.fiveHour, sevenDay: usage.sevenDay };
+    return { source: 'omp', quota: true, fetchedAt: usage.fetchedAt, ompProvider: 'xlinx', fiveHour: usage.fiveHour, sevenDay: usage.sevenDay };
   }
   return undefined;
 }

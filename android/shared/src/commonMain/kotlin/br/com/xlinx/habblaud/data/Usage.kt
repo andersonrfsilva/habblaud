@@ -37,7 +37,8 @@ internal fun parseAccounts(snapshot: JsonObject): List<AccountQuota> =
                 (u[name] as? JsonObject)?.let { w -> UsageLimit(name, w.string("utilization")?.toDoubleOrNull(), w.string("resetsAt")?.toLongOrNull(),
                     exhausted = w.flag("exhausted"), windowMs = if (name == WINDOW_FIVE_HOUR) FIVE_HOURS_MS else SEVEN_DAYS_MS) }
             }
-            UsageGroup(null, null, windows, u.string("note")).takeIf { windows.isNotEmpty() || it.note != null }
+            // Cota do tenant: janelas legadas com o provedor nomeado (`xlinx`).
+            UsageGroup(u.string("ompProvider"), null, windows, u.string("note")).takeIf { windows.isNotEmpty() || it.note != null }
         })
         AccountQuota(id, account.string("name") ?: id, account.string("provider") ?: "claude", account.string("plan"), account.string("usageStatus") ?: "disabled",
             usage?.flag("noQuota") == true, groups, usage?.string("fetchedAt")?.toLongOrNull())

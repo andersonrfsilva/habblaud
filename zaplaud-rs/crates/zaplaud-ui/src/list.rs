@@ -319,7 +319,7 @@ pub fn publish(state: &AppState, weak: &slint::Weak<AppWindow>) {
     .into_iter()
     .map(|quota| QuotaRow {
         label: quota.label.into(),
-        percent: formatted("quota_used", &[&(quota.utilization.round() as i64).to_string()]).into(),
+        percent: format!("{}%", quota.utilization.round() as i64).into(),
         fraction: (quota.utilization / 100.0).clamp(0.0, 1.0) as f32,
         severity: if quota.exhausted || quota.utilization >= 90.0 {
             2
