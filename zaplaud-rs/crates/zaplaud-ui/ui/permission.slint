@@ -113,12 +113,12 @@ export component PermissionSheet inherits Sheet {
             for question in PermissionState.questions: VerticalLayout { spacing: 6px;
                 Text { text: question.text; color: Theme.on-surface; wrap: word-wrap; }
                 for option in question.options: CheckBox { text: option.label; description: option.description; checked: option.checked; toggled => { PermissionState.select(question.index, option.index, question.multi, self.checked); } }
-                if !question.no-other: TextField { text: question.other; placeholder: PermissionState.other-label; outlined: true; edited(value) => { PermissionState.other(question.index, question.multi, value); } }
+                if !question.no-other: TextField { text: question.other; placeholder: PermissionState.other-label; outlined: true; multiline: true; max-lines: 4; edited(value) => { PermissionState.other(question.index, question.multi, value); } }
             }
             for suggestion in PermissionState.suggestions: CheckBox { text: suggestion.text; checked: suggestion.checked; toggled => { PermissionState.suggestion(suggestion.index, self.checked); } }
             if PermissionState.show-deny && PermissionState.questions.length == 0: VerticalLayout {
                 if PermissionState.claude: CheckBox { text: PermissionState.interrupt-label; checked: PermissionState.interrupt; toggled => { PermissionState.set-interrupt(self.checked); } }
-                TextField { text: PermissionState.reason; placeholder: PermissionState.reason-label; outlined: true; edited(value) => { PermissionState.set-reason(value); } }
+                TextField { text: PermissionState.reason; placeholder: PermissionState.reason-label; outlined: true; multiline: true; max-lines: 4; edited(value) => { PermissionState.set-reason(value); } }
             }
             if PermissionState.expired: Text { text: PermissionState.expired-label; color: Theme.on-surface; wrap: word-wrap; }
             if PermissionState.error != "": Text { text: PermissionState.error; color: Theme.error; wrap: word-wrap; }

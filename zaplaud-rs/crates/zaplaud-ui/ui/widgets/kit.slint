@@ -124,24 +124,31 @@ export component TextField inherits Rectangle {
     border-color: input.has-focus ? Theme.primary : Theme.outline;
     forward-focus: input;
     // TextInput mede o viewport imposto; o texto sem altura imposta mede as linhas reais.
-    metrics := Text { visible: false; width: viewport.width; text: root.multiline ? root.text : ""; font-size: 16px; wrap: word-wrap; }
+    metrics := Text { visible: false; width: viewport.visible-width; text: root.multiline ? root.text : ""; font-size: 16px; wrap: word-wrap; }
     Text { x: viewport.x; y: 16px; width: viewport.width; height: parent.height - 32px; text: root.text == "" && (!root.outlined || !input.has-focus) ? root.placeholder : ""; color: Theme.on-surface-variant; font-size: 16px; }
     if root.outlined && (root.text != "" || input.has-focus): Rectangle {
         x: 12px; y: -8px; height: 16px; width: floating-label.preferred-width + 8px; background: Theme.background;
         floating-label := Text { text: root.placeholder; color: input.has-focus ? Theme.primary : Theme.on-surface-variant; font-size: 12px; horizontal-alignment: center; }
     }
     // Campo multilinha quebra a linha e, passando de max-lines, rola para manter o cursor visível.
-    viewport := Rectangle {
+    viewport := ScrollView {
         x: root.leading-icon.width > 0 ? 52px : 16px; y: 16px; width: parent.width - self.x - (root.trailing-icon.width > 0 ? 56px : 16px) - root.trailing-space; height: parent.height - 32px;
-        clip: root.multiline;
+        horizontal-scrollbar-policy: always-off;
+        vertical-scrollbar-policy: root.multiline ? as-needed : always-off;
+        content-width: root.multiline ? self.visible-width : max(self.visible-width, input.preferred-width + input.text-cursor-width);
+        content-height: root.multiline ? max(self.visible-height, input.preferred-height) : self.visible-height;
     input := TextInput {
-        property <length> scroll: 0px;
-        y: max(parent.height - self.height, min(0px, self.scroll)); width: parent.width;
-        height: root.multiline ? max(parent.height, metrics.preferred-height) : parent.height;
+        width: viewport.content-width; height: viewport.content-height;
+        page-height: viewport.visible-height;
         wrap: root.multiline ? word-wrap : no-wrap;
         cursor-position-changed(position) => {
-            if position.y + self.y < 0px { self.scroll = -position.y; }
-            else if position.y + 24px + self.y > parent.height { self.scroll = parent.height - position.y - 24px; }
+            if !root.multiline {
+                viewport.content-x = clamp(viewport.content-x, -position.x, max(-position.x, viewport.visible-width - position.x - self.text-cursor-width));
+            } else if position.y + viewport.content-y < 0px {
+                viewport.content-y = -position.y;
+            } else if position.y + 24px + viewport.content-y > viewport.visible-height {
+                viewport.content-y = clamp(viewport.visible-height - position.y - 24px, viewport.visible-height - self.height, 0px);
+            }
         }
         text <=> root.text; enabled: root.enabled; single-line: !root.multiline;
         color: Theme.on-surface; font-size: 16px;
