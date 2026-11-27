@@ -1831,6 +1831,9 @@ export const FR: Readonly<Record<string, string>> = {
   "Mensagens: falha no relógio ({0}).": "Messages : échec de l'horloge ({0}).",
   "esperado um objeto JSON ({})": "objet JSON attendu ({})",
 
+  // server/marks/store.ts
+  "session-marks.json ilegível ({0}); começando do zero.": "session-marks.json illisible ({0}) ; on repart de zéro.",
+
   // server/model/names.ts
   "names.json ilegível ({0}); começando do zero.": "names.json illisible ({0}) ; on repart de zéro.",
   "Não foi possível gravar {0} ({1}); os nomes valem só nesta execução.": "Impossible d'écrire {0} ({1}) ; les noms ne valent que pour cette exécution.",

@@ -250,6 +250,7 @@ O auxiliar no host (`npm run codex:bridge`) abre sessões omp em `tmux` como `hb
 | `POST /api/permissions/:id/decision` | (página) `PermissionDecision`: `{behavior: 'allow' \| 'deny' \| 'terminal' \| 'answer', message?, interrupt?, suggestion?, answers?}` |
 | `POST /api/messages` | (página) `{agentId, text, attachments?: string[], deliverAs?, expectedSessionId?: string}`: até cinco IDs; aceita somente anexos; `201 OutboxMessage`; trava `messages` |
 | `POST /api/summaries` | `{text}` não vazio, até 32768 caracteres: `200 {summary}`, `422` entrada inválida, `403` sem permissão `messages`, `404` sem resumidor, `503` indisponível e `502` falha upstream (inclusive 429); ver resumos abaixo |
+| `POST /api/marks` | Zaplaud: fixa ou favorita uma sessão. `{provider, account, sessionId, pinned?, favorite?}`: só o campo mandado muda, o outro fica (dois aparelhos marcando a mesma sessão ao mesmo tempo não se apagam); as duas marcas falsas apagam a sessão: `200 {ok}`, `422` entrada inválida, `403` sem permissão `terminal`. Guardado em `session-marks.json` (até 2000 sessões; passando disso sai a marca mais antiga). A lista inteira sai no evento `marks` de `GET /api/stream`, ao conectar e a cada mudança |
 | `POST /api/messages/attachments` | (página) bytes `application/octet-stream` com headers de nome/tipo: `201 {id, name, size}`; até 15 MiB/arquivo, mesma trava `messages` e Origin; não aceita destino |
 | `GET /api/messages/:id` | (página) situação da mensagem (`OutboxMessage`: `queued` \| `sent` \| `delivered` \| `failed`) |
 | `POST /api/mod/inbox` | (plugin `habblaud-mensagens`) `{session, account?}`: marca a presença da sessão e entrega `{messages: InboxMessage[]}` |
@@ -800,7 +801,7 @@ em `shared/world/city.ts` (fonte da verdade; o servidor do mundo guarda a cópia
 | `HABBLAUD_QUOTA_TOKEN_FILE` | — | arquivo absoluto contendo somente o bearer do tenant, montado RO; exige URL |
 | `HABBLAUD_MENSAGENS` | ligado (com o terminal) | `0`, `false`, `off` ou `no` desligam só as mensagens pelo escritório |
 | `HABBLAUD_CLAUDE_DIRS` | — | config dirs separados por vírgula; substitui a detecção (`~/.claude*` com `projects/` ou `sessions/` + `CLAUDE_CONFIG_DIR`) |
-| `HABBLAUD_DATA_DIR` | `~/.habblaud` (Docker: `/data`) | estado do Habblaud (nomes e personagens dos projetos persistidos em `names.json`, linha do tempo em `timeline/`, estatísticas do Meu dia em `stats/`, última verificação de versão em `updates.json`) |
+| `HABBLAUD_DATA_DIR` | `~/.habblaud` (Docker: `/data`) | estado do Habblaud (nomes e personagens dos projetos persistidos em `names.json`, sessões fixadas e favoritas do Zaplaud em `session-marks.json`, linha do tempo em `timeline/`, estatísticas do Meu dia em `stats/`, última verificação de versão em `updates.json`) |
 | `HABBLAUD_TIMELINE` | ligado | `0` desliga a gravação da linha do tempo do timelapse |
 | `HABBLAUD_UPDATE_CHECK` | ligado | `0` desliga a verificação de versão nova (releases do repositório do `package.json` no GitHub, a cada 6 h) |
 | `HABBLAUD_LANG` | idioma do sistema (`LC_ALL`/`LANG`/Intl) | idioma dos textos montados pelo servidor: `pt-BR` ou `fr` (shared/i18n.ts) |

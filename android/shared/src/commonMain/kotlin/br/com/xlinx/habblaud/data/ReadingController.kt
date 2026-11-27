@@ -14,7 +14,10 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.put
 import kotlinx.serialization.json.jsonObject
 import io.ktor.http.encodeURLPathPart
 import kotlinx.io.IOException
@@ -137,24 +140,72 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
     }
 
     private val marksLock = Mutex()
+    /** Marcas que só este aparelho tem (de antes da sincronização, ou de um servidor sem `/api/marks`); sobem em [uploadLocalMarks]. */
     private var savedMarks: Map<String, SessionMarks>? = null
+    /** Marcas guardadas no servidor (evento `marks` do stream), iguais em todos os aparelhos. */
+    private var serverMarks: Map<SessionKey, SessionMarks> = emptyMap()
     private suspend fun loadMarks() {
         if (savedMarks == null) savedMarks = store.sessionMarks(api.origin)
         publishMarks()
     }
+    private fun marksOf(key: SessionKey): SessionMarks {
+        val local = savedMarks?.get(store.seenId(key))
+        val remote = serverMarks[key]
+        return SessionMarks(local?.pinned == true || remote?.pinned == true, local?.favorite == true || remote?.favorite == true)
+    }
     private fun publishMarks() {
-        val marks = savedMarks
-        mutable.update { state ->
-            state.copy(marks = state.sessions.associate { it.key to (marks?.get(store.seenId(it.key)) ?: SessionMarks()) })
+        mutable.update { state -> state.copy(marks = state.sessions.associate { it.key to marksOf(it.key) }) }
+    }
+    private suspend fun setLocalMarks(key: SessionKey, marks: SessionMarks) {
+        val id = store.seenId(key)
+        if (marks == (savedMarks?.get(id) ?: SessionMarks())) return
+        store.setSessionMarks(key, marks)
+        savedMarks = savedMarks.orEmpty().toMutableMap().apply { if (marks == SessionMarks()) remove(id) else put(id, marks) }
+    }
+    /**
+     * Grava no servidor, que avisa os outros aparelhos; a cópia local deixa de valer. Só o campo mandado muda lá
+     * (null = fica como está): outro aparelho marcando a mesma sessão ao mesmo tempo não perde a marca dele.
+     */
+    private suspend fun sendMarks(key: SessionKey, pinned: Boolean?, favorite: Boolean?) {
+        api.request("/api/marks", buildJsonObject {
+            put("provider", key.provider); put("account", key.account); put("sessionId", key.sessionId)
+            pinned?.let { put("pinned", it) }; favorite?.let { put("favorite", it) }
+        })
+        val old = serverMarks[key] ?: SessionMarks()
+        serverMarks = serverMarks + (key to SessionMarks(pinned ?: old.pinned, favorite ?: old.favorite))
+        setLocalMarks(key, SessionMarks())
+    }
+    /** Sobe as marcas que só este aparelho tem, somadas às do servidor. Só das sessões na lista: a chave local é um hash. */
+    private suspend fun uploadLocalMarks() {
+        for (session in mutable.value.sessions) {
+            val local = savedMarks?.get(store.seenId(session.key)) ?: continue
+            sendMarks(session.key, true.takeIf { local.pinned }, true.takeIf { local.favorite })
+        }
+    }
+    private fun marksFailed(e: Exception) {
+        if (e is CancellationException) throw e
+        if (e is ApiException && e.status == 401) unauthorized()
+        else mutable.update { it.copy(error = if (e is IOException) "network" else "storage") }
+    }
+    private fun serverMarksChanged(data: String) {
+        val marks = wireJson.parseToJsonElement(data).jsonArray.mapNotNull { it as? JsonObject }.mapNotNull { o ->
+            val key = SessionKey(api.origin, o.string("provider") ?: return@mapNotNull null, o.string("account") ?: return@mapNotNull null, o.string("sessionId") ?: return@mapNotNull null)
+            key to SessionMarks(o.flag("pinned"), o.flag("favorite"))
+        }.toMap()
+        scope.launch {
+            try {
+                marksLock.withLock {
+                    serverMarks = marks
+                    loadMarks()
+                    try { uploadLocalMarks() } finally { publishMarks() }
+                }
+            } catch (e: Exception) { marksFailed(e) }
         }
     }
     init {
         scope.launch {
             try { marksLock.withLock { loadMarks() } }
-            catch (e: Exception) {
-                if (e is CancellationException) throw e
-                mutable.update { it.copy(error = "storage") }
-            }
+            catch (e: Exception) { marksFailed(e) }
         }
     }
     fun toggleMark(key: SessionKey, pin: Boolean) {
@@ -163,18 +214,20 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
             try {
                 marksLock.withLock {
                     loadMarks()
-                    val id = store.seenId(key)
-                    val previous = savedMarks?.get(id) ?: SessionMarks()
+                    val local = savedMarks?.get(store.seenId(key)) ?: SessionMarks()
+                    val previous = marksOf(key)
                     val next = if (pin) previous.copy(pinned = !previous.pinned) else previous.copy(favorite = !previous.favorite)
-                    store.setSessionMarks(key, next)
-                    savedMarks = savedMarks.orEmpty().toMutableMap().apply { if (next == SessionMarks()) remove(id) else put(id, next) }
+                    // Vai o campo tocado; o outro só se este aparelho ainda guarda a marca dele, que sobe junto.
+                    try { sendMarks(key, if (pin) next.pinned else true.takeIf { local.pinned }, if (pin) true.takeIf { local.favorite } else next.favorite) }
+                    catch (e: ApiException) {
+                        // Servidor anterior à sincronização: a marca fica só neste aparelho, como antes.
+                        if (e.status != 404) throw e
+                        setLocalMarks(key, next)
+                    }
                     publishMarks()
-                    mutable.update { if (it.error == "storage") it.copy(error = null) else it }
+                    mutable.update { if (it.error == "storage" || (it.error == "network" && it.connection == "connected")) it.copy(error = null) else it }
                 }
-            } catch (e: Exception) {
-                if (e is CancellationException) throw e
-                mutable.update { it.copy(error = "storage") }
-            }
+            } catch (e: Exception) { marksFailed(e) }
         }
     }
     private var restore: SessionKey? = null
@@ -230,7 +283,7 @@ class ReadingController(private val api: HabblaudApi, private val store: LocalSt
                             if (repository.recentStale && !recentLoad.value.loading && recentJob?.isActive != true) {
                                 recentJob = scope.launch { refreshRecent(manual = false) }
                             }
-                        }
+                        } else if (event.type == "marks") serverMarksChanged(event.data)
                     }
                 }
             } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e; if (e is ApiException && e.status == 401) unauthorized() else mutable.update { it.copy(connection = "offline", error = "network") } }

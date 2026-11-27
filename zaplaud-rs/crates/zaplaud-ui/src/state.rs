@@ -170,6 +170,20 @@ pub enum Event {
         key: String,
         pin: bool,
     },
+    /// Evento `marks` do stream: a lista completa de marcas guardadas no servidor.
+    MarksData {
+        origin: String,
+        generation: u64,
+        data: String,
+    },
+    /// Resposta de `POST /api/marks` com os campos mandados; `toggled` = pedido pelo usuário (não a subida das marcas locais).
+    MarksSent {
+        key: SessionKey,
+        pinned: Option<bool>,
+        favorite: Option<bool>,
+        toggled: bool,
+        result: Result<(), Option<i32>>,
+    },
     AvatarFinished {
         key: String,
         failed: bool,
@@ -194,7 +208,21 @@ pub struct ServerState {
     pub task: tokio::task::JoinHandle<()>,
     pub recent_task: Option<tokio::task::JoinHandle<()>>,
     pub recent_step: Option<u8>,
+    /// Marcas que só este aparelho tem (de antes da sincronização, ou de um servidor sem `/api/marks`).
     pub marks: HashMap<String, SessionMarks>,
+    /// Marcas guardadas no servidor, iguais em todos os aparelhos; mesma chave (hash da sessão) de `marks`.
+    pub remote_marks: HashMap<String, SessionMarks>,
+}
+impl ServerState {
+    /// Marca que vale na lista: a do servidor somada à que só este aparelho tem.
+    pub fn marks_of(&self, id: &str) -> SessionMarks {
+        let local = self.marks.get(id).copied().unwrap_or_default();
+        let remote = self.remote_marks.get(id).copied().unwrap_or_default();
+        SessionMarks {
+            pinned: local.pinned || remote.pinned,
+            favorite: local.favorite || remote.favorite,
+        }
+    }
 }
 impl Drop for ServerState {
     fn drop(&mut self) {

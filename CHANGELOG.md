@@ -21,6 +21,9 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Zaplaud (Android, iPad e desktop):** as sessões fixadas e favoritas ficam guardadas no servidor e valem em todos
+  os aparelhos: fixar ou favoritar num deles aparece nos outros na hora. As marcas que cada aparelho já tinha sobem
+  sozinhas e se somam. Com um servidor de versão anterior, elas continuam só no aparelho.
 - **Zaplaud (Android e desktop):** os avisos vêm do evento exato do servidor: avisa também quando o agente espera
   resposta no terminal e quando o turno é interrompido. Uma notificação por conversa, que some ao abrir ou responder;
   três ou mais de uma vez viram uma só; turnos com menos de 30 s não avisam (dá para mudar em Configurações). Com o

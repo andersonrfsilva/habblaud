@@ -179,6 +179,23 @@ impl HabblaudApi {
             .await
             .map(|_| ())
     }
+    /// Sessão fixada/favorita: o servidor guarda e avisa os outros aparelhos pelo evento `marks` do stream.
+    /// Só o campo mandado muda lá (`None` fica como está): marcas simultâneas de dois aparelhos não se apagam.
+    pub async fn set_marks(
+        &self,
+        key: &SessionKey,
+        pinned: Option<bool>,
+        favorite: Option<bool>,
+    ) -> Result<(), Error> {
+        let mut body = json!({"provider":key.provider,"account":key.account,"sessionId":key.session_id});
+        if let Some(pinned) = pinned {
+            body["pinned"] = pinned.into();
+        }
+        if let Some(favorite) = favorite {
+            body["favorite"] = favorite.into();
+        }
+        self.request("/api/marks", Some(&body)).await.map(|_| ())
+    }
     async fn submit_cast(&self, path: &str, body: Value) -> Result<CastSubmission, Error> {
         let value = self.json(path, Some(body)).await?;
         Ok(CastSubmission {

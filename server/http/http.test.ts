@@ -19,6 +19,7 @@ import { createRequestGuard, hostAllowed, hostnameOf, isLoopbackHost, originAllo
 import { Hub } from './sse';
 import { createStaticHandler, IMMUTABLE, PAGE_CSP, REVALIDATE } from './static';
 import { SUMMARY_INPUT_MAX, Summarizer } from '../summaries/summarizer';
+import { MARKS_MAX, SessionMarksStore } from '../marks/store';
 
 setQuiet(true);
 
@@ -51,9 +52,10 @@ async function start(extra: Partial<ApiDeps> = {}, officeExtra: Partial<OfficeDe
     ...officeExtra,
   });
   late.office = office;
-  const hub = new Hub(office, { throttleMs: 10 });
+  const marks = new SessionMarksStore(null);
+  const hub = new Hub(office, { throttleMs: 10, marks: () => marks.list() });
   hub.start();
-  const api = createApiHandler({ office, hub, accounts, sources: () => [], version: '9.9.9', inDocker: false, ...extra });
+  const api = createApiHandler({ office, hub, accounts, sources: () => [], version: '9.9.9', inDocker: false, marks, ...extra });
   const serveStatic = createStaticHandler(dist);
   const guard = createRequestGuard({ allowedHosts: new Set(['habblaud.lan']) });
   const server = http.createServer((req, res) => {
@@ -372,6 +374,42 @@ describe('API HTTP', () => {
     // Com gzip, snapshot e feed chegam em pedaços separados: espera o frame do feed, não só o id no snapshot.
     await readUntil(/event: feed\ndata: \[\{"id":"act-x"/);
     ctrl.abort();
+  });
+
+  it('POST /api/marks grava a marca e o stream a entrega a quem já está conectado e a quem conecta depois', async () => {
+    const post = (body: unknown) => fetch(`${env.base}/api/marks`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const read = async (re: RegExp) => {
+      const ctrl = new AbortController();
+      const reader = (await fetch(`${env.base}/api/stream`, { signal: ctrl.signal })).body!.getReader();
+      const dec = new TextDecoder();
+      let text = '';
+      const until = async (next: RegExp) => {
+        while (!next.test(text)) text += dec.decode((await reader.read()).value, { stream: true });
+      };
+      await until(re);
+      return { until, close: () => ctrl.abort() };
+    };
+    const first = await read(/event: marks\ndata: \[\]\n/);
+    const session = { provider: 'omp', account: '.omp', sessionId: 's1' };
+    // Dois aparelhos, um campo cada, sem ler o stream entre as duas escritas: uma marca não apaga a outra.
+    expect((await Promise.all([post({ ...session, pinned: true }), post({ ...session, favorite: true })])).map((r) => r.status)).toEqual([200, 200]);
+    await first.until(/event: marks\ndata: \[\{"provider":"omp","account":"\.omp","sessionId":"s1","pinned":true,"favorite":true\}\]/);
+    first.close();
+    expect((await post({ ...session, pinned: 'sim' })).status).toBe(422);
+    expect((await post(session)).status).toBe(422);
+    expect((await post({ ...session, pinned: false })).status).toBe(200);
+    const second = await read(/event: marks\ndata: \[\{"provider":"omp","account":"\.omp","sessionId":"s1","pinned":false,"favorite":true\}\]/);
+    expect((await post({ ...session, favorite: false })).status).toBe(200);
+    await second.until(/event: marks\ndata: \[\]\n/);
+    second.close();
+  });
+
+  it('SessionMarksStore: passando do teto, sai a marca mais antiga', () => {
+    const store = new SessionMarksStore(null);
+    for (let i = 0; i <= MARKS_MAX; i++) store.set({ provider: 'omp', account: 'a', sessionId: `s${i}`, pinned: true });
+    const ids = store.list().map((m) => m.sessionId);
+    expect(ids.length).toBe(MARKS_MAX);
+    expect(ids[0]).toBe('s1');
   });
 
   it('GET /api/agents/:id e /api/health', async () => {

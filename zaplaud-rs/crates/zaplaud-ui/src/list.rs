@@ -221,8 +221,7 @@ pub fn publish(state: &AppState, weak: &slint::Weak<AppWindow>) {
                         .servers
                         .iter()
                         .find(|server| server.api.origin() == item.key.origin)
-                        .and_then(|server| server.marks.get(&id))
-                        .copied()
+                        .map(|server| server.marks_of(&id))
                 })
                 .unwrap_or_default();
             (item, marks)

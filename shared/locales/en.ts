@@ -1934,6 +1934,9 @@ export const EN: Readonly<Record<string, string>> = {
   "Mensagens: falha no relógio ({0}).": "Messages: clock failed ({0}).",
   "esperado um objeto JSON ({})": "expected a JSON object ({})",
 
+  // server/marks/store.ts
+  "session-marks.json ilegível ({0}); começando do zero.": "session-marks.json unreadable ({0}); starting from scratch.",
+
   // server/model/names.ts
   "names.json ilegível ({0}); começando do zero.": "names.json unreadable ({0}); starting from scratch.",
   "Não foi possível gravar {0} ({1}); os nomes valem só nesta execução.": "Couldn't write {0} ({1}); names only last for this run.",

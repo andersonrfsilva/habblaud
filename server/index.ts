@@ -57,6 +57,7 @@ import { ZeroClawHistory } from './sources/zeroclaw/history';
 import { ompBinFrom } from './sources/omp/bin';
 import { configureLocalLinks } from './sources/links';
 import { Summarizer } from './summaries/summarizer';
+import { SessionMarksStore } from './marks/store';
 import { createBuildReader, readBuildInfo } from './build';
 import { UpdateChecker } from './updates/checker';
 import { getLocale, tr } from '../shared/i18n';
@@ -95,6 +96,8 @@ if (legacyEnv) log.warn(legacyEnv);
 
 const names = new NameStore(join(config.dataDir, 'names.json'));
 names.load();
+const sessionMarks = new SessionMarksStore(join(config.dataDir, 'session-marks.json'));
+sessionMarks.load();
 const cast = new CastStore(join(config.dataDir, 'cast.json'), { namedAliases: config.zeroclawCatalog?.named?.map((entry) => entry.alias) });
 cast.load();
 // Nomes de sala escolhidos pelo usuário (botão direito > Renomear).
@@ -228,6 +231,7 @@ late.agents = agents;
 // Página que pode responder pelo escritório: Host local na porta local; na remota, só com permissions liberado.
 const hub = new Hub(office, {
   canAnswer: (req) => (isRemoteRequest(req) ? !!config.remote?.allow.has('permissions') : isLoopbackHost(req.headers.host)),
+  marks: () => sessionMarks.list(),
 });
 // "Meu dia": amostra o escritório a cada segundo e persiste em <dataDir>/stats/ (ver history/daystats.ts).
 const stats = new DayStatsService({ dir: join(config.dataDir, 'stats'), snapshot: () => hub.current() });
@@ -524,6 +528,7 @@ const api = createApiHandler({
   remoteSessions,
   world: world ? createWorldRoutes(world, worldViewer, worldSocial) : undefined,
   summaries,
+  marks: sessionMarks,
 });
 
 const server = http.createServer();

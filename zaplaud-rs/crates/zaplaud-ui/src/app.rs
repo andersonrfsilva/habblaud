@@ -187,6 +187,9 @@ async fn stream(
                     event: StreamEvent::Data { event_type, data, first_connection },
                 })
             }
+            StreamEvent::Data { event_type, data, .. } if event_type == "marks" => {
+                Some(Event::MarksData { origin: origin.clone(), generation, data })
+            }
             _ => None,
         };
         // O servidor publica o snapshot que identifica a sessão antes dos notices.
@@ -433,6 +436,7 @@ pub async fn run(
                     recent_task: None,
                     recent_step: None,
                     marks,
+                    remote_marks: HashMap::new(),
                 });
                 update_ui(&weak, |window| {
                     let login = window.global::<LoginState>();
@@ -622,11 +626,25 @@ pub async fn run(
                 let Ok(key) = SessionKey::deserialize(&key) else {
                     continue;
                 };
-                if update_marks(&mut state, key, pin).await.is_err() {
-                    update_ui(&weak, |window| {
+                toggle_mark(&state, key, pin, &sender);
+            }
+            Event::MarksData { origin, generation, data } => {
+                if let Some(server) = state
+                    .servers
+                    .iter_mut()
+                    .find(|s| s.api.origin() == origin && s.generation == generation)
+                    && let Some(marks) = parse_marks(&origin, &data)
+                {
+                    server.remote_marks = marks;
+                    upload_local_marks(server, &sender);
+                }
+            }
+            Event::MarksSent { key, pinned, favorite, toggled, result } => {
+                if let Err(message) = marks_sent(&mut state, key, (pinned, favorite), toggled, result).await {
+                    update_ui(&weak, move |window| {
                         window
                             .global::<crate::ShellState>()
-                            .set_message(strings::STORAGE_ERROR.into());
+                            .set_message(message.into());
                     });
                 }
             }
@@ -858,7 +876,99 @@ fn apply_recent(server: &mut ServerState, step: u8, result: Result<String, Error
     false
 }
 
-async fn update_marks(state: &mut AppState, key: SessionKey, pin: bool) -> Result<(), String> {
+fn mark_id(key: &SessionKey) -> Option<String> {
+    key.serialize()
+        .ok()
+        .map(|serialized| zaplaud_store::storage_hash(&serialized))
+}
+
+/// Lista do evento `marks`, pela mesma chave das marcas locais. `None` = dado ilegível: fica a lista anterior.
+fn parse_marks(origin: &str, data: &str) -> Option<HashMap<String, zaplaud_store::SessionMarks>> {
+    let serde_json::Value::Array(items) = serde_json::from_str(data).ok()? else {
+        return None;
+    };
+    Some(
+        items
+            .iter()
+            .filter_map(|item| {
+                let text = |name: &str| item.get(name)?.as_str().map(str::to_owned);
+                let flag = |name: &str| item.get(name).and_then(|v| v.as_bool()) == Some(true);
+                let key = SessionKey {
+                    origin: origin.into(),
+                    provider: text("provider")?,
+                    account: text("account")?,
+                    session_id: text("sessionId")?,
+                };
+                let marks = zaplaud_store::SessionMarks {
+                    pinned: flag("pinned"),
+                    favorite: flag("favorite"),
+                };
+                Some((mark_id(&key)?, marks))
+            })
+            .collect(),
+    )
+}
+
+fn send_marks(
+    api: &HabblaudApi,
+    sender: &UnboundedSender<Event>,
+    key: SessionKey,
+    (pinned, favorite): (Option<bool>, Option<bool>),
+    toggled: bool,
+) {
+    let (api, sender) = (api.clone(), sender.clone());
+    tokio::spawn(async move {
+        let result = api
+            .set_marks(&key, pinned, favorite)
+            .await
+            .map_err(|error| status(&error));
+        let _ = sender.send(Event::MarksSent { key, pinned, favorite, toggled, result });
+    });
+}
+
+fn toggle_mark(state: &AppState, key: SessionKey, pin: bool, sender: &UnboundedSender<Event>) {
+    let Some(server) = state
+        .servers
+        .iter()
+        .find(|server| server.api.origin() == key.origin)
+    else {
+        return;
+    };
+    if find_session(&server.reading, &key).is_none() {
+        return;
+    }
+    let Some(id) = mark_id(&key) else {
+        return;
+    };
+    let local = server.marks.get(&id).copied().unwrap_or_default();
+    let marks = server.marks_of(&id);
+    // Vai o campo tocado; o outro só se este aparelho ainda guarda a marca dele, que sobe junto.
+    let patch = if pin {
+        (Some(!marks.pinned), local.favorite.then_some(true))
+    } else {
+        (local.pinned.then_some(true), Some(!marks.favorite))
+    };
+    send_marks(&server.api, sender, key, patch, true);
+}
+
+/// Sobe as marcas que só este aparelho tem, somadas às do servidor. Só das sessões na lista: a chave local é um hash.
+fn upload_local_marks(server: &ServerState, sender: &UnboundedSender<Event>) {
+    for item in &server.reading.state.sessions {
+        if let Some(local) = mark_id(&item.key).and_then(|id| server.marks.get(&id)) {
+            let patch = (local.pinned.then_some(true), local.favorite.then_some(true));
+            send_marks(&server.api, sender, item.key.clone(), patch, false);
+        }
+    }
+}
+
+/// Aplica a resposta do servidor. Gravada lá, a cópia local deixa de valer; `Err` = aviso a mostrar.
+async fn marks_sent(
+    state: &mut AppState,
+    key: SessionKey,
+    (pinned, favorite): (Option<bool>, Option<bool>),
+    toggled: bool,
+    result: Result<(), Option<i32>>,
+) -> Result<(), &'static str> {
     let Some(server) = state
         .servers
         .iter_mut()
@@ -866,24 +976,44 @@ async fn update_marks(state: &mut AppState, key: SessionKey, pin: bool) -> Resul
     else {
         return Ok(());
     };
-    if find_session(&server.reading, &key).is_none() {
+    let Some(id) = mark_id(&key) else {
         return Ok(());
-    }
-    let id = zaplaud_store::storage_hash(&key.serialize().map_err(|error| error.to_string())?);
-    let mut marks = server.marks.get(&id).copied().unwrap_or_default();
-    if pin {
-        marks.pinned = !marks.pinned;
-    } else {
-        marks.favorite = !marks.favorite;
+    };
+    let patched = |old: zaplaud_store::SessionMarks| zaplaud_store::SessionMarks {
+        pinned: pinned.unwrap_or(old.pinned),
+        favorite: favorite.unwrap_or(old.favorite),
+    };
+    let local = match result {
+        Ok(()) => {
+            let marks = patched(server.remote_marks.get(&id).copied().unwrap_or_default());
+            if marks == zaplaud_store::SessionMarks::default() {
+                server.remote_marks.remove(&id);
+            } else {
+                server.remote_marks.insert(id.clone(), marks);
+            }
+            zaplaud_store::SessionMarks::default()
+        }
+        // Servidor anterior à sincronização: a marca fica só neste aparelho, como antes.
+        Err(Some(404)) if toggled => patched(server.marks_of(&id)),
+        Err(Some(401)) => {
+            server.reading.needs_login = true;
+            return Ok(());
+        }
+        Err(_) if toggled => return Err(strings::NETWORK_ERROR),
+        Err(_) => return Ok(()),
+    };
+    if server.marks.get(&id).copied().unwrap_or_default() == local {
+        return Ok(());
     }
     state
         .persistence
-        .call(move |store| store.set_session_marks(&key, marks))
-        .await?;
-    if marks == zaplaud_store::SessionMarks::default() {
+        .call(move |store| store.set_session_marks(&key, local))
+        .await
+        .map_err(|_| strings::STORAGE_ERROR)?;
+    if local == zaplaud_store::SessionMarks::default() {
         server.marks.remove(&id);
     } else {
-        server.marks.insert(id, marks);
+        server.marks.insert(id, local);
     }
     Ok(())
 }
@@ -1002,7 +1132,7 @@ fn find_session(
 mod tests {
     use super::*;
     #[tokio::test]
-    async fn marks_publish_only_after_persistence_and_preserve_other_toggle() {
+    async fn marks_sent_moves_local_marks_to_server_and_keeps_them_on_old_servers() {
         let root = tempfile::tempdir().unwrap();
         let data = root.path().join("data");
         let store = zaplaud_store::LocalStateStore::with_dirs(zaplaud_store::DesktopDirs {
@@ -1034,26 +1164,50 @@ mod tests {
             recent_task: None,
             recent_step: None,
             marks: HashMap::new(),
+            remote_marks: HashMap::new(),
         });
         let id = zaplaud_store::storage_hash(&key.serialize().unwrap());
-        update_marks(&mut state, key.clone(), true).await.unwrap();
-        update_marks(&mut state, key.clone(), false).await.unwrap();
-        assert_eq!(
-            state.servers[0].marks[&id],
-            zaplaud_store::SessionMarks {
-                pinned: true,
-                favorite: true
-            }
+        let pinned = zaplaud_store::SessionMarks {
+            pinned: true,
+            favorite: false,
+        };
+        let pin = (Some(true), None);
+        marks_sent(&mut state, key.clone(), pin, true, Err(Some(404)))
+            .await
+            .unwrap();
+        assert_eq!(state.servers[0].marks[&id], pinned);
+        assert_eq!(state.servers[0].marks_of(&id), pinned);
+        assert!(
+            marks_sent(&mut state, key.clone(), pin, true, Err(None))
+                .await
+                .is_err()
         );
+        marks_sent(&mut state, key.clone(), pin, false, Ok(()))
+            .await
+            .unwrap();
+        assert!(state.servers[0].marks.is_empty());
+        assert_eq!(state.servers[0].remote_marks[&id], pinned);
+        // Outro aparelho favoritou sem este saber: a resposta do toque daqui não apaga a marca dele.
+        let both = zaplaud_store::SessionMarks {
+            pinned: true,
+            favorite: true,
+        };
+        state.servers[0].remote_marks.insert(id.clone(), both);
+        marks_sent(&mut state, key.clone(), (Some(false), None), true, Ok(()))
+            .await
+            .unwrap();
+        let favorite = zaplaud_store::SessionMarks {
+            pinned: false,
+            favorite: true,
+        };
+        assert_eq!(state.servers[0].remote_marks[&id], favorite);
         std::fs::write(data.join("local_state.json"), b"malformed").unwrap();
-        assert!(update_marks(&mut state, key, true).await.is_err());
-        assert_eq!(
-            state.servers[0].marks[&id],
-            zaplaud_store::SessionMarks {
-                pinned: true,
-                favorite: true
-            }
+        assert!(
+            marks_sent(&mut state, key, (Some(true), None), true, Err(Some(404)))
+                .await
+                .is_err()
         );
+        assert_eq!(state.servers[0].marks_of(&id), favorite);
         state.servers.remove(0);
     }
 
@@ -1101,6 +1255,7 @@ mod tests {
             recent_task: None,
             recent_step: None,
             marks: HashMap::new(),
+            remote_marks: HashMap::new(),
         });
         std::fs::write(data.join("local_state.json"), b"malformed").unwrap();
         assert!(!remove_logged_out(&mut state, "https://a").await);
@@ -1129,6 +1284,7 @@ mod tests {
             recent_task: None,
             recent_step: None,
             marks: HashMap::new(),
+            remote_marks: HashMap::new(),
         });
         let mut writes = HashMap::new();
         schedule_seen(&state, &mut writes);

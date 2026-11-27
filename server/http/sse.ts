@@ -28,15 +28,18 @@ export class Hub {
   private readonly retryMs: number;
   /** Quem pode responder pelo escritório; padrão: Host local. A porta remota (http/remote.ts) troca a regra. */
   private readonly canAnswer: (req: IncomingMessage) => boolean;
+  /** Sessões fixadas e favoritas do Zaplaud (marks/store.ts): evento `marks`, ao conectar e a cada mudança. */
+  private readonly marks: (() => unknown) | undefined;
 
   constructor(
     private readonly office: Office,
-    opts: { throttleMs?: number; pingMs?: number; retryMs?: number; canAnswer?: (req: IncomingMessage) => boolean } = {},
+    opts: { throttleMs?: number; pingMs?: number; retryMs?: number; canAnswer?: (req: IncomingMessage) => boolean; marks?: () => unknown } = {},
   ) {
     this.throttleMs = opts.throttleMs ?? 200;
     this.pingMs = opts.pingMs ?? 15_000;
     this.retryMs = opts.retryMs ?? 2_000;
     this.canAnswer = opts.canAnswer ?? ((req) => isLoopbackHost(req.headers.host));
+    this.marks = opts.marks;
   }
 
   start(): void {
@@ -88,6 +91,7 @@ export class Hub {
     write('retry: 2000\n\n');
     write(frame('snapshot', snapshot));
     write(frame('feed', this.office.recentFeed(50)));
+    if (this.marks) write(frame('marks', this.marks()));
     this.writers.set(res, write);
     this.clients.add(res);
     if (this.canAnswer(req)) this.local.add(res);
@@ -95,6 +99,11 @@ export class Hub {
     req.on('close', drop);
     res.on('close', drop);
     res.on('error', drop);
+  }
+
+  /** Transmite a lista atual de marcas a todos os clientes (depois de uma mudança). */
+  sendMarks(): void {
+    if (this.marks) this.writeAll(frame('marks', this.marks()));
   }
 
   /** Fecha a revisão agora e transmite o que houver. Devolve o snapshot atual. */

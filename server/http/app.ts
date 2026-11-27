@@ -32,6 +32,7 @@ import { HOST_WAIT_MS } from '../host-wait';
 import { SUMMARY_INPUT_MAX, SummaryUnavailable, type Summarizer } from '../summaries/summarizer';
 import { MERMAID_SOURCE_MAX, mermaidSvg } from './mermaid';
 import { avatarPng } from './avatar';
+import { parseMark, type SessionMarksStore } from '../marks/store';
 
 export interface ApiDeps {
   office: Office;
@@ -128,6 +129,8 @@ export interface ApiDeps {
   world?: (req: IncomingMessage, res: ServerResponse, url: URL) => void;
   /** Resumo das respostas do agente (POST /api/summaries {text}; summaries/summarizer.ts). Ausente = desligado (404). */
   summaries?: Summarizer;
+  /** Sessões fixadas e favoritas do Zaplaud (POST /api/marks; a lista sai no evento `marks` do stream). Ausente = 404. */
+  marks?: SessionMarksStore;
 }
 
 /** GET /api/agents/:id/terminal (ids nunca contêm '/'). */
@@ -685,6 +688,22 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
         res.writeHead(200, { 'Content-Type': 'image/svg+xml; charset=utf-8', 'Cache-Control': 'no-store' });
         res.end(svg);
       }).catch((err) => fail(res, err));
+      return true;
+    }
+    if (path === '/api/marks') {
+      // Marca sessões da lista de conversas: a mesma trava de quem pode vê-la (o terminal).
+      if (method !== 'POST') methodNotAllowed(res, 'POST');
+      else if (!deps.marks) sendJson(res, 404, { error: tr('rota desconhecida') });
+      else if (!trusted(req, 'terminal')) sendJson(res, 403, { error: denied(req, tr('o terminal só abre pelo próprio computador (http://localhost ou http://127.0.0.1)')) });
+      else {
+        const marks = deps.marks;
+        readJson(req).then((body) => {
+          const mark = parseMark(body);
+          if (!mark) return sendJson(res, 422, { error: tr('pedido inválido') });
+          if (marks.set(mark)) hub.sendMarks();
+          sendJson(res, 200, { ok: true });
+        }).catch((err) => fail(res, err));
+      }
       return true;
     }
     if (path === '/api/summaries') {
