@@ -2,8 +2,6 @@ package br.com.xlinx.habblaud.data
 
 import br.com.xlinx.habblaud.resources.Res
 import br.com.xlinx.habblaud.resources.notify_batch
-import br.com.xlinx.habblaud.resources.notify_done
-import br.com.xlinx.habblaud.resources.notify_interrupted
 import br.com.xlinx.habblaud.resources.notify_permission
 import br.com.xlinx.habblaud.resources.notify_public
 import br.com.xlinx.habblaud.resources.notify_question
@@ -104,24 +102,22 @@ suspend fun watchAlerts(
     }
 }
 
-fun alertText(event: AgentEvent): StringResource = when (event) {
-    is AgentEvent.Permission -> when (event.wait) {
-        WaitKind.Permission -> Res.string.notify_permission
-        WaitKind.Question -> Res.string.notify_question
-        WaitKind.Terminal -> Res.string.notify_waiting
-    }
-    is AgentEvent.TurnDone -> if (event.interrupted) Res.string.notify_interrupted else Res.string.notify_done
+internal fun alertText(event: AgentEvent.Permission): StringResource = when (event.wait) {
+    WaitKind.Permission -> Res.string.notify_permission
+    WaitKind.Question -> Res.string.notify_question
+    WaitKind.Terminal -> Res.string.notify_waiting
 }
 
-fun alertBody(label: String, event: AgentEvent): String {
-    // O começo da resposta substitui "Terminou o turno"; turno interrompido continua dizendo que foi interrompido.
-    if (event is AgentEvent.TurnDone && !event.interrupted) event.excerpt?.let { return it }
-    val reason = (event as? AgentEvent.Permission)?.reason?.trim()?.takeIf { it.isNotEmpty() } ?: return label
+internal fun alertBody(label: String, event: AgentEvent.Permission): String {
+    val reason = event.reason?.trim()?.takeIf { it.isNotEmpty() } ?: return label
     val text = if (reason.length > 120) reason.take(119).trimEnd() + "…" else reason
     return "$label: $text"
 }
 
-suspend fun alertBody(event: AgentEvent): String = alertBody(getString(alertText(event)), event)
+suspend fun alertBody(event: AgentEvent): String = when (event) {
+    is AgentEvent.Permission -> alertBody(getString(alertText(event)), event)
+    is AgentEvent.TurnDone -> event.excerpt
+}
 suspend fun publicAlertText(): String = getString(Res.string.notify_public)
 suspend fun batchAlertText(count: Int): String = getPluralString(Res.plurals.notify_batch, count, count)
 

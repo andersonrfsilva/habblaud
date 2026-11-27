@@ -587,7 +587,8 @@ class RolloutLineParser {
         const err = rec(p.error);
         const turn = str(p.turn_id) ?? this.autoKey();
         if (err) this.push(SPECIAL.error(undefined, firstLine(str(err.message) ?? '')), { key: `${turn}:err`, current: false });
-        this.push(SPECIAL.turnDone(ms), { key: `${turn}:done`, durationMs: ms });
+        const detail = !err && str(p.last_agent_message) ? SPECIAL.respond(str(p.last_agent_message)).detail : undefined;
+        this.push({ ...SPECIAL.turnDone(ms), ...(detail ? { detail } : {}) }, { key: `${turn}:done`, durationMs: ms });
         return;
       }
       case 'turn_aborted':

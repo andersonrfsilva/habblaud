@@ -29,11 +29,10 @@ class NotificationPrivacyInstrumentedTest {
         val events = listOf(
             AgentEvent.Permission(session(1)),
             AgentEvent.Permission(session(2, question = true)),
-            AgentEvent.TurnDone(session(3)),
+            AgentEvent.TurnDone(session(3), excerpt = "Resposta final secreta"),
             AgentEvent.Permission(session(4), WaitKind.Terminal, "Comando secreto"),
-            AgentEvent.TurnDone(session(5), interrupted = true),
         )
-        val texts = listOf("Pede sua aprovação", "Tem uma pergunta para você", "Terminou o turno", "Espera sua resposta no terminal: Comando secreto", "Turno interrompido")
+        val texts = listOf("Pede sua aprovação", "Tem uma pergunta para você", "Resposta final secreta", "Espera sua resposta no terminal: Comando secreto")
         val notifications = events.mapIndexed { index, event ->
             val (id, notification) = alertNotification(context, event)
             val item = event.session

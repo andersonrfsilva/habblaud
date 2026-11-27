@@ -1055,17 +1055,15 @@ pub struct AgentWatch {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AgentEvent {
     Permission(SessionItem),
-    TurnDone(SessionItem),
     NoticeWait(SessionItem, WaitKind, Option<String>, Option<String>),
-    /// Sessão, duração, interrompido, começo da resposta.
-    NoticeDone(SessionItem, Option<i64>, bool, Option<String>),
+    /// Sessão, duração e começo da resposta final.
+    NoticeDone(SessionItem, Option<i64>, String),
     TerminalWait(SessionItem),
 }
 impl AgentEvent {
     pub fn session(&self) -> &SessionItem {
         match self {
             Self::Permission(session)
-            | Self::TurnDone(session)
             | Self::NoticeWait(session, ..)
             | Self::NoticeDone(session, ..)
             | Self::TerminalWait(session) => session,

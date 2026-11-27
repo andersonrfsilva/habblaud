@@ -141,6 +141,8 @@ interface AgentRecord {
   removeAt?: number;
   /** Início do turno atual (para "Concluiu em X"). */
   turnStart?: number;
+  /** O runtime pode anunciar idle antes de o transcript entregar a resposta final. */
+  pendingDoneAt?: number;
   /** Atividade "Concluiu" sintetizada pela mudança de status (substituída pela do transcript, se vier). */
   synthDone?: { id: string; at: number };
   /** Atividade "Precisa de você" sintetizada; ao sair da espera, a atividade anterior volta a ser a atual. */
@@ -422,6 +424,7 @@ export class Office {
     const room = this.roomName(info.roomId);
 
     if (status === 'working' && (prev === 'idle' || prev === 'shell' || rec.turnStart === undefined)) rec.turnStart = now;
+    if (status !== 'idle') delete rec.pendingDoneAt;
     if (status === 'shell' && prev !== 'shell') {
       // Terminou o turno com shell(s) rodando: o balão (fillShellActivity) e o aviso falam da espera, não de "concluiu".
       const { label } = this.shellSummary(rec);
@@ -464,19 +467,30 @@ export class Office {
         this.addActivity(id, act, true);
         rec.synthDone = { id: act.id, at: now };
       }
-      // Começo da última resposta deste turno, para o aviso dizer o que o agente respondeu (não só "terminou").
-      const reply = rec.history.findLast((a) => a.kind === 'respond' && a.at >= (rec.turnStart ?? 0));
-      const excerpt = reply ? excerptOf(reply.detail ?? '') : '';
-      this.notice('done', id, 'success', tr('✅ {0} concluiu em {1}', [info.name, room]), info.roomId, {
-        repeatable: true,
-        extra: {
-          ...(rec.turnStart ? { durationMs: now - rec.turnStart } : {}),
-          ...(interrupted ? { interrupted: true } : {}),
-          ...(excerpt ? { excerpt } : {}),
-        },
-      });
+      if (info.provider === 'omp' || info.provider === 'codex') {
+        if (cur?.kind === 'done' && cur.at >= (rec.turnStart ?? now)) {
+          if (cur.detail) this.doneNotice(rec, now, cur.detail);
+        } else if (!interrupted && !this.booting) rec.pendingDoneAt = now;
+      } else {
+        // Não buscar uma resposta mais antiga por trás de ferramentas ou de uma falha.
+        const last = rec.history.findLast(a => a.kind !== 'done');
+        this.doneNotice(rec, now, last?.finalReply && last.at >= (rec.turnStart ?? now) ? last.detail : undefined, interrupted);
+      }
     }
     this.markDirty();
+  }
+
+  private doneNotice(rec: AgentRecord, at: number, reply?: string, interrupted = false): void {
+    const { info } = rec;
+    const excerpt = reply ? excerptOf(reply) : '';
+    this.notice('done', info.id, 'success', tr('✅ {0} concluiu em {1}', [info.name, this.roomName(info.roomId)]), info.roomId, {
+      repeatable: true,
+      extra: {
+        ...(rec.turnStart ? { durationMs: at - rec.turnStart } : {}),
+        ...(interrupted ? { interrupted: true } : {}),
+        ...(excerpt ? { excerpt } : {}),
+      },
+    });
   }
 
   /**
@@ -756,6 +770,11 @@ export class Office {
     const rec = this.agents.get(id);
     if (!rec) return;
     const info = rec.info;
+    if (activity.kind === 'done' && rec.pendingDoneAt !== undefined && opts.feed !== false &&
+        activity.at >= (rec.turnStart ?? rec.pendingDoneAt) && !rec.history.some(a => a.id === activity.id)) {
+      if (activity.detail) this.doneNotice(rec, rec.pendingDoneAt, activity.detail);
+      delete rec.pendingDoneAt;
+    }
     // "Concluiu" vindo do transcript substitui o que sintetizamos pela mudança de status.
     if (activity.kind === 'done' && rec.synthDone && activity.at - rec.synthDone.at < 60_000) {
       const synthId = rec.synthDone.id;

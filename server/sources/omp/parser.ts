@@ -525,6 +525,7 @@ class OmpLineParser {
     // A resposta traz provedor e modelo separados: juntos, como no model_change (`provedor/modelo`).
     if (model) this.setModel(provider && !model.includes('/') ? `${provider}/${model}` : model);
     const blocks = Array.isArray(m.content) ? m.content : [];
+    let reply: string | undefined;
     for (const raw of blocks) {
       const b = rec(raw);
       if (!b) continue;
@@ -534,7 +535,11 @@ class OmpLineParser {
         if (!(cur?.kind === 'think' && this.at - cur.at < 30_000)) this.push(SPECIAL.think(), { key: this.key('t') });
       } else if (b.type === 'text') {
         const text = textOf([b]).trim();
-        if (text) this.push(SPECIAL.respond(text), { key: this.key('r') });
+        if (text) {
+          const response = SPECIAL.respond(text);
+          reply = response.detail;
+          this.push(response, { key: this.key('r') });
+        }
       } else if (b.type === 'toolCall') this.toolCall(b);
     }
     const usage = rec(m.usage);
@@ -572,7 +577,8 @@ class OmpLineParser {
       case 'length': {
         const ms = this.s.turnStartAt !== undefined && this.at > this.s.turnStartAt ? this.at - this.s.turnStartAt : undefined;
         this.endTurn(false);
-        this.push(SPECIAL.turnDone(ms), { key: this.key('d'), durationMs: ms });
+        // Só o texto desta mensagem final; nunca herdar o comentário anterior a uma ferramenta.
+        this.push({ ...SPECIAL.turnDone(ms), ...(reply ? { detail: reply } : {}) }, { key: this.key('d'), durationMs: ms });
         return;
       }
       default:

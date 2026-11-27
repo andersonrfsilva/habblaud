@@ -17,9 +17,11 @@ class NotificationRulesTest {
         assertTrue(agentEvents(watchOf(asked), listOf(session("waiting", "p2"))).single() is AgentEvent.Permission)
     }
 
-    @Test fun workingToIdleIsTurnDoneButOtherChangesAreNot() {
-        assertTrue(agentEvents(watchOf(listOf(session("working"))), listOf(session("idle"))).single() is AgentEvent.TurnDone)
-        assertTrue(agentEvents(watchOf(listOf(session("working"))), listOf(session("shell"))).isEmpty())
+    @Test fun snapshotTransitionsDoNotSynthesizeReplies() {
+        val working = watchOf(listOf(session("working")))
+        assertTrue(agentEvents(working, listOf(session("idle"))).isEmpty())
+        assertTrue(agentEvents(working, listOf(session("done"))).isEmpty())
+        assertTrue(agentEvents(working, listOf(session("shell"))).isEmpty())
         assertTrue(agentEvents(watchOf(listOf(session("idle"))), listOf(session("idle"))).isEmpty())
         assertTrue(agentEvents(watchOf(listOf(session("waiting", "p1"))), listOf(session("working"))).isEmpty())
     }
@@ -29,14 +31,13 @@ class NotificationRulesTest {
         assertEquals(emptyList<AgentEvent>(), agentEvents(emptyMap(), listOf(session("idle"))))
     }
 
-    @Test fun changesDuringADisconnectNotifyAgainstTheLastBaselineWithoutRepeatingOldRequests() {
+    @Test fun reconnectDoesNotSynthesizeRepliesOrRepeatOldRequests() {
         // Antes da queda: um agente trabalhando e outro já com o pedido p1 avisado.
         val other = SessionKey("http://servidor:4747", "omp", ".omp", "s2")
         val before = watchOf(listOf(session("working"), session("waiting", "p1").copy(key = other)))
         // Depois da reconexão: o primeiro terminou; o segundo segue no mesmo p1.
         val events = agentEvents(before, listOf(session("idle"), session("waiting", "p1").copy(key = other)))
-        assertEquals(listOf(key), events.map { it.session.key })
-        assertTrue(events.single() is AgentEvent.TurnDone)
+        assertTrue(events.isEmpty())
     }
 
     @Test fun selectsTypedNoticesOnlyForMainSessions() {
@@ -48,15 +49,32 @@ class NotificationRulesTest {
             assertEquals(AgentEvent.Permission(main, wait, "teste"),
                 event(""""kind":"wait","agentId":"agente","wait":"$kind","reason":"teste""""))
         }
-        assertEquals(AgentEvent.TurnDone(main, 77_000, interrupted = true),
-            event(""""kind":"done","agentId":"agente","durationMs":77000,"interrupted":true"""))
-        assertEquals(AgentEvent.TurnDone(main), event(""""kind":"done","agentId":"agente","repeat":true"""))
         assertEquals(AgentEvent.Permission(main, WaitKind.Terminal),
             event(""""kind":"wait","agentId":"agente","wait":"terminal","repeat":true"""))
-        assertNull(event(""""kind":"done","agentId":"sub""""))
-        assertNull(event(""""kind":"done","agentId":"fora""""))
+        assertNull(event(""""kind":"wait","agentId":"sub","wait":"terminal""""))
+        assertNull(event(""""kind":"wait","agentId":"fora","wait":"terminal""""))
         assertNull(event(""""agentId":"agente","text":"Aviso antigo""""))
         assertNull(event(""""kind":"room","agentId":"agente""""))
+    }
+
+    @Test fun typedDoneNeedsARealReplyAndAnIdleMainSession() {
+        val idle = session("idle")
+        fun event(extra: String, current: SessionItem = idle): AgentEvent? {
+            val notice = wireJson.parseToJsonElement("""{"kind":"done","agentId":"agente"$extra}""").jsonObject
+            return noticeEvent(notice, listOf(current))
+        }
+
+        val reply = ""","excerpt":"  Resposta final  """"
+        assertEquals(AgentEvent.TurnDone(idle, 77_000, "Resposta final"), event("""$reply,"durationMs":77000"""))
+        assertEquals(AgentEvent.TurnDone(idle, excerpt = "Resposta final"), event("""$reply,"repeat":true"""))
+        assertNull(event(""))
+        assertNull(event(""","excerpt":"  """"))
+        assertNull(event(""","excerpt":42"""))
+        assertNull(event("""$reply,"interrupted":true"""))
+        assertNull(event(reply, idle.copy(sub = true)))
+        for (status in listOf("working", "waiting", "shell", "done", null)) {
+            assertNull(event(reply, idle.copy(status = status)), "status=$status")
+        }
     }
 
     @Test fun queuedPermissionNotifiesButOnlyTheHeadCanOpenApproval() {
@@ -95,15 +113,17 @@ class NotificationRulesTest {
     }
 
     @Test fun shortTurnLimitKeepsUnknownAndAllowsBoundary() {
-        val complete = session("done")
         val rules = NotificationRules()
-        val short = AgentEvent.TurnDone(complete, 29_999)
-        assertFalse(rules.allows(short))
-        assertTrue(rules.allows(AgentEvent.TurnDone(complete, 30_000)))
-        assertTrue(rules.allows(AgentEvent.TurnDone(complete)))
-        assertTrue(rules.copy(minTurn = false).allows(short))
-        assertFalse(rules.copy(done = false).allows(AgentEvent.TurnDone(complete)))
-        assertFalse(rules.copy(permission = false).allows(AgentEvent.Permission(session("waiting"), WaitKind.Terminal)))
+        val reply = AgentEvent.TurnDone(session("idle"), durationMs = 29_999, excerpt = "Resposta final")
+        val wait = AgentEvent.Permission(session("waiting"), WaitKind.Terminal)
+        assertFalse(rules.allows(reply))
+        assertTrue(rules.allows(reply.copy(durationMs = 30_000)))
+        assertTrue(rules.allows(reply.copy(durationMs = null)))
+        assertTrue(rules.copy(minTurn = false).allows(reply))
+        assertFalse(rules.copy(done = false).allows(reply.copy(durationMs = null)))
+        assertTrue(rules.copy(done = false).allows(wait))
+        assertFalse(rules.copy(permission = false).allows(wait))
+        assertTrue(rules.copy(permission = false).allows(reply.copy(durationMs = null)))
     }
 
     @Test fun suppressesOnlyTheVisibleSession() {
@@ -117,11 +137,14 @@ class NotificationRulesTest {
     @Test fun mergesSuccessiveBatchesWithoutDroppingOrDoubleCountingSessions() {
         val keys = (1..6).map { key.copy(sessionId = "s$it") }
         val summary = linkedSetOf<SessionKey>()
-        assertFalse(mergeAlertBatch(summary, keys.take(2).toSet()))
+        fun waiting(keys: List<SessionKey>) = keys.associateWith { AgentEvent.Permission(session("waiting").copy(key = it)) }
+        val reply = AgentEvent.TurnDone(session("idle").copy(key = keys.last()), excerpt = "Resposta final")
+        val replies = mapOf(reply.session.key to reply)
+        assertTrue(mergeAlertBatch(summary, waiting(keys.take(2)) + replies).isEmpty())
         assertTrue(summary.isEmpty())
-        assertTrue(mergeAlertBatch(summary, keys.take(3).toSet()))
-        assertTrue(mergeAlertBatch(summary, keys.slice(2..4).toSet()))
-        assertFalse(mergeAlertBatch(summary, keys.takeLast(2).toSet()))
+        assertEquals(keys.take(3).toSet(), mergeAlertBatch(summary, waiting(keys.take(3)) + replies))
+        assertEquals(keys.slice(2..4).toSet(), mergeAlertBatch(summary, waiting(keys.slice(2..4)) + replies))
+        assertTrue(mergeAlertBatch(summary, waiting(keys.takeLast(2))).isEmpty())
         assertEquals(keys.take(5).toSet(), summary)
     }
 

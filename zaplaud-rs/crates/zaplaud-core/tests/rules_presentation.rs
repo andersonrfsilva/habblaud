@@ -358,20 +358,12 @@ fn kotlin_notification_cases_and_priority() {
     assert!(matches!(
         agent_events(
             &watch_of(std::slice::from_ref(&working)),
-            &[session("idle", None)]
-        )
-        .as_slice(),
-        [AgentEvent::TurnDone(_)]
-    ));
-    assert!(matches!(
-        agent_events(
-            &watch_of(std::slice::from_ref(&working)),
             &[session("waiting", None)]
         )
         .as_slice(),
         [AgentEvent::TerminalWait(_)]
     ));
-    for status in ["shell", "busy", "running", "closed"] {
+    for status in ["idle", "done", "shell", "busy", "running", "closed"] {
         assert!(
             agent_events(
                 &watch_of(std::slice::from_ref(&working)),
@@ -405,7 +397,7 @@ fn kotlin_notification_cases_and_priority() {
         &watch_of(&[working.clone(), other.clone()]),
         &[session("idle", None), other],
     );
-    assert_eq!(events, vec![AgentEvent::TurnDone(session("idle", None))]);
+    assert!(events.is_empty());
     assert!(matches!(
         agent_events(&watch_of(&[working]), &[session("idle", Some("new"))]).as_slice(),
         [AgentEvent::Permission(_)]
@@ -429,21 +421,20 @@ fn kotlin_notification_cases_and_priority() {
 fn kotlin_notification_text_cases() {
     let s = session("idle", None);
     let event = AgentEvent::Permission(s.clone());
-    assert_eq!(alert_text(&event), "notify_permission");
+    assert_eq!(alert_text(&event, |key| key), "notify_permission");
     assert_eq!(
-        alert_text(&AgentEvent::Permission(SessionItem {
-            permission_question: true,
-            ..s.clone()
-        })),
+        alert_text(
+            &AgentEvent::Permission(SessionItem { permission_question: true, ..s.clone() }),
+            |key| key,
+        ),
         "notify_question"
     );
-    assert_eq!(alert_text(&AgentEvent::TurnDone(s.clone())), "notify_done");
     assert_eq!(alert_subtitle(&event, false).as_deref(), Some("Projeto"));
     assert_eq!(
         alert_subtitle(&event, true).as_deref(),
         Some("Projeto · servidor:4747")
     );
-    let no = AgentEvent::TurnDone(SessionItem { project: None, ..s });
+    let no = AgentEvent::Permission(SessionItem { project: None, ..s });
     assert_eq!(alert_subtitle(&no, false), None);
     assert_eq!(alert_subtitle(&no, true).as_deref(), Some("servidor:4747"));
 }
@@ -953,7 +944,6 @@ fn kotlin_fixture_notification_golden() {
         .map(|event| {
             let (kind, s) = match event {
                 AgentEvent::Permission(s) => ("permission", s),
-                AgentEvent::TurnDone(s) => ("done", s),
                 AgentEvent::TerminalWait(s) => ("waiting", s),
                 AgentEvent::NoticeWait(..) | AgentEvent::NoticeDone(..) => unreachable!("diff sem notice"),
             };

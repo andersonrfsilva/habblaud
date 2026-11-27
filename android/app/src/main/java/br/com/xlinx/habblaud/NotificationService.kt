@@ -83,18 +83,19 @@ class NotificationService : Service() {
             delay(ALERT_BATCH_WINDOW_MS)
             val ready = pending.filterKeys { !MainActivity.isShowing(it) }
             pending.keys.retainAll(ready.keys)
-            if (mergeAlertBatch(summarized, ready.keys)) {
-                ready.keys.forEach { cancelAlert(this@NotificationService, it); pending.remove(it) }
+            val batched = mergeAlertBatch(summarized, ready)
+            if (batched.isNotEmpty()) {
+                batched.forEach { cancelAlert(this@NotificationService, it); pending.remove(it) }
                 updateSummary()
-            } else {
-                for ((key, event) in ready) {
-                    val (id, notification) = alertNotification(this@NotificationService, event, multipleServers)
-                    if (pending[key] != event) continue
-                    pending.remove(key)
-                    if (!MainActivity.isShowing(key)) {
-                        removeFromSummary(key)
-                        post(id, notification)
-                    }
+            }
+            for ((key, event) in ready) {
+                if (key in batched) continue
+                val (id, notification) = alertNotification(this@NotificationService, event, multipleServers)
+                if (pending[key] != event) continue
+                pending.remove(key)
+                if (!MainActivity.isShowing(key)) {
+                    removeFromSummary(key)
+                    post(id, notification)
                 }
             }
             batchJob = null

@@ -175,9 +175,7 @@
     <string name="channel_connection">Conexão em segundo plano</string>
     <string name="notify_permission">Pede sua aprovação</string>
     <string name="notify_question">Tem uma pergunta para você</string>
-    <string name="notify_done">Terminou o turno</string>
     <string name="notify_waiting">Espera sua resposta no terminal</string>
-    <string name="notify_interrupted">Turno interrompido</string>
     <plurals name="notify_batch">
         <item quantity="one">%1$d agente precisa de atenção</item>
         <item quantity="other">%1$d agentes precisam de atenção</item>

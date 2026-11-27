@@ -34,10 +34,6 @@ pub fn agent_events(
                 && session.permission_id.is_none()
             {
                 Some(AgentEvent::TerminalWait(session.clone()))
-            } else if before.and_then(|s| s.status.as_deref()) == Some("working")
-                && matches!(session.status.as_deref(), Some("idle" | "done"))
-            {
-                Some(AgentEvent::TurnDone(session.clone()))
             } else {
                 None
             }
@@ -65,12 +61,10 @@ pub fn notice_event(notice: Notice, sessions: &[SessionItem]) -> Option<AgentEve
             };
             Some(AgentEvent::NoticeWait(session.clone(), wait, notice.reason, request_id))
         }
-        Some("done") => Some(AgentEvent::NoticeDone(
-            session.clone(),
-            notice.duration_ms,
-            notice.interrupted,
-            notice.excerpt.filter(|text| !text.trim().is_empty()),
-        )),
+        Some("done") if !notice.interrupted && session.status.as_deref() == Some("idle") => {
+            let excerpt = notice.excerpt.filter(|text| !text.trim().is_empty())?;
+            Some(AgentEvent::NoticeDone(session.clone(), notice.duration_ms, excerpt))
+        }
         _ => None,
     }
 }
@@ -114,22 +108,18 @@ pub fn alert_reason(event: &AgentEvent) -> Option<String> {
         None => reason.to_owned(),
     })
 }
-/// O começo da resposta substitui "Terminou o turno" quando o servidor manda; turno interrompido mantém o aviso.
-pub fn alert_excerpt(event: &AgentEvent) -> Option<&str> {
-    match event {
-        AgentEvent::NoticeDone(_, _, false, Some(excerpt)) => Some(excerpt.trim()),
-        _ => None,
-    }
-}
-pub fn alert_text(event: &AgentEvent) -> &'static str {
-    match event {
+pub fn alert_text(
+    event: &AgentEvent,
+    localize: impl FnOnce(&'static str) -> &'static str,
+) -> &str {
+    let key = match event {
         AgentEvent::Permission(session) if session.permission_question => "notify_question",
         AgentEvent::NoticeWait(_, WaitKind::Question, ..) => "notify_question",
         AgentEvent::Permission(_) | AgentEvent::NoticeWait(_, WaitKind::Permission, ..) => "notify_permission",
         AgentEvent::TerminalWait(_) | AgentEvent::NoticeWait(_, WaitKind::Terminal, ..) => "notify_waiting",
-        AgentEvent::NoticeDone(_, _, true, _) => "notify_interrupted",
-        AgentEvent::TurnDone(_) | AgentEvent::NoticeDone(..) => "notify_done",
-    }
+        AgentEvent::NoticeDone(_, _, excerpt) => return excerpt.trim(),
+    };
+    localize(key)
 }
 pub fn alert_subtitle(event: &AgentEvent, multiple_servers: bool) -> Option<String> {
     let session = event.session();

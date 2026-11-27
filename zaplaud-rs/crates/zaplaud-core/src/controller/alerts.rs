@@ -9,6 +9,7 @@ pub enum AlertUpdate {
     Fallback(AgentEvent),
     Notice(AgentEvent),
     Withdraw(SessionKey),
+    WithdrawDone(SessionKey),
 }
 
 /// Baseline conservada nas quedas; foco e preferências nunca atrasam eventos antigos.
@@ -42,6 +43,10 @@ impl AlertController {
                         || (before.permission_id.is_some() && after.permission_id.is_none())
                 }) {
                     self.updates.push(AlertUpdate::Withdraw(key.clone()));
+                } else if before.status.as_deref() == Some("idle")
+                    && current.get(key).is_some_and(|after| after.status.as_deref() != Some("idle"))
+                {
+                    self.updates.push(AlertUpdate::WithdrawDone(key.clone()));
                 }
             }
             if !self.seen_kind || self.first_snapshot {
@@ -95,13 +100,19 @@ mod tests {
         c.snapshot(std::slice::from_ref(&working));
         c.take_updates();
         c.connected();
-        // Nenhum reset da baseline entre desconexão e novo snapshot.
-        c.notice(notice(r#"{"kind":"arrive"}"#), std::slice::from_ref(&working));
+        // A reconexão preserva a baseline sem inferir conclusão pelo snapshot.
         c.snapshot(&[item("idle", None)]);
+        assert!(c.take_updates().is_empty());
+        c.snapshot(std::slice::from_ref(&working));
+        assert!(matches!(c.take_updates().as_slice(), [AlertUpdate::Withdraw(_)]));
+        c.snapshot(&[item("waiting", None)]);
         assert!(matches!(
             c.take_updates().as_slice(),
-            [AlertUpdate::Fallback(AgentEvent::TurnDone(_))]
+            [AlertUpdate::Fallback(AgentEvent::TerminalWait(_))]
         ));
+        c.notice(notice(r#"{"kind":"arrive"}"#), std::slice::from_ref(&working));
+        c.snapshot(&[item("idle", None)]);
+        assert!(c.take_updates().is_empty());
         c.snapshot(&[item("idle", Some("p"))]);
         assert!(c.take_updates().is_empty());
         c.snapshot(&[item("idle", None)]);
@@ -143,12 +154,8 @@ mod tests {
             parse(r#"{"kind":"wait","agentId":"agent","wait":"question","reason":"Pode?"}"#),
             sessions,
         ).unwrap();
-        assert_eq!(alert_text(&wait), "notify_question");
+        assert_eq!(alert_text(&wait, |key| key), "notify_question");
         assert_eq!(alert_reason(&wait).as_deref(), Some("Pode?"));
-        let mut sub = item.clone();
-        sub.sub = true;
-        assert!(notice_event(parse(r#"{"kind":"done","agentId":"agent"}"#), &[sub]).is_none());
-        assert!(notice_event(parse(r#"{"kind":"done","agentId":"other"}"#), sessions).is_none());
         assert!(notice_event(parse(r#"{"agentId":"agent"}"#), sessions).is_none());
         assert!(matches!(
             notice_event(parse(r#"{"kind":"wait","agentId":"agent","wait":"terminal","repeat":true}"#), sessions),
@@ -160,27 +167,60 @@ mod tests {
         let mut other = item.key.clone();
         other.origin = "http://other".into();
         assert!(prefs.allows(&wait, Some(&other)));
+        assert!(!batch_summary(2));
+        assert!(batch_summary(3));
+    }
+
+    #[test]
+    fn typed_done_requires_idle_final_text_and_respects_duration() {
+        use crate::rules::alerts::{AlertPreferences, alert_text};
+        let parse = |json| serde_json::from_str(json).unwrap();
+        let idle = item("idle", None);
+        let sessions = std::slice::from_ref(&idle);
+        let valid = r#"{"kind":"done","agentId":"agent","excerpt":"Pronto."}"#;
+        for status in ["working", "waiting", "done", "offline"] {
+            assert!(notice_event(parse(valid), &[item(status, None)]).is_none());
+        }
+        let mut sub = idle.clone();
+        sub.sub = true;
+        assert!(notice_event(parse(valid), &[sub]).is_none());
+        assert!(notice_event(
+            parse(r#"{"kind":"done","agentId":"other","excerpt":"Pronto."}"#),
+            sessions,
+        ).is_none());
+        for json in [
+            r#"{"kind":"done","agentId":"agent"}"#,
+            r#"{"kind":"done","agentId":"agent","excerpt":" \n "}"#,
+            r#"{"kind":"done","agentId":"agent","excerpt":"Pronto.","interrupted":true}"#,
+            r#"{"kind":"activity","agentId":"agent","excerpt":"Pronto."}"#,
+        ] {
+            assert!(notice_event(parse(json), sessions).is_none(), "{json}");
+        }
+        let prefs = AlertPreferences { enabled: true, done: true, min_turn: true, ..Default::default() };
         for (duration, allowed) in [(None, true), (Some(29_999), false), (Some(30_000), true)] {
             let done = notice_event(
                 serde_json::from_value(serde_json::json!({
-                    "kind":"done", "agentId":"agent", "interrupted":true, "durationMs":duration, "repeat":true
+                    "kind":"done", "agentId":"agent", "excerpt":"  Pronto.  ", "durationMs":duration, "repeat":true
                 })).unwrap(),
                 sessions,
             ).unwrap();
-            assert_eq!(alert_text(&done), "notify_interrupted");
+            assert_eq!(alert_text(&done, |_| unreachable!("excerpt não é chave")), "Pronto.");
             assert_eq!(prefs.allows(&done, None), allowed);
             assert!((AlertPreferences { min_turn: false, ..prefs }).allows(&done, None));
         }
-        // O começo da resposta vira o texto do aviso; turno interrompido continua dizendo que foi interrompido.
-        let done = |interrupted: bool| notice_event(
-            serde_json::from_value(serde_json::json!({
-                "kind":"done", "agentId":"agent", "interrupted":interrupted, "excerpt":"Pronto. O deploy terminou."
-            })).unwrap(),
-            sessions,
-        ).unwrap();
-        assert_eq!(crate::rules::alerts::alert_excerpt(&done(false)), Some("Pronto. O deploy terminou."));
-        assert_eq!(crate::rules::alerts::alert_excerpt(&done(true)), None);
-        assert!(!batch_summary(2));
-        assert!(batch_summary(3));
+    }
+
+    #[test]
+    fn leaving_idle_discards_pending_done() {
+        let mut c = AlertController::default();
+        let idle = item("idle", None);
+        let sessions = std::slice::from_ref(&idle);
+        c.snapshot(sessions);
+        c.notice(serde_json::from_str(
+            r#"{"kind":"done","agentId":"agent","excerpt":"Pronto."}"#,
+        ).unwrap(), sessions);
+        assert!(matches!(c.take_updates().as_slice(), [AlertUpdate::Notice(AgentEvent::NoticeDone(..))]));
+        c.snapshot(&[item("waiting", None)]);
+        assert!(matches!(c.take_updates().as_slice(), [AlertUpdate::WithdrawDone(key)] if *key == idle.key));
     }
 }

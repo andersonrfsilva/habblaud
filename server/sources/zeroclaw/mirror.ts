@@ -189,7 +189,7 @@ export class ZeroClawMirror {
       const turn = this.turns.get(event.sessionId)!;
       // A consulta periódica do estado do turno chega no meio do streaming: só fecha o bloco quando vai gravar algo.
       const streaming = event.type === 'turn-state' || event.type === 'frame' && (event.frame.type === 'chunk' || event.frame.type === 'thinking');
-      if (!streaming) await this.flushPending(event.sessionId, turn);
+      if (!streaming) await this.flushPending(event.sessionId, turn, event.type === 'frame' && event.frame.type === 'done');
       if (event.type === 'session-open') {
         const { sessionId, agent, name, cwd, cast, officeAgentId } = event.descriptor;
         await this.setMetadata({ sessionId, agent, name, cwd, ...(cast !== undefined ? { cast } : {}), ...(officeAgentId !== undefined ? { officeAgentId } : {}) });
@@ -276,12 +276,12 @@ export class ZeroClawMirror {
   }
 
   /** Grava o texto ou raciocínio acumulado do bloco como uma única mensagem (um item no terminal). */
-  private async flushPending(sessionId: string, turn: Turn): Promise<void> {
+  private async flushPending(sessionId: string, turn: Turn, final = false): Promise<void> {
     const pending = turn.pending;
     if (!pending) return;
     turn.pending = undefined;
     const block = pending.kind === 'text' ? { type: 'text', text: pending.text } : { type: 'thinking', thinking: pending.text };
-    await this.append(sessionId, [this.record(sessionId, { type: 'assistant', message: { id: randomUUID(), role: 'assistant', content: [block], stop_reason: null } })]);
+    await this.append(sessionId, [this.record(sessionId, { type: 'assistant', message: { id: randomUUID(), role: 'assistant', content: [block], stop_reason: null, ...(final && pending.kind === 'text' ? { finalReply: true } : {}) } })]);
   }
 
   private serial<T>(sessionId: string, operation: () => Promise<T>): Promise<T> {

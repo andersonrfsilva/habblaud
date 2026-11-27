@@ -146,6 +146,8 @@ export interface Activity {
   text: string;
   /** Detalhe opcional (comando completo, caminho, consulta...), até ~300 caracteres. */
   detail?: string;
+  /** O transcript confirmou que este texto encerrou o turno. */
+  finalReply?: boolean;
   /** Nome bruto da ferramenta, quando houver. */
   tool?: string;
   /** Epoch ms. */

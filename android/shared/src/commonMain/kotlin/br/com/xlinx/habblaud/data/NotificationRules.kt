@@ -1,6 +1,7 @@
 package br.com.xlinx.habblaud.data
 
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 /** O que importa de uma sessão aberta para decidir se avisa. */
 data class AgentWatch(val status: String?, val permissionId: String?)
@@ -14,13 +15,12 @@ sealed interface AgentEvent {
         val reason: String? = null,
         val requestId: String? = session.permissionId.takeUnless { wait == WaitKind.Terminal },
     ) : AgentEvent
-    /** O agente estava trabalhando e parou: terminou o turno. */
+    /** Resposta final de um turno que deixou a sessão parada. */
     data class TurnDone(
         override val session: SessionItem,
         val durationMs: Long? = null,
-        val interrupted: Boolean = false,
-        /** Começo da última resposta do turno, quando o servidor manda. */
-        val excerpt: String? = null,
+        /** Começo da resposta final enviado pelo servidor. */
+        val excerpt: String,
     ) : AgentEvent
 }
 
@@ -50,12 +50,12 @@ internal fun noticeEvent(notice: JsonObject, sessions: List<SessionItem>): Agent
             if (requestId != null && session.permissionId == null) return null
             AgentEvent.Permission(session, wait, notice.string("reason"), requestId)
         }
-        "done" -> AgentEvent.TurnDone(
-            session,
-            notice.string("durationMs")?.toLongOrNull(),
-            notice.flag("interrupted"),
-            notice.string("excerpt")?.trim()?.takeIf { it.isNotEmpty() },
-        )
+        "done" -> {
+            if (session.status != "idle" || notice.flag("interrupted")) return null
+            val excerpt = (notice["excerpt"] as? JsonPrimitive)?.takeIf { it.isString }
+                ?.content?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+            AgentEvent.TurnDone(session, notice.string("durationMs")?.toLongOrNull(), excerpt)
+        }
         else -> null
     }
 }
@@ -66,10 +66,12 @@ internal fun notificationPermission(session: SessionItem?, key: SessionKey, requ
     session?.takeIf { it.key == key && it.permissionId == requestId }
 
 const val ALERT_BATCH_WINDOW_MS = 3_000L
-fun mergeAlertBatch(summarized: MutableSet<SessionKey>, ready: Set<SessionKey>): Boolean {
-    if (ready.size < 3) return false
-    summarized.addAll(ready)
-    return true
+fun mergeAlertBatch(summarized: MutableSet<SessionKey>, ready: Map<SessionKey, AgentEvent>): Set<SessionKey> {
+    val waiting = mutableSetOf<SessionKey>()
+    for ((key, event) in ready) if (event is AgentEvent.Permission) waiting.add(key)
+    if (waiting.size < 3) return emptySet()
+    summarized.addAll(waiting)
+    return waiting
 }
 
 /** Inclui promoções da fila mesmo quando o servidor já manda avisos tipados. */
@@ -85,7 +87,6 @@ internal fun agentEvents(
         permission != null && permission != before.permissionId && (useFallback || before.permissionId != null) -> AgentEvent.Permission(session)
         !useFallback -> null
         permission == null && before.status == "working" && session.status == "waiting" -> AgentEvent.Permission(session, WaitKind.Terminal)
-        before.status == "working" && session.status in setOf("idle", "done") -> AgentEvent.TurnDone(session)
         else -> null
     }
 }

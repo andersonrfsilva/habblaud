@@ -21,7 +21,7 @@ use tokio::{
 use zaplaud_core::{
     controller::alerts::AlertUpdate,
     model::{AgentEvent, SessionKey},
-    rules::alerts::{AlertPreferences, alert_excerpt, alert_reason, alert_subtitle, alert_text, batch_summary},
+    rules::alerts::{AlertPreferences, alert_reason, alert_subtitle, alert_text, batch_summary},
 };
 
 type PermissionHandler = Box<dyn Fn(String, String)>;
@@ -115,11 +115,16 @@ pub fn setup(
                         pending.remove(&key);
                         native.withdraw(&key).await;
                     }
+                    Some(AlertInput::Update(AlertUpdate::WithdrawDone(key))) => {
+                        if pending.get(&key).is_some_and(|(event, _)| !event.is_wait()) {
+                            pending.remove(&key);
+                        }
+                    }
                     Some(AlertInput::Update(update)) => {
                         let (event, fallback) = match update {
                             AlertUpdate::Fallback(event) => (event, true),
                             AlertUpdate::Notice(event) => (event, false),
-                            AlertUpdate::Withdraw(_) => unreachable!(),
+                            AlertUpdate::Withdraw(_) | AlertUpdate::WithdrawDone(_) => unreachable!(),
                         };
                         let key = &event.session().key;
                         // O notice chega depois do snapshot do mesmo lote e substitui o diff.
@@ -137,37 +142,39 @@ pub fn setup(
                 },
                 _ = tokio::time::sleep_until(deadline.unwrap_or_else(Instant::now)), if deadline.is_some() => {
                     pending.retain(|_, (event, _)| prefs.allows(event, focused_session(selected.as_ref())));
-                    if batch_summary(pending.len()) {
-                        native.summarize(pending.drain().map(|(key, _)| key)).await;
-                    } else {
-                        for (key, (event, _)) in pending.drain() {
-                            let session = event.session();
-                            let title = session.character_name.as_deref().unwrap_or(&session.title);
-                            let text = strings::lookup(alert_text(&event)).expect("recurso da notificação");
-                            let mut body = alert_excerpt(&event).unwrap_or(text).to_owned();
-                            if let Some(reason) = alert_reason(&event) {
-                                body.push_str(": ");
-                                body.push_str(&reason);
-                            }
-                            if let Some(subtitle) = alert_subtitle(&event, multiple_servers) {
-                                body.push_str(" · ");
-                                body.push_str(&subtitle);
-                            }
-                            if let Ok(serialized) = key.serialize() {
-                                let notification = notification(title, &body);
-                                #[cfg(not(target_os = "macos"))]
-                                let notification = {
-                                    use std::hash::{DefaultHasher, Hash, Hasher};
-                                    let mut hash = DefaultHasher::new();
-                                    serialized.hash(&mut hash);
-                                    let mut notification = notification;
-                                    notification.id((hash.finish() as u32).max(1));
-                                    notification
-                                };
-                                let target = (serialized, event.permission_id().map(str::to_owned));
-                                let action = open(weak.clone(), commands.clone(), Some(target));
-                                native.show_session(notification, key, action).await;
-                            }
+                    let waits = pending.values().filter(|(event, _)| event.is_wait()).count();
+                    if batch_summary(waits) {
+                        native.summarize(pending.extract_if(|_, (event, _)| event.is_wait())
+                            .map(|(key, _)| key)).await;
+                    }
+                    for (key, (event, _)) in pending.drain() {
+                        let session = event.session();
+                        let title = session.character_name.as_deref().unwrap_or(&session.title);
+                        let mut body = alert_text(&event, |key| {
+                            strings::lookup(key).expect("recurso da notificação")
+                        }).to_owned();
+                        if let Some(reason) = alert_reason(&event) {
+                            body.push_str(": ");
+                            body.push_str(&reason);
+                        }
+                        if let Some(subtitle) = alert_subtitle(&event, multiple_servers) {
+                            body.push_str(" · ");
+                            body.push_str(&subtitle);
+                        }
+                        if let Ok(serialized) = key.serialize() {
+                            let notification = notification(title, &body);
+                            #[cfg(not(target_os = "macos"))]
+                            let notification = {
+                                use std::hash::{DefaultHasher, Hash, Hasher};
+                                let mut hash = DefaultHasher::new();
+                                serialized.hash(&mut hash);
+                                let mut notification = notification;
+                                notification.id((hash.finish() as u32).max(1));
+                                notification
+                            };
+                            let target = (serialized, event.permission_id().map(str::to_owned));
+                            let action = open(weak.clone(), commands.clone(), Some(target));
+                            native.show_session(notification, key, action).await;
                         }
                     }
                     deadline = None;

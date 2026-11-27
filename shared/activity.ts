@@ -9,6 +9,7 @@ export interface ActivityDescription {
   icon: string;
   text: string;
   detail?: string;
+  finalReply?: boolean;
   questions?: AskQuestion[];
 }
 

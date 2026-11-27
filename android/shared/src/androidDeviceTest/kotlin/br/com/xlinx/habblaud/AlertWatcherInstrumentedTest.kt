@@ -35,6 +35,20 @@ class AlertWatcherInstrumentedTest {
         assertPermission(watch(first, stream(snapshot(permission = true))))
     }
 
+    @Test fun onlyTypedFinalReplyNotifiesWhileIdle() {
+        fun notice(fields: String) = "event: notice\ndata: " +
+            """{"kind":"done","agentId":"agent"$fields}""" + "\n\n"
+
+        val response = snapshot(permission = false, status = "working") +
+            notice(""","excerpt":"Mensagem intermediária"""") +
+            snapshot(permission = false, status = "idle") +
+            notice("") +
+            notice(""","interrupted":true,"excerpt":"Resposta interrompida"""") +
+            notice(""","excerpt":"Resposta final"""")
+        val events = watch(stream(response))
+        assertEquals(listOf("Resposta final"), events.map { (it as AgentEvent.TurnDone).excerpt })
+    }
+
     @Test fun unauthorizedStopsWatching() {
         assertTrue(watch().isEmpty())
     }
@@ -77,10 +91,10 @@ class AlertWatcherInstrumentedTest {
         assertEquals("approval", event.session.permissionId)
     }
 
-    private fun snapshot(permission: Boolean): String {
+    private fun snapshot(permission: Boolean, status: String = "idle"): String {
         val approval = if (permission) ""","permission":{"id":"approval"}""" else ""
         return "event: snapshot\ndata: " +
-            """{"agents":[{"id":"agent","kind":"main","account":"account","sessionId":"session"$approval}]}""" + "\n\n"
+            """{"agents":[{"id":"agent","kind":"main","account":"account","sessionId":"session","status":"$status"$approval}]}""" + "\n\n"
     }
 
     private fun stream(body: String) = MockResponse().setHeader("Content-Type", "text/event-stream").setBody(body)

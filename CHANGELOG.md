@@ -26,11 +26,9 @@ do meio (0.**3**.0).
 - **Zaplaud (Android, iPad e desktop):** as sessões fixadas e favoritas ficam guardadas no servidor e valem em todos
   os aparelhos: fixar ou favoritar num deles aparece nos outros na hora. As marcas que cada aparelho já tinha sobem
   sozinhas e se somam. Com um servidor de versão anterior, elas continuam só no aparelho.
-- **Zaplaud (Android e desktop):** os avisos vêm do evento exato do servidor: avisa também quando o agente espera
-  resposta no terminal e quando o turno é interrompido. Uma notificação por conversa, que some ao abrir ou responder;
-  três ou mais de uma vez viram uma só; turnos com menos de 30 s não avisam (dá para mudar em Configurações). Com o
-  app aberto, só a conversa na tela fica sem aviso. Na primeira abertura o app pergunta se deve avisar. O aviso de fim
-  de turno mostra o começo da resposta no lugar de "Terminou o turno".
+- **Zaplaud (Android e desktop):** o aviso de resposta só aparece quando o agente está parado e há texto final.
+  Comentários intermediários, interrupções e conclusões sem texto não geram esse aviso. Pedidos de aprovação
+  e perguntas têm uma preferência separada. A conversa aberta continua sem notificação.
 - **Zaplaud (Android e desktop):** a lista de conversas mostra no fim a cota semanal (7 dias) de cada provedor, numa
   linha compacta com a data de renovação, barra curta e percentual. Em tenants o provedor aparece como «XLinx».
 - **Zaplaud (Android e desktop):** os botões «Todos» e «Favoritas» da lista ficam recolhidos e aparecem junto com a

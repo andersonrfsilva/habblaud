@@ -442,7 +442,11 @@ class LineParser {
         this.push(SPECIAL.think(), { suffix, msgId });
       } else if (b.type === 'text') {
         const text = str(b.text);
-        if (text) this.push(SPECIAL.respond(text), { suffix, msgId });
+        if (text) {
+          const reply = SPECIAL.respond(text);
+          if (s.ended || m.finalReply === true) reply.finalReply = true;
+          this.push(reply, { suffix, msgId });
+        }
       } else if (b.type === 'tool_use') {
         this.toolUse(b, suffix, msgId);
       }
