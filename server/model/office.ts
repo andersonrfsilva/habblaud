@@ -407,7 +407,7 @@ export class Office {
     this.markDirty();
   }
 
-  setStatus(id: string, status: AgentStatus, waitingFor?: string): void {
+  setStatus(id: string, status: AgentStatus, waitingFor?: string, eventAt?: number): void {
     const rec = this.agents.get(id);
     if (!rec) return;
     const info = rec.info;
@@ -423,7 +423,7 @@ export class Office {
     else delete info.waitingFor;
     const room = this.roomName(info.roomId);
 
-    if (status === 'working' && (prev === 'idle' || prev === 'shell' || rec.turnStart === undefined)) rec.turnStart = now;
+    if (status === 'working' && (prev === 'idle' || prev === 'shell' || rec.turnStart === undefined)) rec.turnStart = eventAt ?? now;
     if (status !== 'idle') delete rec.pendingDoneAt;
     if (status === 'shell' && prev !== 'shell') {
       // Terminou o turno com shell(s) rodando: o balão (fillShellActivity) e o aviso falam da espera, não de "concluiu".
@@ -469,8 +469,8 @@ export class Office {
       }
       if (info.provider === 'omp' || info.provider === 'codex') {
         if (cur?.kind === 'done' && cur.at >= (rec.turnStart ?? now)) {
-          if (cur.detail) this.doneNotice(rec, now, cur.detail);
-        } else if (!interrupted && !this.booting) rec.pendingDoneAt = now;
+          if (cur.detail) this.doneNotice(rec, eventAt ?? now, cur.detail);
+        } else if (!interrupted && !this.booting) rec.pendingDoneAt = eventAt ?? now;
       } else {
         // Não buscar uma resposta mais antiga por trás de ferramentas ou de uma falha.
         const last = rec.history.findLast(a => a.kind !== 'done');

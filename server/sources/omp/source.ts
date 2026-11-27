@@ -565,7 +565,7 @@ export class OmpSource implements AgentSource, OmpLive {
     if (!t.inOffice) return;
     const office = this.opts.office;
     if (t.kind === 'main') {
-      office.setStatus(t.key, t.status, t.waitingFor);
+      office.setStatus(t.key, t.status, t.waitingFor, t.statusAt);
       return;
     }
     if (t.status === 'idle') {

@@ -183,6 +183,22 @@ describe('fonte do omp: presença pelo arquivo', () => {
     expect(c.poll().snapshot.agents.find((a) => a.id === KEY)?.tasks).toEqual([]);
   });
 
+  it('entrega a resposta de um turno inteiro lido depois que terminou, com a duração do transcript', () => {
+    const c = setup();
+    const path = c.path();
+    c.session(path, [L.model(c), L.user(c), L.stop(c)]);
+    c.source.boot();
+    expect(c.agent()?.status).toBe('idle');
+    c.advance(1_000);
+    const start = L.tool(c, 'cont', 'read', { path: 'valor.txt' });
+    c.advance(31_000);
+    c.append(path, [start, L.result(c, 'cont', 'read'), L.stop(c)]);
+    c.advance(5_000);
+    const completed = c.poll().notices.filter(n => n.kind === 'done');
+    expect(completed).toMatchObject([{ agentId: KEY, excerpt: 'Pronto', durationMs: 31_000 }]);
+    expect(c.poll().notices.filter(n => n.kind === 'done')).toEqual([]);
+  });
+
   it('arquivo crescendo: nova instrução volta a trabalhar, ferramenta com erro, subagente aparece e entrega', () => {
     const c = setup();
     const path = c.path();
