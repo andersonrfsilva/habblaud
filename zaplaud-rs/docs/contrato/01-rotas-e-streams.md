@@ -231,7 +231,7 @@ Fontes: `D/Usage.kt:21-38`; `D/Roles.kt:23-27`; consumidor: `K/SettingsScreen.kt
 
 ### Entrada de conversa Kotlin
 
-O mesmo decoder vale para cada kind. id:S obrigatório; sem id descarta. kind:S default unknown; tipos conhecidos: user, assistant, thinking, tool, result, system. Qualquer outro vira unknown com texto vazio, mas preserva campos comuns. Para tipo conhecido, text final concatena todos os campos presentes `text:S`, `input:S`, `detail:S` nessa ordem com LF; não escolhe somente um. Isso inclui strings vazias e primitivas numéricas/booleanas aceitas pelo helper. `D/ApiModels.kt:51-60`.
+O mesmo decoder vale para cada kind. id:S obrigatório; sem id descarta. kind:S default unknown; tipos conhecidos: user, assistant, thinking, advisor, tool, result, system. `advisor` leva em `text` um comentário público do omp, distinto da resposta do assistente. Qualquer outro vira unknown com texto vazio, mas preserva campos comuns. Para tipo conhecido, text final concatena todos os campos presentes `text:S`, `input:S`, `detail:S` nessa ordem com LF; não escolhe somente um. Isso inclui strings vazias e primitivas numéricas/booleanas aceitas pelo helper. `D/ApiModels.kt:51-60`.
 
 Campos comuns: `title:S?=null`, `toolUseId:S?=null`, `truncated:flag=false`, `at:JsonPrimitive.longOrNull >0 senão null`. `at` usa longOrNull diretamente, não helper string; valores inválidos não causam fallback. kind=unknown também preserva title/toolUseId/truncated/at. Campos server `tool`, `inputKind`, `error`, `level` **não são lidos**. `D/ApiModels.kt:54-58`.
 

@@ -1,6 +1,8 @@
 package br.com.xlinx.habblaud
 
 import br.com.xlinx.habblaud.data.TerminalEntry
+import br.com.xlinx.habblaud.data.wireJson
+import kotlinx.serialization.json.jsonObject
 import kotlin.test.*
 
 class ConversationViewTest {
@@ -10,6 +12,29 @@ class ConversationViewTest {
     @Test fun promptsShowsOnlyYourMessagesAndAgentReplies() = assertEquals(listOf("user", "assistant"), kinds("prompts"))
     @Test fun noToolsKeepsThinkingAndSystem() = assertEquals(listOf("user", "thinking", "assistant", "system"), kinds("no_tools"))
     @Test fun allShowsEverything() = assertEquals(entries.map { it.kind }, kinds("all"))
+
+    @Test fun advisorCommentsParseAndStayInTheirOwnTurnGroupOutsidePrompts() {
+        val first = assertNotNull(TerminalEntry.parse(wireJson.parseToJsonElement(
+            """{"id":"advisor-1","kind":"advisor","text":"Primeiro comentário","at":7}""",
+        ).jsonObject))
+        assertEquals(TerminalEntry("advisor-1", "advisor", "Primeiro comentário", at = 7), first)
+
+        val input = TerminalEntry("user", "user", "Pedido")
+        val thought = TerminalEntry("thought", "thinking", "Pensamento do agente")
+        val tool = TerminalEntry("tool", "tool", "pwd")
+        val second = first.copy(id = "advisor-2", text = "Segundo comentário", at = 9)
+        val reply = TerminalEntry("reply", "assistant", "Resposta do agente")
+        val nextInput = input.copy(id = "user-2")
+        val nextAdvisor = first.copy(id = "advisor-3", text = "Outro turno")
+        val transcript = listOf(input, first, thought, tool, second, reply, nextInput, nextAdvisor)
+        val advisorGroup = EntryRow(first.copy(text = "Primeiro comentário\n\nSegundo comentário", at = 9), count = 2)
+
+        val rows = groupTurn(visibleEntries(transcript, "all"))
+        assertEquals(listOf(EntryRow(input), advisorGroup, EntryRow(thought), EntryRow(tool, tools = listOf(tool)),
+            EntryRow(reply), EntryRow(nextInput), EntryRow(nextAdvisor)), rows)
+        assertEquals(rows.filterNot { it.entry.kind == "tool" }, groupTurn(visibleEntries(transcript, "no_tools")))
+        assertEquals(listOf(input, reply, nextInput), visibleEntries(transcript, "prompts"))
+    }
 
     @Test fun thinkingAndToolsOfATurnBecomeOneCountedRowEach() {
         val rows = groupTurn(listOf(

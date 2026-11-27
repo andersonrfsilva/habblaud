@@ -162,11 +162,20 @@ fun SettingsScreen(apis: Map<String, HabblaudApi>, store: LocalStateStore, onClo
             while (true) {
                 try {
                     runtime = catalogRuntime(api.request("/api/cast/models"))
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    if (e is ApiException && e.status in listOf(401, 403, 404)) {
+                        runtime = null
+                        if (e.status == 401) { authenticated = false; summaryHttp = false; quotas = null; models = emptyList(); return@repeatOnLifecycle }
+                    }
+                    // Uma falha de transporte não muda o provedor nem deve fechar o seletor aberto.
+                }
+                try {
                     summaryHttp = httpSummaryAvailable(api.request("/api/health"))
                 } catch (e: Exception) {
                     if (e is CancellationException) throw e
-                    runtime = null; summaryHttp = false
-                    if (e is ApiException && e.status == 401) { authenticated = false; quotas = null; models = emptyList(); return@repeatOnLifecycle }
+                    if (e is ApiException && e.status in listOf(401, 403, 404)) summaryHttp = false
+                    if (e is ApiException && e.status == 401) { authenticated = false; runtime = null; quotas = null; models = emptyList(); return@repeatOnLifecycle }
                 }
                 delay(10_000)
             }
@@ -197,9 +206,14 @@ fun SettingsScreen(apis: Map<String, HabblaudApi>, store: LocalStateStore, onClo
         while (true) {
             try {
                 val r = wireJson.parseToJsonElement(api.request("/api/cast/roles")).jsonObject
-                roles = (r["roles"] as? JsonObject)?.let { o -> EDITABLE_ROLES.mapNotNull { role -> o.string(role)?.let { role to it } }.toMap() }
+                val reported = r["roles"] as? JsonObject
+                if (reported != null) roles = EDITABLE_ROLES.mapNotNull { role -> reported.string(role)?.let { role to it } }.toMap()
                 rolesPending = r["pending"]?.toString() == "true"
-                rolesStatus = if (r["available"]?.toString() == "true") "available" else "unavailable"
+                rolesStatus = when {
+                    r["available"]?.toString() != "true" -> "unavailable"
+                    roles == null -> "loading"
+                    else -> "available"
+                }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 if (e is ApiException && e.status == 401) { unauthorized = true; authenticated = false; runtime = null; summaryHttp = false; roles = null; return@repeatOnLifecycle }
@@ -213,12 +227,19 @@ fun SettingsScreen(apis: Map<String, HabblaudApi>, store: LocalStateStore, onClo
     var editingRole by remember(origin) { mutableStateOf<String?>(null) }
     LaunchedEffect(runtime, authenticated) { if (!ompTools(runtime) || !authenticated) editingRole = null }
     var rolesError by remember(origin) { mutableStateOf(false) }
+    var submittingRole by remember(origin) { mutableStateOf(false) }
     fun saveRole(role: String, value: String) {
-        if (!ompTools(runtime) || !authenticated) return
-        rolesError = false; rolesPending = true
+        if (!ompTools(runtime) || !authenticated || submittingRole) return
+        rolesError = false; submittingRole = true
         scope.launch {
-            try { api.request("/api/cast/roles", buildJsonObject { put("roles", buildJsonObject { put(role, value) }) }); rolesRefresh++ }
-            catch (e: Exception) { if (e is CancellationException) throw e; rolesPending = false; rolesError = true; if (e is ApiException && e.status == 401) { authenticated = false; runtime = null; summaryHttp = false; roles = null } }
+            try {
+                api.request("/api/cast/roles", buildJsonObject { put("roles", buildJsonObject { put(role, value) }) })
+                rolesPending = true; editingRole = null; rolesRefresh++
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                rolesError = true
+                if (e is ApiException && e.status == 401) { authenticated = false; runtime = null; summaryHttp = false; roles = null }
+            } finally { submittingRole = false }
         }
     }
     Scaffold(topBar = {
@@ -271,7 +292,7 @@ fun SettingsScreen(apis: Map<String, HabblaudApi>, store: LocalStateStore, onClo
                     EDITABLE_ROLES.forEach { role ->
                         val current = roles?.get(role)
                         val (model, level) = current?.let(::splitRole) ?: (null to null)
-                        Row(Modifier.fillMaxWidth().clickable(enabled = rolesStatus == "available" && !rolesPending) { editingRole = role }.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                        Row(Modifier.fillMaxWidth().clickable(enabled = rolesStatus == "available" && !rolesPending && !submittingRole) { rolesError = false; editingRole = role }.padding(horizontal = 16.dp, vertical = 10.dp)) {
                             Column(Modifier.weight(1f)) {
                                 Text(stringResource(roleLabel(role)), style = MaterialTheme.typography.bodyLarge)
                                 Text(listOfNotNull(model?.let(::modelLabel) ?: stringResource(Res.string.role_default), level?.let { thinkingLabel(it) }).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -285,7 +306,7 @@ fun SettingsScreen(apis: Map<String, HabblaudApi>, store: LocalStateStore, onClo
                 }
             }
             editingRole?.let { role ->
-                RoleDialog(role, roles?.get(role), models, onDismiss = { editingRole = null }) { value -> editingRole = null; saveRole(role, value) }
+                RoleDialog(role, roles?.get(role), models, rolesError, submittingRole, onDismiss = { if (!submittingRole) editingRole = null }) { value -> saveRole(role, value) }
             }
             }
 
@@ -437,7 +458,7 @@ private fun roleLabel(role: String) = when (role) {
 
 /** Escolhe o modelo (os anunciados pelos agentes, o atual ou um `provedor/modelo` digitado) e depois o raciocínio do papel. */
 @Composable
-private fun RoleDialog(role: String, current: String?, models: List<String>, onDismiss: () -> Unit, onSave: (String) -> Unit) {
+private fun RoleDialog(role: String, current: String?, models: List<String>, saveError: Boolean, saving: Boolean, onDismiss: () -> Unit, onSave: (String) -> Unit) {
     val (currentModel, currentLevel) = current?.let(::splitRole) ?: (null to null)
     var model by remember { mutableStateOf<String?>(null) }
     var filter by remember { mutableStateOf("") }
@@ -470,6 +491,8 @@ private fun RoleDialog(role: String, current: String?, models: List<String>, onD
                 OutlinedTextField(typed, { typed = it }, Modifier.fillMaxWidth().padding(top = 8.dp), label = { Text(stringResource(Res.string.role_type_model)) }, singleLine = true, isError = typed.isNotBlank() && !valid,
                     trailingIcon = { TextButton(onClick = { model = typed.trim() }, enabled = valid) { Text(stringResource(Res.string.role_use)) } })
             } else {
+                if (saveError) Text(stringResource(Res.string.roles_error), color = MaterialTheme.colorScheme.error)
+                if (saving) Text(stringResource(Res.string.roles_saving))
                 Text(stringResource(Res.string.role_pick_thinking), style = MaterialTheme.typography.titleSmall)
                 RadioRow(stringResource(Res.string.role_default), model == currentModel && currentLevel == null) { onSave(joinRole(model!!, null)) }
                 THINKING_LEVELS.forEach { level -> RadioRow(thinkingLabel(level), model == currentModel && level == currentLevel) { onSave(joinRole(model!!, level)) } }

@@ -1341,7 +1341,13 @@ private fun EntryView(entry: TerminalEntry, results: Map<String?, List<TerminalE
         return
     }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (entry.kind == "user") Arrangement.End else Arrangement.Start) {
-        val isGroup = entry.kind == "tool" || entry.kind == "thinking"
+        val groupLabel = when (entry.kind) {
+            "thinking" -> Res.string.thinking
+            "advisor" -> Res.string.role_advisor
+            "tool" -> Res.string.tools
+            else -> null
+        }
+        val isGroup = groupLabel != null
         Surface(
             modifier = Modifier.fillMaxWidth(0.85f),
             shape = RoundedCornerShape(if (isGroup) 12.dp else 16.dp),
@@ -1349,19 +1355,20 @@ private fun EntryView(entry: TerminalEntry, results: Map<String?, List<TerminalE
             border = if (isGroup) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant) else null,
         ) {
             Column(if (isGroup) Modifier.padding(horizontal = 12.dp, vertical = 8.dp) else Modifier.padding(12.dp)) {
-                if (isGroup) {
-                    val label = "${stringResource(if (entry.kind == "thinking") Res.string.thinking else Res.string.tools)} ($count)"
+                if (groupLabel != null) {
+                    val label = "${stringResource(groupLabel)} ($count)"
+                    val action = stringResource(if (expanded) Res.string.collapse else Res.string.expand)
                     // Hora do último evento do grupo no cabeçalho (nas ferramentas, o último resultado também conta): dá
                     // para ver, sem expandir, se o agente segue trabalhando ou parou.
                     val last = if (entry.kind == "tool") (tools.mapNotNull { it.at } + tools.flatMap { results[it.id].orEmpty() }.mapNotNull { it.at }).maxOrNull() ?: entry.at else entry.at
-                    Row(Modifier.fillMaxWidth().onGloballyPositioned { headerY = it.positionInWindow().y }.clickable { val before = headerY; keepPlace(before) { headerY }; onExpanded(!expanded) }, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().onGloballyPositioned { headerY = it.positionInWindow().y }.clickable(onClickLabel = action, role = Role.Button) { val before = headerY; keepPlace(before) { headerY }; onExpanded(!expanded) }, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(if (entry.kind == "tool") Icons.Default.Build else Icons.Outlined.Psychology, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(label, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         last?.let { Text(entryTime(it), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     if (expanded) SelectionContainer(Modifier.padding(top = 8.dp)) {
-                        if (entry.kind == "thinking") {
+                        if (entry.kind != "tool") {
                             Text(entry.text, color = MaterialTheme.colorScheme.onSurfaceVariant, fontStyle = FontStyle.Italic)
                         } else {
                             // Cada ferramenta do turno: nome, entrada e resultados, na ordem em que rodaram.
@@ -1436,8 +1443,8 @@ private fun EntryView(entry: TerminalEntry, results: Map<String?, List<TerminalE
                         if (summarized) CollapseAtEnd(keepPlace, { headerY }) { onExpanded(false) }
                     }
                 }
-                // Pensamento e ferramentas já mostram a hora no cabeçalho.
-                if (entry.kind != "tool" && entry.kind != "thinking") Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
+                // Pensamento, advisor e ferramentas já mostram a hora no cabeçalho.
+                if (!isGroup) Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { clipboard.setText(AnnotatedString(entry.text)) }, modifier = Modifier.size(32.dp)) {
                         Icon(Icons.Default.ContentCopy, contentDescription = stringResource(Res.string.copy), modifier = Modifier.size(16.dp))
                     }
@@ -1453,8 +1460,8 @@ internal data class EntryRow(val entry: TerminalEntry, val count: Int = 1, val t
 
 /**
  * Os pensamentos de um turno (até a próxima mensagem sua) viram uma linha só, no lugar do primeiro, com a contagem;
- * ao expandir, mostra o texto de todos. As ferramentas do turno idem: uma linha, no lugar da primeira, que ao expandir
- * mostra cada uma com os resultados. Os transcripts intercalam pensamento e ferramenta, então juntar só os seguidos
+ * ao expandir, mostra o texto de todos. Os comentários do advisor e as ferramentas têm seus próprios grupos.
+ * As ferramentas aparecem com seus resultados. Os transcripts intercalam esses eventos, então juntar só os seguidos
  * não basta. O resultado de uma ferramenta da lista não vira linha: aparece dentro do grupo (uma linha vazia ainda
  * ganharia o espaçamento da lista e espalharia as mensagens). Resultado sem a ferramenta na lista continua sozinho.
  */
@@ -1464,7 +1471,7 @@ internal fun groupTurn(entries: List<TerminalEntry>): List<EntryRow> {
     class Group(val first: TerminalEntry, val index: Int) {
         var count = 1
         var at = first.at
-        val text = if (first.kind == "thinking") StringBuilder().apply {
+        val text = if (first.kind != "tool") StringBuilder().apply {
             if (first.text.isNotBlank()) append(first.text)
         } else null
         val tools = if (first.kind == "tool") mutableListOf(first) else null
@@ -1485,20 +1492,24 @@ internal fun groupTurn(entries: List<TerminalEntry>): List<EntryRow> {
         }
     }
     var thinking: Group? = null
+    var advisor: Group? = null
     var tools: Group? = null
     for (entry in entries) {
         if (entry.kind == "result" && entry.toolUseId in toolIds) continue
         if (entry.kind == "user") {
             thinking?.finish()
+            advisor?.finish()
             tools?.finish()
             thinking = null
+            advisor = null
             tools = null
         }
         when (entry.kind) {
-            "thinking" -> {
-                val group = thinking
+            "thinking", "advisor" -> {
+                val group = if (entry.kind == "thinking") thinking else advisor
                 if (group != null) group.add(entry) else {
-                    thinking = Group(entry, rows.size)
+                    val newGroup = Group(entry, rows.size)
+                    if (entry.kind == "thinking") thinking = newGroup else advisor = newGroup
                     rows.add(null)
                 }
             }
@@ -1513,6 +1524,7 @@ internal fun groupTurn(entries: List<TerminalEntry>): List<EntryRow> {
         }
     }
     thinking?.finish()
+    advisor?.finish()
     tools?.finish()
     return rows.requireNoNulls()
 }

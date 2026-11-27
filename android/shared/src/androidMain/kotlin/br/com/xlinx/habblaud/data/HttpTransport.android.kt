@@ -13,6 +13,8 @@ internal actual fun httpClient(): HttpClient = HttpClient(OkHttp) {
             followRedirects(false)
             followSslRedirects(false)
             retryOnConnectionFailure(false)
+            // O servidor anuncia 5 s de keep-alive; descarte o socket ocioso antes disso, sem repetir POST.
+            connectionPool(okhttp3.ConnectionPool(5, 3, TimeUnit.SECONDS))
             readTimeout(45, TimeUnit.SECONDS)
             authenticator(okhttp3.Authenticator.NONE)
             proxyAuthenticator(okhttp3.Authenticator.NONE)

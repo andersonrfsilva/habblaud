@@ -16,6 +16,17 @@ function entries(name: string): TerminalEntry[] {
 }
 
 describe('terminal do omp', () => {
+  it('emite cada comentário público uma vez, sem expor o contexto interno do Advisor', () => {
+    const p = createOmpTerminalParser();
+    const card = { type: 'custom_message', id: 'm', timestamp: '2026-01-01T00:00:00Z', customType: 'advisor', display: true,
+      content: 'contexto interno', details: { notes: [{ note: 'Primeiro' }, {}, { note: 'Segundo' }] } };
+    expect(p.push(JSON.stringify({ ...card, display: false }))).toEqual([]);
+    expect(p.push(JSON.stringify({ ...card, customType: 'outro' }))).toEqual([]);
+    expect(p.push(JSON.stringify(card))).toMatchObject([
+      { id: 'm:a0', kind: 'advisor', text: 'Primeiro' }, { id: 'm:a2', kind: 'advisor', text: 'Segundo' },
+    ]);
+    expect(p.push(JSON.stringify(card))).toEqual([]);
+  });
   it('sessão curta: prompt, ferramenta, resultado e resposta, em ordem', () => {
     const e = entries('main-clean-exit.jsonl');
     const kinds = e.map((x) => x.kind);

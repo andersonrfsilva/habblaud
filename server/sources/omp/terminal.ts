@@ -1,7 +1,7 @@
 // Terminal do omp: converte as linhas do transcript (sources/omp/parser.ts descreve o formato) em TerminalEntry: prompts,
 // texto e raciocínio do assistente, chamadas de ferramenta (no estilo "Bash(npm test)", como o terminal do Claude Code) e
 // resultados (erro marcado), com segredos mascarados e textos truncados pelas mesmas regras de sources/terminal.ts.
-// Uma instância por leitura de arquivo, alimentada na ordem do arquivo; só `message` e `compaction` geram entradas (as
+// Uma instância por leitura de arquivo; `message`, `compaction` e comentários públicos do Advisor geram entradas (as
 // linhas de bastidor do omp, como credential_pin, mode_change e tool_execution_start, ficam de fora).
 import type { TerminalEntry } from '../../../shared/types';
 import { maskSecrets, truncate } from '../../../shared/activity';
@@ -180,6 +180,15 @@ class OmpTerminalParser implements TerminalParser {
         return;
       case 'compaction':
         return this.sys(`${id}:c`, at, tr('Conversa compactada'));
+      case 'custom_message': {
+        if (j.customType !== 'advisor' || j.display !== true) return;
+        const notes = rec(j.details)?.notes;
+        if (Array.isArray(notes)) notes.forEach((note, index) => {
+          const body = str(rec(note)?.note);
+          if (body) this.emit({ kind: 'advisor', id: `${id}:a${index}`, at, text: marked(prepare(body, TEXT_MAX)) });
+        });
+        return;
+      }
       case 'message':
         return this.message(rec(j.message), id, at);
       default:

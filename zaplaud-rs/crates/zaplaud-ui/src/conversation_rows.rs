@@ -229,6 +229,7 @@ pub fn build_rows(
                     source = strings::RESPONSE_INTERRUPTED.into()
                 }
                 "thinking" => label = format!("{} ({})", strings::THINKING, row.count),
+                "advisor" => label = format!("{} ({})", strings::ROLE_ADVISOR, row.count),
                 "tool" => {
                     label = format!("{} ({})", strings::TOOLS, row.count);
                     tools = row
@@ -326,7 +327,9 @@ impl RenderRow {
     fn split(mut self) -> Vec<Self> {
         let mut parts = Vec::new();
         self.fragment.clear();
-        if !matches!(self.kind.as_str(), "tool" | "thinking" | "system")
+        let text_group = matches!(self.kind.as_str(), "thinking" | "advisor");
+        if !text_group
+            && !matches!(self.kind.as_str(), "tool" | "system")
             && (!self.summarized || self.expanded)
         {
             self.markdown_source = MarkdownSource::new(&self.source);
@@ -340,7 +343,7 @@ impl RenderRow {
                     parts.push(row);
                 }
             }
-        } else if !matches!(self.kind.as_str(), "tool" | "thinking") || self.expanded {
+        } else if !(text_group || self.kind == "tool") || self.expanded {
             let display = std::mem::take(&mut self.display);
             let text = if matches!(self.kind.as_str(), "thinking" | "system") {
                 self.source.as_str()
@@ -390,7 +393,7 @@ impl RenderRow {
     pub fn into_ui(self) -> ConversationRow {
         let row = self;
         let blocks = if row.summarized && !row.expanded
-            || matches!(row.kind.as_str(), "tool" | "thinking" | "system")
+            || matches!(row.kind.as_str(), "tool" | "thinking" | "advisor" | "system")
         {
             ModelRc::default()
         } else {
@@ -426,6 +429,69 @@ impl RenderRow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn advisor_disclosure_preserves_comments_and_respects_view_filters() {
+        use zaplaud_core::model::ServerEvent;
+
+        let ServerEvent::ConversationAppend(entries) = ServerEvent::parse(
+            "",
+            "append",
+            r#"[
+                {"id":"a1","kind":"advisor","text":"Primeiro comentário"},
+                {"id":"t1","kind":"thinking","text":"Raciocínio"},
+                {"id":"x1","kind":"tool","text":"ls"},
+                {"id":"a2","kind":"advisor","text":"Segundo comentário","truncated":true},
+                {"id":"r1","kind":"assistant","text":"Resposta"},
+                {"id":"u2","kind":"user","text":"Novo turno"},
+                {"id":"a3","kind":"advisor","text":"Outro comentário"}
+            ]"#,
+        )
+        .unwrap() else {
+            panic!("expected conversation append");
+        };
+        let render = |view, expanded: &HashSet<String>| {
+            build_rows(&entries, view, expanded, &BTreeMap::new(), true, false, 0)
+                .into_iter()
+                .map(RenderRow::into_ui)
+                .collect::<Vec<_>>()
+        };
+
+        for (view, expected) in [
+            ("all", &["a1", "t1", "x1", "r1", "u2", "a3"][..]),
+            ("no_tools", &["a1", "t1", "r1", "u2", "a3"][..]),
+            ("prompts", &["r1", "u2"][..]),
+        ] {
+            let rows = render(view, &HashSet::new());
+            assert_eq!(
+                rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
+                expected
+            );
+            for row in rows.iter().filter(|row| row.kind == "advisor") {
+                assert!(!row.expanded);
+                assert!(row.fragment.is_empty());
+            }
+        }
+
+        let rows = render("all", &HashSet::from(["a1".to_owned()]));
+        let advisor = &rows[0];
+        assert_eq!(advisor.kind, "advisor");
+        assert_eq!(
+            advisor.label.as_str(),
+            format!("{} (2)", strings::ROLE_ADVISOR)
+        );
+        assert!(advisor.expanded);
+        assert_eq!(
+            advisor.fragment.as_str(),
+            format!(
+                "Primeiro comentário\n\nSegundo comentário\n\n{}",
+                strings::RESULT_TRUNCATED
+            )
+        );
+        assert_eq!(rows[1].kind, "thinking");
+        assert_eq!(rows[3].kind, "assistant");
+        assert!(!rows[5].expanded);
+    }
 
     #[test]
     fn find_indexes_reply_under_summary_and_significant_markdown_text() {

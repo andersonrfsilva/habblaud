@@ -183,7 +183,8 @@ component EntryBubble inherits Rectangle {
         ConversationViewState.restore-pending = false;
         ConversationViewState.anchor-ticks = 46;
     }
-    property <bool> group: entry.kind == "thinking" || entry.kind == "tool";
+    property <bool> text-group: entry.kind == "thinking" || entry.kind == "advisor";
+    property <bool> group: text-group || entry.kind == "tool";
     function toggle-expanded() {
         ConversationViewState.following = false;
         let generation = ConversationViewState.reading-generation;
@@ -214,6 +215,8 @@ component EntryBubble inherits Rectangle {
                 height: 20px;
                 accessible-role: button;
                 accessible-label: root.entry.label + " · " + root.entry.time;
+                accessible-expandable: true;
+                accessible-expanded: root.entry.expanded;
                 accessible-action-default => { root.toggle-expanded(); }
                 forward-focus: group-keys;
                 border-width: group-keys.has-focus ? 1px : 0px;
@@ -228,7 +231,7 @@ component EntryBubble inherits Rectangle {
                 }
                 HorizontalLayout {
                     spacing: 8px;
-                    Image { source: root.entry.kind == "thinking" ? MaterialIcons.psychology : MaterialIcons.build; colorize: Theme.on-surface-variant; width: 16px; height: 16px; }
+                    Image { source: root.text-group ? MaterialIcons.psychology : MaterialIcons.build; colorize: Theme.on-surface-variant; width: 16px; height: 16px; }
                     Text { text: root.entry.label; color: Theme.on-surface-variant; font-size: 14px; font-weight: 500; vertical-alignment: center; horizontal-stretch: 1; }
                     Text { text: root.entry.time; color: Theme.on-surface-variant; font-size: 11px; vertical-alignment: center; }
                     Image { source: root.entry.expanded ? MaterialIcons.keyboard-arrow-up : MaterialIcons.keyboard-arrow-down; colorize: Theme.on-surface-variant; width: 20px; height: 20px; }
@@ -252,7 +255,7 @@ component EntryBubble inherits Rectangle {
                 default-font-size: 12px; horizontal-alignment: center;
                 find-viewport-height: root.viewport-bottom - root.viewport-top;
             }
-            if root.entry.kind == "thinking" && root.entry.expanded: MeasuredInput {
+            if root.text-group && root.entry.expanded: MeasuredInput {
                 row-id: root.entry.id;
                 text: root.entry.fragment; read-only: true; wrap: word-wrap; color: Theme.on-surface-variant;
                 accessible-role: text; accessible-label: root.entry.fragment;

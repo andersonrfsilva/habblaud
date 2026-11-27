@@ -690,7 +690,7 @@ impl TerminalEntry {
         let kind = string(o, "kind").unwrap_or_else(|| "unknown".into());
         let known = matches!(
             kind.as_str(),
-            "user" | "assistant" | "thinking" | "tool" | "result" | "system"
+            "user" | "assistant" | "thinking" | "advisor" | "tool" | "result" | "system"
         );
         let text = if known {
             ["text", "input", "detail"]

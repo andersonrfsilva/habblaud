@@ -25,7 +25,9 @@ pub fn group_turn(entries: &[TerminalEntry]) -> Vec<EntryRow> {
         .map(|entry| entry.id.as_str())
         .collect();
     let mut rows: Vec<EntryRow> = Vec::new();
-    let (mut thinking, mut tools): (Option<usize>, Option<usize>) = (None, None);
+    let mut thinking: Option<usize> = None;
+    let mut advisor: Option<usize> = None;
+    let mut tools: Option<usize> = None;
     for entry in entries {
         if entry.kind == "result"
             && entry
@@ -37,17 +39,19 @@ pub fn group_turn(entries: &[TerminalEntry]) -> Vec<EntryRow> {
         }
         if entry.kind == "user" {
             thinking = None;
+            advisor = None;
             tools = None;
         }
         let group = match entry.kind.as_str() {
             "thinking" => Some(&mut thinking),
+            "advisor" => Some(&mut advisor),
             "tool" => Some(&mut tools),
             _ => None,
         };
         if let Some(group) = group {
             if let Some(index) = *group {
                 let row = &mut rows[index];
-                if entry.kind == "thinking" {
+                if matches!(entry.kind.as_str(), "thinking" | "advisor") {
                     if row.count == 1 && kotlin_blank(&row.entry.text) {
                         row.entry.text.clear();
                     }
@@ -56,6 +60,9 @@ pub fn group_turn(entries: &[TerminalEntry]) -> Vec<EntryRow> {
                             row.entry.text.push_str("\n\n");
                         }
                         row.entry.text.push_str(&entry.text);
+                    }
+                    if entry.kind == "advisor" {
+                        row.entry.truncated |= entry.truncated;
                     }
                 } else {
                     row.tools.push(entry.clone());

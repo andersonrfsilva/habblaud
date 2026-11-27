@@ -212,7 +212,7 @@ export class TerminalLog {
   }
 }
 
-const KINDS = new Set<TerminalEntry['kind']>(['user', 'assistant', 'thinking', 'tool', 'result', 'system']);
+const KINDS = new Set<TerminalEntry['kind']>(['user', 'assistant', 'thinking', 'advisor', 'tool', 'result', 'system']);
 
 function validEntry(raw: unknown): raw is TerminalEntry {
   if (!raw || typeof raw !== 'object') return false;
@@ -562,6 +562,8 @@ function entryRow(e: PlainEntry, now: number, copy: Copier): HTMLElement {
       el.append(copy(copyTextOf(e), tr('resposta')));
       return el;
     }
+    case 'advisor':
+      return row('advisor', e.at, now, mark('※'), h('div', { class: 'ui-term__col' }, expander('Advisor', 'ui-term__think', e.text, 'ui-term__think-text')));
     case 'thinking': {
       const text = e.text?.trim();
       const content = text ? expander(tr('Pensando…'), 'ui-term__think', text, 'ui-term__think-text') : h('span', { class: 'ui-term__think', text: tr('Pensando…'), attrs: { 'data-chrome': '' } });

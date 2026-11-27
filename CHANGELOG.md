@@ -21,6 +21,8 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Zaplaud e terminal web:** comentários públicos do Advisor do omp aparecem em um bloco «Advisor» recolhido.
+  Abra o bloco para ler as notas sem misturá-las à resposta do agente.
 - **Zaplaud (Android, iPad e desktop):** as sessões fixadas e favoritas ficam guardadas no servidor e valem em todos
   os aparelhos: fixar ou favoritar num deles aparece nos outros na hora. As marcas que cada aparelho já tinha sobem
   sozinhas e se somam. Com um servidor de versão anterior, elas continuam só no aparelho.
@@ -218,6 +220,8 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Zaplaud (Android/iPad):** uma falha temporária na atualização das Configurações não fecha o seletor de modelos.
+  Se o envio da escolha falhar, o seletor mantém o modelo para uma nova tentativa.
 - **Zaplaud (Android/iPad):** a conversa aberta não fica lida enquanto você lê acima da última resposta ou está em
   Configurações; o modo de envio é o escolhido ao apertar Enviar, mesmo com anexos subindo; um status antigo de
   Parar/Nova sessão não sobrescreve o atual; acesso revogado fecha a conversa; o «Abrir» da notificação também acha a

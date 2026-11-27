@@ -62,8 +62,16 @@ data class TerminalEntry(val id: String, val kind: String, val text: String, val
         fun parse(o: JsonObject): TerminalEntry? {
             val id = o.string("id") ?: return null
             val kind = o.string("kind") ?: "unknown"
-            val known = kind in setOf("user", "assistant", "thinking", "tool", "result", "system")
-            return TerminalEntry(id, if (known) kind else "unknown", if (known) listOfNotNull(o.string("text"), o.string("input"), o.string("detail")).joinToString("\n") else "", o.string("title"), o.string("toolUseId"), o.flag("truncated"), (o["at"] as? JsonPrimitive)?.longOrNull?.takeIf { it > 0 })
+            val known = when (kind) {
+                "user", "assistant", "thinking", "advisor", "tool", "result", "system" -> true
+                else -> false
+            }
+            val text = when {
+                kind == "advisor" -> o.string("text").orEmpty()
+                known -> listOfNotNull(o.string("text"), o.string("input"), o.string("detail")).joinToString("\n")
+                else -> ""
+            }
+            return TerminalEntry(id, if (known) kind else "unknown", text, o.string("title"), o.string("toolUseId"), o.flag("truncated"), (o["at"] as? JsonPrimitive)?.longOrNull?.takeIf { it > 0 })
         }
     }
 }

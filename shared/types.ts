@@ -669,6 +669,8 @@ export type TerminalEntry =
   | { kind: 'assistant'; id: string; at: number; text: string }
   /** Bloco de raciocínio; `text` ausente quando o transcript só guarda a assinatura. */
   | { kind: 'thinking'; id: string; at: number; text?: string }
+  /** Comentário público entregue pelo Advisor do omp. */
+  | { kind: 'advisor'; id: string; at: number; text: string }
   /**
    * Chamada de ferramenta. `id` = id do tool_use. `title` no estilo do Claude Code: "Bash(npm test)",
    * "Read(server/index.ts)". `input` = argumentos relevantes (comando, diff...), quando houver.
